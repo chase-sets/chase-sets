@@ -114,15 +114,19 @@ export function importContextSummary(readModel: CatalogPrimaryWorkbenchReadModel
 
 // Join the structured scope levels (language / product line / series / expansion)
 // the route context carries into a compact "en/base/base1" string, falling back to
-// the transitional free-text importScope for providers that declare no guided
-// scope. Returns null when no scope level is set at all.
+// a name-based set scope when a provider exposes set names instead of set ids, and
+// finally to the transitional free-text importScope for providers that declare no
+// guided scope. Returns null when no scope level is set at all.
 function importContextScopeLabel(
   scope: CatalogPrimaryWorkbenchReadModel["routeContext"]["scope"],
   importScope: string | null,
 ): string | null {
-  const levels = [scope?.languageCode, scope?.productLineId, scope?.seriesId, scope?.expansionId].filter(
-    (level): level is string => Boolean(level),
-  );
+  const levels = [
+    scope?.languageCode,
+    scope?.productLineId,
+    scope?.seriesId,
+    scope?.expansionId ?? scope?.expansionName,
+  ].filter((level): level is string => Boolean(level));
   if (levels.length > 0) {
     return levels.join("/");
   }

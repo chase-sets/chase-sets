@@ -51,8 +51,9 @@ export function scopeContextFromRouteContext(
     "providerKey" | "importScope" | "sourceObservationFilters" | "scope"
   >,
 ): CatalogPrimaryWorkbenchScopeContext {
+  const importScope = importScopeForStructuredMerge(context.importScope, context.scope);
   return mergeScopeContexts(
-    scopeContextFromImportScope(context.importScope, context.providerKey),
+    scopeContextFromImportScope(importScope, context.providerKey),
     context.scope,
     scopeContextFromFields({
       providerKey: context.providerKey,
@@ -67,19 +68,27 @@ export function scopeContextFromSearchParams(input: {
   importScope: string | null;
   sourceObservationFilters: Readonly<Record<string, string>>;
 }): CatalogPrimaryWorkbenchScopeContext {
+  const explicitLanguageCode = input.searchParams.get("languageCode") ?? input.searchParams.get("language");
+  const explicitProductLineId = input.searchParams.get("productLineId");
+  const explicitProductLineName = input.searchParams.get("productLineName");
+  const explicitSeriesId = input.searchParams.get("seriesId");
+  const explicitSeriesName = input.searchParams.get("seriesName");
+  const explicitExpansionId = input.searchParams.get("expansionId") ?? input.searchParams.get("setId");
+  const explicitExpansionName = input.searchParams.get("expansionName") ?? input.searchParams.get("setName");
   const explicitScope = scopeContextFromFields({
     providerKey: input.providerKey,
-    languageCode: input.searchParams.get("languageCode") ?? input.searchParams.get("language"),
-    productLineId: input.searchParams.get("productLineId"),
-    productLineName: input.searchParams.get("productLineName"),
-    seriesId: input.searchParams.get("seriesId"),
-    seriesName: input.searchParams.get("seriesName"),
-    expansionId: input.searchParams.get("expansionId") ?? input.searchParams.get("setId"),
-    expansionName: input.searchParams.get("expansionName") ?? input.searchParams.get("setName"),
+    languageCode: explicitLanguageCode,
+    productLineId: explicitProductLineId,
+    productLineName: explicitProductLineName,
+    seriesId: explicitSeriesId,
+    seriesName: explicitSeriesName,
+    expansionId: explicitExpansionId,
+    expansionName: explicitExpansionName,
     status: input.searchParams.get("status") ?? input.sourceObservationFilters.status ?? null,
   });
+  const importScope = importScopeForStructuredMerge(input.importScope, explicitScope);
 
-  return mergeScopeContexts(scopeContextFromImportScope(input.importScope, input.providerKey), explicitScope);
+  return mergeScopeContexts(scopeContextFromImportScope(importScope, input.providerKey), explicitScope);
 }
 
 export function scopeContextFromFormData(
@@ -174,7 +183,7 @@ export function scopeContextFromProviderScope(
 }
 
 export function importScopeFromScopeContext(scope: CatalogPrimaryWorkbenchScopeContext | undefined): string | null {
-  if (!scope) {
+  if (!scope?.languageCode) {
     return null;
   }
 
@@ -225,7 +234,10 @@ export function scopeContextToObservationFilterScope(
   scope: CatalogPrimaryWorkbenchScopeContext,
   filters: Readonly<Record<string, string>> = {},
 ): CatalogPrimaryWorkbenchObservationFilterScope {
-  const expansionId = filterScopeValue(scope, filters.expansionId ?? filters.setId ?? scope.expansionId);
+  const expansionId = filterScopeValue(
+    scope,
+    filters.expansionId ?? filters.setId ?? scope.expansionId ?? scope.expansionName,
+  );
   return compactScope({
     provider: scope.providerKey ?? undefined,
     language: filterScopeValue(scope, filters.language ?? scope.languageCode) ?? undefined,
@@ -340,6 +352,36 @@ function importScopeSegments(importScope: string | null): readonly string[] {
     .split(":")
     .map((segment) => segment.trim())
     .filter(Boolean);
+}
+
+function importScopeForStructuredMerge(
+  importScope: string | null,
+  explicitScope: CatalogPrimaryWorkbenchScopeContext | undefined,
+): string | null {
+  if (!importScope || !explicitScope) {
+    return importScope;
+  }
+  const segments = importScopeSegments(importScope);
+  const expansionSegment = segments.at(-1) ?? null;
+  const explicitExpansion = explicitScope.expansionId ?? explicitScope.expansionName;
+  if (
+    explicitScope.productLineId &&
+    !explicitScope.seriesId &&
+    explicitExpansion &&
+    segments.length === 3 &&
+    segments[1] === explicitScope.productLineId &&
+    segments[2] === explicitExpansion &&
+    (!explicitScope.languageCode || segments[0] === explicitScope.languageCode)
+  ) {
+    return null;
+  }
+
+  if (!explicitScope.expansionId && explicitScope.expansionName && expansionSegment === explicitScope.expansionName) {
+    const parentScope = segments.slice(0, -1).join(":");
+    return parentScope || null;
+  }
+
+  return importScope;
 }
 
 function optionalFieldMatches(expected: string | null, actual: string, providerKey: string | null): boolean {

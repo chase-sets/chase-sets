@@ -1087,6 +1087,46 @@ describe("Catalog integrations route", () => {
     expect(result.context.jobId).toBe("job_magic_5dn");
   });
 
+  it("queues TCGplayer set-name imports as setName, not a setId fallback", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_tcgplayer_classic_sixth" });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const result = await runDailyAction({
+      _intent: "start-provider-import",
+      providerKey: "tcgplayer",
+      unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+      importScope: "en:1:Classic Sixth Edition",
+      languageCode: "en",
+      productLineId: "1",
+      productLineName: "Magic: The Gathering",
+      seriesId: "",
+      seriesName: "",
+      expansionId: "",
+      expansionName: "Classic Sixth Edition",
+      profileVersion: "2026.06.19",
+    });
+
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+      provider: "tcgplayer",
+      ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+      language: "en",
+      productLineId: "1",
+      setName: "Classic Sixth Edition",
+    });
+    expect(result.context.scope).toMatchObject({
+      providerKey: "tcgplayer",
+      languageCode: "en",
+      productLineId: "1",
+      expansionId: null,
+      expansionName: "Classic Sixth Edition",
+    });
+    expect(result.context.importScope).toBe("en:1:Classic Sixth Edition");
+  });
+
   it("does not enqueue a provider import until a concrete source scope is selected", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_provider_wide" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });

@@ -7,6 +7,7 @@ import {
   parseCatalogPrimaryWorkbenchRouteContext,
   serializeCatalogPrimaryWorkbenchRouteContext,
 } from "./primary-workbench-route-context";
+import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
   it("parses canonical context keys without preserving legacy aliases", () => {
@@ -73,6 +74,26 @@ describe("Catalog primary workbench route context", () => {
       productLineId: "3",
       seriesId: null,
     });
+  });
+
+  it("does not reinterpret a TCGplayer product-line set selection as language scope", () => {
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&productLineId=1&expansionId=Classic+Sixth+Edition&sourceOptionAction=force-refresh-all",
+    );
+    const reviewQuery = new URLSearchParams(buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(context) ?? "");
+
+    expect(context.scope).toMatchObject({
+      providerKey: "tcgplayer",
+      languageCode: null,
+      productLineId: "1",
+      seriesId: null,
+      expansionId: "Classic Sixth Edition",
+    });
+    expect(context.importScope).toBeNull();
+    expect(reviewQuery.get("provider")).toBe("tcgplayer");
+    expect(reviewQuery.get("language")).toBeNull();
+    expect(reviewQuery.get("productLineId")).toBe("1");
+    expect(reviewQuery.get("setId")).toBe("Classic Sixth Edition");
   });
 
   it("drops unsafe return paths instead of preserving compatibility detours", () => {
@@ -221,11 +242,16 @@ describe("Catalog primary workbench route context", () => {
     );
 
     expect(href.searchParams.get("importScope")).toBe("en:5DN");
+    expect(href.searchParams.get("productLineId")).toBe("1");
     expect(href.searchParams.get("productLineName")).toBe("Magic: The Gathering");
+    expect(href.searchParams.get("expansionId")).toBe("5DN");
     expect(href.searchParams.get("expansionName")).toBe("Fifth Dawn");
     expect(parseCatalogPrimaryWorkbenchRouteContext(href).scope).toMatchObject({
       providerKey: "tcgplayer",
+      productLineId: "1",
       productLineName: "Magic: The Gathering",
+      seriesId: null,
+      expansionId: "5DN",
       expansionName: "Fifth Dawn",
     });
   });

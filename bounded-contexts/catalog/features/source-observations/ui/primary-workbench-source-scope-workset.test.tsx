@@ -5,6 +5,7 @@ import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-
 import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to-promotion/source-scope-workset-module";
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 
 describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
@@ -110,6 +111,48 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(form, "seriesId")).toBe("base");
     expect(hiddenValue(form, "expansionId")).toBe("base1");
     expect(within(form!).queryByDisplayValue(/api\//i)).toBeNull();
+  });
+
+  it("keeps provider set-name selections name-based across workset links and commands", () => {
+    const profile = magicProfile(
+      "tcgplayer",
+      "TCGplayer Magic Single Cards",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "provider-product",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&productLineId=1&productLineName=Magic%3A%20The%20Gathering&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units[0]!;
+    const roundTripContext = parseCatalogPrimaryWorkbenchRouteContext(
+      new URL(unit.currentWorkbenchHref, "https://admin.example"),
+    );
+
+    expect(unit.commandContext).toMatchObject({
+      providerKey: "tcgplayer",
+      productLineId: "1",
+      expansionId: null,
+      expansionName: "Classic Sixth Edition",
+    });
+    expect(unit.currentWorkbenchHref).toContain("productLineId=1");
+    expect(unit.currentWorkbenchHref).toContain("expansionName=Classic+Sixth+Edition");
+    expect(unit.currentWorkbenchHref).not.toContain("expansionId=Classic");
+    expect(roundTripContext.scope).toMatchObject({
+      productLineId: "1",
+      expansionId: null,
+      expansionName: "Classic Sixth Edition",
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
+    expect(hiddenValue(form, "expansionId")).toBe("");
+    expect(hiddenValue(form, "expansionName")).toBe("Classic Sixth Edition");
   });
 
   it("fails closed until a concrete source scope is selected", () => {
