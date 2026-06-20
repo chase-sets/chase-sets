@@ -21,7 +21,7 @@ import {
   buildRegisterToSellHref,
   canUseAccountSellList,
   hasInitialSelectedOptionFilters,
-  LISTING_STOCK_LOCATION_NAME,
+  isListingStockLocation,
   productAlertClaimErrorMessage,
   readExplicitMarketSelectionId,
   readInitialSelectedOptions,
@@ -182,9 +182,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           load: () => inventoryApi.listStorageLocations("limit=100&offset=0"),
           isNotFound: (error) => apiErrorStatus(error) === 404,
         });
-        hasListingStockLocation = storageLocations.items.some(
-          (location) => location.name === LISTING_STOCK_LOCATION_NAME,
-        );
+        hasListingStockLocation = storageLocations.items.some(isListingStockLocation);
       } catch (error) {
         const recovery = recoverFreshWriteReadError({
           request,
