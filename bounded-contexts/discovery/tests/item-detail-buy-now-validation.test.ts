@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, decodeFreshWriteReceipt } from "@chase-sets/http/responses";
 
 import {
   mockAcceptOfferMatch,
@@ -602,6 +602,47 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result.listingSetupLoadError).toBeNull();
   });
 
+  it("recognizes saved listing setup by canonical ship-from code", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [
+          {
+            name: "Primary fulfillment",
+            ship_from_code: "LISTING-STOCK",
+          },
+        ],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.hasListingStockLocation).toBe(true);
+    expect(result.listingSetupLoadError).toBeNull();
+  });
+
   it("surfaces temporary listing setup recovery while Inventory storage locations catch up", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
@@ -649,6 +690,72 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result.listingSetupLoadError).toBe(
       "Ship-from setup is still updating. Refresh in a moment if it is not visible yet.",
     );
+  });
+
+  it("saves listing ship-from setup and redirects with Inventory freshness", async () => {
+    const createStorageLocation = vi.fn().mockResolvedValue(commandResult({ id: "stl_1" }));
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      createStorageLocation,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-listing-stock-location");
+    form.set("shipFromName", "Seller Name");
+    form.set("shipFromLine1", "123 Market St");
+    form.set("shipFromCity", "Chicago");
+    form.set("shipFromState", "IL");
+    form.set("shipFromPostalCode", "60601");
+    form.set("shipFromCountry", "US");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = result.headers.get("Location") ?? "";
+    const redirectUrl = new URL(location, "http://localhost");
+
+    expect(result.status).toBe(302);
+    expect(redirectUrl.pathname).toBe("/items/charizard-base-set");
+    expect(redirectUrl.searchParams.get("market")).toBe("sell");
+    expect(decodeFreshWriteReceipt(redirectUrl.searchParams.get("afterWrite"))?.sources).toEqual([
+      {
+        sourceContextName: "inventory",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_stl_1"],
+      },
+    ]);
+    expect(createStorageLocation).toHaveBeenCalledWith({
+      name: "Listing stock",
+      description: "Auto-managed stock backing standard marketplace listings.",
+      shipFromCode: "LISTING-STOCK",
+      shipFromAddress: {
+        name: "Seller Name",
+        line1: "123 Market St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+    });
   });
 
   it("saves guest listing draft intent before seller registration", async () => {
