@@ -108,6 +108,44 @@ describe("Catalog Magic set sync workbench", () => {
     expect(within(scryfallPreviewForm!).queryByDisplayValue(/api\//i)).toBeNull();
   });
 
+  it("normalizes the three-provider Magic set workflow to the English set scope", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:magic:set:import&languageCode=ja&productLineName=Magic%3A%20The%20Gathering&expansionId=5DN&expansionName=Fifth%20Dawn&profileVersion=2026.06.19",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: magicProfiles(), total: 3, count: 3 },
+      controlPlaneOverview: magicOverview(),
+      canManageCatalog: true,
+    });
+
+    expect(readModel.magicSetSync.selectedSet).toMatchObject({
+      setId: "5DN",
+      setName: "Fifth Dawn",
+    });
+    expect(readModel.magicSetSync.providers.map((provider) => provider.commandContext.importScope)).toEqual([
+      "en:5DN",
+      "en:5DN",
+      "en:5DN",
+    ]);
+    expect(readModel.magicSetSync.providers.map((provider) => provider.commandContext.languageCode)).toEqual([
+      "en",
+      "en",
+      "en",
+    ]);
+
+    render(<CatalogMagicSetSyncModule readModel={readModel} />);
+
+    const selectorForm = screen.getByLabelText("Magic set").closest("form") as HTMLFormElement | null;
+    expect(hiddenValue(selectorForm, "languageCode")).toBe("en");
+
+    for (const providerKey of ["mtgjson", "scryfall", "tcgplayer"]) {
+      const form = magicCommandForm("start-provider-import", providerKey);
+      expect(hiddenValue(form, "languageCode")).toBe("en");
+      expect(hiddenValue(form, "importScope")).toBe("en:5DN");
+      expect(hiddenValue(form, "expansionName")).toBe("Fifth Dawn");
+    }
+  });
+
   it("hydrates selectable Magic sets from deferred provider options and submits the set name", async () => {
     const requestUrl =
       "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:magic:set:import&languageCode=en&productLineName=Magic%3A%20The%20Gathering&profileVersion=2026.06.19";
