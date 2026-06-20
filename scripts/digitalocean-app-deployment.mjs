@@ -8,6 +8,26 @@ const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANC
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
 const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
+const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
+
+function truncateDiagnosticMessage(message, maxLength = MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH) {
+  if (message.length <= maxLength) {
+    return message;
+  }
+
+  return `${message.slice(0, maxLength)}\n... truncated ${message.length - maxLength} characters ...`;
+}
+
+function diagnosticErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return truncateDiagnosticMessage(message);
+}
+
+function createCommandError(command, args, message, details = {}) {
+  const error = new Error(`${command} ${args.join(" ")} failed: ${truncateDiagnosticMessage(message)}`);
+  Object.assign(error, details);
+  return error;
+}
 
 function commandOutput(command, args, options = {}) {
   if (options.input !== undefined) {
@@ -24,7 +44,7 @@ function commandOutput(command, args, options = {}) {
         const stderr = Buffer.concat(stderrChunks).toString("utf8");
         if (code !== 0) {
           const message = stderr.trim() || stdout.trim() || `${command} exited with code ${code}`;
-          reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+          reject(createCommandError(command, args, message, { exitCode: code, stdout, stderr }));
           return;
         }
 
@@ -39,7 +59,9 @@ function commandOutput(command, args, options = {}) {
     execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         const message = stderr.trim() || stdout.trim() || error.message;
-        reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+        reject(
+          createCommandError(command, args, message, { exitCode: error.code, signal: error.signal, stdout, stderr }),
+        );
         return;
       }
 
@@ -49,8 +71,23 @@ function commandOutput(command, args, options = {}) {
 }
 
 async function commandJson(command, args, options = {}) {
-  const output = await (options.commandOutput ?? commandOutput)(command, args);
-  return JSON.parse(output);
+  try {
+    const output = await (options.commandOutput ?? commandOutput)(command, args);
+    return JSON.parse(output);
+  } catch (error) {
+    const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+    if (options.allowNonzeroJsonOutput && stdout) {
+      try {
+        return JSON.parse(stdout);
+      } catch (parseError) {
+        throw new Error(
+          `Unable to parse JSON stdout from failed ${command} ${args.join(" ")} command: ${diagnosticErrorMessage(parseError)}`,
+        );
+      }
+    }
+
+    throw error;
+  }
 }
 
 function parsePositiveIntegerArg(value, name) {
@@ -364,14 +401,24 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
   const warn = options.warn ?? console.warn;
   const tailLines = options.tailLines ?? 200;
   const logTypes = options.logTypes?.length > 0 ? options.logTypes : DEFAULT_DEPLOYMENT_LOG_TYPES;
+  const jsonOptions = { ...options, allowNonzeroJsonOutput: true };
 
-  const deployments = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], options);
+  let deployments = [];
+  if (!options.deploymentId) {
+    try {
+      deployments = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], jsonOptions);
+    } catch (error) {
+      warn(`Unable to list App Platform deployments for '${appId}': ${diagnosticErrorMessage(error)}`);
+    }
+  }
+
   const deployment = options.deploymentId
     ? { id: options.deploymentId, phase: "selected", createdAt: "", updatedAt: "" }
     : latestDeployment(deployments);
 
   if (!deployment?.id) {
-    throw new Error(`No App Platform deployments were found for app '${appId}'.`);
+    warn(`No App Platform deployments were found for app '${appId}'; skipping deployment log diagnostics.`);
+    return { deploymentId: "", logs: [] };
   }
 
   log(`App Platform deployment diagnostics for '${appId}':`);
@@ -379,7 +426,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
 
   try {
     const deploymentDetails = normalizeDeploymentResponse(
-      await runJson("doctl", ["apps", "get-deployment", appId, deployment.id, "--output", "json"], options),
+      await runJson("doctl", ["apps", "get-deployment", appId, deployment.id, "--output", "json"], jsonOptions),
     );
     const steps = deploymentProgressSteps(deploymentDetails);
 
@@ -393,23 +440,22 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
       }
     }
   } catch (error) {
-    warn(
-      `Unable to load deployment progress for '${deployment.id}': ${error instanceof Error ? error.message : error}`,
-    );
+    warn(`Unable to load deployment progress for '${deployment.id}': ${diagnosticErrorMessage(error)}`);
   }
 
   let componentNames = options.componentNames ?? [];
   if (componentNames.length === 0) {
     try {
-      const app = normalizeAppResponse(await runJson("doctl", ["apps", "get", appId, "--output", "json"], options));
+      const app = normalizeAppResponse(await runJson("doctl", ["apps", "get", appId, "--output", "json"], jsonOptions));
       componentNames = deploymentComponentNames(app);
     } catch (error) {
-      warn(`Unable to load App Platform component names: ${error instanceof Error ? error.message : error}`);
+      warn(`Unable to load App Platform component names: ${diagnosticErrorMessage(error)}`);
     }
   }
 
   if (componentNames.length === 0) {
-    throw new Error("At least one App Platform component is required for deployment log diagnostics.");
+    warn("At least one App Platform component is required for deployment log diagnostics; skipping log collection.");
+    return { deploymentId: deployment.id, logs: [] };
   }
 
   const collectedLogs = [];
@@ -436,7 +482,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
         log(trimmed || "(no log lines returned)");
         collectedLogs.push({ componentName, logType, ok: true, output });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = diagnosticErrorMessage(error);
         warn(`Unable to load ${componentName} ${logType} logs: ${message}`);
         collectedLogs.push({ componentName, logType, ok: false, error: message });
       }

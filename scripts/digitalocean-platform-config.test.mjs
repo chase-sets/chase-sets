@@ -1123,7 +1123,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain('app_id="$(terraform output -raw app_id 2>/dev/null || true)"');
     expect(diagnosticsStep).toContain(
-      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300',
+      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300 || true',
     );
   });
 
