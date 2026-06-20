@@ -1341,7 +1341,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     const reapplyForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="start-reapply"]',
+      'form[data-catalog-primary-workbench-command="start-reapply"]:not([data-catalog-source-scope-unit])',
     );
     const replayForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="start-replay"]',

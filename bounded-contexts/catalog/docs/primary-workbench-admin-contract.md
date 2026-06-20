@@ -29,7 +29,7 @@ Supporting evidence, replay, reapply, rollback impact, semantic comparison, fixt
 
 | Field | Purpose |
 | --- | --- |
-| `schemaVersion` | Must equal `catalog-primary-workbench-v1`; mismatches fail closed. |
+| `schemaVersion` | Must equal `catalog-primary-workbench-v2`; mismatches fail closed. |
 | `generatedAt` | Server generation timestamp for freshness and support triage. |
 | `routeContext` | Provider, unit, import scope, profile version, filters, selected observations, job, preview, and return-path context that the UI must preserve. |
 | `providerScope` | Generic provider/unit/scope options with active profile pointers; no provider-specific UI branches. |

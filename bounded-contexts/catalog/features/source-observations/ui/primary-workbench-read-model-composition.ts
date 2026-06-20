@@ -49,7 +49,7 @@ import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
-import { magicSetSyncFor } from "./primary-workbench-magic-set-sync";
+import { sourceScopeWorksetFor } from "./primary-workbench-source-scope-workset";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -59,7 +59,7 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchReadModel["providerScope"];
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
-  magicSetSync: CatalogPrimaryWorkbenchReadModel["magicSetSync"];
+  sourceScopeWorkset: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"];
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
@@ -193,7 +193,7 @@ function buildCatalogPrimaryWorkbenchCore(
     scopes: input.scopes.items,
     sourceOptionPages: input.sourceOptionPages ?? null,
   });
-  const magicSetSync = magicSetSyncFor({
+  const sourceScopeWorkset = sourceScopeWorksetFor({
     canManage,
     controlPlaneOverview: input.controlPlaneOverview,
     generatedAt,
@@ -218,7 +218,7 @@ function buildCatalogPrimaryWorkbenchCore(
         providers: providerScopeProviders(input, providerKey, activeProfile, routeContext),
       },
       sourceOptions,
-      magicSetSync,
+      sourceScopeWorkset,
       readiness: {
         freshness: input.controlPlaneOverview ? "fresh" : "partial",
         blockers: readinessBlockers,
@@ -600,7 +600,7 @@ function assembleReadModel(
     routeContext: core.routeContext,
     providerScope: core.providerScope,
     readiness: core.readiness,
-    magicSetSync: core.magicSetSync,
+    sourceScopeWorkset: core.sourceScopeWorkset,
     healthTriage: parts.healthTriage,
     profileAuthoring: parts.profileAuthoring,
     validationReadiness: parts.validationReadiness,
