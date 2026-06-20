@@ -470,6 +470,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (error instanceof Error) {
       return {
         error: error.message,
+        intent,
       };
     }
 

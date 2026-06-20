@@ -20,6 +20,31 @@ import {
 } from "../../../features/item-detail/ui/commerce-sections";
 import type { DiscoveryItemDetailRouteData, DiscoveryItemDetailActionData } from "./types";
 
+type PreferredSellAction = "selected-offer" | "add-product-to-sell-list" | "list-for-sale";
+
+function preferredSellActionFromActionData(
+  actionData: DiscoveryItemDetailActionData,
+  actionErrorMessage: string | null,
+): PreferredSellAction | null {
+  if (!actionErrorMessage || !actionData || typeof actionData !== "object") {
+    return null;
+  }
+
+  const intent = "intent" in actionData && typeof actionData.intent === "string" ? actionData.intent : null;
+  switch (intent) {
+    case "sell-now":
+    case "add-to-sell-list":
+      return "selected-offer";
+    case "add-product-to-sell-list":
+      return "add-product-to-sell-list";
+    case "create-listing-stock-location":
+    case "list-at-price":
+      return "list-for-sale";
+    default:
+      return null;
+  }
+}
+
 export function buildItemDetailCommerce(
   data: DiscoveryItemDetailRouteData,
   actionData: DiscoveryItemDetailActionData,
@@ -32,6 +57,7 @@ export function buildItemDetailCommerce(
   const item = data.item;
 
   return (context) => {
+    const preferredSellAction = preferredSellActionFromActionData(actionData, actionErrorMessage);
     const ownListing =
       data.sellerAccountId && context.selectedProductId
         ? (context.visibleListings.find(
@@ -225,6 +251,7 @@ export function buildItemDetailCommerce(
         canSelectListingAction={Boolean(context.selectedProductId)}
         canSelectProductSellListAction={Boolean(context.selectedProductId)}
         selectedOfferSource={context.selectedOfferSource}
+        preferredAction={preferredSellAction}
         renderSelectedOffer={(formId) => renderOfferMatch(formId, "plain", undefined, true)}
         renderAddProductToSellList={(formId) =>
           context.selectedProductId ? (

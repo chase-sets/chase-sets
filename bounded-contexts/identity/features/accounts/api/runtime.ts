@@ -18,11 +18,12 @@ export type AccountServices = Readonly<{
   commandHandler: CommandHandler<AccountCommand, AccountState, AccountEvent>;
   listAccounts: (params?: Parameters<typeof listAccounts>[1]) => ReturnType<typeof listAccounts>;
   getAccount: (accountId: string) => ReturnType<typeof getAccount>;
+  getAccountState: (accountId: string) => Promise<AccountState | null>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<AccountEvent>(),
     initialState: () => initialAccountState,
@@ -34,6 +35,10 @@ export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices
     commandHandler,
     listAccounts: (params) => listAccounts(deps.db, params),
     getAccount: (accountId) => getAccount(deps.db, accountId),
+    getAccountState: async (accountId) => {
+      const aggregate = await repository.load(`identity.account-${accountId}`);
+      return aggregate.state.id ? aggregate.state : null;
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "identity-account-projection",
