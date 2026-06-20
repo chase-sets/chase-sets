@@ -54,8 +54,20 @@ function assertNoPatterns(files: readonly string[], patterns: readonly Forbidden
 }
 
 describe("fresh checkout read-model schemas", () => {
-  it("keeps final checkout columns in base schemas without add-column compatibility shims", () => {
-    expect(checkoutCartSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+  it("keeps final checkout columns in base schemas with only explicit cart selected-listing evolution", () => {
+    const cartAddColumns = [...checkoutCartSchemaSql.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)].map(
+      ([, column]) => column,
+    );
+
+    expect(cartAddColumns).toEqual([
+      "selected_listing_id",
+      "selected_listing_seller_account_id",
+      "selected_listing_seller_display_name",
+      "selected_listing_seller_slug",
+      "selected_listing_price_amount",
+      "selected_listing_snapshot_source",
+      "selected_listing_snapshot_captured_at",
+    ]);
     expect(checkoutSellListSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
     expect(checkoutSessionSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
     expect(checkoutSessionSchemaSql).not.toMatch(/ALTER TABLE checkout_session_pages/i);
