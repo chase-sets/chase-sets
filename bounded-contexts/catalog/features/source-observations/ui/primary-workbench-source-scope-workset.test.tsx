@@ -61,6 +61,11 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(tcgplayerForm, "productLineId")).toBe("1");
     expect(hiddenValue(tcgplayerForm, "expansionId")).toBe("2157");
     expect(hiddenValue(tcgplayerForm, "expansionName")).toBe("Fifth Dawn");
+    expect(hiddenValue(tcgplayerForm, "importScope")).toBe("en:1:2157");
+    const tcgplayerAction = new URL(tcgplayerForm?.getAttribute("action") ?? "", "https://admin.example");
+    expect(tcgplayerAction.searchParams.get("providerKey")).toBe("tcgplayer");
+    expect(tcgplayerAction.searchParams.get("unitKey")).toBe("tcgplayer:mtg:single-card:source-observation-import");
+    expect(tcgplayerAction.searchParams.get("importScope")).toBe("en:1:2157");
 
     const links = screen.getAllByRole("link", { name: "Open source scope" });
     expect(links.every((link) => !link.getAttribute("href")?.includes("/api/"))).toBe(true);
@@ -155,7 +160,10 @@ describe("Catalog source-scope workset", () => {
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
     const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
-    expect(form?.getAttribute("action")).not.toContain("importScope=");
+    const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
+    expect(action.searchParams.get("providerKey")).toBe("tcgplayer");
+    expect(action.searchParams.get("unitKey")).toBe("tcgplayer:mtg:single-card:source-observation-import");
+    expect(action.searchParams.get("importScope")).toBe("en:1:Classic Sixth Edition");
     expect(hiddenValue(form, "expansionId")).toBe("");
     expect(hiddenValue(form, "expansionName")).toBe("Classic Sixth Edition");
     expect(hiddenValue(form, "importScope")).toBe("en:1:Classic Sixth Edition");
