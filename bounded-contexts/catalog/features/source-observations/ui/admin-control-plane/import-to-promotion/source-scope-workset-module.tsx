@@ -19,7 +19,6 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 
 type SourceScopeUnitRow = CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel;
 
@@ -158,7 +157,7 @@ function SourceScopeCommandButton({
     <WorkbenchForm
       variant="button"
       method="post"
-      action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+      action={row.currentWorkbenchHref}
       data-catalog-primary-workbench-command={action.key}
       data-catalog-source-scope-unit={row.unitKey ?? row.providerKey}
     >
