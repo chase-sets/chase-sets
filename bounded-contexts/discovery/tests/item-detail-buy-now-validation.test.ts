@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 
 import {
   mockAcceptOfferMatch,
@@ -63,6 +64,11 @@ vi.mock("@chase-sets/checkout/server", () => ({
     expectation: "collection-non-empty",
     surface: "account-cart",
   },
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
+    kind: "checkout.sell-list.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-sell-list",
+  },
   appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
   appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
@@ -75,6 +81,25 @@ vi.mock("@chase-sets/inventory/server", () => ({
 }));
 
 import { action, loader } from "../routes/item-detail";
+
+function commandResult<T extends { id?: string }>(value: T, sourceContextName = "inventory"): T {
+  const id = value.id ?? "cmd_1";
+  Object.defineProperty(value, "commandReceipt", {
+    value: {
+      mode: "eventual",
+      commitEventIds: [`evt_${id}`],
+      commitPositions: [
+        {
+          sourceContextName,
+          maxGlobalPosition: "42",
+          eventIds: [`evt_${id}`],
+        },
+      ],
+    },
+    enumerable: false,
+  });
+  return value;
+}
 
 describe("item detail buy now validation and watch intents", () => {
   afterEach(() => {
@@ -538,6 +563,92 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result.initialMarketIntent).toBe("watch");
     expect(result.item?.catalog_item_id).toBe("cat_charizard");
     expect(mockClaimAnonymousProductAlertIntent).toHaveBeenCalledWith("anon_watch_1", "pai_1");
+  });
+
+  it("keeps saved listing setup visible when seller inventory loading fails", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockRejectedValue(new Error("Marketplace inventory unavailable")),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [{ name: "Listing stock" }],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.hasListingStockLocation).toBe(true);
+    expect(result.sellerInventoryItems).toEqual([]);
+    expect(result.listingSetupLoadError).toBeNull();
+  });
+
+  it("surfaces temporary listing setup recovery while Inventory storage locations catch up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+          status: 503,
+          body: {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+        }),
+      ),
+    });
+
+    const result = await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/items/charizard-base-set?market=sell",
+          commandResult({ id: "stl_1" }),
+        )}`,
+      ),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.hasListingStockLocation).toBe(false);
+    expect(result.listingSetupLoadError).toBe(
+      "Ship-from setup is still updating. Refresh in a moment if it is not visible yet.",
+    );
   });
 
   it("saves guest listing draft intent before seller registration", async () => {

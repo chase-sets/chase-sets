@@ -238,7 +238,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       failedLineCount: result.failedLineCount,
       requestedLineCount: result.requestedLineCount,
     } satisfies BulkAddActionData);
-    appendAnonymousCartCookie(response.headers, anonymousCartId);
+    appendAnonymousCartCookie(response.headers, anonymousCartId, request);
     return response;
   }
 

@@ -112,7 +112,13 @@ export function buildItemDetailCommerce(
       actionMode?: "all" | "sell-now" | "add-to-sell-list",
     ) => {
       const selectedOfferForSellRail = data.canUseSellerFeatures
-        ? context.selectedAccountOfferMatch
+        ? (context.selectedAccountOfferMatch ??
+          (context.selectedOffer
+            ? {
+                ...context.selectedOffer,
+                acceptance_terms: context.selectedOffer.public_standard_terms_preview ?? null,
+              }
+            : null))
         : context.selectedOffer
           ? {
               ...context.selectedOffer,
@@ -159,7 +165,7 @@ export function buildItemDetailCommerce(
         ownListing={ownListing}
         hasListingStockLocation={data.hasListingStockLocation}
         allowDraftWithoutShipFromSetup={data.canUseGuestListingDraft}
-        errorMessage={actionErrorMessage}
+        errorMessage={data.listingSetupLoadError ?? actionErrorMessage}
       />
     );
     const renderSellerRegistration = (
@@ -212,7 +218,9 @@ export function buildItemDetailCommerce(
         productSummary={context.selectedProductSummary}
         productSelectionDetails={context.selectedProductSelectionDetails}
         hasMatchingOffer={
-          data.canUseSellerFeatures ? Boolean(context.selectedAccountOfferMatch) : Boolean(context.selectedOffer)
+          data.canUseSellerFeatures
+            ? Boolean(context.selectedAccountOfferMatch ?? context.selectedOffer)
+            : Boolean(context.selectedOffer)
         }
         canSelectListingAction={Boolean(context.selectedProductId)}
         canSelectProductSellListAction={Boolean(context.selectedProductId)}

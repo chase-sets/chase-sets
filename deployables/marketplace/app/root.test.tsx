@@ -224,6 +224,9 @@ describe("marketplace root layout", () => {
         });
       }
       if (pathname === "/api/marketplace/account/cart") {
+        throw new Error("Guest checkout actors should not load the account cart.");
+      }
+      if (pathname === "/api/marketplace/guest/cart") {
         return Response.json({ items: [], count: 2 });
       }
       if (pathname === "/api/identity/current-actor-display") {
@@ -234,13 +237,21 @@ describe("marketplace root layout", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"));
+    const data = await loader({
+      ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
+      request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+      }),
+    });
 
     expect(data.actor?.roleKey).toBe("guest-buyer");
     expect(data.actorDisplay).toBeNull();
     expect(data.cartCount).toBe(2);
     expect(fetch.mock.calls.map(([input]) => new URL(String(input)).pathname)).not.toContain(
       "/api/identity/current-actor-display",
+    );
+    expect(fetch.mock.calls.map(([input]) => new URL(String(input)).pathname)).not.toContain(
+      "/api/marketplace/account/cart",
     );
   });
 

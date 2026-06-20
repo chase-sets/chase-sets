@@ -292,15 +292,15 @@
         "routeId": "account-sell-list",
         "actions": ["Update account sell list"],
         "command": "Checkout sell-list commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["appendFreshWriteToken", "appendPostWriteHandoff"]
       },
       "destination": {
         "routeId": "account-sell-list",
         "apiContextName": "checkout",
         "apiRoutePath": "/account/sell-list",
         "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Account Sell List self-refresh uses the fresh-read strategy: it waits on exact sell-list line and confirmation page projections and converts valid afterWrite projection timeouts into temporary Sell List recovery while missing, malformed, or expired receipts stay on the permanent API error path."
+        "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
+        "transientRecovery": "Account Sell List self-refresh uses the fresh-read strategy for signed-in and anonymous Sell List reads: it waits on exact sell-list line and confirmation page projections, evaluates any semantic add-line post-write handoff against the loaded Sell List, and converts valid afterWrite projection timeouts or valid add-line empty-list handoffs into temporary Sell List recovery while missing, malformed, expired, or remove-to-empty receipts stay on the normal permanent/empty-list path."
       }
     },
     {

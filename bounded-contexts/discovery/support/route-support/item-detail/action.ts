@@ -18,6 +18,7 @@ import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
   appendAnonymousCartCookie,
   ACCOUNT_CART_ADD_LINE_HANDOFF,
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
@@ -34,6 +35,7 @@ import {
   LISTING_STOCK_SHIP_FROM_CODE,
   selectItemImage,
 } from "./support";
+import { sortListingsByBuyerPrice } from "../../../features/item-detail/domain/item-detail-market";
 import {
   assertSelectedListingQuantityAvailable,
   findSelectedListingForAction,
@@ -60,6 +62,22 @@ function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market
     priceAmount: listing.price_amount,
     source: "discovery.item-detail.add-to-cart",
   };
+}
+
+function findBestAvailableListingForAction(item: DiscoveryItemDetail, productId: string) {
+  const bestListing =
+    sortListingsByBuyerPrice(
+      item.market_listings.filter(
+        (listing) =>
+          listing.product_id === productId && listing.status === "active" && getListingAvailableQuantity(listing) > 0,
+      ),
+    )[0] ?? null;
+
+  if (!bestListing) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+  }
+
+  return bestListing;
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -176,7 +194,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           cartLine: checkoutCommandSnapshot(result),
           viewCartHref: appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF),
         } satisfies AddToCartActionData);
-        appendAnonymousCartCookie(response.headers, anonymousCartId);
+        appendAnonymousCartCookie(response.headers, anonymousCartId, request);
         return response;
       }
 
@@ -194,28 +212,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (intent === "buy-now" || intent === "buy-this-listing") {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
+      const productId = String(formData.get("productId") ?? "");
       const lockedListingId =
         intent === "buy-this-listing"
           ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim()
           : "";
       const quantity = parsePositiveQuantity(formData.get("quantity"));
-      const lockedListing = lockedListingId ? findSelectedListingForAction(item, lockedListingId) : null;
-      if (lockedListing) {
-        assertSelectedListingQuantityAvailable(lockedListing, quantity);
-      }
+      const lockedListing = lockedListingId
+        ? findSelectedListingForAction(item, lockedListingId)
+        : findBestAvailableListingForAction(item, productId);
+      assertSelectedListingQuantityAvailable(lockedListing, quantity);
       const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
       const source = {
         type: "buy-now",
-        listingId: lockedListingId,
+        listingId: lockedListing.listing_id,
         catalogItemId: item.catalog_item_id,
-        productId: String(formData.get("productId") ?? ""),
+        productId,
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity,
-        fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
-        lockedListingId: lockedListingId || null,
+        fulfillmentMode: "locked-listing" as const,
+        lockedListingId: lockedListing.listing_id,
       } as const;
 
       if (!canUseAccountCheckoutCart(actor)) {
@@ -303,7 +322,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productSummary: offer.product_summary,
         quantity: offer.quantity_requested,
       });
-      return redirect(appendFreshWriteToken("/account/sell-list", result));
+      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
     }
 
     if (intent === "add-product-to-sell-list") {
@@ -331,13 +350,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (!canUseAccountSellList(actor)) {
         const anonymousSellListId = ensureAnonymousSellListId(request);
         const result = await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
-        const response = redirect(appendFreshWriteToken("/account/sell-list", result));
-        appendAnonymousSellListCookie(response.headers, anonymousSellListId);
+        const response = redirect(
+          appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF),
+        );
+        appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
         return response;
       }
 
       const result = await checkoutApi.addSellListLine(sellListLine);
-      return redirect(appendFreshWriteToken("/account/sell-list", result));
+      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
     }
 
     if (intent === "create-listing-stock-location") {

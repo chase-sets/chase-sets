@@ -76,7 +76,7 @@ async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   try {
     const checkoutApi = createCheckoutRequestApiClient(request);
 
-    if (actor) {
+    if (actor && actor.roleKey !== "guest-buyer" && !actor.permissions.includes("guest-checkout.manage")) {
       const cart = await checkoutApi.getCart();
       return cart.count;
     }

@@ -119,7 +119,7 @@ export function submittedButtonValue(event: FormEvent<HTMLFormElement>) {
 }
 
 export function canUseAccountCheckoutCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
-  return Boolean(actor);
+  return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
 
 export function formatAllowancePercentage(bps: number) {
