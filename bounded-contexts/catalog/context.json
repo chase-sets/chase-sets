@@ -49,6 +49,11 @@
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
     },
     {
+      "portName": "tcgplayerAutomationCatalogClient",
+      "providedBy": "admin-support-api, platform-api, admin-support-worker, platform-worker",
+      "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
+    },
+    {
       "portName": "sourceObservationTelemetry",
       "providedBy": "admin-support-api, platform-api, admin-support-worker, platform-worker",
       "purpose": "Emits bounded Catalog Integration Control Plane telemetry for provider option queries, integration jobs, and bulk review work units."
