@@ -67,6 +67,7 @@ export function CommandHiddenInputs({
   jobId?: string | null;
 }) {
   const context = readModel.routeContext;
+  const scope = context.scope;
   const observationIds = selectedObservationIds ?? context.selectedObservationIds;
   const jobIdValue = jobId ?? context.jobId ?? "";
 
@@ -77,6 +78,13 @@ export function CommandHiddenInputs({
       <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
       <HiddenInput name="importScope" value={context.importScope ?? ""} />
       <HiddenInput name="profileVersion" value={context.profileVersion ?? ""} />
+      <HiddenInput name="languageCode" value={scope?.languageCode ?? ""} />
+      <HiddenInput name="productLineId" value={scope?.productLineId ?? ""} />
+      <HiddenInput name="productLineName" value={scope?.productLineName ?? ""} />
+      <HiddenInput name="seriesId" value={scope?.seriesId ?? ""} />
+      <HiddenInput name="seriesName" value={scope?.seriesName ?? ""} />
+      <HiddenInput name="expansionId" value={scope?.expansionId ?? ""} />
+      <HiddenInput name="expansionName" value={scope?.expansionName ?? ""} />
       <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />

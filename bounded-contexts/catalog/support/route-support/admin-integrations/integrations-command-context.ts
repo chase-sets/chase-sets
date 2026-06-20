@@ -52,7 +52,7 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
   const providerKey = stringValue(formData.get("providerKey")) ?? parsedContext.providerKey;
   const importScope = stringValue(formData.get("importScope")) ?? parsedContext.importScope;
   const baseScope = scopeContextFromRouteContext({ ...parsedContext, providerKey, importScope });
-  const scope = scopeContextFromFormData(formData, baseScope);
+  const scope = clearExplicitEmptyScopeFields(scopeContextFromFormData(formData, baseScope), formData);
 
   return {
     ...parsedContext,
@@ -67,6 +67,32 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
   };
 }
 
+function clearExplicitEmptyScopeFields(
+  scope: ReturnType<typeof scopeContextFromFormData>,
+  formData: FormData,
+): ReturnType<typeof scopeContextFromFormData> {
+  return {
+    ...scope,
+    languageCode: explicitEmptyScopeField(formData, ["languageCode", "language"]) ? null : scope.languageCode,
+    productLineId: explicitEmptyScopeField(formData, ["productLineId"]) ? null : scope.productLineId,
+    productLineName: explicitEmptyScopeField(formData, ["productLineName"]) ? null : scope.productLineName,
+    seriesId: explicitEmptyScopeField(formData, ["seriesId"]) ? null : scope.seriesId,
+    seriesName: explicitEmptyScopeField(formData, ["seriesName"]) ? null : scope.seriesName,
+    expansionId: explicitEmptyScopeField(formData, ["expansionId", "setId"]) ? null : scope.expansionId,
+    expansionName: explicitEmptyScopeField(formData, ["expansionName", "setName"]) ? null : scope.expansionName,
+    status: explicitEmptyScopeField(formData, ["status"]) ? null : scope.status,
+  };
+}
+
+function explicitEmptyScopeField(formData: FormData, names: readonly string[]): boolean {
+  const presentNames = names.filter((name) => formData.has(name));
+  if (presentNames.length === 0) {
+    return false;
+  }
+
+  return presentNames.every((name) => !stringValue(formData.get(name)));
+}
+
 export function observationIdsFromFormData(formData: FormData, fallback: readonly string[]): readonly string[] {
   const values = String(formData.get("selectedObservationIds") ?? "")
     .split(",")
@@ -77,9 +103,10 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 }
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
-  const scope = scopeContextFromRouteContext(context);
+  const scope = context.scope ?? scopeContextFromRouteContext(context);
   return scopeContextToIntegrationJobScope({
     ...scope,
+    ingestionUnitKey: context.unitKey ?? undefined,
     languageCode: context.sourceObservationFilters.language ?? scope.languageCode,
     expansionId:
       context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
