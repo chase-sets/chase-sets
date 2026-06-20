@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   PRIMARY KEY (buyer_account_id, line_id)
 );
 
+ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS selected_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_display_name text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_slug text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_source text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_captured_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
   ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);
 
