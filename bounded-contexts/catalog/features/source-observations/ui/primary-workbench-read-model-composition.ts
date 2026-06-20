@@ -111,16 +111,21 @@ function buildCatalogPrimaryWorkbenchCore(
     normalizedRouteUnitKey,
     activeProfile,
   );
+  const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
-  const routeScope = unitContextMismatch ? providerOnlyScopeContext(providerKey) : parsedContext.scope;
-  const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
+  const routeScope = unitContextMismatch
+    ? providerOnlyScopeContext(providerKey)
+    : structuredScopeWithProfileLanguage(parsedContext.scope, activeProfile, explicitStructuredScope);
   const parsedImportScope = unitContextMismatch
     ? null
     : structuredSelectionImportScope(parsedContext.importScope, routeScope, explicitStructuredScope);
+  const structuredImportScope = explicitStructuredScope ? importScopeFromScopeContext(routeScope) : null;
   const importScope = unitContextMismatch
     ? null
-    : (parsedImportScope ?? (explicitStructuredScope ? null : inferImportScope(input.scopes.items, providerKey)));
+    : (parsedImportScope ??
+      structuredImportScope ??
+      (explicitStructuredScope ? null : inferImportScope(input.scopes.items, providerKey)));
   const profileVersion = unitContextMismatch
     ? (activeProfile?.profileVersion ?? null)
     : (parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null);
@@ -755,6 +760,25 @@ function structuredSelectionImportScope(
   }
 
   return importScopeFromScopeContext(scope);
+}
+
+function structuredScopeWithProfileLanguage(
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+  activeProfile: CatalogProviderProfileVersionReview | null,
+  explicitStructuredScope: boolean,
+): CatalogPrimaryWorkbenchRouteContext["scope"] {
+  const nameBasedSetScope = Boolean(
+    scope?.productLineId && !scope.seriesId && !scope.expansionId && scope.expansionName,
+  );
+  if (!explicitStructuredScope || !scope || scope.languageCode || !nameBasedSetScope) {
+    return scope;
+  }
+  const languageCode = activeProfile?.languageOptions[0]?.trim() || null;
+  if (!languageCode) {
+    return scope;
+  }
+
+  return { ...scope, languageCode };
 }
 
 function importScopeMatchesStructuredSelection(
