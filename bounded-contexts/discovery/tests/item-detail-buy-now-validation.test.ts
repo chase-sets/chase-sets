@@ -101,6 +101,50 @@ function commandResult<T extends { id?: string }>(value: T, sourceContextName = 
   return value;
 }
 
+function sellerListingDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    listing_id: "lst_item_detail",
+    account_id: "acc_seller",
+    inventory_item_id: "inv_listing_stock",
+    catalog_catalog_item_id: "cat_charizard",
+    product_id: "cat_charizard::form:raw",
+    item_language_code: null,
+    item_title: "Charizard",
+    item_subtitle: null,
+    selected_options: [{ dimensionId: "form", optionId: "raw" }],
+    product_summary: "Form: Raw",
+    product_measure_snapshot: null,
+    graded_card: null,
+    storage_location_name: "Listing stock",
+    ship_from_code: "LISTING-STOCK",
+    ship_from_address: {
+      name: "Seller Name",
+      line1: "123 Market St",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    },
+    price_amount: "24.35",
+    marketplace_sales_fee_unit_amount: "1.95",
+    seller_net_unit_amount: "22.40",
+    shipping_allowance_percentage_bps: 500,
+    terms_schedule_id: null,
+    terms_agreement_id: null,
+    terms_resolved_at: null,
+    fee_quote_fingerprint: "quote_1",
+    quantity_cap: 1,
+    max_units_per_order: null,
+    max_units_per_day: null,
+    max_units_per_customer_account: null,
+    listing_photos: [],
+    status: "active",
+    created_at: "2026-06-20T00:00:00.000Z",
+    updated_at: "2026-06-20T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("item detail buy now validation and watch intents", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -707,6 +751,93 @@ describe("item detail buy now validation and watch intents", () => {
     expect(result.listingSetupLoadError).toBe(
       "Ship-from setup is still updating. Refresh in a moment if it is not visible yet.",
     );
+  });
+
+  it("shows the selected owned seller listing while the Discovery item-detail projection catches up", async () => {
+    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_summary: null,
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+      getSellerListing,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [{ name: "Listing stock", ship_from_code: "LISTING-STOCK" }],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell&listing=lst_item_detail"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(result.item?.market_listings).toEqual([
+      expect.objectContaining({
+        listing_id: "lst_item_detail",
+        account_id: "acc_seller",
+        catalog_catalog_item_id: "cat_charizard",
+        product_id: "cat_charizard::form:raw",
+        price_amount: "24.35",
+        quantity_cap: 1,
+        seller_listing_availability_status: "available",
+        visible_quantity: 1,
+      }),
+    ]);
+  });
+
+  it("does not show a selected seller listing fallback for a different catalog item", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_summary: null,
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+      getSellerListing: vi.fn().mockResolvedValue(sellerListingDetail({ catalog_catalog_item_id: "cat_blastoise" })),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [{ name: "Listing stock", ship_from_code: "LISTING-STOCK" }],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell&listing=lst_item_detail"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.item?.market_listings).toEqual([]);
   });
 
   it("saves listing ship-from setup and redirects with Inventory freshness", async () => {

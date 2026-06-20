@@ -8,9 +8,15 @@ import {
   ensureAnonymousProductAlertOwnerId,
   readAnonymousProductAlertOwnerId,
 } from "../../request-support/anonymous-product-alert";
-import type { DiscoveryAccountOfferMatch, DiscoverySellerInventoryItem } from "../../client-support/contracts";
+import type {
+  DiscoveryAccountOfferMatch,
+  DiscoveryItemDetail,
+  DiscoveryMarketListing,
+  DiscoverySellerInventoryItem,
+} from "../../client-support/contracts";
 import {
   createMarketplaceRequestApiClient,
+  type MarketplaceListingDetail,
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
@@ -47,6 +53,97 @@ function apiErrorCode(error: unknown) {
   const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
   const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
   return typeof code === "string" && code.trim() ? code : null;
+}
+
+function sellerListingFallbackFromMarketplace(
+  item: DiscoveryItemDetail,
+  listing: MarketplaceListingDetail,
+): DiscoveryMarketListing | null {
+  if (
+    listing.status !== "active" ||
+    listing.catalog_catalog_item_id !== item.catalog_item_id ||
+    !listing.listing_id ||
+    !listing.product_id
+  ) {
+    return null;
+  }
+
+  return {
+    listing_id: listing.listing_id,
+    listing_slug: "",
+    product_slug: "",
+    account_id: listing.account_id,
+    inventory_item_id: listing.inventory_item_id,
+    catalog_catalog_item_id: listing.catalog_catalog_item_id,
+    catalog_item_slug: item.slug || null,
+    product_id: listing.product_id,
+    item_title: listing.item_title,
+    item_subtitle: listing.item_subtitle,
+    selected_options: listing.selected_options,
+    product_summary: listing.product_summary,
+    storage_location_name: listing.storage_location_name,
+    ship_from_code: listing.ship_from_code,
+    price_amount: listing.price_amount,
+    shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
+    quantity_cap: listing.quantity_cap,
+    max_units_per_order: listing.max_units_per_order ?? null,
+    max_units_per_day: listing.max_units_per_day ?? null,
+    max_units_per_customer_account: listing.max_units_per_customer_account ?? null,
+    status: listing.status,
+    seller_listing_availability_status: "available",
+    seller_listing_availability_reason_category: null,
+    seller_listing_available_again_on: null,
+    seller_display_name: null,
+    seller_average_rating: null,
+    seller_review_count: 0,
+    google_shopping_structured_data_payload: null,
+    visible_quantity: listing.quantity_cap,
+    created_at: listing.created_at,
+    updated_at: listing.updated_at,
+  };
+}
+
+async function attachSelectedSellerListingFallback(
+  item: DiscoveryItemDetail,
+  options: Readonly<{
+    request: Request;
+    marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>;
+    actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
+    initialMarketIntent: "buy" | "sell" | "watch";
+    initialSelectedListingId: string | null;
+    canSellOnItem: boolean;
+  }>,
+): Promise<DiscoveryItemDetail> {
+  if (
+    options.initialMarketIntent !== "sell" ||
+    !options.initialSelectedListingId ||
+    !options.actor?.accountId ||
+    !options.canSellOnItem ||
+    item.market_listings.some((listing) => listing.listing_id === options.initialSelectedListingId)
+  ) {
+    return item;
+  }
+
+  try {
+    const listing = await loadFreshlyWrittenResource({
+      request: options.request,
+      isNotFound: (error) => apiErrorStatus(error) === 404,
+      load: () => options.marketplaceApi.getSellerListing(options.initialSelectedListingId!),
+    });
+    const fallbackListing =
+      listing.account_id === options.actor.accountId ? sellerListingFallbackFromMarketplace(item, listing) : null;
+
+    if (!fallbackListing) {
+      return item;
+    }
+
+    return {
+      ...item,
+      market_listings: [...item.market_listings, fallbackListing],
+    };
+  } catch {
+    return item;
+  }
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -204,6 +301,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         }
       }
     }
+
+    item = await attachSelectedSellerListingFallback(item, {
+      request,
+      marketplaceApi,
+      actor,
+      initialMarketIntent,
+      initialSelectedListingId,
+      canSellOnItem,
+    });
 
     return {
       item,
