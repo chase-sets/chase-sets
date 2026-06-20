@@ -2633,7 +2633,7 @@ function validatePrimaryWorkbenchScopeContext(scope: CatalogPrimaryWorkbenchScop
         "expansionName",
         "status",
       ].includes(key) ||
-      (value !== null && (typeof value !== "string" || value.includes("\n") || value.includes("&")))
+      (value !== null && (typeof value !== "string" || value.includes("\n")))
     ) {
       throw new Error("Primary workbench route scope must use clean structured scope fields.");
     }
