@@ -399,6 +399,17 @@ function magicSetOptions(
       providerKey: scope.provider_key,
     });
   }
+  for (const option of magicSetOptionsFromSourceOptions(sourceOptions)) {
+    addMagicSetOption(options, option);
+  }
+
+  return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function magicSetOptionsFromSourceOptions(
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+): CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"] {
+  const options = new Map<string, CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"][number]>();
   for (const page of sourceOptions.pages) {
     if (page.scope !== "expansion" && page.scope !== "set-name") {
       continue;
@@ -416,13 +427,33 @@ function magicSetOptions(
   return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
+export function mergeMagicSetOptions(
+  baseOptions: CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"],
+  nextOptions: CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"],
+): CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"] {
+  const options = new Map<string, CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"][number]>();
+  for (const option of baseOptions) {
+    addMagicSetOption(options, option);
+  }
+  for (const option of nextOptions) {
+    addMagicSetOption(options, option);
+  }
+
+  return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
+}
+
 function addMagicSetOption(
   options: Map<string, CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"][number]>,
   option: CatalogPrimaryWorkbenchReadModel["magicSetSync"]["setOptions"][number],
 ): void {
   const key = option.setId.trim().toLowerCase();
-  if (!options.has(key)) {
+  const current = options.get(key);
+  if (!current) {
     options.set(key, option);
+    return;
+  }
+  if (!current.setName && option.setName) {
+    options.set(key, { ...current, setName: option.setName, label: option.label || current.label });
   }
 }
 

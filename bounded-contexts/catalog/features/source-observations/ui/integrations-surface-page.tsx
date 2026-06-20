@@ -43,7 +43,10 @@ export function CatalogIntegrationsSurfacePage({
       surface={surface}
       deferredSourceOptions={deferredSourceOptions}
     >
-      {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, { aliasVisibility })}
+      {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, {
+        aliasVisibility,
+        deferredSourceOptions,
+      })}
     </CatalogWorkbenchShell>
   );
 }

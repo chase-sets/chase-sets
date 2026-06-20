@@ -23,6 +23,7 @@ import {
 export function CatalogIntegrationImportToPromotionWorkspace({
   readModel,
   aliasVisibility = null,
+  deferredSourceOptions = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   // Optional alias-review visibility slot (#1908): the composition root supplies
@@ -30,6 +31,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   // reviewing Source Observations before promotion. The workspace stays agnostic
   // of the alias read model by accepting it as a rendered node.
   aliasVisibility?: React.ReactNode;
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>) {
   const {
     activeStage,
@@ -86,7 +88,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
 
       <DailyHealthStatusIndicator readModel={readModel} />
 
-      <CatalogMagicSetSyncModule readModel={readModel} />
+      <CatalogMagicSetSyncModule readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
 
       <CatalogIntegrationFlowStepper stages={stages} />
 

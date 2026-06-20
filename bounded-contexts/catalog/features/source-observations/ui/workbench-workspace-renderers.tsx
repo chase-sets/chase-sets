@@ -15,6 +15,7 @@ import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-
 // workspace), so the IA render registry stays agnostic of their data sources.
 export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   aliasVisibility?: ReactElement | null;
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>;
 
 export type CatalogPrimaryWorkbenchWorkspaceRenderer = (
@@ -29,7 +30,11 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
   Record<CatalogControlPlaneWorkspaceKey, CatalogPrimaryWorkbenchWorkspaceRenderer>
 > = {
   "import-to-promotion": (readModel, slots) => (
-    <CatalogIntegrationImportToPromotionWorkspace readModel={readModel} aliasVisibility={slots.aliasVisibility} />
+    <CatalogIntegrationImportToPromotionWorkspace
+      readModel={readModel}
+      aliasVisibility={slots.aliasVisibility}
+      deferredSourceOptions={slots.deferredSourceOptions}
+    />
   ),
   "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,
   "profile-authoring": (readModel) => <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />,
