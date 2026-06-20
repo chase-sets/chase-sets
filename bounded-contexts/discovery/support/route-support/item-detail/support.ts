@@ -33,6 +33,7 @@ export const EMPTY_ITEM_DETAIL_RESULT = {
   registerToSellHref: "/register",
   notFound: false,
   error: null,
+  listingSetupLoadError: null,
   canonicalUrl: null,
   productAlertClaimError: null,
 } as const;

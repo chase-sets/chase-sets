@@ -61,6 +61,11 @@ vi.mock("@chase-sets/checkout/server", () => ({
     expectation: "collection-non-empty",
     surface: "account-cart",
   },
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF: {
+    kind: "checkout.sell-list.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-sell-list",
+  },
   appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
   appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
@@ -79,6 +84,31 @@ function expectFreshWriteRedirect(response: Response, pathname: string) {
   const redirectUrl = new URL(location, "http://localhost");
   expect(redirectUrl.pathname).toBe(pathname);
   expect(redirectUrl.searchParams.has("afterWrite")).toBe(true);
+}
+
+function expectSellListPostWriteRedirect(response: Response) {
+  expectFreshWriteRedirect(response, "/account/sell-list");
+  const location = response.headers.get("Location") ?? "";
+  const redirectUrl = new URL(location, "http://localhost");
+  expect(readPostWriteHandoff(redirectUrl)).toEqual({
+    kind: "checkout.sell-list.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-sell-list",
+  });
+}
+
+function activeListing(overrides: Record<string, unknown> = {}) {
+  return {
+    listing_id: "lst_charizard",
+    status: "active",
+    product_id: "cat_charizard::form:raw",
+    price_amount: "380.00",
+    seller_display_name: "Fresh Seller",
+    quantity_cap: 3,
+    visible_quantity: 3,
+    created_at: "2026-06-10T00:00:00.000Z",
+    ...overrides,
+  };
 }
 
 function commandResult<T extends { id?: string; session_id?: string }>(value: T, sourceContextName = "checkout"): T {
@@ -394,6 +424,7 @@ describe("item detail buy now checkout actions", () => {
         catalog_item_id: "cat_charizard",
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -427,15 +458,15 @@ describe("item detail buy now checkout actions", () => {
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
       source: {
         type: "buy-now",
-        listingId: "",
+        listingId: "lst_charizard",
         catalogItemId: "cat_charizard",
         productId: "cat_charizard::form:raw",
         itemTitle: "Charizard",
         itemSubtitle: "Base Set 4/102 Holo Rare",
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
-        fulfillmentMode: "optimize",
-        lockedListingId: null,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_charizard",
         quantity: 2,
       },
     });
@@ -771,7 +802,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 3,
     });
     expect(response.status).toBe(302);
-    expectFreshWriteRedirect(response, "/account/sell-list");
+    expectSellListPostWriteRedirect(response);
   });
 
   it("adds signed-out product seller intent to an anonymous Sell List", async () => {
@@ -823,9 +854,13 @@ describe("item detail buy now checkout actions", () => {
       minimumListingPriceAmount: null,
       quantity: 2,
     });
-    expect(mockAppendAnonymousSellListCookie).toHaveBeenCalledWith(expect.any(Headers), "anon_sell_1");
+    expect(mockAppendAnonymousSellListCookie).toHaveBeenCalledWith(
+      expect.any(Headers),
+      "anon_sell_1",
+      expect.any(Request),
+    );
     expect(response.status).toBe(302);
-    expectFreshWriteRedirect(response, "/account/sell-list");
+    expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -895,7 +930,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expectFreshWriteRedirect(response, "/account/sell-list");
+    expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -968,7 +1003,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expectFreshWriteRedirect(response, "/account/sell-list");
+    expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -979,6 +1014,7 @@ describe("item detail buy now checkout actions", () => {
         catalog_item_id: "cat_charizard",
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1012,9 +1048,9 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(302);
     expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("source")).toBe("buy-now");
-    expect(redirectUrl.searchParams.get("listingId")).toBe("");
-    expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
-    expect(redirectUrl.searchParams.get("lockedListingId")).toBe("");
+    expect(redirectUrl.searchParams.get("listingId")).toBe("lst_charizard");
+    expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("locked-listing");
+    expect(redirectUrl.searchParams.get("lockedListingId")).toBe("lst_charizard");
     expect(redirectUrl.searchParams.get("catalogItemId")).toBe("cat_charizard");
     expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
     expect(redirectUrl.searchParams.get("itemTitle")).toBe("Charizard");
@@ -1024,6 +1060,8 @@ describe("item detail buy now checkout actions", () => {
     );
     expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("quantity")).toBe("2");
+    expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
+    expect(redirectUrl.searchParams.get("sellerName")).toBe("Fresh Seller");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
@@ -1138,7 +1176,7 @@ describe("item detail buy now checkout actions", () => {
       selectedListingSnapshot: null,
       quantity: 2,
     });
-    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1");
+    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1", expect.any(Request));
     expect(mockAddCartLine).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     const addedToCart = (await response.json()) as { viewCartHref: string };
@@ -1175,6 +1213,7 @@ describe("item detail buy now checkout actions", () => {
         catalog_item_id: "cat_charizard",
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1213,7 +1252,7 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(200);
   });
 
-  it("creates optimized buy-now sessions for signed-in buyers without order-management permissions", async () => {
+  it("creates best-match buy-now sessions for signed-in buyers without order-management permissions", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -1223,6 +1262,7 @@ describe("item detail buy now checkout actions", () => {
         catalog_item_id: "cat_charizard",
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
       }),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -1256,8 +1296,9 @@ describe("item detail buy now checkout actions", () => {
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
       source: expect.objectContaining({
         type: "buy-now",
-        fulfillmentMode: "optimize",
-        lockedListingId: null,
+        fulfillmentMode: "locked-listing",
+        listingId: "lst_charizard",
+        lockedListingId: "lst_charizard",
         quantity: 1,
       }),
     });

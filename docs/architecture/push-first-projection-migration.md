@@ -114,7 +114,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (47)
+## Read-After-Write Route Inventory (49)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -134,7 +134,9 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `commercial-terms.schedule-create-to-list` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `commercial-terms.schedule-update-to-detail` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `discovery.item-detail-add-to-cart-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `discovery.item-detail-add-to-sell-list-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `discovery.item-detail-ship-from-setup-self-refresh` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `fulfillment.seller-shipment-self-refresh` | fulfillment | important | exact wait | poll-bounded until wave 2 |
 | `identity.account-security-api-key-fresh-read` | identity | critical | exact wait | poll-bounded until wave 2 |
 | `identity.account-security-user-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |

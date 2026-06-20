@@ -948,6 +948,7 @@ export function CheckoutSellListPage({
   mergedLineCount = 0,
   mergeError = null,
   errorMessage = null,
+  recoveryMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
@@ -960,6 +961,7 @@ export function CheckoutSellListPage({
   mergedLineCount?: number;
   mergeError?: string | null;
   errorMessage?: string | null;
+  recoveryMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
@@ -1141,7 +1143,13 @@ export function CheckoutSellListPage({
 
         {isSignedIn ? <LatestSellListConfirmationPanel confirmation={latestConfirmation} /> : null}
 
-        {sellListLines.length === 0 ? (
+        {sellListLines.length === 0 && recoveryMessage ? (
+          <MarketplaceNotice
+            tone="info"
+            title={t("checkout.features.sellList.ui.sellListPage.checkout")}
+            description={recoveryMessage}
+          />
+        ) : sellListLines.length === 0 ? (
           <MarketplaceEmptyState
             title={t("checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty")}
             description={t("checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products")}

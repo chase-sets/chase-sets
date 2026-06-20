@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { redirect } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendPostWriteHandoff } from "@chase-sets/http/responses";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
   createMarketplaceRequestApiClient,
@@ -8,6 +8,7 @@ import {
   type OfferMatchListItem,
 } from "@chase-sets/marketplace/server";
 import {
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
   ensureAnonymousSellListId,
@@ -216,8 +217,8 @@ export async function saveGuestSelectedOfferToSellList(
     anonymousSellListId,
     selectedOfferSellListLineFromPublicOffer(item, offer),
   );
-  const response = redirect(appendFreshWriteToken("/account/sell-list", result));
-  appendAnonymousSellListCookie(response.headers, anonymousSellListId);
+  const response = redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+  appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
   return response;
 }
 

@@ -361,10 +361,32 @@
         "reviewBy": "2026-07-31",
         "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here.",
         "helperUses": ["appendFreshWriteToken"],
-        "files": [
-          "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
-          "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
-        ]
+        "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
+      }
+    },
+    {
+      "id": "discovery.item-detail-ship-from-setup-self-refresh",
+      "owner": "discovery",
+      "risk": "important",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Save ship-from setup before quick listing"],
+        "command": "Inventory storage location create command"
+      },
+      "destination": {
+        "routeId": "item-detail",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/storage-locations",
+        "readModelTables": ["inventory_storage_locations"],
+        "transientRecovery": "Item detail forwards the Inventory storage-location commit receipt to the ship-from setup read and shows temporary recovery copy while the Inventory projection catches up."
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "discovery",
+        "reviewBy": "2026-07-31",
+        "reason": "Discovery carries the Inventory storage-location commit receipt through item-detail route-support and waits on the Inventory-owned storage-location read model. The authoritative post-write contract remains Inventory-owned; Discovery does not read a Discovery projection after this write.",
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "files": ["bounded-contexts/discovery/support/route-support/item-detail/loader.ts"]
       }
     },
     {
@@ -387,6 +409,31 @@
         "reason": "Discovery builds the View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout.",
         "helperUses": ["appendPostWriteHandoff"],
         "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
+      }
+    },
+    {
+      "id": "discovery.item-detail-add-to-sell-list-semantic-handoff",
+      "owner": "discovery",
+      "risk": "critical",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Build Sell List redirect after item detail add-to-sell-list"],
+        "command": "Checkout addSellListLine/addGuestSellListLine semantic handoff"
+      },
+      "destination": {
+        "routeId": "account-sell-list",
+        "transientRecovery": "Discovery carries the Checkout-owned add-line semantic handoff to /account/sell-list; Checkout owns the destination fresh-read wait, pending empty-list state, and diagnostics in checkout.sell-list-self-refresh."
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "discovery",
+        "reviewBy": "2026-07-31",
+        "reason": "Discovery builds the Sell List redirect URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-sell-list destination is owned and tested in Checkout.",
+        "helperUses": ["appendPostWriteHandoff"],
+        "files": [
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+          "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
+        ]
       }
     }
   ],

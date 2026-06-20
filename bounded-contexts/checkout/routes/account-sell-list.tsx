@@ -2,8 +2,12 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   appendFreshWriteToken,
+  appendPostWriteHandoff,
+  evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
+  readPostWriteHandoffState,
   recoverFreshWriteReadError,
+  type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -30,6 +34,12 @@ import {
   ensureAnonymousSellListId,
   readAnonymousSellListId,
 } from "../support/request-support/guest-checkout";
+import {
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+  ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND,
+  isAccountSellListAddLineHandoff,
+  isPendingAccountSellListAddLineHandoff,
+} from "../support/request-support/account-sell-list-handoffs";
 import {
   SELLER_CHECKOUT_REGISTER_HREF,
   SELLER_CHECKOUT_SIGN_IN_HREF,
@@ -72,6 +82,8 @@ type AccountSellList = Readonly<{
   latestConfirmation?: CheckoutSellListConfirmationRow | null;
 }>;
 
+type AccountSellListActorMode = "guest" | "account";
+
 function checkoutApiErrorStatus(error: unknown) {
   const status = (error as { status?: unknown })?.status;
   return typeof status === "number" ? status : null;
@@ -88,14 +100,63 @@ function checkoutApiErrorCode(error: unknown) {
   return code === null || code === undefined ? null : String(code);
 }
 
-async function loadAccountSellList(request: Request, load: () => Promise<AccountSellList>) {
+function freshnessOutcomeForHandoffState(state: PostWriteHandoffState) {
+  switch (state.kind) {
+    case "missing":
+      return "missing-after-write";
+    case "malformed":
+      return "malformed-handoff";
+    case "not-fresh-write":
+      switch (state.freshWrite.kind) {
+        case "expired":
+          return "expired-after-write";
+        case "future":
+          return "future-after-write";
+        default:
+          return "missing-after-write";
+      }
+    case "valid":
+      return "valid-after-write";
+  }
+}
+
+async function loadSellListWithPostWriteRecovery(
+  request: Request,
+  load: () => Promise<AccountSellList>,
+  actorMode: AccountSellListActorMode,
+) {
   try {
     const sellList = await loadFreshlyWrittenResource({
       request,
       load,
       isNotFound: (error) => checkoutApiErrorStatus(error) === 404,
     });
-    return { sellList, freshnessError: null };
+    const handoffDecisionAtMs = Date.now();
+    const handoffState = readPostWriteHandoffState(request, handoffDecisionAtMs);
+    const handoff = evaluatePostWriteHandoff({
+      request,
+      data: sellList,
+      nowMs: handoffDecisionAtMs,
+      isSatisfied: (candidate, postWriteHandoff) =>
+        isAccountSellListAddLineHandoff(postWriteHandoff) &&
+        !isPendingAccountSellListAddLineHandoff(candidate, postWriteHandoff),
+    });
+
+    if (handoff.kind === "pending" && isAccountSellListAddLineHandoff(handoff.handoff)) {
+      return {
+        sellList,
+        freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListRecovery: {
+          kind: "pending-fresh-write" as const,
+          message: t("checkout.routes.accountSellList.sell.list.pending.fresh.write"),
+          actorMode,
+          freshnessOutcome: freshnessOutcomeForHandoffState(handoffState),
+          correctionSource: `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
+        },
+      };
+    }
+
+    return { sellList, freshnessError: null, sellListRecovery: null };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
       request,
@@ -106,6 +167,7 @@ async function loadAccountSellList(request: Request, load: () => Promise<Account
       recoverTransient: () => ({
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListRecovery: null,
       }),
     });
     if (recovery) {
@@ -387,13 +449,19 @@ export async function loader({ request }: LoaderFunctionArgs) {
     requestUrl.searchParams.get("registrationReturn") === "seller-checkout" ? "seller-checkout" : null;
 
   if (!canUseAccountSellList(actor)) {
-    const sellList = await api.getGuestSellList(anonymousSellListId);
+    const { sellList, freshnessError, sellListRecovery } = await loadSellListWithPostWriteRecovery(
+      request,
+      () => api.getGuestSellList(anonymousSellListId),
+      "guest",
+    );
 
     return {
       isSignedIn: false,
       registrationReturn: null,
       mergedLineCount: 0,
       mergeError: null,
+      freshnessError,
+      sellListRecovery,
       sellList,
       offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
     };
@@ -411,7 +479,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
-  const { sellList, freshnessError } = await loadAccountSellList(request, () => api.getSellList());
+  const { sellList, freshnessError, sellListRecovery } = await loadSellListWithPostWriteRecovery(
+    request,
+    () => api.getSellList(),
+    "account",
+  );
 
   return {
     isSignedIn: true,
@@ -419,6 +491,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     mergedLineCount,
     mergeError,
     freshnessError,
+    sellListRecovery,
     sellList,
     offerReviews: await loadSellListOfferReviews(request, sellList.items, {
       includeStandardComparison: registrationReturn === "seller-checkout",
@@ -725,8 +798,10 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!useAccountSellList) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
         const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
-        const response = redirect(appendFreshWriteToken("/account/sell-list", result));
-        appendAnonymousSellListCookie(response.headers, anonymousOwnerId);
+        const response = redirect(
+          appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF),
+        );
+        appendAnonymousSellListCookie(response.headers, anonymousOwnerId, request);
         return response;
       }
 
@@ -735,7 +810,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
-      return redirect(appendFreshWriteToken("/account/sell-list", result));
+      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
     }
 
     if (intent === "remove-sell-list-line") {
@@ -815,6 +890,7 @@ export default function CheckoutAccountSellListRoute() {
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}
       errorMessage={actionData?.error ?? ("freshnessError" in data ? data.freshnessError : null)}
+      recoveryMessage={"sellListRecovery" in data ? (data.sellListRecovery?.message ?? null) : null}
     />
   );
 }

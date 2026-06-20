@@ -754,6 +754,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountSellList.review.selected.offers.and.product.level":
     "Review selected offers and product-level seller intent before checkout creates sale commitments.",
   "checkout.routes.accountSellList.sell.list.chase.sets": "Sell List | Chase Sets",
+  "checkout.routes.accountSellList.sell.list.pending.fresh.write":
+    "Your Sell List is updating. Refresh in a moment if the new line is not visible yet.",
   "checkout.routes.accountSellList.sell.list.request.failed": "Sell List request failed.",
   "checkout.routes.accountSellList.sell.list.readiness.must.be.resolved":
     "Resolve Sell List readiness before seller checkout starts.",

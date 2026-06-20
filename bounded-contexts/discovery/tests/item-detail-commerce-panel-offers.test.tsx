@@ -374,6 +374,37 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(screen.queryByText("Selected offer")).toBeNull();
   });
 
+  it("keeps the sell rail offer action reachable when account offer enrichment is unavailable", async () => {
+    renderItemDetailRoute({
+      item: createItem({
+        offer_demand_matches: [{ ...baseOffer, price_amount: "380.00" }],
+      }),
+      accountOfferMatches: [],
+      sellerInventoryItems: [],
+      sellerAccountId: "seller_1",
+      hasListingStockLocation: true,
+      viewerAccountId: "seller_1",
+      initialMarketIntent: "sell",
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: true,
+      canUseListingFeatures: true,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+      productAlertClaimError: null,
+      listingSetupLoadError: null,
+    });
+
+    const selectedOfferAction = (await screen.findAllByRole("button", { name: /Best offer/ }))[0];
+
+    expect(selectedOfferAction.getAttribute("data-disabled")).not.toBe("true");
+    expect(selectedOfferAction.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
   it("does not show raw buyer ids in selected offer match fallback identity", () => {
     render(
       <MarketplaceOfferMatchSection

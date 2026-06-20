@@ -374,6 +374,8 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.ship.from.postal.code": "Postal code",
   "discovery.routes.itemDetail.ship.from.setup": "Ship-from setup",
   "discovery.routes.itemDetail.ship.from.setup.description": "Create the Listing stock origin used by quick listings.",
+  "discovery.routes.itemDetail.ship.from.setup.pending.fresh.write":
+    "Ship-from setup is still updating. Refresh in a moment if it is not visible yet.",
   "discovery.routes.itemDetail.ship.from.setup.required": "Ship-from setup is required before quick listing.",
   "discovery.routes.itemDetail.ship.from.state": "State",
   "discovery.routes.itemDetail.save.ship.from.setup": "Save ship-from setup",

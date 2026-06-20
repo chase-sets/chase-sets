@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/responses";
+import { ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } from "../support/request-support/account-sell-list-handoffs";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -132,6 +133,78 @@ describe("checkout web routes: account sell list", () => {
         offerReviews: [],
         productOfferReviews: [],
         inventoryItems: [],
+      }),
+    );
+  });
+
+  it("shows temporary Sell List recovery when a valid add-line handoff still reads an empty account projection", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list",
+          checkoutCommit("42", "evt_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: expect.any(String),
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+      }),
+    );
+  });
+
+  it("shows temporary Sell List recovery when a valid add-line handoff still reads an empty anonymous projection", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list",
+          checkoutCommit("42", "evt_guest_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        )}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: false,
+        sellList: { items: [], count: 0 },
+        freshnessError: expect.any(String),
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "guest",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
       }),
     );
   });
@@ -718,14 +791,16 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual({
-      isSignedIn: false,
-      registrationReturn: null,
-      mergedLineCount: 0,
-      mergeError: null,
-      sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
-      offerReviews: [],
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: false,
+        registrationReturn: null,
+        mergedLineCount: 0,
+        mergeError: null,
+        sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
+        offerReviews: [],
+      }),
+    );
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
   });
 
@@ -771,36 +846,38 @@ describe("checkout web routes: account sell list", () => {
     } as never);
 
     expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
-    expect(result).toEqual({
-      isSignedIn: false,
-      registrationReturn: null,
-      mergedLineCount: 0,
-      mergeError: null,
-      sellList: {
-        items: [
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: false,
+        registrationReturn: null,
+        mergedLineCount: 0,
+        mergeError: null,
+        sellList: {
+          items: [
+            {
+              line_id: "sll_1",
+              line_type: "selected-offer",
+              offer_price_amount: "380.00",
+              quantity: 1,
+            },
+          ],
+          count: 1,
+        },
+        offerReviews: [
           {
-            line_id: "sll_1",
-            line_type: "selected-offer",
-            offer_price_amount: "380.00",
-            quantity: 1,
+            lineId: "sll_1",
+            status: "ready",
+            comparison: null,
+            message: null,
+            terms: expect.not.objectContaining({
+              fee_quote_fingerprint: expect.anything(),
+              schedule_id: expect.anything(),
+              agreement_id: expect.anything(),
+            }),
           },
         ],
-        count: 1,
-      },
-      offerReviews: [
-        {
-          lineId: "sll_1",
-          status: "ready",
-          comparison: null,
-          message: null,
-          terms: expect.not.objectContaining({
-            fee_quote_fingerprint: expect.anything(),
-            schedule_id: expect.anything(),
-            agreement_id: expect.anything(),
-          }),
-        },
-      ],
-    });
+      }),
+    );
     expect(result.offerReviews[0]?.terms).toEqual(
       expect.objectContaining({
         seller_net_unit_amount: "345.65",

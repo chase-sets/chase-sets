@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
+import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../../request-support/api-client";
 import {
@@ -31,6 +32,22 @@ type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
   Readonly<{
     acceptance_terms: MarketplaceListingTermsPreview | null;
   }>;
+
+function apiErrorStatus(error: unknown) {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === "number" ? status : null;
+}
+
+function apiErrorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error ? (error as { body: unknown }).body : null;
+}
+
+function apiErrorCode(error: unknown) {
+  const body = apiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createDiscoveryRequestApiClient(request);
@@ -69,6 +86,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: true,
       canonicalUrl: null,
       productAlertClaimError: null,
+      listingSetupLoadError: null,
     };
   }
 
@@ -121,6 +139,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
     let hasListingStockLocation = false;
+    let listingSetupLoadError: string | null = null;
 
     if (canReviewAccountOfferMatches) {
       try {
@@ -149,18 +168,42 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     if (canSellOnItem) {
       try {
-        const [items, storageLocations] = await Promise.all([
-          marketplaceApi.listSellerListingInventory(
-            `limit=100&offset=0&catalogItemId=${encodeURIComponent(item.catalog_item_id)}`,
-          ),
-          inventoryApi.listStorageLocations("limit=100&offset=0"),
-        ]);
+        const items = await marketplaceApi.listSellerListingInventory(
+          `limit=100&offset=0&catalogItemId=${encodeURIComponent(item.catalog_item_id)}`,
+        );
         sellerInventoryItems = (items.items as MarketplaceListingInventoryItemOption[]).map(toSellerInventoryItem);
+      } catch {
+        sellerInventoryItems = [];
+      }
+
+      try {
+        const storageLocations = await loadFreshlyWrittenResource({
+          request,
+          load: () => inventoryApi.listStorageLocations("limit=100&offset=0"),
+          isNotFound: (error) => apiErrorStatus(error) === 404,
+        });
         hasListingStockLocation = storageLocations.items.some(
           (location) => location.name === LISTING_STOCK_LOCATION_NAME,
         );
-      } catch {
-        sellerInventoryItems = [];
+      } catch (error) {
+        const recovery = recoverFreshWriteReadError({
+          request,
+          error,
+          getStatus: apiErrorStatus,
+          getErrorCode: apiErrorCode,
+          getBody: apiErrorBody,
+          recoverTransient: () => ({
+            hasListingStockLocation: false,
+            listingSetupLoadError: t("discovery.routes.itemDetail.ship.from.setup.pending.fresh.write"),
+          }),
+        });
+        if (!recovery) {
+          listingSetupLoadError =
+            error instanceof Error ? error.message : t("discovery.routes.itemDetail.ship.from.setup.required");
+        } else {
+          hasListingStockLocation = recovery.hasListingStockLocation;
+          listingSetupLoadError = recovery.listingSetupLoadError;
+        }
       }
     }
 
@@ -184,6 +227,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
       productAlertClaimError,
+      listingSetupLoadError,
       canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, new URL(request.url).origin).toString(),
     };
   } catch (error) {
@@ -213,6 +257,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         notFound: true,
         canonicalUrl: null,
         productAlertClaimError: null,
+        listingSetupLoadError: null,
         error: error.message,
       };
     }
@@ -238,6 +283,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       notFound: true,
       canonicalUrl: null,
       productAlertClaimError: null,
+      listingSetupLoadError: null,
       error: error instanceof Error ? error.message : t("discovery.routes.itemDetail.item.not.found"),
     };
   }
