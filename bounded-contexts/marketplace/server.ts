@@ -1,6 +1,7 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
 export type {
   MarketplaceListingInventoryItemOption,
+  MarketplaceListingDetail,
   MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
