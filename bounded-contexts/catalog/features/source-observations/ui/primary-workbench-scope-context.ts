@@ -191,15 +191,22 @@ export function scopeKey(scope: SourceObservationIntegrationScope): string {
 }
 
 export function scopeContextToIntegrationJobScope(
-  scope: CatalogPrimaryWorkbenchScopeContext,
+  scope: CatalogPrimaryWorkbenchScopeContext & {
+    ingestionUnitKey?: string | null;
+    profileKey?: string | null;
+    productId?: string | null;
+  },
 ): SourceObservationIntegrationJobScope {
   return compactScope({
     provider: scope.providerKey ?? undefined,
+    profileKey: scope.profileKey ?? undefined,
+    ingestionUnitKey: scope.ingestionUnitKey ?? undefined,
     language: scope.languageCode ?? undefined,
     productLineId: scope.productLineId ?? undefined,
     seriesId: scope.seriesId ?? undefined,
     setId: scope.expansionId ?? undefined,
     setName: scope.expansionName ?? undefined,
+    productId: scope.productId ?? undefined,
   });
 }
 

@@ -742,6 +742,7 @@ describe("Catalog integrations route", () => {
     );
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
       provider: "tcgdex",
+      ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       language: "ja",
       seriesId: "SV",
       setId: "SV8",
@@ -970,6 +971,7 @@ describe("Catalog integrations route", () => {
 
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
       provider: "tcgdex",
+      ingestionUnitKey: "tcgdex:pokemon:card:import",
       language: "en",
       productLineId: "3",
       seriesId: "base",
@@ -1012,6 +1014,7 @@ describe("Catalog integrations route", () => {
 
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
       provider: "tcgdex",
+      ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       language: "ja",
       seriesId: "SV",
       setId: "SV8",
@@ -1038,6 +1041,7 @@ describe("Catalog integrations route", () => {
 
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
       provider: "tcgdex",
+      ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       language: "ja",
       seriesId: "SV",
       setId: "SV8",
@@ -1049,6 +1053,38 @@ describe("Catalog integrations route", () => {
       seriesId: "SV",
       expansionId: "SV8",
     });
+  });
+
+  it("queues Magic set sync row imports with the selected ingestion unit and set scope", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_magic_5dn" });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const result = await runDailyAction({
+      _intent: "start-provider-import",
+      providerKey: "mtgjson",
+      unitKey: "mtgjson:mtg:single-card:reference-data",
+      importScope: "en:5DN",
+      languageCode: "en",
+      productLineName: "Magic: The Gathering",
+      seriesId: "",
+      expansionId: "5DN",
+      expansionName: "Fifth Dawn",
+      profileVersion: "2026.06.19",
+    });
+
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+      provider: "mtgjson",
+      ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
+      language: "en",
+      setId: "5DN",
+      setName: "Fifth Dawn",
+    });
+    expect(result.feedback.result).toBe("job-queued");
+    expect(result.context.jobId).toBe("job_magic_5dn");
   });
 
   it("does not enqueue a provider import until a concrete source scope is selected", async () => {
