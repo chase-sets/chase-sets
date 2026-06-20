@@ -381,11 +381,10 @@
         "transientRecovery": "Item detail forwards the Inventory storage-location commit receipt to the ship-from setup read and shows temporary recovery copy while the Inventory projection catches up."
       },
       "exception": {
-        "status": "accepted",
+        "status": "not-post-write-read",
         "owner": "discovery",
         "reviewBy": "2026-07-31",
-        "issue": "#2088",
-        "reason": "The item-detail route module delegates its loader to route-support so the exact Inventory storage-location fresh-read helper lives in bounded-contexts/discovery/support/route-support/item-detail/loader.ts. The runtime still waits on Inventory projection freshness and shows temporary recovery copy; this exception records helper placement until the structure gate can follow route-support exports.",
+        "reason": "Discovery carries the Inventory storage-location commit receipt through item-detail route-support and waits on the Inventory-owned storage-location read model. The authoritative post-write contract remains Inventory-owned; Discovery does not read a Discovery projection after this write.",
         "helperUses": ["loadFreshlyWrittenResource"],
         "files": ["bounded-contexts/discovery/support/route-support/item-detail/loader.ts"]
       }

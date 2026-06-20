@@ -230,7 +230,9 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: ["discovery:discovery-product-alert-page-projection"],
     routeDependencyIds: [
       "discovery.item-detail-add-to-cart-semantic-handoff",
+      "discovery.item-detail-add-to-sell-list-semantic-handoff",
       "discovery.item-detail-checkout-handoff",
+      "discovery.item-detail-ship-from-setup-self-refresh",
     ],
   }),
   registryEntry({
