@@ -43,12 +43,13 @@ import { sortListingsByBuyerPrice } from "../../../features/item-detail/domain/i
 import {
   assertSelectedListingQuantityAvailable,
   findSelectedListingForAction,
-  getFreshOfferMatchForAction,
+  getPublicSelectedOfferForSellList,
   getListingAvailableQuantity,
   normalizeMoneyAmount,
   parsePositiveQuantity,
   parseSelectedOptions,
   saveGuestSelectedOfferToSellList,
+  selectedOfferSellListLineFromPublicOffer,
   shipFromAddressFromForm,
 } from "./action-helpers";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
@@ -325,11 +326,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
-      const result = await marketplaceApi.acceptOfferMatch(offerId, {
-        feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
-      });
-      return redirect(appendFreshWriteToken("/account/sales", result));
+      const offer = getPublicSelectedOfferForSellList(item, offerId);
+      const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
+      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
     }
 
     if (intent === "add-to-sell-list") {
@@ -347,22 +346,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      const offer = await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
-
-      const result = await checkoutApi.addSellListLine({
-        lineType: "selected-offer",
-        offerId,
-        buyerAccountId: offer.buyer_account_id,
-        buyerDisplayName: offer.buyer_display_name,
-        offerPriceAmount: offer.price_amount,
-        catalogItemId: item.catalog_item_id,
-        productId: offer.product_id,
-        itemTitle: item.title,
-        itemSubtitle: item.subtitle,
-        selectedOptions: offer.selected_options,
-        productSummary: offer.product_summary,
-        quantity: offer.quantity_requested,
-      });
+      const offer = getPublicSelectedOfferForSellList(item, offerId);
+      const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
       return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
     }
 

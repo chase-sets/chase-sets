@@ -16,7 +16,6 @@ const buyNowMocks = {
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateSubmittedOffer: vi.fn(),
   mockAddGuestCartLine: vi.fn(),
-  mockGetOfferMatch: vi.fn(),
   mockAcceptOfferMatch: vi.fn(),
   mockEnsureListingStock: vi.fn(),
   mockAppendAnonymousCartCookie: vi.fn((headers: Headers, anonymousCartId: string) => {
@@ -54,7 +53,6 @@ export const {
   mockResolveActorFromAuthApi,
   mockCreateSubmittedOffer,
   mockAddGuestCartLine,
-  mockGetOfferMatch,
   mockAcceptOfferMatch,
   mockEnsureListingStock,
   mockAppendAnonymousCartCookie,
