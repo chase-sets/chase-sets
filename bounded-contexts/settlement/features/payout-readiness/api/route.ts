@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { resolveCurrentActorPrimaryEmail } from "./request-support/identity-current-actor";
 import type { SettlementApiEnv } from "../../../api";
 import type { PayoutReadinessServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -54,6 +55,19 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payoutReadiness.api.route.request.failed");
 }
 
+async function resolveActorContactEmail(request: Request) {
+  return resolveCurrentActorPrimaryEmail(request);
+}
+
+async function contactEmailFromRequest(request: Request, body: Record<string, unknown>) {
+  const actorContactEmail = await resolveActorContactEmail(request);
+  if (actorContactEmail) {
+    return actorContactEmail;
+  }
+
+  return typeof body.contactEmail === "string" ? body.contactEmail : null;
+}
+
 export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
   const app = new Hono<SettlementApiEnv>();
 
@@ -100,7 +114,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       const result = await services.createPayoutSetupSession(
         {
           accountId: access.actor.accountId as AccountId,
-          contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
+          contactEmail: await contactEmailFromRequest(c.req.raw, body),
         },
         context,
       );
@@ -169,7 +183,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       const readiness = await services.refreshProviderReadiness(
         {
           accountId: access.actor.accountId as AccountId,
-          contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
+          contactEmail: await contactEmailFromRequest(c.req.raw, body),
           providerReference: typeof body.providerReference === "string" ? body.providerReference : null,
         },
         context,
