@@ -230,6 +230,42 @@ describe("checkout web routes: checkout start", () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it("keeps a signed-out cart checkout waiting for guest contact without cart side effects", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+    form.set("readinessSnapshotId", "cr_ready");
+    form.set("readinessSourceRevision", "cr_source");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toBeNull();
+    expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCartReadiness).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("returns checkout-owned recovery when guest-buyer checkout reentry starts from an empty cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockCreateCheckoutSession.mockRejectedValue(
