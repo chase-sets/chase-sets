@@ -1,0 +1,74 @@
+{
+  "observationId": "tcgplayer_yugioh_product_17851",
+  "externalKey": "17851",
+  "sourceUrl": "https://www.tcgplayer.com/product/17851",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 17851,
+  "productName": "Dark Magician",
+  "setName": "Starter Deck: Yugi",
+  "productLineId": 2,
+  "productLineName": "Yu-Gi-Oh!",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "SDY-006"
+  },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": ["sku:60017851"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:17851"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:60017851",
+      "selectedOptions": [
+        {
+          "dimensionKey": "condition",
+          "optionKey": "near-mint",
+          "providerValue": "Near Mint"
+        },
+        {
+          "dimensionKey": "printing",
+          "optionKey": "unlimited",
+          "providerValue": "Unlimited"
+        },
+        {
+          "dimensionKey": "language",
+          "optionKey": "english",
+          "providerValue": "English"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "yugioh",
+    "productLineName": "Yu-Gi-Oh!",
+    "setName": "Starter Deck: Yugi",
+    "printedProductName": "Dark Magician",
+    "collectorNumber": "SDY-006",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 17851,
+    "productName": "Dark Magician Alternate Fixture",
+    "setName": "Starter Deck: Yugi",
+    "productLineName": "Yu-Gi-Oh!",
+    "productForm": "single",
+    "skuIds": [60017851]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "normal",
+    "excludedEvidence": {
+      "price": "redacted fixture boundary",
+      "inventory": "redacted fixture boundary"
+    }
+  }
+}

@@ -75,6 +75,45 @@ describe("provider Source Observation normalizer", () => {
     expect(changed.observation?.sourceRecordHash).toBe(original.observation?.sourceRecordHash);
   });
 
+  it("builds a Yu-Gi-Oh card-print observation without treating vendor prices as Catalog truth", () => {
+    const contract = yugiohCardPrintContract();
+    const base = yugiohCardPrintPayload();
+    const repriced = {
+      ...base,
+      card_prices: [{ tcgplayer_price: "999.99", cardmarket_price: "888.88" }],
+    };
+
+    const original = normalizeCatalogProviderSourceObservation({
+      contract,
+      payload: base,
+      observedAt: "2026-06-20T00:00:00.000Z",
+    });
+    const changed = normalizeCatalogProviderSourceObservation({
+      contract,
+      payload: repriced,
+      observedAt: "2026-06-20T00:00:00.000Z",
+    });
+
+    expect(original.diagnostics).toEqual([]);
+    expect(original.observation).toMatchObject({
+      observationId: "ygoprodeck_en_card_89631139",
+      providerKey: "ygoprodeck",
+      externalKey: "card:89631139",
+      languageCode: "en",
+      normalized: {
+        kind: "yugioh-card-print",
+        tcg: "yugioh",
+        name: "Blue-Eyes White Dragon",
+        passcode: "89631139",
+        setName: "Legend of Blue Eyes White Dragon",
+        rarity: "Ultra Rare",
+        imageUrls: ["https://images.ygoprodeck.com/images/cards/89631139.jpg"],
+      },
+    });
+    expect(changed.observation?.sourceRecordHash).toBe(original.observation?.sourceRecordHash);
+    expect(JSON.stringify(original.observation?.normalized)).not.toMatch(/tcgplayer_price|cardmarket_price|999\.99/);
+  });
+
   it("reports missing required fields without leaking provider values", () => {
     const result = normalizeCatalogProviderSourceObservation({
       contract: providerProductContract(),
@@ -373,6 +412,42 @@ function providerProductPayload(): JsonObject {
   };
 }
 
+function yugiohCardPrintPayload(): JsonObject {
+  return {
+    id: 89631139,
+    name: "Blue-Eyes White Dragon",
+    passcode: "89631139",
+    type: "Normal Monster",
+    attribute: "LIGHT",
+    archetype: "Blue-Eyes",
+    card_sets: [
+      {
+        set_name: "Legend of Blue Eyes White Dragon",
+        set_code: "LOB-001",
+        set_rarity: "Ultra Rare",
+      },
+    ],
+    selectedPrint: {
+      set_name: "Legend of Blue Eyes White Dragon",
+      set_code: "LOB-001",
+      set_rarity: "Ultra Rare",
+    },
+    card_images: [{ image_url: "https://images.ygoprodeck.com/images/cards/89631139.jpg" }],
+    card_prices: [{ tcgplayer_price: "1.23", cardmarket_price: "1.11" }],
+    sourceUrl: "https://db.ygoprodeck.com/api/v7/cardinfo.php?id=89631139",
+    sourceUpdatedAt: "2026-06-20",
+    externalKey: "card:89631139",
+    observationId: "ygoprodeck_en_card_89631139",
+    catalogHashMaterial: {
+      id: 89631139,
+      name: "Blue-Eyes White Dragon",
+      setCode: "LOB-001",
+      setName: "Legend of Blue Eyes White Dragon",
+      rarity: "Ultra Rare",
+    },
+  };
+}
+
 function providerProductContract(): CatalogProviderSourceObservationMappingContract {
   return {
     ...baseContract(),
@@ -401,6 +476,50 @@ function providerProductContract(): CatalogProviderSourceObservationMappingContr
         skuReferences: constantExpr([], "external-reference", ["normalized-observation"]),
         externalCatalogItemReferences: constantExpr(
           [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+          "external-reference",
+          ["normalized-observation", "external-reference"],
+        ),
+      },
+      hashMaterial: [expr("catalogHashMaterial", "catalog-truth", ["hash-material"])],
+      mergeIdentity: [],
+    },
+  };
+}
+
+function yugiohCardPrintContract(): CatalogProviderSourceObservationMappingContract {
+  return {
+    ...baseContract(),
+    providerKey: "ygoprodeck",
+    profileKey: "ygoprodeck-yugioh-card-print",
+    displayName: "YGOPRODeck Yu-Gi-Oh Card Print",
+    sourceObservation: {
+      observationId: expr("observationId", "catalog-merge-evidence", ["normalized-observation"]),
+      externalKey: expr("externalKey", "external-reference", ["external-reference"]),
+      sourceUrl: expr("sourceUrl", "operations", ["source-payload"]),
+      sourceUpdatedAt: optionalExpr("sourceUpdatedAt", "catalog-truth", ["normalized-observation"]),
+      sourcePayload: expr(".", "catalog-merge-evidence", ["source-payload"]),
+    },
+    normalizedObservation: {
+      outputKind: "yugioh-card-print",
+      languageCode: constantExpr("en", "catalog-truth", ["normalized-observation", "hash-material"]),
+      fields: {
+        tcg: constantExpr("yugioh", "catalog-truth", ["normalized-observation", "hash-material"]),
+        name: expr("name", "catalog-truth", ["normalized-observation", "hash-material"]),
+        cardNumber: expr("selectedPrint.set_code", "catalog-truth", ["normalized-observation", "hash-material"]),
+        passcode: expr("passcode", "catalog-truth", ["normalized-observation", "hash-material"]),
+        setCode: expr("selectedPrint.set_code", "catalog-truth", ["normalized-observation", "hash-material"]),
+        setName: expr("selectedPrint.set_name", "catalog-truth", ["normalized-observation", "hash-material"]),
+        expansionName: expr("selectedPrint.set_name", "catalog-truth", ["normalized-observation", "hash-material"]),
+        rarity: expr("selectedPrint.set_rarity", "catalog-truth", ["normalized-observation", "hash-material"]),
+        cardType: expr("type", "catalog-truth", ["normalized-observation", "hash-material"]),
+        attribute: optionalExpr("attribute", "catalog-truth", ["normalized-observation", "hash-material"]),
+        archetype: optionalExpr("archetype", "catalog-truth", ["normalized-observation", "hash-material"]),
+        releaseDate: optionalExpr("sourceUpdatedAt", "catalog-truth", ["normalized-observation", "hash-material"]),
+        imageUrls: constantExpr(["https://images.ygoprodeck.com/images/cards/89631139.jpg"], "catalog-truth", [
+          "normalized-observation",
+        ]),
+        externalCatalogItemReferences: constantExpr(
+          [{ providerKey: "ygoprodeck", externalKey: "card:89631139" }],
           "external-reference",
           ["normalized-observation", "external-reference"],
         ),

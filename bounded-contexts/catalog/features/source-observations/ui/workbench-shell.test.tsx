@@ -9,7 +9,7 @@ import {
 } from "./primary-workbench-read-model";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
-import type { SourceObservationIntegrationOptionResponse } from "./contracts";
+import type { CatalogProviderSourceOptionKind, SourceObservationIntegrationOptionResponse } from "./contracts";
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 
 // The import-jobs module polls live progress via useRevalidator and the import
@@ -115,6 +115,121 @@ function providerProfile(providerKey: "scrydex" | "tcgdex", displayName: string,
       supportedScopes: [supportedScope],
     },
     supportedScopes: [supportedScope],
+  });
+}
+
+type WorkbenchProviderUnitProfile = Readonly<{
+  providerKey: string;
+  profileKey: string;
+  displayName: string;
+  ingestionUnitKey: string;
+  supportedScopes: readonly string[];
+  sourceOptionKinds?: readonly CatalogProviderSourceOptionKind[];
+}>;
+
+const yugiohProviderUnitProfiles = [
+  {
+    providerKey: "ygoprodeck",
+    profileKey: "yugioh-card-print-reference-data",
+    displayName: "YGOPRODeck Yu-Gi-Oh Card Print Reference Data",
+    ingestionUnitKey: "ygoprodeck:yugioh:single-card:reference-data",
+    supportedScopes: ["set-name", "product/card"],
+    sourceOptionKinds: [
+      providerSourceOptionKind("set-names", "Set", "setName"),
+      providerSourceOptionKind("products", "Card", "productName", {
+        parentValueKind: "setName",
+        parentDiagnosticText: "Select a Set before loading YGOPRODeck cards.",
+      }),
+    ],
+  },
+  {
+    providerKey: "ygoprodeck",
+    profileKey: "yugioh-set-reference-data",
+    displayName: "YGOPRODeck Yu-Gi-Oh Set Reference Data",
+    ingestionUnitKey: "ygoprodeck:yugioh:set:reference-data",
+    supportedScopes: ["set-name"],
+  },
+  {
+    providerKey: "ygojson",
+    profileKey: "yugioh-set-reference-data",
+    displayName: "YGOJSON Yu-Gi-Oh Set Reference Data",
+    ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+    supportedScopes: ["set-name", "product"],
+    sourceOptionKinds: [
+      providerSourceOptionKind("set-names", "Set", "setName"),
+      providerSourceOptionKind("products", "Sealed Product", "productName", {
+        parentValueKind: "setName",
+        parentDiagnosticText: "Select a Set before loading YGOJSON sealed products.",
+      }),
+    ],
+  },
+  {
+    providerKey: "ygojson",
+    profileKey: "yugioh-sealed-product-reference-data",
+    displayName: "YGOJSON Yu-Gi-Oh Sealed Product Reference Data",
+    ingestionUnitKey: "ygojson:yugioh:sealed-product:reference-data",
+    supportedScopes: ["product"],
+    sourceOptionKinds: [providerSourceOptionKind("products", "Sealed Product", "productName")],
+  },
+] as const satisfies readonly WorkbenchProviderUnitProfile[];
+
+const tcgplayerProviderUnitProfiles = [
+  {
+    providerKey: "tcgplayer",
+    profileKey: "pokemon-tcg-automation-client",
+    displayName: "TCGplayer Pokemon single cards",
+    ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+    supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "mtg-single-card-product-sku",
+    displayName: "TCGplayer Magic single cards",
+    ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "yugioh-single-card-product-sku",
+    displayName: "TCGplayer Yu-Gi-Oh single cards",
+    ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+    supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+  },
+] as const satisfies readonly WorkbenchProviderUnitProfile[];
+
+function providerSourceOptionKind(
+  queryKind: string,
+  displayName: string,
+  scope: string,
+  parent: Partial<Pick<CatalogProviderSourceOptionKind, "parentValueKind" | "parentDiagnosticText">> = {},
+): CatalogProviderSourceOptionKind {
+  return {
+    queryKind,
+    queryKeySynonyms: [],
+    displayName,
+    scope,
+    parentScope: null,
+    parentRequired: Boolean(parent.parentValueKind),
+    parentValueKind: parent.parentValueKind ?? null,
+    parentDiagnosticText: parent.parentDiagnosticText ?? null,
+  };
+}
+
+function providerUnitProfileReview(profile: WorkbenchProviderUnitProfile) {
+  return profileReview({
+    providerKey: profile.providerKey,
+    profileKey: profile.profileKey,
+    displayName: profile.displayName,
+    ingestionUnitKey: profile.ingestionUnitKey,
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    profile: {
+      providerKey: profile.providerKey,
+      supportedScopes: [...profile.supportedScopes],
+    },
+    supportedScopes: [...profile.supportedScopes],
+    sourceOptionKinds: [...(profile.sourceOptionKinds ?? [])],
   });
 }
 
@@ -381,6 +496,83 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
     expect(scope?.languageCode).toBeNull();
     expect(scope?.seriesId).toBeNull();
     expect(readModel.routeContext.profileVersion).toBe("2026.06.04");
+  });
+
+  it("represents Yu-Gi-Oh provider units beside existing Pokemon and Magic choices", () => {
+    const profiles = [
+      providerUnitProfileReview({
+        providerKey: "tcgdex",
+        profileKey: "pokemon-tcg",
+        displayName: "TCGdex Pokemon cards",
+        ingestionUnitKey: "tcgdex:pokemon:card:import",
+        supportedScopes: ["pokemon/card"],
+      }),
+      providerUnitProfileReview({
+        providerKey: "mtgjson",
+        profileKey: "mtg-card-reference-data",
+        displayName: "MTGJSON Magic card reference data",
+        ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
+        supportedScopes: ["set-name", "product/card"],
+      }),
+      providerUnitProfileReview({
+        providerKey: "scryfall",
+        profileKey: "mtg-card-print-reference-data",
+        displayName: "Scryfall Magic card print reference data",
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+        supportedScopes: ["set-name", "product/card"],
+      }),
+      ...yugiohProviderUnitProfiles.map(providerUnitProfileReview),
+      ...tcgplayerProviderUnitProfiles.map(providerUnitProfileReview),
+    ];
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgplayer",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
+    const providerKeys = [...provider.options].map((option) => option.value);
+    for (const providerKey of ["tcgdex", "mtgjson", "scryfall", "tcgplayer", "ygoprodeck", "ygojson"]) {
+      expect(providerKeys).toContain(providerKey);
+    }
+
+    const tcgplayerUnits = screen.getByLabelText<HTMLSelectElement>("Unit");
+    expect(
+      within(tcgplayerUnits).getByRole("option", {
+        name: "tcgplayer:pokemon:single-card:source-observation-import",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(tcgplayerUnits).getByRole("option", {
+        name: "tcgplayer:mtg:single-card:source-observation-import",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(tcgplayerUnits).getByRole("option", {
+        name: "tcgplayer:yugioh:single-card:source-observation-import",
+      }),
+    ).toBeTruthy();
+
+    const providerScope = readModel.providerScope.providers;
+    const ygoprodeckUnits = providerScope
+      .find((option) => option.providerKey === "ygoprodeck")
+      ?.units.map((unit) => unit.unitKey);
+    expect(ygoprodeckUnits).toHaveLength(2);
+    expect(ygoprodeckUnits).toEqual(
+      expect.arrayContaining(["ygoprodeck:yugioh:single-card:reference-data", "ygoprodeck:yugioh:set:reference-data"]),
+    );
+
+    const ygojsonUnits = providerScope
+      .find((option) => option.providerKey === "ygojson")
+      ?.units.map((unit) => unit.unitKey);
+    expect(ygojsonUnits).toHaveLength(2);
+    expect(ygojsonUnits).toEqual(
+      expect.arrayContaining(["ygojson:yugioh:set:reference-data", "ygojson:yugioh:sealed-product:reference-data"]),
+    );
   });
 });
 

@@ -29,9 +29,14 @@ describe("Catalog provider profile review", () => {
       ["mtgjson", "2026.06.19", "valid"],
       ["scryfall", "2026.06.19", "valid"],
       ["scryfall", "2026.06.19", "valid"],
+      ["ygoprodeck", "2026.06.21", "valid"],
+      ["ygoprodeck", "2026.06.21", "valid"],
+      ["ygojson", "2026.06.21", "valid"],
+      ["ygojson", "2026.06.21", "valid"],
       ["tcgdex", "2026.06.03", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
+      ["tcgplayer", "2026.06.20", "valid"],
       ["tcgplayer", "2026.06.03", "valid"],
     ]);
     expect(reviews.find((review) => review.profileKey === "mtg-card-print-reference-data")).toMatchObject({

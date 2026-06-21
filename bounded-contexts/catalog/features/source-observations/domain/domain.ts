@@ -50,7 +50,11 @@ export type SourceObservationNormalizedKind =
   | "provider-product"
   | "magic-card-print"
   | "magic-set-reference"
-  | "magic-sealed-product";
+  | "magic-sealed-product"
+  | "yugioh-card-print"
+  | "yugioh-set-reference"
+  | "yugioh-sealed-product"
+  | "yugioh-pack-reference";
 
 export type SourceObservationNormalizedBase = Readonly<{
   kind: SourceObservationNormalizedKind;
@@ -173,12 +177,87 @@ export type SourceObservationMagicSealedProductNormalized = JsonObject &
     externalProductReferences?: readonly SourceObservationExternalProductReference[];
   }>;
 
+export type SourceObservationYugiohCardPrintNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "yugioh-card-print";
+    tcg: "yugioh";
+    languageCode: string;
+    name: string;
+    cardNumber: string | null;
+    passcode: string | null;
+    setCode: string | null;
+    setName: string;
+    rarity: string | null;
+    cardType: string | null;
+    attribute: string | null;
+    archetype: string | null;
+    releaseDate: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationYugiohSetReferenceNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "yugioh-set-reference";
+    tcg: "yugioh";
+    languageCode: string;
+    name: string;
+    setCode: string | null;
+    setName: string;
+    releaseDate: string | null;
+    cardCount: number | null;
+    productLineName: "Yu-Gi-Oh!";
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationYugiohSealedProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "yugioh-sealed-product";
+    tcg: "yugioh";
+    languageCode: string;
+    name: string;
+    setCode: string | null;
+    setName: string | null;
+    sealedProductForm: "booster-pack" | "booster-box" | "deck" | "tin" | "sealed-product";
+    releaseDate: string | null;
+    productLineName: "Yu-Gi-Oh!";
+    barcode: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
+export type SourceObservationYugiohPackReferenceNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "yugioh-pack-reference";
+    tcg: "yugioh";
+    languageCode: string;
+    name: string;
+    setCode: string | null;
+    setName: string | null;
+    packName: string;
+    oddsSummary: JsonObject | null;
+    contentsSummary: JsonObject | null;
+    productLineName: "Yu-Gi-Oh!";
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
 export type SourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
   | SourceObservationProviderProductNormalized
   | SourceObservationMagicCardPrintNormalized
   | SourceObservationMagicSetReferenceNormalized
-  | SourceObservationMagicSealedProductNormalized;
+  | SourceObservationMagicSealedProductNormalized
+  | SourceObservationYugiohCardPrintNormalized
+  | SourceObservationYugiohSetReferenceNormalized
+  | SourceObservationYugiohSealedProductNormalized
+  | SourceObservationYugiohPackReferenceNormalized;
 
 export function isPokemonCardSourceObservationNormalized(
   normalized: SourceObservationNormalized,

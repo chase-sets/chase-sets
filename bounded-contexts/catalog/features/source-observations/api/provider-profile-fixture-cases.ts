@@ -611,6 +611,195 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+    ...providerCases(
+      "ygoprodeck",
+      {
+        profileKey: "yugioh-card-print-reference-data",
+        ingestionUnitKey: "ygoprodeck:yugioh:single-card:reference-data",
+        profileVersion: "2026.06.21",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "card:46986414:SDY-006",
+            normalizedKind: "yugioh-card-print",
+            normalizedFields: {
+              name: "Dark Magician",
+              passcode: 46986414,
+              setName: "Starter Deck: Yugi",
+              setCode: "SDY-006",
+              rarity: "Ultra Rare",
+              tcg: "yugioh",
+              productLineName: "Yu-Gi-Oh!",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohBridgeDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohBridgeDuplicatePrevention(),
+        },
+      },
+    ),
+    ...providerCases(
+      "ygoprodeck",
+      {
+        profileKey: "yugioh-set-reference-data",
+        ingestionUnitKey: "ygoprodeck:yugioh:set:reference-data",
+        profileVersion: "2026.06.21",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "set:SDY",
+            normalizedKind: "yugioh-set-reference",
+            normalizedFields: {
+              name: "Starter Deck: Yugi",
+              setName: "Starter Deck: Yugi",
+              setCode: "SDY",
+              releaseDate: "2002-03-29",
+              cardCount: 50,
+              tcg: "yugioh",
+              productLineName: "Yu-Gi-Oh!",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohSetReferenceDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohSetReferenceDuplicatePrevention(),
+        },
+      },
+    ),
+    ...providerCases(
+      "ygojson",
+      {
+        profileKey: "yugioh-set-reference-data",
+        ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+        profileVersion: "2026.06.21",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "set:11111111-1111-4111-8111-111111111111",
+            normalizedKind: "yugioh-set-reference",
+            normalizedFields: {
+              name: "Legend of Blue Eyes White Dragon",
+              ygojsonId: "11111111-1111-4111-8111-111111111111",
+              releaseDate: "2002-03-08",
+              tcg: "yugioh",
+              productLineName: "Yu-Gi-Oh!",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: ygojsonSetReferenceDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: ygojsonSetReferenceDuplicatePrevention(),
+        },
+      },
+    ),
+    ...providerCases(
+      "ygojson",
+      {
+        profileKey: "yugioh-sealed-product-reference-data",
+        ingestionUnitKey: "ygojson:yugioh:sealed-product:reference-data",
+        profileVersion: "2026.06.21",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+            normalizedKind: "yugioh-sealed-product",
+            normalizedFields: {
+              name: "Legend of Blue Eyes White Dragon Booster Box",
+              ygojsonId: "22222222-2222-4222-8222-222222222222",
+              releaseDate: "2002-03-08",
+              tcg: "yugioh",
+              productLineName: "Yu-Gi-Oh!",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohSealedProductDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: yugiohSealedProductDuplicatePrevention(),
+        },
+      },
+    ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "yugioh-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+        profileVersion: "2026.06.20",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "17851",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Dark Magician",
+              cardNumber: "SDY-006",
+              productForm: "single",
+              productLineName: "Yu-Gi-Oh!",
+              tcg: "yugioh",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:17851" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:60017851",
+                selectedOptions: [
+                  { dimensionKey: "condition", optionKey: "near-mint", providerValue: "Near Mint" },
+                  { dimensionKey: "printing", optionKey: "unlimited", providerValue: "Unlimited" },
+                  { dimensionKey: "language", optionKey: "english", providerValue: "English" },
+                ],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+      },
+    ),
   ];
 }
 
@@ -647,6 +836,48 @@ function tcgplayerDuplicatePrevention(): CatalogProviderProfileFixtureCase["expe
       { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
       { ruleKey: "exact-external-product-reference", candidatePolicy: "reuse" },
       { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function yugiohBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: false,
+    rulePolicies: [
+      { ruleKey: "source-observation-link", candidatePolicy: "review-only" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function yugiohSetReferenceDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: false,
+    rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+  };
+}
+
+function ygojsonSetReferenceDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: false,
+    rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+  };
+}
+
+function yugiohSealedProductDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: false,
+    rulePolicies: [
+      { ruleKey: "source-observation-link", candidatePolicy: "review-only" },
+      { ruleKey: "sealed-product-name-and-box-content-review", candidatePolicy: "review-only" },
     ],
   };
 }
@@ -688,15 +919,27 @@ function providerCases(
       normalizedKind:
         providerKey === "tcgdex"
           ? "pokemon-card"
-          : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
-            ? "magic-set-reference"
-            : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
-              ? "magic-sealed-product"
-              : providerKey === "mtgjson"
-                ? "magic-card-print"
-                : providerKey === "scryfall"
-                  ? "magic-card-print"
-                  : "provider-product",
+          : identity.ingestionUnitKey === "ygoprodeck:yugioh:set:reference-data" ||
+              identity.ingestionUnitKey === "ygojson:yugioh:set:reference-data" ||
+              identity.ingestionUnitKey === "yaml-yugi:yugioh:set:reference-data"
+            ? "yugioh-set-reference"
+            : identity.ingestionUnitKey === "ygojson:yugioh:sealed-product:reference-data"
+              ? "yugioh-sealed-product"
+              : identity.ingestionUnitKey === "ygojson:yugioh:pack:reference-data"
+                ? "yugioh-pack-reference"
+                : identity.ingestionUnitKey?.startsWith("ygoprodeck:yugioh:") ||
+                    identity.ingestionUnitKey?.startsWith("ygojson:yugioh:") ||
+                    identity.ingestionUnitKey?.startsWith("yaml-yugi:yugioh:")
+                  ? "yugioh-card-print"
+                  : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
+                    ? "magic-set-reference"
+                    : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
+                      ? "magic-sealed-product"
+                      : providerKey === "mtgjson"
+                        ? "magic-card-print"
+                        : providerKey === "scryfall"
+                          ? "magic-card-print"
+                          : "provider-product",
     },
     ...expectations[flow],
   }));

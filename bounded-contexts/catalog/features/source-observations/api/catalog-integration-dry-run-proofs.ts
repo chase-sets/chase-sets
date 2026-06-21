@@ -15,6 +15,18 @@ import {
   runMtgjsonSourceObservationValidationDryRun,
 } from "./provider-adapters/mtgjson";
 import {
+  runYgoprodeckCardReferenceValidationDryRun,
+  runYgoprodeckSetReferenceValidationDryRun,
+  YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+  YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+} from "./provider-adapters/ygoprodeck";
+import {
+  runYgojsonSealedProductReferenceValidationDryRun,
+  runYgojsonSetReferenceValidationDryRun,
+  YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
+  YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+} from "./provider-adapters/ygojson";
+import {
   runScryfallImageEvidenceValidationDryRun,
   runScryfallSourceObservationValidationDryRun,
   SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
@@ -23,8 +35,10 @@ import {
 import {
   runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
+  runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
 
 export type CatalogIntegrationDryRunProofRunner = () => Promise<CatalogIntegrationDryRunResult>;
@@ -45,6 +59,10 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, runMtgjsonSetReferenceValidationDryRun],
     [SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runScryfallSourceObservationValidationDryRun],
     [SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY, runScryfallImageEvidenceValidationDryRun],
+    [YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runYgoprodeckCardReferenceValidationDryRun],
+    [YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY, runYgoprodeckSetReferenceValidationDryRun],
+    [YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY, runYgojsonSetReferenceValidationDryRun],
+    [YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY, runYgojsonSealedProductReferenceValidationDryRun],
     [
       TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
@@ -52,6 +70,10 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [
       TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
+    ],
+    [
+      TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
     ],
   ],
 ): CatalogIntegrationDryRunProofRegistry {

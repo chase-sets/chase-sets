@@ -31,9 +31,14 @@ describe("Catalog provider profile contract harness", () => {
       "mtgjson@2026.06.19",
       "scryfall@2026.06.19",
       "scryfall@2026.06.19",
+      "ygoprodeck@2026.06.21",
+      "ygoprodeck@2026.06.21",
+      "ygojson@2026.06.21",
+      "ygojson@2026.06.21",
       "tcgdex@2026.06.03",
       "tcgplayer@2026.06.19",
       "tcgplayer@2026.06.19",
+      "tcgplayer@2026.06.20",
       "tcgplayer@2026.06.03",
     ]);
   });
@@ -44,9 +49,14 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "scryfall", profileKey: "mtg-card-print-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "scryfall", profileKey: "mtg-card-image-evidence", profileVersion: "2026.06.19" },
+      { providerKey: "ygoprodeck", profileKey: "yugioh-card-print-reference-data", profileVersion: "2026.06.21" },
+      { providerKey: "ygoprodeck", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
+      { providerKey: "ygojson", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
+      { providerKey: "ygojson", profileKey: "yugioh-sealed-product-reference-data", profileVersion: "2026.06.21" },
       { providerKey: "tcgdex", profileVersion: "2026.06.03" },
       { providerKey: "tcgplayer", profileKey: "mtg-single-card-product-sku", profileVersion: "2026.06.19" },
       { providerKey: "tcgplayer", profileKey: "mtg-sealed-product-sku", profileVersion: "2026.06.19" },
+      { providerKey: "tcgplayer", profileKey: "yugioh-single-card-product-sku", profileVersion: "2026.06.20" },
       { providerKey: "tcgplayer", profileKey: "pokemon-tcg-automation-client", profileVersion: "2026.06.03" },
     ];
     const results = await Promise.all(

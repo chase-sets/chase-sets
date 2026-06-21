@@ -9,6 +9,7 @@ import {
 
 export const TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";
+export const TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION = "2026.06.20";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -20,6 +21,13 @@ export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProv
 export const tcgplayerMtgSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "mtg",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerYugiohSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "yugioh",
   productForm: "single-card",
   ingestionPurpose: "source-observation-import",
 });
@@ -336,6 +344,34 @@ export const tcgplayerMtgSingleCardProviderProductSourceObservationMappingContra
     ...providerProductNormalizedObservation,
     fields: {
       tcg: constantExpression("magic", "catalog-truth", ["normalized-observation", "hash-material"]),
+      ...providerProductFields,
+    },
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "yugioh-single-card-product-sku",
+  displayName: "TCGplayer Yu-Gi-Oh Single-Card Product and SKU",
+  profileVersion: TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerYugiohSingleCardIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-yugioh-single-card-production-v1",
+  },
+  fixtures: {
+    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-yugioh-single-card",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      tcg: constantExpression("yugioh", "catalog-truth", ["normalized-observation", "hash-material"]),
       ...providerProductFields,
     },
   },

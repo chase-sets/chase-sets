@@ -157,6 +157,17 @@ import {
   SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   type ScryfallProviderPayload,
 } from "./provider-adapters/scryfall";
+import {
+  createYgoprodeckProviderAdapter,
+  YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  type YgoprodeckProviderPayload,
+} from "./provider-adapters/ygoprodeck";
+import {
+  createYgojsonProviderAdapter,
+  YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
+  YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+  type YgojsonProviderPayload,
+} from "./provider-adapters/ygojson";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
@@ -975,6 +986,8 @@ export function createSourceObservationRuntime(
     }),
     createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
+    createYgoprodeckProviderAdapter(),
+    createYgojsonProviderAdapter(),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 
@@ -4123,6 +4136,8 @@ async function listProviderIntegrationOptions(
     }),
     createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
+    createYgoprodeckProviderAdapter(),
+    createYgojsonProviderAdapter(),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
@@ -4175,6 +4190,11 @@ async function listProviderIntegrationOptions(
       listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listScryfallCards: ({ setCode }) =>
         listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+      listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listYgoprodeckCards: ({ setCode }) =>
+        listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+      listYgojsonSets: () => listYgojsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listYgojsonSealedProducts: () => listYgojsonSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry),
     },
   });
 }
@@ -4207,6 +4227,8 @@ async function queryProviderIntegrationOptions(
     }),
     createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
+    createYgoprodeckProviderAdapter(),
+    createYgojsonProviderAdapter(),
   ]),
   telemetry?: SourceObservationTelemetry,
 ): Promise<CatalogProviderOptionQueryPage> {
@@ -4308,6 +4330,12 @@ async function queryProviderIntegrationOptions(
             listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScryfallCards: ({ setCode }) =>
               listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+            listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listYgoprodeckCards: ({ setCode }) =>
+              listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+            listYgojsonSets: () => listYgojsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listYgojsonSealedProducts: () =>
+              listYgojsonSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry),
           },
         }),
     });
@@ -4600,6 +4628,98 @@ function requireScryfallAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): ProviderAdapter<ScryfallProviderPayload> {
   return providerAdapterRegistry.require("scryfall") as ProviderAdapter<ScryfallProviderPayload>;
+}
+
+async function listYgoprodeckSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireYgoprodeckAdapter(providerAdapterRegistry).listOptions({
+    unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setName: item.value,
+    setCode: item.metadata?.setCode ?? null,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    cardCount: numberFromString(item.metadata?.cardCount),
+  }));
+}
+
+async function listYgoprodeckCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setCode: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setCode) {
+    throw new Error("YGOPRODeck card option queries require a selected set name or set code.");
+  }
+
+  const result = await requireYgoprodeckAdapter(providerAdapterRegistry).listOptions({
+    unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { setName: input.setCode, setCode: input.setCode },
+  });
+  return result.items.map((item) => ({
+    cardPrintId: item.value,
+    name: item.label,
+    setName: item.metadata?.setName ?? input.setCode,
+    setCode: item.metadata?.setCode ?? null,
+    cardId: item.metadata?.cardId ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    cardType: item.metadata?.cardType ?? null,
+    frameType: item.metadata?.frameType ?? null,
+    race: item.metadata?.race ?? null,
+    attribute: item.metadata?.attribute ?? null,
+    archetype: item.metadata?.archetype ?? null,
+    imageEvidenceAvailable: booleanFromString(item.metadata?.imageEvidenceAvailable),
+  }));
+}
+
+function requireYgoprodeckAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<YgoprodeckProviderPayload> {
+  return providerAdapterRegistry.require("ygoprodeck") as ProviderAdapter<YgoprodeckProviderPayload>;
+}
+
+async function listYgojsonSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireYgojsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setId: item.value,
+    name: item.label,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    localeCount: numberFromString(item.metadata?.localeCount),
+    printCount: numberFromString(item.metadata?.printCount),
+    packContentEvidenceCount: numberFromString(item.metadata?.packContentEvidenceCount),
+    yugipediaId: item.metadata?.yugipediaId ?? null,
+  }));
+}
+
+async function listYgojsonSealedProductOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireYgojsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sealed-products",
+  });
+  return result.items.map((item) => ({
+    sealedProductId: item.value,
+    name: item.label,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    localeCount: numberFromString(item.metadata?.localeCount),
+    boxOfSetCount: numberFromString(item.metadata?.boxOfSetCount),
+    packContentEvidenceCount: numberFromString(item.metadata?.packContentEvidenceCount),
+    yugipediaId: item.metadata?.yugipediaId ?? null,
+  }));
+}
+
+function requireYgojsonAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<YgojsonProviderPayload> {
+  return providerAdapterRegistry.require("ygojson") as ProviderAdapter<YgojsonProviderPayload>;
 }
 
 async function listTcgplayerProductLineOptionRecordsThroughAdapter(

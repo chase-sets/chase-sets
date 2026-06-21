@@ -362,6 +362,10 @@ function commandsForNormalizedKind(input: {
       });
     case "magic-set-reference":
     case "provider-product":
+    case "yugioh-card-print":
+    case "yugioh-set-reference":
+    case "yugioh-sealed-product":
+    case "yugioh-pack-reference":
       return [];
   }
 }

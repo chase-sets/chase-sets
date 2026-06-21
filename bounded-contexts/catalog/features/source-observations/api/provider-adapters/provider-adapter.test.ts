@@ -38,11 +38,14 @@ import {
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./tcgplayer";
 import {
+  type CatalogProviderIntegrationProfileVersionRecord,
   getActiveCatalogProviderIntegrationProfileVersion,
   getCatalogProviderIntegrationProfileVersion,
 } from "../provider-integration-profiles";
+import { tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract } from "../tcgplayer-executable-mapping-contract";
 import type { TcgplayerAutomationCatalogClient } from "../tcgplayer-automation-catalog-client";
 import { tcgplayerAutomationResponseFixtures } from "../tcgplayer-automation-response-fixtures.test-data";
 
@@ -778,6 +781,143 @@ describe("ProviderAdapterRegistry", () => {
     ]);
   });
 
+  it("reuses the TCGplayer provider path for Yu-Gi-Oh single-card unit constraints", async () => {
+    const yugiohAdapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [tcgplayerYugiohProfileVersion()],
+      client: yugiohTcgplayerClient(),
+      now: () => new Date("2026-06-20T00:00:00.000Z"),
+    });
+
+    await expect(yugiohAdapter.listIntegrationUnits()).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        productDomain: "yugioh",
+        productForm: "single-card",
+        displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+      }),
+    ]);
+    await expect(
+      yugiohAdapter.listOptions({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({ value: "2", label: "Yu-Gi-Oh!" }),
+        expect.objectContaining({ value: "20", label: "YuGiOh" }),
+        expect.objectContaining({ value: "21", label: "Yugioh" }),
+        expect.objectContaining({ value: "22", label: "Yu-Gi-Oh" }),
+        expect.objectContaining({ value: "23", label: "yugioh" }),
+      ],
+    });
+
+    const mtgAdapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerMtgProfileVersion()],
+      client: yugiohTcgplayerClient(),
+    });
+    const pokemonAdapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
+      client: yugiohTcgplayerClient(),
+    });
+
+    await expect(
+      mtgAdapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [expect.objectContaining({ value: "1", label: "Magic" })],
+    });
+    await expect(
+      pokemonAdapter.listOptions({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [expect.objectContaining({ value: "3", label: "Pokemon" })],
+    });
+
+    await expect(
+      yugiohAdapter.listOptions({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "set-names",
+        parentValues: { productLineId: "2" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "Legend of Blue Eyes White Dragon",
+          label: "Legend of Blue Eyes White Dragon",
+          parentValue: "2",
+        }),
+      ],
+    });
+    await expect(
+      yugiohAdapter.listOptions({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { productLineName: "YuGiOh", setName: "Legend of Blue Eyes White Dragon" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "721337",
+          label: "Blue-Eyes White Dragon",
+          metadata: expect.objectContaining({ productLineName: "Yu-Gi-Oh!", sealed: "false" }),
+        }),
+      ],
+    });
+    await expect(
+      yugiohAdapter.listOptions({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "721337" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "800721337",
+          label: "800721337",
+          metadata: { sku: "800721337", condition: "Near Mint", variant: "1st Edition", language: "English" },
+        },
+      ],
+    });
+
+    const acceptedPlan = await yugiohAdapter.planImport({
+      unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineName: "yugioh", setName: "Legend of Blue Eyes White Dragon" },
+    });
+    await expect(collectPayloads(yugiohAdapter.fetchPayloads(acceptedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "product:721337",
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({
+            productId: 721337,
+            productLineName: "Yu-Gi-Oh!",
+            productTypeName: "Cards",
+          }),
+        },
+      }),
+    ]);
+
+    const rejectedPlan = await yugiohAdapter.planImport({
+      unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "product",
+      values: { productId: "14240" },
+    });
+    await expect(collectPayloads(yugiohAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "product-detail-failure",
+          reason: expect.stringContaining("only imports Yu-Gi-Oh! single-card products"),
+        }),
+      }),
+    ]);
+  });
+
   it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
@@ -1286,6 +1426,32 @@ function requireTcgplayerMtgSealedProfileVersion() {
   return version;
 }
 
+function tcgplayerYugiohProfileVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const base = requireTcgplayerPokemonProfileVersion();
+  return {
+    providerKey: "tcgplayer",
+    profileKey: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.profileKey,
+    profileVersion: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity:
+      tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: {
+      ...base.profile,
+      displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+      status: "active",
+      normalizedObservationMapping: {
+        ...base.profile.normalizedObservationMapping,
+        unknownVariantLabelPrefix: "Unclassified TCGplayer Yu-Gi-Oh Variant",
+      },
+    },
+    sourceContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
+  };
+}
+
 function tcgplayerClient(): TcgplayerAutomationCatalogClient {
   return {
     listProductLines: async () => tcgplayerAutomationResponseFixtures.productLines,
@@ -1411,6 +1577,201 @@ function magicTcgplayerClient(): TcgplayerAutomationCatalogClient {
         sealed: true,
         productStatusId: 1,
         customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+      },
+      {
+        productId: 610001,
+        productName: "Eevee ex",
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Cards",
+        setId: 7001,
+        setName: "Prismatic Evolutions",
+        setUrlName: "prismatic-evolutions",
+        rarityName: "Special Illustration Rare",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+      },
+    ],
+    getProductDetail: async ({ productId }) => {
+      const detail = details.get(productId);
+      if (!detail) {
+        throw new Error(`Product ${productId} not found.`);
+      }
+      return detail;
+    },
+  };
+}
+
+function yugiohTcgplayerClient(): TcgplayerAutomationCatalogClient {
+  const details = new Map([
+    [
+      721337,
+      {
+        productTypeName: "Cards",
+        rarityName: "Ultra Rare",
+        sealed: false,
+        productName: "Blue-Eyes White Dragon",
+        setId: 2001,
+        setCode: "LOB",
+        productId: 721337,
+        setName: "Legend of Blue Eyes White Dragon",
+        productLineId: 2,
+        productStatusId: 1,
+        productLineName: "Yu-Gi-Oh!",
+        customAttributes: { number: "LOB-001", releaseDate: "2002-03-08", cardType: ["Monster"] },
+        formattedAttributes: {},
+        skus: [{ sku: 800721337, condition: "Near Mint", variant: "1st Edition", language: "English" }],
+        marketPrice: 21.5,
+        lowestPrice: 20.01,
+        lowestPriceWithShipping: 20.99,
+        medianPrice: 22,
+        listings: 12,
+      },
+    ],
+    [
+      14240,
+      {
+        productTypeName: "Cards",
+        rarityName: "Uncommon",
+        sealed: false,
+        productName: "Fury Sliver",
+        setId: 1001,
+        setCode: "TSP",
+        productId: 14240,
+        setName: "Time Spiral",
+        productLineId: 1,
+        productStatusId: 1,
+        productLineName: "Magic",
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+        formattedAttributes: {},
+        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
+        marketPrice: 1.23,
+        lowestPrice: 1.01,
+        lowestPriceWithShipping: 1.23,
+        medianPrice: 1.5,
+        listings: 25,
+      },
+    ],
+    [
+      610001,
+      {
+        productTypeName: "Cards",
+        rarityName: "Special Illustration Rare",
+        sealed: false,
+        productName: "Eevee ex",
+        setId: 7001,
+        setCode: "PRE",
+        productId: 610001,
+        setName: "Prismatic Evolutions",
+        productLineId: 3,
+        productStatusId: 1,
+        productLineName: "Pokemon",
+        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+        formattedAttributes: {},
+        skus: [{ sku: 7001001, condition: "Near Mint", variant: "Holofoil", language: "English" }],
+        marketPrice: 10,
+        lowestPrice: 9,
+        lowestPriceWithShipping: 9.5,
+        medianPrice: 11,
+        listings: 30,
+      },
+    ],
+  ]);
+
+  return {
+    listProductLines: async () => [
+      {
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productLineUrlName: "pokemon",
+        isDirect: true,
+      },
+      {
+        productLineId: 1,
+        productLineName: "Magic",
+        productLineUrlName: "magic",
+        isDirect: true,
+      },
+      {
+        productLineId: 2,
+        productLineName: "Yu-Gi-Oh!",
+        productLineUrlName: "yugioh",
+        isDirect: true,
+      },
+      {
+        productLineId: 20,
+        productLineName: "YuGiOh",
+        productLineUrlName: "yugioh",
+        isDirect: true,
+      },
+      {
+        productLineId: 21,
+        productLineName: "Yugioh",
+        productLineUrlName: "yugioh",
+        isDirect: true,
+      },
+      {
+        productLineId: 22,
+        productLineName: "Yu-Gi-Oh",
+        productLineUrlName: "yu-gi-oh",
+        isDirect: true,
+      },
+      {
+        productLineId: 23,
+        productLineName: "yugioh",
+        productLineUrlName: "yugioh",
+        isDirect: true,
+      },
+    ],
+    listCatalogSetNames: async () => ({
+      errors: [],
+      results: [
+        {
+          setNameId: 2001,
+          categoryId: 2,
+          name: "Legend of Blue Eyes White Dragon",
+          cleanSetName: "Legend of Blue Eyes White Dragon",
+          urlName: "legend-of-blue-eyes-white-dragon",
+          abbreviation: "LOB",
+          releaseDate: "2002-03-08",
+          isSupplemental: false,
+          active: true,
+        },
+      ],
+    }),
+    searchProducts: async () => ({
+      errors: [],
+      results: [],
+    }),
+    listAllProducts: async () => [
+      {
+        productId: 721337,
+        productName: "Blue-Eyes White Dragon",
+        productLineId: 2,
+        productLineName: "Yu-Gi-Oh!",
+        productTypeName: "Cards",
+        setId: 2001,
+        setName: "Legend of Blue Eyes White Dragon",
+        setUrlName: "legend-of-blue-eyes-white-dragon",
+        rarityName: "Ultra Rare",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "LOB-001", releaseDate: "2002-03-08", cardType: ["Monster"] },
+      },
+      {
+        productId: 14240,
+        productName: "Fury Sliver",
+        productLineId: 1,
+        productLineName: "Magic",
+        productTypeName: "Cards",
+        setId: 1001,
+        setName: "Time Spiral",
+        setUrlName: "time-spiral",
+        rarityName: "Uncommon",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
       },
       {
         productId: 610001,

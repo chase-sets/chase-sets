@@ -241,6 +241,15 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "tcgplayer",
         value: "tcgplayer",
+        label: "TCGplayer Yu-Gi-Oh Single Cards",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
         label: "TCGplayer Magic Single Cards",
         metadata: expect.objectContaining({
           status: "active",
@@ -254,6 +263,33 @@ describe("source observation runtime: provider integration jobs", () => {
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "ygojson",
+        value: "ygojson",
+        label: "YGOJSON",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "ygojson-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "ygojson",
+        value: "ygojson",
+        label: "YGOJSON Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "ygojson-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "ygoprodeck",
+        value: "ygoprodeck",
+        label: "YGOPRODeck",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "ygoprodeck-json",
         }),
       }),
     ]);
