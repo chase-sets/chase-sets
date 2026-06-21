@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
   guestCheckoutActor,
@@ -660,6 +661,101 @@ describe("checkout web routes: checkout start", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
+  });
+
+  it("carries the anonymous cart merge freshness into guest cart checkout readiness", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockMergeGuestCartToAccount.mockResolvedValue({
+      mergedLineCount: 1,
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_guest_cart_merged"],
+        },
+      ],
+    });
+    mockCreateCheckoutSession.mockResolvedValue({
+      session_id: "chk_guest",
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "43",
+          eventIds: ["evt_checkout_session_started"],
+        },
+      ],
+    });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    const mutableApiClientCalls: { request: Request; options: unknown }[] = [];
+    mockCreateCheckoutRequestApiClient.mockImplementation((request: Request, options?: unknown) => {
+      mutableApiClientCalls.push({ request, options });
+      return {
+        getGuestCart: mockGetGuestCart,
+        createCartReadiness: mockCreateCartReadiness,
+        createCheckoutSession: mockCreateCheckoutSession,
+        mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+      };
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    const freshnessRequest = mutableApiClientCalls[2]?.request;
+    const freshnessReceipt = freshnessRequest ? readFreshWriteToken(freshnessRequest) : null;
+    const redirectReceipt = readFreshWriteToken(
+      new Request(`http://localhost${response.headers.get("Location") ?? ""}`),
+    );
+
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(freshnessReceipt).toMatchObject({
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_guest_cart_merged"],
+        },
+      ],
+    });
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: null,
+      },
+    });
+    expect(redirectReceipt).toMatchObject({
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "43",
+          eventIds: ["evt_guest_cart_merged", "evt_checkout_session_started"],
+        },
+      ],
+    });
   });
 
   it("marks guest checkout and cleared anonymous cart cookies secure on HTTPS handoff", async () => {

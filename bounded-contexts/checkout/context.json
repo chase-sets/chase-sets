@@ -195,7 +195,7 @@
         "routeId": "buy-checkout-readiness",
         "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
         "command": "StartCheckoutSession",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
       },
       "destination": {
         "routeId": "buy-checkout-session",
