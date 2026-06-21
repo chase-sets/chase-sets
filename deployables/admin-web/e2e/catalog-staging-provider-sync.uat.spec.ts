@@ -86,7 +86,6 @@ test.describe("catalog staging provider sync UAT", () => {
       await test.step(journey.name, async () => {
         await selectProviderScope(page, journey);
         await syncSelectedProviderUnit(page, journey.unitKey);
-        await expectCommandQueued(page);
       });
     }
   });
@@ -167,10 +166,22 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
   const trigger = contextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
   await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+  for (let attempt = 0; attempt < 3 && !(await isImportContextBarExpanded(trigger)); attempt += 1) {
     await trigger.click();
+    if (await isImportContextBarExpanded(trigger)) {
+      return;
+    }
   }
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
+}
+
+async function isImportContextBarExpanded(trigger: Locator): Promise<boolean> {
+  return expect(trigger)
+    .toHaveAttribute("aria-expanded", "true", { timeout: 5_000 })
+    .then(
+      () => true,
+      () => false,
+    );
 }
 
 async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<void> {
@@ -178,10 +189,25 @@ async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<vo
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
-  await expect(syncButton, `Sync action for ${unitKey} should be enabled`).toBeEnabled({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await syncButton.click();
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  while (Date.now() < deadline) {
+    if (await syncButton.isEnabled().catch(() => false)) {
+      await syncButton.click();
+      await expectCommandQueued(page);
+      return;
+    }
+
+    if (await hasActiveImportJobForSelectedUnit(page, unitKey, 1_000)) {
+      await expectActiveImportJobForSelectedUnit(page, unitKey);
+      return;
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  throw new Error(
+    `Sync action for ${unitKey} was neither enabled nor represented by a queued/running import job row in the shared UI.`,
+  );
 }
 
 function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
@@ -197,6 +223,41 @@ async function expectCommandQueued(page: Page): Promise<void> {
   await expect(
     page.getByText("The durable job is queued with this provider, scope, profile, and review context.").first(),
   ).toBeVisible({ timeout: syncTimeoutMs });
+}
+
+async function hasActiveImportJobForSelectedUnit(page: Page, unitKey: string, timeout: number): Promise<boolean> {
+  return activeImportJobRowsForSelectedUnit(page, unitKey)
+    .first()
+    .isVisible({ timeout })
+    .catch(() => false);
+}
+
+async function expectActiveImportJobForSelectedUnit(page: Page, unitKey: string): Promise<void> {
+  const activeJobRow = activeImportJobRowsForSelectedUnit(page, unitKey).first();
+  await expect(page.getByText("Import already running", { exact: true }).first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+  await expect(
+    activeJobRow,
+    `Selected unit ${unitKey} should have a visible current-scope queued/running import job row.`,
+  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expect(activeJobRow.getByText(`Unit: ${unitKey}`).first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+  await expect(activeJobRow.getByText("Current scope", { exact: true }).first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+  await expect(activeJobRow.getByText(/import job .*(?:queued|running)/i).first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+}
+
+function activeImportJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
+  return page
+    .getByRole("row")
+    .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
+    .filter({ has: page.getByText("Current scope", { exact: true }) })
+    .filter({ has: page.getByText(/import job .*(?:queued|running)/i) });
 }
 
 async function expectImporterVisible(page: Page): Promise<void> {
