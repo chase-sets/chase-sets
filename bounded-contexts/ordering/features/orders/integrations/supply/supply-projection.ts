@@ -71,7 +71,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
-        termsResolvedAt: string;
+        termsResolvedAt: string | null;
         quantityCap: number;
         purchaseLimits?: {
           maxUnitsPerOrder: number | null;
@@ -178,7 +178,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
-        termsResolvedAt: string;
+        termsResolvedAt: string | null;
       };
 
       await db.query(
@@ -218,7 +218,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
-        termsResolvedAt: string;
+        termsResolvedAt: string | null;
       };
       const hasPurchaseLimits = data.purchaseLimits !== undefined;
 
@@ -285,7 +285,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         shippingAllowancePercentageBps?: number;
         termsScheduleId: string | null;
         termsAgreementId: string | null;
-        termsResolvedAt: string;
+        termsResolvedAt: string | null;
       };
       await db.query(
         `UPDATE ordering_market_listing_inputs

@@ -102,6 +102,9 @@ ALTER TABLE ordering_market_listing_inputs
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
   ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available';
 
+ALTER TABLE ordering_market_listing_inputs
+  ALTER COLUMN terms_resolved_at DROP NOT NULL;
+
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
 
