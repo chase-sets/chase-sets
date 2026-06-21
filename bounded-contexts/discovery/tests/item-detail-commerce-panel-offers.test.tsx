@@ -269,7 +269,7 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       within(listingCartDialog).getByText("Chase Sets finds an available listing during cart review."),
     ).toBeTruthy();
     expect(
-      within(listingCartDialog).getByText("Buy best match starts checkout with the current best available listing."),
+      within(listingCartDialog).getByText("Buy best match opens Buy Cart with the selected product ready for review."),
     ).toBeTruthy();
   });
 

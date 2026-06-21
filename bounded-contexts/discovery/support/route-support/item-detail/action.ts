@@ -181,14 +181,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect(`/checkout/buy/readiness?${query.toString()}`);
     }
 
-    if (intent === "add-to-cart") {
+    if (intent === "add-to-cart" || intent === "buy-best-match") {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const itemImage = selectItemImage(item, "thumbnail");
       const quantity = parsePositiveQuantity(formData.get("quantity"));
       const productId = String(formData.get("productId") ?? "");
-      const sellerPreferenceId = String(formData.get("sellerPreferenceId") ?? "").trim();
+      const sellerPreferenceId =
+        intent === "buy-best-match" ? "" : String(formData.get("sellerPreferenceId") ?? "").trim();
       const preferredListing = sellerPreferenceId ? findSelectedListingForAction(item, sellerPreferenceId) : null;
+      if (intent === "buy-best-match") {
+        assertSelectedListingQuantityAvailable(findBestAvailableListingForAction(item, productId), quantity);
+      }
       if (preferredListing) {
         if (preferredListing.product_id !== productId) {
           throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
@@ -218,6 +222,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (!canUseAccountCheckoutCart(actor)) {
         const anonymousCartId = ensureAnonymousCartId(request);
         const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
+        if (intent === "buy-best-match") {
+          const response = redirect(appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF));
+          appendAnonymousCartCookie(response.headers, anonymousCartId, request);
+          return response;
+        }
+
         const response = Response.json({
           status: "added-to-cart",
           itemTitle: item.title,
@@ -230,6 +240,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       const result = await checkoutApi.addCartLine(cartLine);
+      if (intent === "buy-best-match") {
+        return redirect(appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF));
+      }
 
       return Response.json({
         status: "added-to-cart",
@@ -240,14 +253,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       } satisfies AddToCartActionData);
     }
 
-    if (intent === "buy-now" || intent === "buy-this-listing") {
+    if (intent === "buy-this-listing") {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const productId = String(formData.get("productId") ?? "");
-      const lockedListingId =
-        intent === "buy-this-listing"
-          ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim()
-          : "";
+      const lockedListingId = String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim();
       const quantity = parsePositiveQuantity(formData.get("quantity"));
       const lockedListing = lockedListingId
         ? findSelectedListingForAction(item, lockedListingId)

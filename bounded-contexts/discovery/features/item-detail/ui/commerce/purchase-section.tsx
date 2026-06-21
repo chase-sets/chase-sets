@@ -174,7 +174,8 @@ export function CheckoutPurchaseIntentSection({
 
   function trackPurchaseIntentSubmit(event: FormEvent<HTMLFormElement>) {
     const submittedValue = submittedButtonValue(event);
-    const isCartSubmit = submittedValue === "add-to-cart" || actionMode === "add-to-cart";
+    const isCartSubmit =
+      submittedValue === "add-to-cart" || submittedValue === "buy-best-match" || actionMode === "add-to-cart";
 
     trackItemDetailRailEvent("intent_submit_started", {
       intent: "buy",
@@ -220,7 +221,7 @@ export function CheckoutPurchaseIntentSection({
     <Button
       type="submit"
       name="intent"
-      value="buy-now"
+      value="buy-best-match"
       tone="secondary"
       disabled={!productId || visibleListingCount === 0}
       block

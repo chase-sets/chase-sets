@@ -663,7 +663,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.getByText("Buy options")).toBeTruthy();
     expect(screen.getByText("Choose a listing, product, or offer action.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Best available listing/ })).toBeTruthy();
-    expect(screen.getByText("Check out with the current best available listing.")).toBeTruthy();
+    expect(screen.getByText("Start with the current best available listing.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Selected product/ })).toBeTruthy();
     expect(screen.getByText("Save the selected product for Buy Cart review.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Make an offer/ })).toBeTruthy();
