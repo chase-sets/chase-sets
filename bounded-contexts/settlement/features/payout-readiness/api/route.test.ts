@@ -1,8 +1,10 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createPayoutReadinessRoutes } from "./route";
 import type { PayoutReadinessServices } from "./runtime";
+
+const originalFetch = globalThis.fetch;
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -36,7 +38,37 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
   return app;
 }
 
+function mockIdentityCurrentActorDisplay(email: string | null) {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    expect(String(input)).toBe("http://localhost/api/identity/current-actor-display");
+    return Response.json({
+      account: {
+        account_id: "acc_seller",
+        display_name: "Seller Account",
+        name: "Seller Account",
+        badges: [],
+      },
+      membership: {
+        membership_id: "mem_test",
+        role_key: "seller",
+      },
+      user: {
+        user_id: "usr_test",
+        display_name: "Seller User",
+        primary_email: email,
+      },
+    });
+  });
+  globalThis.fetch = fetch as typeof fetch;
+  return fetch;
+}
+
 describe("settlement payout setup routes", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
   it("requires authentication for embedded setup sessions", async () => {
     const createPayoutSetupSession = vi.fn();
     const app = createApp({ createPayoutSetupSession }, null);
@@ -107,6 +139,33 @@ describe("settlement payout setup routes", () => {
         provider_reference: "acct_test",
       }),
     });
+    expect(createPayoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        contactEmail: "seller@example.test",
+      }),
+      context,
+    );
+  });
+
+  it("derives setup contact email from the authenticated actor when the browser body is empty", async () => {
+    const createPayoutSetupSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      clientSecret: "provider_session_secret",
+      expiresAt: "2026-06-01T15:00:00.000Z",
+      components: ["payout-setup"],
+    }));
+    const fetch = mockIdentityCurrentActorDisplay("seller@example.test");
+    const app = createApp({ createPayoutSetupSession }, ["payouts.setup"]);
+
+    const response = await app.request("http://localhost/payout-setup/embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(createPayoutSetupSession).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_seller",
