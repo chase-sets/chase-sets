@@ -1,29 +1,42 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { decodeCommitReceipt } from "@chase-sets/http/responses";
+import { recordCommittedEvents, type StoredEvent } from "@chase-sets/event-core";
 import { attachWriteConsistencyMiddleware } from "./index";
 
-vi.mock("@chase-sets/event-core", () => ({
-  runWithEventCommitMetadata: async (action: () => Promise<void>) => action(),
-  getEventCommitMetadata: () => ({
-    eventIds: ["evt_listing_published"],
-    maxGlobalPosition: "42",
-    sources: [
-      {
-        sourceContextName: "marketplace",
-        maxGlobalPosition: "42",
-        eventIds: ["evt_listing_published"],
-      },
-    ],
-  }),
-}));
+function storedEvent(input: Readonly<{ id: string; streamId: string; globalPosition: string }>): StoredEvent {
+  return {
+    eventId: input.id as StoredEvent["eventId"],
+    streamId: input.streamId,
+    streamVersion: 1,
+    globalPosition: input.globalPosition as StoredEvent["globalPosition"],
+    tenantId: "tnt_test" as StoredEvent["tenantId"],
+    eventType: "marketplace.listing.published",
+    payload: {},
+    metadata: {},
+    occurredAt: "2026-05-29T00:00:00.000Z" as StoredEvent["occurredAt"],
+    recordedAt: "2026-05-29T00:00:00.000Z" as StoredEvent["recordedAt"],
+    performedByUserId: "usr_test" as StoredEvent["performedByUserId"],
+    forAccountId: "acc_test" as StoredEvent["forAccountId"],
+  };
+}
 
 describe("bounded context write consistency middleware", () => {
   it("attaches commit metadata headers to mutation responses", async () => {
     const app = new Hono();
 
     attachWriteConsistencyMiddleware(app, [{ mountPath: "/api/marketplace" }]);
-    app.post("/api/marketplace/account/listings", (context) => context.json({ id: "lst_1", status: "published" }, 201));
+    app.post("/api/marketplace/account/listings", (context) => {
+      recordCommittedEvents([
+        storedEvent({
+          id: "evt_listing_published",
+          streamId: "marketplace.listing-lst_1",
+          globalPosition: "42",
+        }),
+      ]);
+
+      return context.json({ id: "lst_1", status: "published" }, 201);
+    });
 
     const response = await app.request("/api/marketplace/account/listings", { method: "POST" });
 
