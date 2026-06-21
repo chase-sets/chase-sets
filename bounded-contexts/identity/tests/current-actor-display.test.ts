@@ -55,6 +55,7 @@ function buildServices(overrides: Partial<IdentityServices> = {}) {
         display_name: "Alex Clerk",
         primary_email: "alex@example.com",
       })),
+      getUserState: vi.fn(async () => null),
     },
     ...overrides,
   } as IdentityServices;
@@ -86,6 +87,40 @@ describe("current actor display", () => {
     expect(services.accounts.getAccount).toHaveBeenCalledWith("acc_1");
     expect(services.memberships.getActiveMembershipForUserAccount).toHaveBeenCalledWith("usr_1", "acc_1");
     expect(services.users.getUser).toHaveBeenCalledWith("usr_1");
+    expect(services.users.getUserState).toHaveBeenCalledWith("usr_1");
+  });
+
+  it("uses command-side user state when the user projection has not caught up", async () => {
+    const services = buildServices({
+      users: {
+        getUser: vi.fn(async () => null),
+        getUserState: vi.fn(async () => ({
+          id: "usr_1",
+          displayName: "Fresh Seller",
+          givenName: "",
+          familyName: "",
+          status: "active",
+          primaryEmail: "fresh-seller@example.com",
+          contactMethods: [],
+          authMethods: [],
+          passwordCredentialId: null,
+          passkeyCredentialIds: [],
+          socialLoginLinks: [],
+        })),
+      } as never,
+    });
+    const response = await buildApp(services).request("/current-actor-display");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      user: {
+        user_id: "usr_1",
+        display_name: "Fresh Seller",
+        primary_email: "fresh-seller@example.com",
+      },
+    });
+    expect(services.users.getUser).toHaveBeenCalledWith("usr_1");
+    expect(services.users.getUserState).toHaveBeenCalledWith("usr_1");
   });
 
   it("falls back to actor ids when identity projections have not caught up", async () => {
@@ -94,7 +129,7 @@ describe("current actor display", () => {
       memberships: {
         getActiveMembershipForUserAccount: vi.fn(async () => null),
       } as never,
-      users: { getUser: vi.fn(async () => null) } as never,
+      users: { getUser: vi.fn(async () => null), getUserState: vi.fn(async () => null) } as never,
     });
     const response = await buildApp(services).request("/current-actor-display");
 

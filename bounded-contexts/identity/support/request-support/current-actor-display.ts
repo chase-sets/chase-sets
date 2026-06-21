@@ -14,7 +14,7 @@ type MembershipDisplaySource = Readonly<{
 
 type UserDisplaySource = Readonly<{
   user_id: string;
-  display_name: string;
+  display_name: string | null;
   primary_email: string | null;
 }> | null;
 

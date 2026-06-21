@@ -643,11 +643,19 @@ export function buildIdentityApi(services: IdentityServices) {
       );
     }
 
-    const [account, membership, user] = await Promise.all([
+    const [account, membership, projectedUser, userState] = await Promise.all([
       services.accounts.getAccount(actor.accountId),
       services.memberships.getActiveMembershipForUserAccount(actor.userId, actor.accountId),
       services.users.getUser(actor.userId),
+      services.users.getUserState(actor.userId),
     ]);
+    const user = userState
+      ? {
+          user_id: actor.userId,
+          display_name: userState.displayName || projectedUser?.display_name || null,
+          primary_email: userState.primaryEmail ?? projectedUser?.primary_email ?? null,
+        }
+      : projectedUser;
 
     return c.json(
       buildCurrentActorDisplay(actor, {
