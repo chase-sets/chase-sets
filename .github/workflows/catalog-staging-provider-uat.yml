@@ -1,0 +1,76 @@
+name: Catalog Staging Provider UAT
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "run catalog staging provider uat" to queue provider syncs from the staging UI.
+        required: true
+        type: string
+      admin_web_url:
+        description: Staging admin-web origin.
+        required: true
+        default: https://admin.staging.chasesets.com
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalog-staging-provider-uat
+  cancel-in-progress: false
+
+jobs:
+  staging-provider-uat:
+    name: Staging Provider Sync UAT
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    if: inputs.confirm == 'run catalog staging provider uat'
+    env:
+      CI: "true"
+      PLAYWRIGHT_SKIP_WEB_SERVER: "true"
+      CATALOG_STAGING_PROVIDER_UAT: "true"
+      ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+      CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+      CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+    steps:
+      - name: Confirm staging provider UAT
+        run: |
+          set -euo pipefail
+          echo "Catalog staging provider UAT confirmed for ${ADMIN_WEB_URL}."
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run staging provider sync UAT
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+        run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: catalog-staging-provider-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/playwright/report
+            artifacts/playwright/test-results
+          if-no-files-found: ignore
+          retention-days: 14
