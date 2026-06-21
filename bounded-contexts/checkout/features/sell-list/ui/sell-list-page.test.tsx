@@ -170,6 +170,72 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain(">Execution<");
   });
 
+  it("keeps selected-offer and product facts out of the narrow action column", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine, productLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_selected",
+            },
+            comparison: null,
+            message: null,
+          },
+        ]}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "ready",
+            offers: [
+              {
+                offer: {
+                  offer_id: "off_blastoise",
+                  buyer_display_name: "Misty",
+                  buyer_account_id: "acc_misty",
+                  price_amount: "410.00",
+                  quantity_requested: 1,
+                  offer_to_listing_price_bps: 10200,
+                  can_fulfill: true,
+                },
+                terms: {
+                  marketplace_sales_fee_unit_amount: "41.00",
+                  seller_net_unit_amount: "369.00",
+                  fee_quote_fingerprint: "fee_product",
+                },
+              },
+            ],
+            message: null,
+          },
+        ]}
+        inventoryItems={[
+          {
+            item_id: "inv_blastoise",
+            product_id: productLine.product_id,
+            item_title: "Blastoise",
+            product_summary: "Raw / Near Mint",
+            storage_location_name: "Kansas City Fulfillment Locker",
+            ship_from_code: "KS",
+            available_quantity: 1,
+          },
+        ]}
+      />,
+    );
+
+    const readableRowTemplates = markup.match(/--grid-template-columns-md:minmax\(0,1fr\) auto/g) ?? [];
+    expect(readableRowTemplates.length).toBeGreaterThanOrEqual(2);
+    expect(markup).not.toContain("minmax(11rem,14rem)");
+    expect(markup).toContain("Matching offers");
+    expect(markup).toContain("Kansas City Fulfillment Locker / KS (1)");
+  });
+
   it("blocks seller checkout when payout or line readiness is unresolved", () => {
     const blockedProductLine: CheckoutSellListLineRow = {
       ...productLine,
