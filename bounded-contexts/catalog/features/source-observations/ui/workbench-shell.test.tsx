@@ -144,6 +144,83 @@ function dailyReadModelWithExplicitJapaneseImportScope() {
   });
 }
 
+function dailyTcgplayerYugiohModelsAfterStalePokemonScope() {
+  const mtgProfile = profileReview({
+    providerKey: "tcgplayer",
+    profileKey: "mtg-single-card-product-sku",
+    profileVersion: "2026.06.19",
+    ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    displayName: "TCGplayer Magic single cards",
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    profile: {
+      providerKey: "tcgplayer",
+      supportedScopes: ["product-line/category", "set-name"],
+    },
+    supportedScopes: ["product-line/category", "set-name"],
+  });
+  const yugiohProfile = profileReview({
+    providerKey: "tcgplayer",
+    profileKey: "yugioh-single-card-product-sku",
+    profileVersion: "2026.06.20",
+    ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+    displayName: "TCGplayer Yu-Gi-Oh single cards",
+    active: false,
+    lifecycle: "test",
+    status: "planned",
+    profile: {
+      providerKey: "tcgplayer",
+      supportedScopes: ["product-line/category", "set-name"],
+    },
+    supportedScopes: ["product-line/category", "set-name"],
+  });
+  const stalePokemonScope = sourceObservationScope({
+    provider_key: "tcgplayer",
+    language_code: "ja",
+    product_line_id: "3",
+    product_line_name: "Pokemon",
+    series_id: "SV",
+    series_name: "Scarlet & Violet",
+    expansion_id: "SV8",
+    expansion_name: "Super Electric Breaker",
+  });
+  const profiles = [mtgProfile, yugiohProfile];
+  const requestUrl =
+    "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&importScope=ja:SV:SV8&profileVersion=2026.06.20&filter.importScope=ja:SV:SV8&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh&sourceOptionQueryKind=product-lines";
+  const shellReadModel = buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl,
+    scopes: { items: [stalePokemonScope], total: 1, count: 1 },
+    profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+    requestUrl,
+    routeContext: shellReadModel.routeContext,
+    scopes: [stalePokemonScope],
+    profiles,
+    cacheOnly: true,
+  });
+  const streamedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl,
+    scopes: { items: [stalePokemonScope], total: 1, count: 1 },
+    profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+    sourceOptionPages: requests.map((request) =>
+      request.queryKind === "product-lines"
+        ? {
+            request,
+            response: optionResponse(request, "fresh", "live", [{ value: "2", label: "Yu-Gi-Oh!", parentValue: null }]),
+          }
+        : { request },
+    ),
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+
+  return { shellReadModel, streamedSourceOptions: streamedReadModel.sourceOptions };
+}
+
 function rejectedSourceOptionsPromise() {
   const promise = Promise.reject(new Error("streamed source options unavailable"));
   promise.catch(() => undefined);
@@ -1024,6 +1101,42 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     // Refresh-all fans across every group, so it carries no single queryKind.
     expect(refreshAllParams.has("sourceOptionQueryKind")).toBe(false);
     expect(refreshAllParams.has("forceRefresh")).toBe(false);
+  });
+
+  it("submits streamed TCGplayer Yu-Gi-Oh refreshes without stale Pokemon scope", async () => {
+    const { shellReadModel, streamedSourceOptions } = dailyTcgplayerYugiohModelsAfterStalePokemonScope();
+    const { container } = render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={shellReadModel}
+        deferredSourceOptions={Promise.resolve(streamedSourceOptions)}
+      />,
+    );
+    expandImportContextBar();
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-source-option-page="product-lines"][data-source-option-state="live"]'),
+      ).not.toBeNull();
+    });
+    const productLines = container.querySelector('[data-source-option-page="product-lines"]');
+    expect(productLines).not.toBeNull();
+
+    submitSpy.mockClear();
+    fireEvent.click(within(productLines as HTMLElement).getByRole("button", { name: "Force refresh" }));
+
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    const submitOptions = submitSpy.mock.calls[0]![1] as { action: string; method: string };
+    const submittedParams = new URLSearchParams(submitSpy.mock.calls[0]![0] as URLSearchParams);
+    expect(new URL(submitOptions.action, "https://admin.example").pathname).toBe("/catalog/integrations");
+    expect(submittedParams.get("providerKey")).toBe("tcgplayer");
+    expect(submittedParams.get("unitKey")).toBe("tcgplayer:yugioh:single-card:source-observation-import");
+    expect(submittedParams.get("profileVersion")).toBe("2026.06.20");
+    expect(submittedParams.get("sourceOptionAction")).toBe("force-refresh");
+    expect(submittedParams.get("sourceOptionQueryKind")).toBe("product-lines");
+    expect(submittedParams.has("importScope")).toBe(false);
+    expect(submittedParams.has("filter.importScope")).toBe(false);
+    expect(submittedParams.has("forceRefresh")).toBe(false);
   });
 
   it("flags a group whose required parent scope is not selected yet", () => {

@@ -7,6 +7,7 @@ import { loader as providersLoader, action as providerSetupAction } from "../rou
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
+import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
 import {
   controlPlaneOverview,
   integrationJobSummary,
@@ -794,6 +795,146 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
       state: "live",
       items: [expect.objectContaining({ label: "Yu-Gi-Oh!" })],
+    });
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+      state: "not-requested",
+      request: expect.objectContaining({ parentValue: null }),
+    });
+  });
+
+  it("keeps stale TCGplayer Yu-Gi-Oh source-option failures inside the deferred panel", async () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const mtgProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: mtgUnit,
+      displayName: "TCGplayer Magic single cards",
+      lifecycle: "active",
+      active: true,
+      status: "active",
+      connectorKind: "tcgplayer-automation-client",
+      profile: {
+        providerKey: "tcgplayer",
+        supportedScopes: ["product-line/category", "set-name"],
+      },
+      supportedScopes: ["product-line/category", "set-name"],
+      languageOptions: ["en"],
+    });
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+      lifecycle: "test",
+      active: false,
+      status: "planned",
+      connectorKind: "tcgplayer-automation-client",
+      profile: {
+        providerKey: "tcgplayer",
+        supportedScopes: ["product-line/category", "set-name"],
+      },
+      supportedScopes: ["product-line/category", "set-name"],
+      languageOptions: ["en"],
+      sourceOptionKinds: [
+        {
+          queryKind: "product-lines",
+          queryKeySynonyms: ["productLineId"],
+          displayName: "Product Line",
+          scope: "product-line/category",
+          parentScope: null,
+          parentRequired: false,
+          parentValueKind: null,
+          parentDiagnosticText: null,
+        },
+        {
+          queryKind: "set-names",
+          queryKeySynonyms: ["setName"],
+          displayName: "Set Name",
+          scope: "set-name",
+          parentScope: "product-line/category",
+          parentRequired: true,
+          parentValueKind: "product-line-id",
+          parentDiagnosticText: "Select Product Line before Set Name.",
+        },
+      ],
+    });
+    const profileReviews = { items: [mtgProfile, yugiohProfile], total: 2, count: 2 };
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+    const listSourceObservationIntegrationOptions = vi.fn().mockRejectedValue(
+      new CatalogApiError(500, {
+        error: { code: "tcgplayer_option_query_failed", message: "Provider source options are unavailable." },
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [stalePokemonScope], total: 1, count: 1 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Ayugioh%3Asingle-card%3Asource-observation-import&importScope=ja%3ASV%3ASV8&profileVersion=2026.06.20&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh&sourceOptionQueryKind=product-lines",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const reviewQuery = new URLSearchParams(listSourceObservations.mock.calls[0]?.[0] ?? "");
+    expect(reviewQuery.get("provider")).toBe("tcgplayer");
+    expect(reviewQuery.get("language")).toBeNull();
+    expect(reviewQuery.get("productLineId")).toBeNull();
+    expect(reviewQuery.get("seriesId")).toBeNull();
+    expect(reviewQuery.get("expansionId")).toBeNull();
+    expect(routeData.readModel.routeContext.importScope).toBeNull();
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    const operatorRefreshHref = new URL(
+      catalogPrimaryWorkbenchSourceOptionHref(routeData.readModel.routeContext, {
+        action: "force-refresh",
+        queryKind: "product-lines",
+      }),
+      "https://admin.example",
+    );
+    expect(operatorRefreshHref.searchParams.get("unitKey")).toBe(yugiohUnit);
+    expect(operatorRefreshHref.searchParams.get("profileVersion")).toBe("2026.06.20");
+    expect(operatorRefreshHref.searchParams.has("importScope")).toBe(false);
+    expect(operatorRefreshHref.searchParams.has("filter.importScope")).toBe(false);
+
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(1);
+    const optionQuery = new URLSearchParams(listSourceObservationIntegrationOptions.mock.calls[0]?.[0] ?? "");
+    expect(optionQuery.get("queryKind")).toBe("product-lines");
+    expect(optionQuery.get("forceRefresh")).toBe("true");
+    expect(optionQuery.get("profileKey")).toBe("yugioh-single-card-product-sku");
+    expect(optionQuery.get("ingestionUnitKey")).toBe(yugiohUnit);
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
+      state: "unavailable",
+      degraded: true,
+      cache: expect.objectContaining({
+        diagnostics: [
+          expect.objectContaining({
+            code: "tcgplayer_option_query_failed",
+            severity: "error",
+          }),
+        ],
+      }),
     });
     expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
       state: "not-requested",
