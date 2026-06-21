@@ -542,7 +542,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (actor) {
     try {
-      const forceReadinessRefresh = sourceType === "cart" && Boolean(anonymousCartId);
+      const forceReadinessRefresh = sourceType === "cart";
       let sessionApi = api;
       const writeSources: unknown[] = [];
       if (sourceType === "cart" && anonymousCartId) {

@@ -152,6 +152,54 @@ describe("checkout web routes: checkout start", () => {
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_cart=");
   });
 
+  it("refreshes signed-in cart readiness instead of trusting cart-page display snapshot fields", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_cart" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+    form.set("readinessSnapshotId", "cr_display_only");
+    form.set("readinessSourceRevision", "cr_display_revision");
+    form.set(
+      "readinessDecisions",
+      JSON.stringify({ optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" } }),
+    );
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({
+      lineOutcomes: [],
+      optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          lineOutcomes: [],
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_cart");
+  });
+
   it("keeps signed-out buyers on the checkout start choice page with a checkout return target", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestCart.mockResolvedValue({ items: [], count: 2 });
