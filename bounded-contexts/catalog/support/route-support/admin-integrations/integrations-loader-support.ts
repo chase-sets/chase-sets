@@ -28,7 +28,10 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
-import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchHref,
+  parseCatalogPrimaryWorkbenchRouteContext,
+} from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
   catalogPrimaryWorkbenchSourceOptionForcesRefresh,
   parseCatalogPrimaryWorkbenchSourceOptionIntent,
@@ -217,9 +220,10 @@ async function deferredSourceOptionsSlice(
 ): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> {
   try {
     const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext);
+    const normalizedRequestUrl = new URL(catalogPrimaryWorkbenchHref(routeContext), request.url).toString();
 
     return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
-      requestUrl: request.url,
+      requestUrl: normalizedRequestUrl,
       scopes: baseline.routeData.data,
       profileReviews: baseline.profileReviews,
       controlPlaneOverview: baseline.controlPlaneOverview,

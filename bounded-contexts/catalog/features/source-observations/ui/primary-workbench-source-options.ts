@@ -149,6 +149,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     scope: context.scope,
     profile,
     scopes: input.scopes,
+    allowRepresentativeScope: context.allowRepresentativeScope,
   });
   const limit = input.limit ?? SOURCE_OPTION_PAGE_LIMIT;
   return profile.sourceOptionKinds
@@ -198,6 +199,7 @@ function sourceOptionContext(input: {
   activeProfile: CatalogProviderProfileVersionReview | null;
   requestedProfileVersion: string | null;
   requestedUnitKey: string | null;
+  allowRepresentativeScope: boolean;
 }> {
   const parsed = input.routeContext ?? parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
   const providerKey =
@@ -224,15 +226,28 @@ function sourceOptionContext(input: {
       (profile) => profile.active && profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
     ) ??
     null;
-  const representativeScope = input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null;
+  const explicitScopeSelection = scopeHasExplicitSelection(parsed.scope);
+  const unitRouteWithoutExplicitScope = Boolean(parsed.unitKey && !parsed.importScope && !explicitScopeSelection);
+  const allowRepresentativeScope = !unitRouteWithoutExplicitScope;
+  const representativeScope = allowRepresentativeScope
+    ? (input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null)
+    : null;
   const importScope = parsed.importScope ?? (representativeScope ? scopeKey(representativeScope) : null);
   const scope = scopeContextFromRouteContext({
     ...parsed,
     providerKey,
-    importScope: scopeHasExplicitSelection(parsed.scope) ? null : importScope,
+    importScope: explicitScopeSelection ? null : importScope,
   });
 
-  return { providerKey, importScope, scope, activeProfile, requestedProfileVersion, requestedUnitKey };
+  return {
+    providerKey,
+    importScope,
+    scope,
+    activeProfile,
+    requestedProfileVersion,
+    requestedUnitKey,
+    allowRepresentativeScope,
+  };
 }
 
 function selectedSourceOptionProfile(
@@ -294,6 +309,7 @@ function sourceOptionSelections(input: {
   scope: CatalogPrimaryWorkbenchRouteContext["scope"];
   profile: CatalogProviderProfileVersionReview;
   scopes: readonly SourceObservationIntegrationScope[];
+  allowRepresentativeScope: boolean;
 }): ReadonlyMap<string, Readonly<{ value: string; label: string }>> {
   const providerRows = input.scopes.filter((scope) => scope.provider_key === input.providerKey);
   const hasExplicitScopeSelection = scopeHasExplicitSelection(input.scope);
@@ -302,7 +318,9 @@ function sourceOptionSelections(input: {
     hasExplicitScopeSelection && input.scope
       ? (providerRows.find((scope) => scopeContextMatchesProviderScope(input.scope!, scope)) ?? null)
       : null;
-  const representative = matchedRepresentative ?? (hasExplicitScopeSelection ? null : (providerRows[0] ?? null));
+  const representative = input.allowRepresentativeScope
+    ? (matchedRepresentative ?? (hasExplicitScopeSelection ? null : (providerRows[0] ?? null)))
+    : null;
   const scope = hasExplicitScopeSelection
     ? input.scope
     : representative

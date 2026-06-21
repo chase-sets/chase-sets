@@ -12,6 +12,7 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
   type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
+import { catalogPrimaryWorkbenchSourceOptionHref } from "./primary-workbench-source-option-refresh";
 import type { SourceObservationIntegrationOption, SourceObservationIntegrationOptionResponse } from "./contracts";
 
 const requestUrl =
@@ -520,6 +521,89 @@ describe("Catalog primary workbench source options", () => {
     expect(productLinesHref.searchParams.get("forceRefresh")).toBe("true");
     expect(setNames).toMatchObject({
       parentScope: "product-line/category",
+      languageCode: "en",
+      parentValue: null,
+      selectedParentValue: null,
+    });
+    expect(setNamesHref.searchParams.has("parentValue")).toBe(false);
+  });
+
+  it("does not infer stale provider scope into clean TCGplayer unit source-option routes", () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const mtgProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: mtgUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["yugioh/single-card"],
+    });
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&profileVersion=2026.06.20&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=tcgplayer";
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [stalePokemonScope], total: 1, count: 1 },
+      profileReviews: { items: [mtgProfile, yugiohProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      routeContext: readModel.routeContext,
+      scopes: [stalePokemonScope],
+      profiles: [mtgProfile, yugiohProfile],
+      cacheOnly: true,
+    });
+    const productLines = requests.find((request) => request.queryKind === "product-lines");
+    const setNames = requests.find((request) => request.queryKind === "set-names");
+    const operatorRefreshHref = new URL(
+      catalogPrimaryWorkbenchSourceOptionHref(readModel.routeContext, {
+        action: "force-refresh",
+        queryKind: "product-lines",
+      }),
+      "https://admin.example",
+    );
+    const setNamesHref = new URL(setNames!.queryHref, "https://admin.example");
+
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    expect(operatorRefreshHref.searchParams.get("providerKey")).toBe("tcgplayer");
+    expect(operatorRefreshHref.searchParams.get("unitKey")).toBe(yugiohUnit);
+    expect(operatorRefreshHref.searchParams.get("profileVersion")).toBe("2026.06.20");
+    expect(operatorRefreshHref.searchParams.has("importScope")).toBe(false);
+    expect(operatorRefreshHref.searchParams.has("filter.importScope")).toBe(false);
+    expect(productLines).toMatchObject({
+      profileKey: "yugioh-single-card-product-sku",
+      ingestionUnitKey: yugiohUnit,
+      languageCode: "en",
+      parentValue: null,
+    });
+    expect(setNames).toMatchObject({
+      profileKey: "yugioh-single-card-product-sku",
+      ingestionUnitKey: yugiohUnit,
       languageCode: "en",
       parentValue: null,
       selectedParentValue: null,

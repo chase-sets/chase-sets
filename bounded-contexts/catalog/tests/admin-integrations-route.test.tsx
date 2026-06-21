@@ -644,8 +644,20 @@ describe("Catalog integrations route", () => {
         label: "Yu-Gi-Oh!",
       });
     });
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [stalePokemonScope], total: 1, count: 1 }),
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations,
@@ -680,6 +692,7 @@ describe("Catalog integrations route", () => {
     });
     expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
     const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(1);
     const optionQuery = new URLSearchParams(listSourceObservationIntegrationOptions.mock.calls[0]?.[0] ?? "");
     expect(optionQuery.get("queryKind")).toBe("product-lines");
     expect(optionQuery.get("forceRefresh")).toBe("true");
@@ -688,6 +701,10 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
       state: "live",
       items: [expect.objectContaining({ label: "Yu-Gi-Oh!" })],
+    });
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+      state: "not-requested",
+      request: expect.objectContaining({ parentValue: null }),
     });
   });
 
