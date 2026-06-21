@@ -15,6 +15,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
   mockGetGuestCheckoutClaimContext,
+  mockGetCart,
   mockGetGuestCart,
   MockMarketplaceApiError,
   mockMergeGuestCartToAccount,
@@ -694,10 +695,12 @@ describe("checkout web routes: checkout start", () => {
       ],
     });
     mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockGetCart.mockResolvedValue({ items: [], count: 1 });
     const mutableApiClientCalls: { request: Request; options: unknown }[] = [];
     mockCreateCheckoutRequestApiClient.mockImplementation((request: Request, options?: unknown) => {
       mutableApiClientCalls.push({ request, options });
       return {
+        getCart: mockGetCart,
         getGuestCart: mockGetGuestCart,
         createCartReadiness: mockCreateCartReadiness,
         createCheckoutSession: mockCreateCheckoutSession,
@@ -729,6 +732,13 @@ describe("checkout web routes: checkout start", () => {
     );
 
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockGetCart).toHaveBeenCalledTimes(1);
+    expect(mockGetCart.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockMergeGuestCartToAccount.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(mockGetCart.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCreateCartReadiness.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
     expect(freshnessReceipt).toMatchObject({
       sources: [
         {
