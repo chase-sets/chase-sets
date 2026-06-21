@@ -137,6 +137,13 @@ export const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRou
   },
   {
     mountPath: "/api/marketplace",
+    routePath: "/guest/cart",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
     routePath: "/account/checkout-sessions/:sessionId",
     timeoutMs: 900,
     pollIntervalMs: 50,

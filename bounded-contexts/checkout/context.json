@@ -154,6 +154,15 @@
           ]
         },
         {
+          "routePath": "/guest/cart",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_cart_line_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/sell-list",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -282,6 +291,25 @@
         "readModelTables": ["checkout_cart_line_pages"],
         "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
         "transientRecovery": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart, and converts valid afterWrite projection timeouts or valid add-line empty-cart handoffs into temporary cart recovery while missing, malformed, expired, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
+      }
+    },
+    {
+      "id": "checkout.guest-cart-add-line-handoff",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Build View cart link after guest item detail add-to-cart"],
+        "command": "Checkout addGuestCartLine semantic handoff",
+        "helperUses": ["appendPostWriteHandoff"]
+      },
+      "destination": {
+        "routeId": "account-cart",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/guest/cart",
+        "readModelTables": ["checkout_cart_line_pages"],
+        "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
+        "transientRecovery": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff, and keeps valid empty-cart handoff states temporary while expired or malformed receipts fall back to the normal empty-cart path."
       }
     },
     {
