@@ -728,6 +728,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -803,6 +804,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1740,6 +1742,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1801,6 +1804,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |

@@ -8,6 +8,8 @@ const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANC
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
 const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
+const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
+const DEPLOYMENT_SUMMARY_API_PAGE_SIZE = 20;
 const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
 
@@ -153,6 +155,63 @@ function timestampValue(value) {
 
 function listDeploymentsSummaryArgs(appId) {
   return ["apps", "list-deployments", appId, "--format", DEPLOYMENT_SUMMARY_FIELDS, "--no-header"];
+}
+
+function deploymentSummaryFromApi(deployment) {
+  return {
+    id: deployment?.id ?? "",
+    phase: deployment?.phase ?? "",
+    createdAt: deployment?.created_at ?? deployment?.createdAt ?? "",
+    updatedAt: deployment?.updated_at ?? deployment?.updatedAt ?? "",
+  };
+}
+
+async function digitalOceanApiJson(path, options = {}) {
+  const accessToken = options.accessToken ?? process.env.DIGITALOCEAN_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error("DIGITALOCEAN_ACCESS_TOKEN is required for DigitalOcean API requests.");
+  }
+
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  if (!fetchImpl) {
+    throw new Error("A fetch implementation is required for DigitalOcean API requests.");
+  }
+
+  const apiBaseUrl = options.apiBaseUrl ?? process.env.DIGITALOCEAN_API_BASE_URL ?? DIGITALOCEAN_API_BASE_URL;
+  const response = await fetchImpl(`${apiBaseUrl}${path}`, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `DigitalOcean App Platform API request failed with ${response.status} ${response.statusText}: ${truncateDiagnosticMessage(body)}`,
+    );
+  }
+
+  return response.json();
+}
+
+export async function listDeploymentSummariesFromApi(appId, options = {}) {
+  const pageSize = options.pageSize ?? DEPLOYMENT_SUMMARY_API_PAGE_SIZE;
+  const json = await digitalOceanApiJson(
+    `/apps/${encodeURIComponent(appId)}/deployments?per_page=${pageSize}&page=1`,
+    options,
+  );
+
+  return (json.deployments ?? []).map(deploymentSummaryFromApi).filter((deployment) => deployment.id);
+}
+
+async function listDeploymentSummaries(appId, options = {}) {
+  if (!options.commandOutput && (options.accessToken ?? process.env.DIGITALOCEAN_ACCESS_TOKEN)) {
+    return listDeploymentSummariesFromApi(appId, options);
+  }
+
+  const command = options.commandOutput ?? commandOutput;
+  return parseDeploymentSummaryRows(await command("doctl", listDeploymentsSummaryArgs(appId)));
 }
 
 export function parseDeploymentSummaryRows(output) {
@@ -381,13 +440,12 @@ export async function waitForDeployments(appId, options = {}) {
   const pollSeconds = options.pollSeconds ?? 30;
   const now = options.now ?? (() => Date.now());
   const delay = options.sleep ?? sleep;
-  const command = options.commandOutput ?? commandOutput;
   const deadline = now() + timeoutSeconds * 1000;
 
   while (true) {
     let deployments;
     try {
-      deployments = parseDeploymentSummaryRows(await command("doctl", listDeploymentsSummaryArgs(appId)));
+      deployments = await listDeploymentSummaries(appId, options);
     } catch (error) {
       if (appNotFound(error)) {
         console.log(`App Platform app '${appId}' no longer exists; skipping deployment wait.`);
