@@ -161,9 +161,7 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
   }
 
   await contextBar.getByRole("button", { name: "Select source scope" }).click();
-  await expect(page.locator(`[data-catalog-source-scope-unit="${journey.unitKey}"]`)).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
+  await expect(sourceScopeSyncForms(page, journey.unitKey).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
@@ -176,9 +174,7 @@ async function expandImportContextBar(contextBar: Locator): Promise<void> {
 }
 
 async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<void> {
-  const commandForm = page.locator(
-    `form[data-catalog-primary-workbench-command="start-provider-import"][data-catalog-source-scope-unit="${unitKey}"]`,
-  );
+  const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
@@ -186,6 +182,14 @@ async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<vo
     timeout: sourceOptionTimeoutMs,
   });
   await syncButton.click();
+}
+
+function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
+  return page
+    .locator(
+      `form[data-catalog-primary-workbench-command="start-provider-import"][data-catalog-source-scope-unit="${unitKey}"]`,
+    )
+    .filter({ has: page.getByRole("button", { name: /^Sync / }) });
 }
 
 async function expectCommandQueued(page: Page): Promise<void> {
