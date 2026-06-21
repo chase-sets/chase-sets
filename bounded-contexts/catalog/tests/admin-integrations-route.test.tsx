@@ -554,7 +554,7 @@ describe("Catalog integrations route", () => {
 
     const routeData = await loader({
       request: new Request(
-        "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson%3Ayugioh%3Aset%3Areference-data&importScope=ja%3ASV%3ASV8&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=ygojson&sourceOptionAction=force-refresh&sourceOptionQueryKind=sets",
+        "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson%3Ayugioh%3Aset%3Areference-data&importScope=ja%3ASV%3ASV8&seriesId=SV&expansionId=SV8&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=ygojson&sourceOptionAction=force-refresh&sourceOptionQueryKind=sets",
       ),
       params: {},
       context: {},

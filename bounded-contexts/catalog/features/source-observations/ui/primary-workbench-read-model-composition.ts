@@ -801,23 +801,16 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
   explicitStructuredScope: boolean;
   unitContextMismatch: boolean;
 }): boolean {
-  if (input.unitContextMismatch || input.explicitStructuredScope || !input.importScope || !input.providerKey) {
+  if (input.unitContextMismatch || !input.providerKey || (!input.importScope && !input.explicitStructuredScope)) {
     return false;
   }
 
   const hasSourceOptionIntent = requestHasSourceOptionIntent(input.requestUrl);
-  const providerScopes = input.scopes.filter((scope) => scope.provider_key === input.providerKey);
-  if (providerScopes.some((scope) => importScopeMatchesProviderScope(input.importScope, scope))) {
+  if (!hasSourceOptionIntent || !input.activeProfile?.sourceOptionKinds.length) {
     return false;
-  }
-  if (!input.activeProfile?.sourceOptionKinds.length) {
-    return false;
-  }
-  if (hasSourceOptionIntent && providerScopes.length > 0) {
-    return true;
   }
 
-  return hasSourceOptionIntent && sourceOptionProfileCannotSelectScope(input.activeProfile, input.scope);
+  return sourceOptionProfileCannotSelectScope(input.activeProfile, input.scope);
 }
 
 function requestHasSourceOptionIntent(requestUrl: string | URL): boolean {
