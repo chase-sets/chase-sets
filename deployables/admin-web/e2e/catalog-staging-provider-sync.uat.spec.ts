@@ -24,6 +24,8 @@ type ProviderSyncJourney = Readonly<{
   scope: readonly ScopeSelection[];
 }>;
 
+type MissingOptionRecovery = () => Promise<boolean>;
+
 const providerSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "Pokemon set regression through TCGdex",
@@ -155,7 +157,7 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
     const sourceScope = page.getByRole("group", { name: "Source scope" });
     await expect(sourceScope).toBeVisible({ timeout: sourceOptionTimeoutMs });
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
-    await selectOption(scopeSelect, selection.choice);
+    await selectOption(scopeSelect, selection.choice, () => refreshSourceOptionGroup(page, selection.label));
     await expect(scopeSelect).not.toHaveValue("", { timeout: sourceOptionTimeoutMs });
   }
 
@@ -277,10 +279,14 @@ async function isImporterVisible(page: Page, timeout: number): Promise<boolean> 
     .catch(() => false);
 }
 
-async function selectOption(select: Locator, choice: SelectChoice): Promise<void> {
+async function selectOption(
+  select: Locator,
+  choice: SelectChoice,
+  recoverMissingOptions?: MissingOptionRecovery,
+): Promise<void> {
   await expect(select).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
-  const option = await waitForOption(select, choice);
+  const option = await waitForOption(select, choice, recoverMissingOptions);
   if (await select.isDisabled()) {
     const currentValue = await select.inputValue();
     if (currentValue === option.value) {
@@ -295,19 +301,28 @@ async function selectOption(select: Locator, choice: SelectChoice): Promise<void
   await select.selectOption({ value: option.value });
 }
 
-async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ label: string; value: string }> {
+async function waitForOption(
+  select: Locator,
+  choice: SelectChoice,
+  recoverMissingOptions?: MissingOptionRecovery,
+): Promise<{ label: string; value: string }> {
   const labels = choice.labels ?? [];
   const values = choice.values ?? [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
+  let nextRecoveryAttemptAt = Date.now() + 5_000;
+  let recoveryAttempts = 0;
   let observedOptions: readonly { label: string; value: string }[] = [];
 
   while (Date.now() < deadline) {
-    observedOptions = await select.locator("option").evaluateAll((nodes) =>
-      nodes.map((node) => ({
-        label: (node.textContent ?? "").trim(),
-        value: (node as HTMLOptionElement).value,
-      })),
-    );
+    observedOptions = await select
+      .locator("option")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          label: (node.textContent ?? "").trim(),
+          value: (node as HTMLOptionElement).value,
+        })),
+      )
+      .catch(() => []);
     const valueMatch = observedOptions.find((option) => values.includes(option.value));
     if (valueMatch) {
       return valueMatch;
@@ -315,6 +330,14 @@ async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ l
     const labelMatch = observedOptions.find((option) => labels.includes(option.label));
     if (labelMatch) {
       return labelMatch;
+    }
+
+    if (recoverMissingOptions && recoveryAttempts < 3 && Date.now() >= nextRecoveryAttemptAt) {
+      recoveryAttempts += 1;
+      nextRecoveryAttemptAt = Date.now() + 15_000;
+      if (await recoverMissingOptions()) {
+        await expect(select).toBeVisible({ timeout: sourceOptionTimeoutMs });
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -325,4 +348,57 @@ async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ l
       .map((option) => `${option.label} (${option.value})`)
       .join(", ")}`,
   );
+}
+
+async function refreshSourceOptionGroup(page: Page, label: string | RegExp): Promise<boolean> {
+  const sourceOptionsPanel = page.locator("[data-catalog-source-options-status]").first();
+  if (!(await sourceOptionsPanel.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    return false;
+  }
+
+  const optionGroup = sourceOptionsPanel
+    .locator("[data-source-option-page]")
+    .filter({ has: sourceOptionGroupLabel(page, label) })
+    .first();
+  const refreshTarget = (await optionGroup.isVisible({ timeout: 1_000 }).catch(() => false))
+    ? optionGroup
+    : sourceOptionsPanel;
+
+  const forceRefresh = refreshTarget.getByRole("button", { name: "Force refresh" }).first();
+  if (await forceRefresh.isEnabled().catch(() => false)) {
+    await forceRefresh.click();
+    await waitForSourceOptionsToSettle(page);
+    return true;
+  }
+
+  const reload = refreshTarget.getByRole("button", { name: "Reload" }).first();
+  if (await reload.isEnabled().catch(() => false)) {
+    await reload.click();
+    await waitForSourceOptionsToSettle(page);
+    return true;
+  }
+
+  const refreshAll = sourceOptionsPanel.getByRole("button", { name: "Refresh all" }).first();
+  if (await refreshAll.isEnabled().catch(() => false)) {
+    await refreshAll.click();
+    await waitForSourceOptionsToSettle(page);
+    return true;
+  }
+
+  return false;
+}
+
+function sourceOptionGroupLabel(page: Page, label: string | RegExp): Locator {
+  return typeof label === "string" ? page.getByText(label, { exact: true }) : page.getByText(label);
+}
+
+async function waitForSourceOptionsToSettle(page: Page): Promise<void> {
+  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
+  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", {
+    timeout: pageReadyTimeoutMs,
+  });
+  await page
+    .getByText("Loading source options", { exact: true })
+    .waitFor({ state: "hidden", timeout: sourceOptionTimeoutMs })
+    .catch(() => undefined);
 }
