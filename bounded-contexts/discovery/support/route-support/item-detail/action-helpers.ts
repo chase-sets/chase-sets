@@ -3,11 +3,6 @@ import { redirect } from "react-router";
 import { appendPostWriteHandoff } from "@chase-sets/http/responses";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
-  createMarketplaceRequestApiClient,
-  MarketplaceApiError,
-  type OfferMatchListItem,
-} from "@chase-sets/marketplace/server";
-import {
   ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
@@ -131,40 +126,7 @@ export function assertSelectedListingQuantityAvailable(
   }
 }
 
-export async function getFreshOfferMatchForAction(
-  marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
-  item: DiscoveryItemDetail,
-  offerId: string,
-): Promise<OfferMatchListItem> {
-  const normalizedOfferId = offerId.trim();
-  if (!normalizedOfferId || typeof marketplaceApi.getOfferMatch !== "function") {
-    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
-  }
-
-  const offer = await marketplaceApi.getOfferMatch(normalizedOfferId).catch((error: unknown) => {
-    if (error instanceof MarketplaceApiError && error.status === 404) {
-      return null;
-    }
-
-    throw error;
-  });
-  if (!offer || offer.catalog_catalog_item_id !== item.catalog_item_id || offer.status !== "submitted") {
-    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
-  }
-
-  if (!offer.can_fulfill) {
-    throw new Error(
-      t("discovery.routes.itemDetail.validation.selected.offer.quantity.unavailable", {
-        requestedQuantity: offer.quantity_requested,
-        availableQuantity: offer.seller_available_quantity,
-      }),
-    );
-  }
-
-  return offer;
-}
-
-function getPublicSelectedOfferForSellList(
+export function getPublicSelectedOfferForSellList(
   item: DiscoveryItemDetail,
   offerId: string,
 ): DiscoveryItemDetail["offer_demand_matches"][number] {
@@ -183,7 +145,7 @@ function getPublicSelectedOfferForSellList(
   return offer;
 }
 
-function selectedOfferSellListLineFromPublicOffer(
+export function selectedOfferSellListLineFromPublicOffer(
   item: DiscoveryItemDetail,
   offer: DiscoveryItemDetail["offer_demand_matches"][number],
 ) {

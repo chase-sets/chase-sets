@@ -934,6 +934,100 @@ describe("item detail buy now checkout actions", () => {
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
+  for (const { intent, name } of [
+    {
+      intent: "add-to-sell-list",
+      name: "adds signed-in selected offer seller intent to the account Sell List",
+    },
+    {
+      intent: "sell-now",
+      name: "routes signed-in selected offer acceptance through account Sell List review",
+    },
+  ] as const) {
+    it(name, async () => {
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_seller",
+        permissions: ["offers.manage", "offers.view", "listings.view"],
+      });
+      mockRequireActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_seller",
+        permissions: ["offers.manage", "offers.view", "listings.view"],
+      });
+      mockCreateDiscoveryRequestApiClient.mockReturnValue({
+        getItemDetail: vi.fn().mockResolvedValue({
+          catalog_item_id: "cat_charizard",
+          title: "Charizard",
+          subtitle: "Base Set 4/102 Holo Rare",
+          offer_demand_matches: [
+            {
+              offer_id: "offer_charizard",
+              buyer_account_id: "acc_buyer_private",
+              buyer_display_name: "Top Loader Capital",
+              catalog_catalog_item_id: "cat_charizard",
+              product_id: "cat_charizard::form:raw",
+              item_title: "Charizard",
+              item_subtitle: "Base Set 4/102 Holo Rare",
+              selected_options: [{ dimensionId: "form", optionId: "raw" }],
+              product_summary: "Raw",
+              price_amount: "380.00",
+              quantity_requested: 1,
+              status: "submitted",
+              accepted_seller_account_id: null,
+              accepted_at: null,
+            },
+          ],
+        }),
+      });
+      mockCreateMarketplaceRequestApiClient.mockReturnValue({
+        acceptOfferMatch: mockAcceptOfferMatch,
+      });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        addSellListLine: mockAddSellListLine.mockResolvedValue(
+          commandResult({ id: "sll_1", version: 1, status: "active" }),
+        ),
+      });
+
+      const form = new URLSearchParams();
+      form.set("intent", intent);
+      form.set("offerId", "offer_charizard");
+
+      const response = (await action({
+        request: new Request("http://localhost/items/cat_charizard", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: { id: "cat_charizard" },
+      } as never)) as Response;
+
+      expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+        request: expect.any(Request),
+        permission: "offers.manage",
+      });
+      expect(mockEnsureAnonymousSellListId).not.toHaveBeenCalled();
+      expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+      expect(mockAddSellListLine).toHaveBeenCalledWith({
+        lineType: "selected-offer",
+        offerId: "offer_charizard",
+        buyerAccountId: null,
+        buyerDisplayName: "Top Loader Capital",
+        offerPriceAmount: "380.00",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set 4/102 Holo Rare",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Raw",
+        fallbackMode: "none",
+        minimumListingPriceAmount: null,
+        quantity: 1,
+      });
+      expect(response.status).toBe(302);
+      expectSellListPostWriteRedirect(response);
+      expect(response.headers.getSetCookie().join("; ")).not.toContain("chase_sets_anonymous_sell_list=");
+    });
+  }
+
   it("routes signed-out selected offer acceptance through anonymous Sell List review", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateDiscoveryRequestApiClient.mockReturnValue({

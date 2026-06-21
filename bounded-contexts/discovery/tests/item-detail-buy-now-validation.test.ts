@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendFreshWriteToken, decodeFreshWriteReceipt } from "@chase-sets/http/responses";
 
 import {
-  mockAcceptOfferMatch,
   mockAddCartLine,
   mockAddGuestCartLine,
   mockAddSellListLine,
@@ -23,7 +22,6 @@ import {
   mockEnsureAnonymousProductAlertOwnerId,
   mockEnsureAnonymousSellListId,
   mockEnsureListingStock,
-  mockGetOfferMatch,
   mockReadAnonymousProductAlertOwnerId,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
@@ -321,7 +319,11 @@ describe("item detail buy now validation and watch intents", () => {
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("rejects stale selected offers before acceptance", async () => {
+  it("rejects stale selected offers before account sell-list handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["offers.manage", "offers.view", "listings.view"],
+    });
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["offers.manage", "offers.view", "listings.view"],
@@ -330,14 +332,13 @@ describe("item detail buy now validation and watch intents", () => {
       getItemDetail: vi.fn().mockResolvedValue({
         catalog_item_id: "cat_charizard",
         title: "Charizard",
+        offer_demand_matches: [],
       }),
     });
-    mockGetOfferMatch.mockResolvedValue(null);
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
-      acceptOfferMatch: mockAcceptOfferMatch,
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addSellListLine: mockAddSellListLine,
     });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({});
 
     const form = new URLSearchParams();
     form.set("intent", "sell-now");
@@ -358,10 +359,10 @@ describe("item detail buy now validation and watch intents", () => {
       error: "This offer is no longer available. Choose another offer.",
       intent: "sell-now",
     });
-    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockAddSellListLine).not.toHaveBeenCalled();
   });
 
-  it("rejects selected offers the seller can no longer fulfill before adding to Sell List", async () => {
+  it("preserves signed-in selected public offers for Sell List readiness instead of pre-checking seller fulfillment", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["offers.manage", "offers.view", "listings.view"],
@@ -374,36 +375,39 @@ describe("item detail buy now validation and watch intents", () => {
       getItemDetail: vi.fn().mockResolvedValue({
         catalog_item_id: "cat_charizard",
         title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        offer_demand_matches: [
+          {
+            offer_id: "offer_charizard",
+            buyer_account_id: "acc_buyer",
+            buyer_display_name: "Buyer",
+            catalog_catalog_item_id: "cat_charizard",
+            product_id: "cat_charizard::form:raw",
+            item_title: "Charizard",
+            item_subtitle: "Base Set 4/102 Holo Rare",
+            selected_options: [{ dimensionId: "form", optionId: "raw" }],
+            product_summary: "Raw",
+            price_amount: "350.00",
+            quantity_requested: 2,
+            status: "submitted",
+            accepted_seller_account_id: null,
+            accepted_at: null,
+          },
+        ],
       }),
     });
-    mockGetOfferMatch.mockResolvedValue({
-      offer_id: "offer_charizard",
-      buyer_account_id: "acc_buyer",
-      buyer_display_name: "Buyer",
-      catalog_catalog_item_id: "cat_charizard",
-      product_id: "cat_charizard::form:raw",
-      item_title: "Charizard",
-      item_subtitle: "Base Set 4/102 Holo Rare",
-      selected_options: [{ dimensionId: "form", optionId: "raw" }],
-      product_summary: "Raw",
-      price_amount: "350.00",
-      quantity_requested: 2,
-      status: "submitted",
-      seller_available_quantity: 1,
-      can_fulfill: false,
-    });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addSellListLine: mockAddSellListLine,
+      addSellListLine: mockAddSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_1", version: 1, status: "active" }, "checkout"),
+      ),
     });
 
     const form = new URLSearchParams();
     form.set("intent", "add-to-sell-list");
     form.set("offerId", "offer_charizard");
 
-    const result = (await action({
+    const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -411,13 +415,27 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string; intent: string };
+    } as never)) as Response;
 
-    expect(result).toEqual({
-      error: "2 requested, but only 1 available. Choose another offer or add product to Sell List.",
-      intent: "add-to-sell-list",
+    expect(mockAddSellListLine).toHaveBeenCalledWith({
+      lineType: "selected-offer",
+      offerId: "offer_charizard",
+      buyerAccountId: null,
+      buyerDisplayName: "Buyer",
+      offerPriceAmount: "350.00",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set 4/102 Holo Rare",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+      quantity: 2,
     });
-    expect(mockAddSellListLine).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account/sell-list");
+    expect(response.headers.get("Location")).toContain("afterWrite=");
   });
 
   it("rejects invalid watch thresholds before creating product alerts", async () => {
