@@ -7,7 +7,10 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
+import { SubmittedOfferDetailErrorBoundary } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
+
+export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
 

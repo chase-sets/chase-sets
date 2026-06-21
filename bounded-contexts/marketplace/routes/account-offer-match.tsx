@@ -15,7 +15,10 @@ import {
   type OfferMatchDetail,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
+import { OfferMatchDetailErrorBoundary } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
+
+export { OfferMatchDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
 

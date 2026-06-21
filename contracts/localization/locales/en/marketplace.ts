@@ -417,6 +417,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.updated": "Updated",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
   "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.offerDetailRecoveryPage.no.payment.or.sale.changed":
+    "No payment or sale changed while these offer details finish updating.",
+  "marketplace.features.offers.ui.offerDetailRecoveryPage.recover.offer": "Recover offer details",
+  "marketplace.features.offers.ui.offerDetailRecoveryPage.refresh.offer": "Refresh offer",
   "marketplace.features.offers.ui.offerSubmissionSection.make.an.offer": "Make An Offer",
   "marketplace.features.offers.ui.offerSubmissionSection.matching.visible.listings.for.this.product":
     "Matching visible listings for this product: ",
