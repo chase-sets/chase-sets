@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import { createIdentityRequestApiClient, type CurrentActorDisplay } from "@chase-sets/identity/server";
+import { resolveCurrentActorPrimaryEmail } from "./request-support/identity-current-actor";
 import type { SettlementApiEnv } from "../../../api";
 import type { PayoutReadinessServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -56,12 +56,7 @@ function errorMessage(error: unknown) {
 }
 
 async function resolveActorContactEmail(request: Request) {
-  try {
-    const actorDisplay = await createIdentityRequestApiClient(request).getCurrentActorDisplay<CurrentActorDisplay>();
-    return actorDisplay.user.primary_email?.trim() || null;
-  } catch {
-    return null;
-  }
+  return resolveCurrentActorPrimaryEmail(request);
 }
 
 async function contactEmailFromRequest(request: Request, body: Record<string, unknown>) {
