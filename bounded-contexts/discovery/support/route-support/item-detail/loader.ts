@@ -55,6 +55,68 @@ function apiErrorCode(error: unknown) {
   return typeof code === "string" && code.trim() ? code : null;
 }
 
+function requestWithoutFreshWriteToken(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+
+  return new Request(url.toString(), {
+    headers: request.headers,
+    method: request.method,
+  });
+}
+
+function canRecoverSelectedSellerListingRead(
+  request: Request,
+  error: unknown,
+  options: Readonly<{
+    actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
+    initialMarketIntent: "buy" | "sell" | "watch";
+    initialSelectedListingId: string | null;
+  }>,
+) {
+  if (
+    options.initialMarketIntent !== "sell" ||
+    !options.initialSelectedListingId ||
+    !options.actor?.accountId ||
+    !options.actor.permissions.includes("listings.view") ||
+    !options.actor.permissions.includes("listings.manage")
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: apiErrorStatus,
+      getErrorCode: apiErrorCode,
+      getBody: apiErrorBody,
+      recoverTransient: () => true,
+    }),
+  );
+}
+
+async function loadItemDetailForSelectedSellerListing(
+  api: ReturnType<typeof createDiscoveryRequestApiClient>,
+  request: Request,
+  id: string,
+  options: Readonly<{
+    actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
+    initialMarketIntent: "buy" | "sell" | "watch";
+    initialSelectedListingId: string | null;
+  }>,
+) {
+  try {
+    return await api.getItemDetail(id);
+  } catch (error) {
+    if (!canRecoverSelectedSellerListingRead(request, error, options)) {
+      throw error;
+    }
+
+    return createDiscoveryRequestApiClient(requestWithoutFreshWriteToken(request)).getItemDetail(id);
+  }
+}
+
 function sellerListingFallbackFromMarketplace(
   item: DiscoveryItemDetail,
   listing: MarketplaceListingDetail,
@@ -188,12 +250,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   try {
-    let item = await api.getItemDetail(id);
+    const actor = await resolveActorFromAuthApi({ request });
+    const canReviewAccountOfferMatches = Boolean(
+      actor?.permissions.includes("offers.view") && actor.permissions.includes("listings.view"),
+    );
+    const canSellOnItem = Boolean(
+      actor?.permissions.includes("listings.view") && actor.permissions.includes("listings.manage"),
+    );
+    const canUseGuestListingDraft = !canUseAccountSellList(actor);
+    const canSubmitOffers = Boolean(actor);
+    let item = await loadItemDetailForSelectedSellerListing(api, request, id, {
+      actor,
+      initialMarketIntent,
+      initialSelectedListingId,
+    });
+
     if (item.slug && id !== item.slug) {
       throw redirect(`/items/${item.slug}${url.search}`, { status: 301 });
     }
 
-    const actor = await resolveActorFromAuthApi({ request });
     let productAlertClaimError: string | null = null;
 
     if (claimProductAlertIntentId) {
@@ -225,14 +300,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       item = await attachPublicStandardOfferTerms(marketplaceApi, item);
     }
 
-    const canReviewAccountOfferMatches = Boolean(
-      actor?.permissions.includes("offers.view") && actor.permissions.includes("listings.view"),
-    );
-    const canSellOnItem = Boolean(
-      actor?.permissions.includes("listings.view") && actor.permissions.includes("listings.manage"),
-    );
-    const canUseGuestListingDraft = !canUseAccountSellList(actor);
-    const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
     let hasListingStockLocation = false;

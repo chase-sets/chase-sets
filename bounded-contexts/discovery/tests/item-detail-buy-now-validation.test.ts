@@ -803,6 +803,78 @@ describe("item detail buy now validation and watch intents", () => {
     ]);
   });
 
+  it("uses stale item details when the selected seller listing fresh write is still projecting", async () => {
+    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
+    const freshGetItemDetail = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+        status: 503,
+        body: {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        },
+      }),
+    );
+    const staleGetItemDetail = vi.fn().mockResolvedValue({
+      catalog_item_id: "cat_charizard",
+      slug: "charizard-base-set",
+      title: "Charizard",
+      market_summary: null,
+      market_listings: [],
+      offer_demand_matches: [],
+    });
+
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockImplementation((request: Request) =>
+      new URL(request.url).searchParams.has("afterWrite")
+        ? { getItemDetail: freshGetItemDetail }
+        : { getItemDetail: staleGetItemDetail },
+    );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+      getSellerListing,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [{ name: "Listing stock", ship_from_code: "LISTING-STOCK" }],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/items/charizard-base-set?market=sell&listing=lst_item_detail",
+          commandResult({ id: "lst_item_detail" }, "marketplace"),
+        )}`,
+      ),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(freshGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
+    expect(staleGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
+    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(result.notFound).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(result.item?.market_listings).toEqual([
+      expect.objectContaining({
+        listing_id: "lst_item_detail",
+        account_id: "acc_seller",
+        catalog_catalog_item_id: "cat_charizard",
+        product_id: "cat_charizard::form:raw",
+        price_amount: "24.35",
+        quantity_cap: 1,
+      }),
+    ]);
+  });
+
   it("does not show a selected seller listing fallback for a different catalog item", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
