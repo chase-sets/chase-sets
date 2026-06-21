@@ -384,7 +384,7 @@ describe("cart readiness snapshots", () => {
     expect(snapshot.optimization.proposedLineId).not.toBe("cli_gone");
   });
 
-  it("degrades gracefully for a locked line with no projected options yet (stays ready)", () => {
+  it("blocks a locked line while its selected listing is missing from projected supply", () => {
     const lockedWithoutProjectedOptions: CartReadinessLine = {
       ...readyLine,
       line_id: "cli_no_data",
@@ -394,12 +394,14 @@ describe("cart readiness snapshots", () => {
 
     const snapshot = createCartReadinessSnapshot([lockedWithoutProjectedOptions]);
 
-    expect(cartReadinessLineHasFulfillment(lockedWithoutProjectedOptions)).toBe(true);
-    expect(snapshot.status).toBe("ready");
+    expect(cartReadinessLineHasFulfillment(lockedWithoutProjectedOptions)).toBe(false);
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_no_data"]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_no_data",
       outcome: "checkout",
-      reason: "ready",
+      reason: "waiting-for-supply",
     });
   });
 

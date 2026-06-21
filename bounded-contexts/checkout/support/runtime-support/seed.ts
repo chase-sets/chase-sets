@@ -40,6 +40,10 @@ const demoCartLines = [
     selectedOptions: rawNearMintVersionSelection,
     productSummary: "Form: Raw | Condition: Near Mint",
     lockedListingId: marketplaceReservedSeedIds.listings.charizardBaseSetNearMint,
+    sellerAccountId: identitySeedIds.demo.accountId,
+    sellerDisplayName: "Chase Sets",
+    priceAmount: "399.99",
+    availableQuantity: 2,
     quantity: 1,
   },
   {
@@ -50,9 +54,40 @@ const demoCartLines = [
     selectedOptions: rawExcellentVersionSelection,
     productSummary: "Form: Raw | Condition: Excellent",
     lockedListingId: marketplaceReservedSeedIds.listings.pikachuJungleLightlyPlayed,
+    sellerAccountId: identitySeedIds.demo.accountId,
+    sellerDisplayName: "Chase Sets",
+    priceAmount: "21.50",
+    availableQuantity: 3,
     quantity: 1,
   },
 ] as const;
+
+function demoSellerOptionFor(lockedListingId: string | null): CartReadinessLine["seller_options"][number] | null {
+  const line = demoCartLines.find((demoLine) => demoLine.lockedListingId === lockedListingId);
+  if (!line) {
+    return null;
+  }
+
+  return {
+    listing_id: line.lockedListingId,
+    seller_account_id: line.sellerAccountId,
+    seller_display_name: line.sellerDisplayName,
+    price_amount: line.priceAmount,
+    available_quantity: line.availableQuantity,
+    product_summary: line.productSummary,
+  };
+}
+
+function withDemoSellerOptionFallback(lines: readonly CartReadinessLine[]): CartReadinessLine[] {
+  return lines.map((line) => {
+    if (line.seller_options.length > 0 || line.fulfillment_mode !== "locked-listing") {
+      return line;
+    }
+
+    const sellerOption = demoSellerOptionFor(line.locked_listing_id);
+    return sellerOption ? { ...line, seller_options: [sellerOption] } : line;
+  });
+}
 
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
@@ -151,6 +186,10 @@ export async function seedCheckoutDatabase(
         sellerPreferenceId: null,
         availabilityState: "available",
       });
+      const sellerOption = demoSellerOptionFor(line.lockedListingId);
+      if (!sellerOption) {
+        throw new Error(`No checkout seed seller option found for ${line.itemTitle}.`);
+      }
       seededReadinessLines.push({
         line_id: result.lineId,
         catalog_catalog_item_id: line.catalogItemId,
@@ -161,7 +200,7 @@ export async function seedCheckoutDatabase(
         locked_listing_id: line.lockedListingId,
         seller_preference_id: null,
         availability_state: "available",
-        seller_options: [],
+        seller_options: [sellerOption],
         updated_at: new Date().toISOString(),
       });
     }
@@ -170,7 +209,8 @@ export async function seedCheckoutDatabase(
 
   if (!(await hasStartedSession(checkout.db))) {
     const projectedCartLines = await checkout.cart.listCartLines(buyerAccountId);
-    const readinessLines = projectedCartLines.length > 0 ? projectedCartLines : seededReadinessLines;
+    const readinessLines =
+      projectedCartLines.length > 0 ? withDemoSellerOptionFallback(projectedCartLines) : seededReadinessLines;
     const readiness = createCartReadinessSnapshot(readinessLines);
     if (readiness.status !== "ready") {
       throw new Error("Checkout seed requires ready cart fulfillment before starting a session.");

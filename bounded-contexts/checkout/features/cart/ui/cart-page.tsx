@@ -211,10 +211,26 @@ function hasFulfillmentPath(line: CheckoutCartLineGroup) {
   }
 
   if (line.fulfillment_mode === "locked-listing") {
-    return Boolean(line.locked_listing_id);
+    const selected = findSellerOption(line, line.locked_listing_id);
+    return selected ? sellerOptionCanFulfill(selected, line.quantity) : false;
   }
 
-  return line.seller_options.length > 0;
+  return line.seller_options.some((option) => sellerOptionCanFulfill(option, line.quantity));
+}
+
+function lockedListingIsWaitingForSupply(line: CheckoutCartLineGroup) {
+  return (
+    line.fulfillment_mode === "locked-listing" && Boolean(line.locked_listing_id) && line.seller_options.length === 0
+  );
+}
+
+function lockedListingChanged(line: CheckoutCartLineGroup) {
+  return (
+    line.fulfillment_mode === "locked-listing" &&
+    Boolean(line.locked_listing_id) &&
+    line.seller_options.length > 0 &&
+    findSellerOption(line, line.locked_listing_id) === null
+  );
 }
 
 function readinessLabel(line: CheckoutCartLineGroup) {
@@ -227,6 +243,14 @@ function readinessLabel(line: CheckoutCartLineGroup) {
   }
 
   if (line.availability_state === "changed") {
+    return t("checkout.features.cart.ui.cartPage.needs.review");
+  }
+
+  if (lockedListingIsWaitingForSupply(line)) {
+    return t("checkout.features.cart.ui.cartPage.waiting.for.supply");
+  }
+
+  if (lockedListingChanged(line)) {
     return t("checkout.features.cart.ui.cartPage.needs.review");
   }
 
@@ -266,6 +290,11 @@ function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null)
   }
 
   return line.seller_options.find((option) => option.listing_id === listingId) ?? null;
+}
+
+function sellerOptionCanFulfill(option: CheckoutCartSellerOption, quantity: number) {
+  const price = Number(option.price_amount);
+  return option.available_quantity >= quantity && Number.isFinite(price) && price >= 0;
 }
 
 function selectedListingSnapshotSeller(line: CheckoutCartLineGroup, listingId: string | null) {
