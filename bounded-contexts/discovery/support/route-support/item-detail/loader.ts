@@ -39,6 +39,8 @@ type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
     acceptance_terms: MarketplaceListingTermsPreview | null;
   }>;
 
+const SELLER_MANAGEMENT_LISTING_FALLBACK_STATUSES = new Set(["draft", "active", "paused"]);
+
 function apiErrorStatus(error: unknown) {
   const status = (error as { status?: unknown })?.status;
   return typeof status === "number" ? status : null;
@@ -151,7 +153,7 @@ function sellerListingFallbackFromMarketplace(
   listing: MarketplaceListingDetail,
 ): DiscoveryMarketListing | null {
   if (
-    listing.status !== "active" ||
+    !SELLER_MANAGEMENT_LISTING_FALLBACK_STATUSES.has(listing.status) ||
     listing.catalog_catalog_item_id !== item.catalog_item_id ||
     !listing.listing_id ||
     !listing.product_id

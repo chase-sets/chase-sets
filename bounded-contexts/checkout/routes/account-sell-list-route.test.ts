@@ -130,6 +130,11 @@ describe("checkout web routes: account sell list", () => {
         isSignedIn: true,
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: expect.any(String),
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          correctionSource: "fresh-read",
+        }),
         offerReviews: [],
         productOfferReviews: [],
         inventoryItems: [],
@@ -260,6 +265,53 @@ describe("checkout web routes: account sell list", () => {
         context: undefined,
       } as never),
     ).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("shows temporary Sell List recovery when an expired add-line handoff still hits projection freshness", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async (): Promise<never> => {
+      throw new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      });
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    const request = new Request(
+      `http://localhost${appendPostWriteHandoff(
+        "/account/sell-list",
+        checkoutCommit("42", "evt_sell_list_line"),
+        ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        Date.now() - 40_000,
+      )}`,
+    );
+
+    const result = await accountSellListLoader({
+      request,
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: expect.any(String),
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          freshnessOutcome: "expired-after-write",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+        offerReviews: [],
+        productOfferReviews: [],
+        inventoryItems: [],
+      }),
+    );
   });
 
   it("adds a Marketplace offer match to the Checkout-owned sell list", async () => {

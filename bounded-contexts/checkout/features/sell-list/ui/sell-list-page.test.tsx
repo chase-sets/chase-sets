@@ -197,12 +197,42 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Payout setup required");
     expect(markup).toContain("bank account");
     expect(markup).toContain("No ready Smart Match offers are available for this line.");
-    expect(markup).toContain("Resolve items");
-    expect(markup).toContain('href="/checkout/sell/readiness"');
+    expect(markup).toContain("Set up payouts");
+    expect(markup).toContain('href="/account/payouts/setup"');
+    expect(markup).toContain("Create listing");
+    expect(markup).toContain("Add inventory");
+    expect(markup).toContain('href="/account/listings?catalogItemId=cat_charizard');
+    expect(markup).toContain('href="/account/inventory"');
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Continue sale checkout to safely resume");
     expect(markup).not.toContain("provider diagnostics");
     expect(markup).not.toContain("settlement internals");
+  });
+
+  it("links unavailable selected offers to matching listing setup", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "unavailable",
+            terms: null,
+            comparison: null,
+            message: "Offer not found.",
+          },
+        ]}
+      />,
+    );
+
+    const setupLink = screen.getByRole("link", { name: "Create matching listing" });
+    expect(setupLink.getAttribute("href")).toBe(
+      "/account/listings?catalogItemId=cat_charizard&recommendedPrice=350.00&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D",
+    );
+    expect(screen.getAllByRole("link", { name: "Resolve items" })[0]?.getAttribute("href")).toBe(
+      setupLink.getAttribute("href"),
+    );
   });
 
   it("shows a simple empty Sell List recovery state", () => {
