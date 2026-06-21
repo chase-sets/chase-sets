@@ -91,6 +91,25 @@ describe("Catalog primary workbench scope context", () => {
     });
   });
 
+  it("drops stale legacy importScope parents when an explicit set-name selection differs", () => {
+    const scope = scopeContextFromSearchParams({
+      searchParams: new URLSearchParams(
+        "providerKey=ygojson&importScope=ja%3ASV%3ASV8&expansionName=9baa1b43-8a60-44dd-a144-dbef99c8c7a4",
+      ),
+      providerKey: "ygojson",
+      importScope: "ja:SV:SV8",
+      sourceObservationFilters: {},
+    });
+
+    expect(scope).toMatchObject({
+      providerKey: "ygojson",
+      languageCode: null,
+      seriesId: null,
+      expansionId: null,
+      expansionName: "9baa1b43-8a60-44dd-a144-dbef99c8c7a4",
+    });
+  });
+
   it("uses structured names for display labels instead of parsing raw importScope text", () => {
     const scope = scopeContextFromProviderScope(
       sourceObservationScope({

@@ -586,6 +586,99 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("keeps an explicit YGOJSON set selection clean when stale Pokemon scope params remain in the URL", async () => {
+    const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
+    const profileReviews = {
+      items: [
+        profileReview({
+          providerKey: "ygojson",
+          profileKey: "ygojson-yugioh-set",
+          profileVersion: "2026.06.21",
+          ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+          displayName: "YGOJSON Yu-Gi-Oh sets",
+          lifecycle: "active",
+          active: true,
+          status: "active",
+          connectorKind: "ygojson",
+          profile: {
+            providerKey: "ygojson",
+            supportedScopes: ["set-name"],
+          },
+          supportedScopes: ["set-name"],
+          languageOptions: ["en"],
+          sourceOptionKinds: [
+            {
+              queryKind: "sets",
+              queryKeySynonyms: ["setName"],
+              displayName: "Set",
+              scope: "set-name",
+              parentScope: null,
+              parentRequired: false,
+              parentValueKind: null,
+              parentDiagnosticText: null,
+            },
+          ],
+        }),
+      ],
+      total: 1,
+      count: 1,
+    };
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      return sourceOptionResponse(params.get("queryKind") ?? "sets", {
+        status: "fresh",
+        source: "live",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+        value: selectedSetId,
+        label: "2-Player Starter Set",
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson%3Ayugioh%3Aset%3Areference-data&importScope=ja%3ASV%3ASV8&seriesId=SV&expansionId=SV8&expansionName=${selectedSetId}&profileVersion=&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=ygojson&sourceOptionAction=force-refresh-all`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.scope).toMatchObject({
+      providerKey: "ygojson",
+      languageCode: null,
+      seriesId: null,
+      expansionId: null,
+      expansionName: selectedSetId,
+    });
+    expect(routeData.readModel.routeContext.importScope).toBeNull();
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "ygojson" });
+    const canonicalHref = new URL(
+      routeData.readModel.sourceScopeWorkset.units[0]?.currentWorkbenchHref ?? "",
+      "https://admin.example",
+    );
+    expect(canonicalHref.searchParams.get("providerKey")).toBe("ygojson");
+    expect(canonicalHref.searchParams.get("unitKey")).toBe("ygojson:yugioh:set:reference-data");
+    expect(canonicalHref.searchParams.get("expansionName")).toBe(selectedSetId);
+    expect(canonicalHref.searchParams.has("seriesId")).toBe(false);
+    expect(canonicalHref.searchParams.has("expansionId")).toBe(false);
+    expect(canonicalHref.searchParams.has("filter.importScope")).toBe(false);
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(1);
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "sets")).toMatchObject({
+      state: "live",
+      items: [expect.objectContaining({ value: selectedSetId, label: "2-Player Starter Set" })],
+    });
+  });
+
   it("drops stale legacy Pokemon scope before TCGplayer Yu-Gi-Oh product-line refresh", async () => {
     const profileReviews = {
       items: [
@@ -1447,6 +1540,41 @@ describe("Catalog integrations route", () => {
     expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
     expect(result.section).toBe("import-to-promotion");
     expect(result.context.jobId).toBeNull();
+    expect(result.feedback).toEqual({
+      status: "error",
+      intent: "start-provider-import",
+      result: "command-failed",
+    });
+  });
+
+  it("does not fall back to a stale URL importScope when the command form explicitly clears scope", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_stale_scope" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const result = await runDailyAction(
+      {
+        _intent: "start-provider-import",
+        providerKey: "ygoprodeck",
+        unitKey: "ygoprodeck:yugioh:single-card:reference-data",
+        importScope: "",
+        languageCode: "",
+        seriesId: "",
+        expansionId: "",
+        expansionName: "",
+        profileVersion: "2026.06.21",
+      },
+      "https://admin.example/catalog/integrations?providerKey=ygoprodeck&unitKey=ygoprodeck%3Ayugioh%3Asingle-card%3Areference-data&importScope=ja%3ASV%3ASV8&seriesId=SV&expansionId=SV8",
+    );
+
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+    expect(result.context.importScope).toBeNull();
+    expect(result.context.scope).toMatchObject({
+      providerKey: "ygoprodeck",
+      languageCode: null,
+      seriesId: null,
+      expansionId: null,
+      expansionName: null,
+    });
     expect(result.feedback).toEqual({
       status: "error",
       intent: "start-provider-import",

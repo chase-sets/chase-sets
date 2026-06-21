@@ -118,6 +118,90 @@ describe("Catalog source-scope workset", () => {
     expect(within(form!).queryByDisplayValue(/api\//i)).toBeNull();
   });
 
+  it("does not project a stale Pokemon scope into a selected Yu-Gi-Oh provider command", () => {
+    const profile = yugiohSetNameProfile(
+      "ygoprodeck",
+      "YGOPRODeck Yu-Gi-Oh card prints",
+      "ygoprodeck:yugioh:single-card:reference-data",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=ygoprodeck&unitKey=ygoprodeck:yugioh:single-card:reference-data&importScope=ja:SV:SV8&profileVersion=2026.06.21",
+      scopes: {
+        items: [
+          pokemonScope({
+            language_code: "ja",
+            product_line_id: "",
+            product_line_name: "",
+            series_id: "SV",
+            series_name: "Scarlet & Violet",
+            expansion_id: "SV8",
+            expansion_name: "Super Electric Breaker",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: overviewForProfiles([profile], "yugioh"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.providerKey === "ygoprodeck");
+
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "ygoprodeck",
+      importScope: null,
+      languageCode: null,
+      seriesId: null,
+      expansionId: null,
+      expansionName: null,
+    });
+    expect(unit?.actions.import).toMatchObject({
+      state: "disabled",
+      blockers: ["import-scope-required"],
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", "ygoprodeck:yugioh:single-card:reference-data");
+    expect(hiddenValue(form, "importScope")).toBe("");
+    expect(hiddenValue(form, "seriesId")).toBe("");
+    expect(hiddenValue(form, "expansionId")).toBe("");
+  });
+
+  it("uses an explicit YGOJSON set-name selection instead of stale legacy Pokemon scope params", () => {
+    const profile = yugiohSetNameProfile("ygojson", "YGOJSON Yu-Gi-Oh sets", "ygojson:yugioh:set:reference-data");
+    const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&importScope=ja:SV:SV8&expansionName=${selectedSetId}&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8`,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: overviewForProfiles([profile], "yugioh"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.providerKey === "ygojson");
+
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "ygojson" });
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "ygojson",
+      importScope: `en:${selectedSetId}`,
+      languageCode: "en",
+      seriesId: null,
+      expansionId: null,
+      expansionName: selectedSetId,
+    });
+    expect(unit?.actions.import.state).toBe("available");
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", "ygojson:yugioh:set:reference-data");
+    expect(hiddenValue(form, "importScope")).toBe(`en:${selectedSetId}`);
+    expect(hiddenValue(form, "seriesId")).toBe("");
+    expect(hiddenValue(form, "expansionId")).toBe("");
+    expect(hiddenValue(form, "expansionName")).toBe(selectedSetId);
+  });
+
   it("round-trips Pokemon workset links whose provider labels contain ampersands", () => {
     const profiles = [
       profileReview({
@@ -374,6 +458,38 @@ function magicScope(
     latest_source_updated_at: "2026-06-19T12:00:00.000Z",
     latest_observed_at: "2026-06-19T12:05:00.000Z",
     first_observed_at: "2026-06-19T12:00:00.000Z",
+  });
+}
+
+function yugiohSetNameProfile(providerKey: string, displayName: string, ingestionUnitKey: string) {
+  return profileReview({
+    providerKey,
+    profileKey: `${providerKey}-yugioh-set`,
+    profileVersion: "2026.06.21",
+    ingestionUnitKey,
+    displayName,
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    connectorKind: providerKey,
+    profile: {
+      providerKey,
+      supportedScopes: ["set-name"],
+    },
+    supportedScopes: ["set-name"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["setName"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
   });
 }
 
