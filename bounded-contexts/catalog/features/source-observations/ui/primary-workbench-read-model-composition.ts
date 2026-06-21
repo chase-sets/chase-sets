@@ -114,6 +114,7 @@ function buildCatalogPrimaryWorkbenchCore(
   const sourceOptionIntent = requestHasSourceOptionIntent(input.requestUrl);
   const useActiveProfileForSourceOptions =
     sourceOptionIntent && Boolean(parsedContext.profileVersion) && !selectedProfile && Boolean(activeProfile);
+  const sourceOptionNormalizationProfile = sourceOptionIntent ? (selectedProfile ?? activeProfile) : activeProfile;
   const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
   const explicitLanguageScope = requestHasExplicitLanguageScopeSelection(input.requestUrl);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
@@ -123,7 +124,7 @@ function buildCatalogPrimaryWorkbenchCore(
     importScope: parsedContext.importScope,
     scope: parsedContext.scope,
     providerKey,
-    activeProfile,
+    activeProfile: sourceOptionNormalizationProfile,
     scopes: input.scopes.items,
     explicitStructuredScope,
     unitContextMismatch,
@@ -131,10 +132,19 @@ function buildCatalogPrimaryWorkbenchCore(
   const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch;
   const routeScope =
     discardParsedImportScope && legacyImportScopeMismatch && explicitStructuredScope
-      ? sanitizeScopeForSourceOptionProfile(parsedContext.scope, activeProfile, providerKey, explicitLanguageScope)
+      ? sanitizeScopeForSourceOptionProfile(
+          parsedContext.scope,
+          sourceOptionNormalizationProfile,
+          providerKey,
+          explicitLanguageScope,
+        )
       : discardParsedImportScope
         ? providerOnlyScopeContext(providerKey)
-        : structuredScopeWithProfileLanguage(parsedContext.scope, activeProfile, explicitStructuredScope);
+        : structuredScopeWithProfileLanguage(
+            parsedContext.scope,
+            sourceOptionNormalizationProfile,
+            explicitStructuredScope,
+          );
   const parsedImportScope = discardParsedImportScope
     ? null
     : structuredSelectionImportScope(parsedContext.importScope, routeScope, explicitStructuredScope);
