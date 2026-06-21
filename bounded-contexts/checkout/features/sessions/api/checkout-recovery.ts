@@ -189,6 +189,10 @@ export function checkoutRecoveryForError(
     return checkoutRecoveryForKind("session-not-found", currentPath);
   }
 
+  if (error.status === 503 && errorBodyCode(error) === "projection_freshness_timeout") {
+    return checkoutRecoveryForKind("checkout-preparing", currentPath);
+  }
+
   if (error.status === 400) {
     const code = errorBodyCode(error);
     if (code === "cart_empty") {
