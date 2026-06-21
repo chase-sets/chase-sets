@@ -400,7 +400,7 @@
         "apiRoutePath": "/account/offers/submitted/:id",
         "readModelTables": ["marketplace_offer_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Submitted Offer detail uses exact Marketplace offer-page freshness and bounded fresh-write not-found retry."
+        "transientRecovery": "Submitted Offer detail uses exact Marketplace offer-page freshness and treats valid fresh-write not-found and projection freshness timeout responses as temporary submitted-offer preparation while the offer projection catches up."
       }
     },
     {
@@ -419,7 +419,7 @@
         "apiRoutePath": "/account/offers/matches/:id",
         "readModelTables": ["marketplace_offer_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and retries valid fresh-write not-found responses while the offer projection catches up."
+        "transientRecovery": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and treats valid fresh-write not-found and projection freshness timeout responses as temporary offer-match preparation while the offer projection catches up."
       }
     },
     {
@@ -636,7 +636,7 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/matches/:id",
         "readModelTables": ["marketplace_offer_pages"],
-        "transientRecovery": "Accept Offer redirects back to the Offer Match detail with the AcceptOffer receipt; the detail loader forwards afterWrite to the offer read and retries fresh-write not-found while the offer projection catches up."
+        "transientRecovery": "Accept Offer redirects back to the Offer Match detail with the AcceptOffer receipt; the detail loader forwards afterWrite to the offer read and treats fresh-write not-found or projection freshness timeout as temporary offer-match preparation while the offer projection catches up."
       },
       "proof": {
         "tests": [

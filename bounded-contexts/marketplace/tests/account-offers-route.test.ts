@@ -17,6 +17,21 @@ function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   });
 }
 
+function marketplaceCommit(position = "42", eventId = "evt_marketplace_offer") {
+  return {
+    mode: "eventual",
+    commitPosition: position,
+    commitEventIds: [eventId],
+    commitPositions: [
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: position,
+        eventIds: [eventId],
+      },
+    ],
+  };
+}
+
 describe("marketplace offer routes", () => {
   it("loads submitted offers through the marketplace API", async () => {
     vi.stubGlobal(
@@ -145,6 +160,60 @@ describe("marketplace offer routes", () => {
     expect(result.submittedOffer.offer_id).toBe("off_1");
   });
 
+  it("returns temporary recovery when a fresh submitted offer read hits projection freshness timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Projection read model did not catch up before the freshness timeout.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await submittedOfferLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
+        ),
+        params: { offerId: "off_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing submitted offer");
+    await expect(response?.text()).resolves.toContain("preparing your submitted offer details");
+  });
+
   it("loads offer matches through the marketplace API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -254,6 +323,60 @@ describe("marketplace offer routes", () => {
 
     expect(result.offerMatch.offer_id).toBe("off_1");
     expect(result.offerMatch.buyer_display_name).toBe("Buyer One");
+  });
+
+  it("returns temporary recovery when a fresh offer match read hits projection freshness timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage", "listings.view"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Projection read model did not catch up before the freshness timeout.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await offerMatchLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/offers/matches/off_1", marketplaceCommit())}`,
+        ),
+        params: { offerId: "off_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing offer match");
+    await expect(response?.text()).resolves.toContain("preparing your offer match details");
   });
 
   it("carries write consistency metadata after accepting an offer match", async () => {

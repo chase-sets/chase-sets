@@ -480,6 +480,9 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match": "Inspect and accept an offer match.",
   "marketplace.routes.accountOfferMatch.offer.match.marketplace": "Offer Match | Marketplace",
   "marketplace.routes.accountOfferMatch.offer.match.not.found": "Offer match not found.",
+  "marketplace.routes.accountOfferMatch.offer.match.preparing": "Preparing offer match",
+  "marketplace.routes.accountOfferMatch.offer.match.preparing.description":
+    "We're preparing your offer match details. Try again in a moment.",
   "marketplace.routes.accountOfferMatch.request.failed": "Request failed.",
   "marketplace.routes.accountOfferMatches.forbidden": "Forbidden.",
   "marketplace.routes.accountOfferMatches.forbidden.2": "Forbidden.",
@@ -494,6 +497,9 @@ export const marketplaceEnglishTranslations = {
     "Review pricing, demand, and status for one submitted offer.",
   "marketplace.routes.accountOfferSubmitted.submitted.offer.marketplace": "Submitted Offer | Marketplace",
   "marketplace.routes.accountOfferSubmitted.submitted.offer.not.found": "Submitted offer not found.",
+  "marketplace.routes.accountOfferSubmitted.submitted.offer.preparing": "Preparing submitted offer",
+  "marketplace.routes.accountOfferSubmitted.submitted.offer.preparing.description":
+    "We're preparing your submitted offer details. Try again in a moment.",
   "marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary": "Marketplace {amount}",
   "marketplace.features.listings.ui.listingDetailPage.net.summary": "Net {amount}",
   "marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary":
