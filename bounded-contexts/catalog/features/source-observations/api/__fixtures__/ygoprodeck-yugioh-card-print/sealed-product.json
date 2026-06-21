@@ -1,0 +1,36 @@
+{
+  "kind": "single-card",
+  "card": {
+    "id": 46986414,
+    "name": "Dark Magician",
+    "type": "Normal Monster",
+    "frameType": "normal",
+    "desc": "The ultimate wizard in terms of attack and defense.",
+    "race": "Spellcaster",
+    "attribute": "DARK",
+    "archetype": "Dark Magician",
+    "card_sets": [
+      {
+        "set_name": "Starter Deck: Yugi",
+        "set_code": "SDY-006",
+        "set_rarity": "Ultra Rare",
+        "set_rarity_code": "(UR)"
+      }
+    ],
+    "card_images": [
+      {
+        "id": 46986414,
+        "image_url": "https://images.ygoprodeck.com/images/cards/46986414.jpg",
+        "image_url_small": "https://images.ygoprodeck.com/images/cards_small/46986414.jpg",
+        "image_url_cropped": "https://images.ygoprodeck.com/images/cards_cropped/46986414.jpg"
+      }
+    ]
+  },
+  "selectedPrint": {
+    "set_name": "Starter Deck: Yugi",
+    "set_code": "SDY-006",
+    "set_rarity": "Ultra Rare",
+    "set_rarity_code": "(UR)"
+  },
+  "sourceUrl": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Dark+Magician"
+}

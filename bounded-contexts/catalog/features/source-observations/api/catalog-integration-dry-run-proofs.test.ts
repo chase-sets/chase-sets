@@ -5,6 +5,14 @@ import {
   MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
   MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
 } from "./provider-adapters/mtgjson";
+import {
+  YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+  YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+} from "./provider-adapters/ygoprodeck";
+import {
+  YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
+  YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+} from "./provider-adapters/ygojson";
 import { REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY } from "./provider-adapters/reference-cards";
 import {
   SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
@@ -14,6 +22,7 @@ import { TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from ".
 import {
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
 
 describe("Catalog integration dry-run proof registry", () => {
@@ -27,8 +36,13 @@ describe("Catalog integration dry-run proof registry", () => {
       MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
       SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
       SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+      YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+      YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
+      YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
       TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     ]);
     await expect(
       registry.get(TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY)?.(),
@@ -49,6 +63,35 @@ describe("Catalog integration dry-run proof registry", () => {
         expect.objectContaining({
           providerKey: "tcgplayer",
           externalKey: "product:96601",
+        }),
+      ],
+    });
+    await expect(registry.get(YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY)?.()).resolves.toMatchObject({
+      unitKey: YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      observations: [
+        expect.objectContaining({
+          providerKey: "ygoprodeck",
+          externalKey: "card:46986414:SDY-006",
+        }),
+      ],
+    });
+    await expect(registry.get(YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY)?.()).resolves.toMatchObject({
+      unitKey: YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
+      observations: [
+        expect.objectContaining({
+          providerKey: "ygojson",
+          externalKey: "sealed-product:22222222-2222-4222-8222-222222222222",
+        }),
+      ],
+    });
+    await expect(
+      registry.get(TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY)?.(),
+    ).resolves.toMatchObject({
+      unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      observations: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          externalKey: "product:17851",
         }),
       ],
     });

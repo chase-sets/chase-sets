@@ -20,6 +20,18 @@ import {
   mtgjsonMtgSetReferenceSourceObservationMappingContract,
 } from "./mtgjson-executable-mapping-contract";
 import {
+  ygoprodeckYugiohCardReferenceProviderProfile,
+  ygoprodeckYugiohCardReferenceSourceObservationMappingContract,
+  ygoprodeckYugiohSetReferenceProviderProfile,
+  ygoprodeckYugiohSetReferenceSourceObservationMappingContract,
+} from "./ygoprodeck-executable-mapping-contract";
+import {
+  ygojsonYugiohSealedProductReferenceProviderProfile,
+  ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSetReferenceSourceObservationMappingContract,
+} from "./ygojson-executable-mapping-contract";
+import {
   scryfallMtgCardPrintSourceObservationMappingContract,
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
@@ -29,8 +41,17 @@ import {
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   tcgplayerMtgSealedProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
+  TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
+  tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
 } from "./tcgplayer-executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
+
+export {
+  ygoprodeckYugiohCardReferenceProviderProfile,
+  ygoprodeckYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
+  ygojsonYugiohSetReferenceProviderProfile,
+};
 
 export type CatalogProviderCapability =
   | "provider-option-query"
@@ -78,7 +99,13 @@ export type CatalogProviderOptionQueryOperation =
   | "mtgjson-list-cards"
   | "scryfall-list-sets"
   | "scryfall-list-cards"
-  | "scrydex-list-sets";
+  | "scrydex-list-sets"
+  | "ygoprodeck-list-sets"
+  | "ygoprodeck-list-cards"
+  | "ygojson-list-sets"
+  | "ygojson-list-sealed-products"
+  | "yaml-yugi-list-sets"
+  | "yaml-yugi-list-cards";
 
 export type CatalogProviderOptionQueryOutputMapping = Readonly<{
   valuePath: string;
@@ -215,12 +242,87 @@ export type MtgjsonJsonConnectorProfile = Readonly<{
   excludedEvidence: readonly ("price" | "legality" | "ruling" | "deck" | "format")[];
 }>;
 
+export type YgoprodeckJsonConnectorProfile = Readonly<{
+  kind: "ygoprodeck-json";
+  baseUrl: "https://db.ygoprodeck.com/api/v7";
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-api";
+    credentialsRequired: false;
+    userAgentRequired: true;
+  }>;
+  throttling: Readonly<{
+    providerLimit: "20-requests-per-second";
+    cacheProviderDataLocally: true;
+    cacheImagesLocally: true;
+  }>;
+  acceptedEvidence: readonly (
+    | "ygoprodeck-card-id"
+    | "ygoprodeck-passcode"
+    | "passcode"
+    | "set-code"
+    | "set-name"
+    | "rarity"
+    | "card-type"
+    | "frame-type"
+    | "race"
+    | "attribute"
+    | "archetype"
+    | "release-date"
+    | "card-count"
+    | "image-url"
+    | "image-evidence-url"
+    | "banlist"
+  )[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "order" | "message" | "image-hotlink")[];
+  assetPolicy: Readonly<{
+    hotlinkingAllowed: false;
+    requiresCatalogAssetStorage: true;
+  }>;
+}>;
+
+export type YgojsonJsonConnectorProfile = Readonly<{
+  kind: "ygojson-json";
+  baseUrl: string;
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-json";
+    credentialsRequired: false;
+  }>;
+  acceptedEvidence: readonly (
+    | "card-id"
+    | "passcode"
+    | "set-code"
+    | "set-name"
+    | "sealed-product"
+    | "pack-content"
+    | "pack-odds"
+    | "format"
+  )[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "order" | "message")[];
+}>;
+
+export type YamlYugiJsonConnectorProfile = Readonly<{
+  kind: "yaml-yugi-json";
+  baseUrl: string;
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-json";
+    credentialsRequired: false;
+  }>;
+  acceptedEvidence: readonly ("card-id" | "passcode" | "set-code" | "set-name" | "format" | "card-text")[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "order" | "message")[];
+}>;
+
 export type CatalogProviderConnectorProfile =
   | TcgdexJsonConnectorProfile
   | TcgplayerAutomationClientConnectorProfile
   | MtgjsonJsonConnectorProfile
   | ScryfallJsonConnectorProfile
-  | ScrydexScryfallJsonConnectorProfile;
+  | ScrydexScryfallJsonConnectorProfile
+  | YgoprodeckJsonConnectorProfile
+  | YgojsonJsonConnectorProfile
+  | YamlYugiJsonConnectorProfile;
 
 export type CatalogProviderVariantRule = Readonly<{
   variantKey: string;
@@ -398,7 +500,7 @@ export type CatalogProviderPartialDraftPokemonCardMatchRule = Readonly<{
 export type CatalogProviderSealedProductMatchRule = Readonly<{
   ruleKey: string;
   matchKind: "sealed-product-match";
-  normalizedKind: "provider-product" | "magic-sealed-product";
+  normalizedKind: "provider-product" | "magic-sealed-product" | "yugioh-sealed-product";
   productFormPath: "mergeIdentity.productForm";
   sealedValues: readonly string[];
   fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
@@ -441,7 +543,16 @@ export type CatalogProviderIntegrationProfile = Readonly<{
   optionQueries: readonly CatalogProviderOptionQuery[];
   connector: CatalogProviderConnectorProfile;
   normalizedObservationMapping: Readonly<{
-    kind: "pokemon-card" | "provider-product" | "magic-card-print" | "magic-set-reference" | "magic-sealed-product";
+    kind:
+      | "pokemon-card"
+      | "provider-product"
+      | "magic-card-print"
+      | "magic-set-reference"
+      | "magic-sealed-product"
+      | "yugioh-card-print"
+      | "yugioh-set-reference"
+      | "yugioh-sealed-product"
+      | "yugioh-pack-reference";
     variantRules: readonly CatalogProviderVariantRule[];
     unknownVariantLabelPrefix: string;
     duplicateReferenceRule: "drop-repeated-across-variants";
@@ -1495,6 +1606,121 @@ export const tcgplayerMtgSealedProductProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerYugiohSingleCardProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Yu-Gi-Oh Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "yugioh-card-print",
+    categoryKey: "yugioh-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_tcgplayer_yugioh",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "tcgplayer-product-line-id" },
+      { typeKey: "set", providerAttributeKey: "tcgplayer-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "tcgplayer-product-line-id"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Yu-Gi-Oh release group.",
+        attributeKeys: ["tcgplayer-set-name", "tcgplayer-set-id"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "yugioh-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "provider",
+          typeKey: "product-line",
+          providerValuePaths: ["productLineId", "productLineName"],
+        },
+        key: { kind: "static", value: "yu-gi-oh" },
+        name: { kind: "path", path: "productLineName" },
+        description: { kind: "static", value: "Yu-Gi-Oh trading card game." },
+        requiredPaths: ["productLineName"],
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "path", path: "productLineName" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "YGO" } },
+          { attributeKey: "tcgplayer-product-line-id", value: { kind: "path", path: "productLineId" }, optional: true },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setNameId", "setName"] },
+        key: { kind: "path", path: "setName" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} Yu-Gi-Oh set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setName"],
+        attributes: [
+          { attributeKey: "tcgplayer-set-name", value: { kind: "path", path: "setName" } },
+          { attributeKey: "tcgplayer-set-id", value: { kind: "path", path: "setNameId" }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "yugioh-product-line" }],
+      },
+    ],
+  },
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: tcgplayerAutomationClientProviderProfile.selectedOptionMapping.dimensions.map((dimension) =>
+      dimension.dimensionKey === "printing"
+        ? {
+            ...dimension,
+            valueSynonyms: [
+              { optionKey: "unlimited", providerValues: ["Unlimited", "Unlimited Edition"] },
+              { optionKey: "first-edition", providerValues: ["1st Edition", "First Edition", "1st"] },
+              { optionKey: "limited", providerValues: ["Limited", "Limited Edition"] },
+              { optionKey: "duel-terminal", providerValues: ["Duel Terminal"] },
+            ],
+          }
+        : dimension,
+    ),
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["ygoprodeck", "ygojson", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
@@ -2151,9 +2377,14 @@ export const catalogProviderIntegrationProfiles = [
   mtgjsonMtgSetReferenceProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
+  ygoprodeckYugiohCardReferenceProviderProfile,
+  ygoprodeckYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
+  tcgplayerYugiohSingleCardProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -2211,6 +2442,58 @@ export const catalogProviderIntegrationProfileVersions = [
     executableMappingContract: scryfallMtgImageEvidenceSourceObservationMappingContract,
   },
   {
+    providerKey: "ygoprodeck",
+    profileKey: "yugioh-card-print-reference-data",
+    profileVersion: ygoprodeckYugiohCardReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: ygoprodeckYugiohCardReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: ygoprodeckYugiohCardReferenceProviderProfile,
+    sourceContract: ygoprodeckYugiohCardReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: ygoprodeckYugiohCardReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: ygoprodeckYugiohCardReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "ygoprodeck",
+    profileKey: "yugioh-set-reference-data",
+    profileVersion: ygoprodeckYugiohSetReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: ygoprodeckYugiohSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: ygoprodeckYugiohSetReferenceProviderProfile,
+    sourceContract: ygoprodeckYugiohSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: ygoprodeckYugiohSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: ygoprodeckYugiohSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "ygojson",
+    profileKey: "yugioh-set-reference-data",
+    profileVersion: ygojsonYugiohSetReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: ygojsonYugiohSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: ygojsonYugiohSetReferenceProviderProfile,
+    sourceContract: ygojsonYugiohSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: ygojsonYugiohSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: ygojsonYugiohSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "ygojson",
+    profileKey: "yugioh-sealed-product-reference-data",
+    profileVersion: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: ygojsonYugiohSealedProductReferenceProviderProfile,
+    sourceContract: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+  },
+  {
     providerKey: "tcgdex",
     profileKey: "pokemon-tcg",
     profileVersion: "2026.06.03",
@@ -2247,6 +2530,20 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerMtgSealedProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerMtgSealedProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "yugioh-single-card-product-sku",
+    profileVersion: TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
+    ingestionUnitIdentity:
+      tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerYugiohSingleCardProviderProfile,
+    sourceContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",
@@ -2710,11 +3007,12 @@ function inferCatalogProviderIngestionUnitKey(
   }).unitKey;
 }
 
-function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRecord): "pokemon" | "mtg" {
+function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRecord): "pokemon" | "mtg" | "yugioh" {
   const signals = [
     version.profileKey,
     version.profile.catalogFieldMapping.blueprintKey,
     version.profile.catalogFieldMapping.categoryKey,
+    version.executableMappingContract?.normalizedObservation.outputKind ?? "",
     version.executableMappingContract?.normalizedObservation.fields.tcg?.selector.kind === "constant"
       ? String(version.executableMappingContract.normalizedObservation.fields.tcg.selector.value)
       : "",
@@ -2725,27 +3023,41 @@ function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRec
     .join(" ")
     .toLowerCase();
 
+  if (
+    signals.includes("yugioh") ||
+    signals.includes("yu-gi-oh") ||
+    signals.includes("yu gi oh") ||
+    signals.includes("ygoprodeck") ||
+    signals.includes("ygojson")
+  ) {
+    return "yugioh";
+  }
   return signals.includes("magic") || signals.includes("scryfall") || signals.includes("mtg") ? "mtg" : "pokemon";
 }
 
 function inferProductForm(
   version: CatalogProviderIntegrationProfileVersionRecord,
-): "single-card" | "sealed-product" | "set" {
+): "single-card" | "sealed-product" | "set" | "pack" {
   const signals = [
     version.profileKey,
     version.profile.catalogFieldMapping.blueprintKey,
     version.profile.supportedScopes.join(" "),
     version.executableMappingContract?.displayName ?? "",
+    version.executableMappingContract?.normalizedObservation.outputKind ?? "",
   ]
     .join(" ")
     .toLowerCase();
 
+  if (signals.includes("pack-reference") || signals.includes(":pack:")) {
+    return "pack";
+  }
   if (signals.includes("sealed-product")) {
     return "sealed-product";
   }
   if (
     signals.includes("set") &&
-    version.executableMappingContract?.normalizedObservation.outputKind === "magic-set-reference"
+    (version.executableMappingContract?.normalizedObservation.outputKind === "magic-set-reference" ||
+      version.executableMappingContract?.normalizedObservation.outputKind === "yugioh-set-reference")
   ) {
     return "set";
   }

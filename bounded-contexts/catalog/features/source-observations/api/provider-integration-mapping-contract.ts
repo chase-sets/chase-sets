@@ -11,8 +11,8 @@ import {
 
 export type CatalogProviderProfileLifecycle = "draft" | "test" | "active" | "deprecated" | "retired";
 
-export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg";
-export type CatalogProviderIngestionUnitProductForm = "single-card" | "sealed-product" | "set";
+export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg" | "yugioh";
+export type CatalogProviderIngestionUnitProductForm = "single-card" | "sealed-product" | "set" | "pack";
 export type CatalogProviderIngestionPurpose = "source-observation-import" | "reference-data" | "image-evidence";
 
 export type CatalogProviderIngestionUnitIdentityContract = Readonly<{
@@ -197,7 +197,16 @@ export type CatalogProviderMappingValueExpression = Readonly<{
 }>;
 
 export type CatalogProviderNormalizedObservationContract = Readonly<{
-  outputKind: "pokemon-card" | "provider-product" | "magic-card-print" | "magic-set-reference" | "magic-sealed-product";
+  outputKind:
+    | "pokemon-card"
+    | "provider-product"
+    | "magic-card-print"
+    | "magic-set-reference"
+    | "magic-sealed-product"
+    | "yugioh-card-print"
+    | "yugioh-set-reference"
+    | "yugioh-sealed-product"
+    | "yugioh-pack-reference";
   languageCode: CatalogProviderMappingValueExpression;
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
   hashMaterial: readonly CatalogProviderMappingValueExpression[];

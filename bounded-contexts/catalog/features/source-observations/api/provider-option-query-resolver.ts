@@ -34,6 +34,12 @@ export type CatalogProviderOptionQueryTransports = Readonly<{
   listScryfallSets?: () => Promise<readonly JsonValue[]>;
   listScryfallCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listScrydexSets?: () => Promise<readonly JsonValue[]>;
+  listYgoprodeckSets?: () => Promise<readonly JsonValue[]>;
+  listYgoprodeckCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
+  listYgojsonSets?: () => Promise<readonly JsonValue[]>;
+  listYgojsonSealedProducts?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
+  listYamlYugiSets?: () => Promise<readonly JsonValue[]>;
+  listYamlYugiCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
 }>;
 
 export async function listCatalogProviderIntegrationOptionsFromProfiles(input: {
@@ -146,6 +152,24 @@ async function executeOptionQueryOperation(input: {
   }
   if (input.operation === "scrydex-list-sets" && input.transports.listScrydexSets) {
     return input.transports.listScrydexSets();
+  }
+  if (input.operation === "ygoprodeck-list-sets" && input.transports.listYgoprodeckSets) {
+    return input.transports.listYgoprodeckSets();
+  }
+  if (input.operation === "ygoprodeck-list-cards" && input.transports.listYgoprodeckCards) {
+    return input.transports.listYgoprodeckCards({ setCode: input.parentValue });
+  }
+  if (input.operation === "ygojson-list-sets" && input.transports.listYgojsonSets) {
+    return input.transports.listYgojsonSets();
+  }
+  if (input.operation === "ygojson-list-sealed-products" && input.transports.listYgojsonSealedProducts) {
+    return input.transports.listYgojsonSealedProducts({ setCode: input.parentValue });
+  }
+  if (input.operation === "yaml-yugi-list-sets" && input.transports.listYamlYugiSets) {
+    return input.transports.listYamlYugiSets();
+  }
+  if (input.operation === "yaml-yugi-list-cards" && input.transports.listYamlYugiCards) {
+    return input.transports.listYamlYugiCards({ setCode: input.parentValue });
   }
 
   throw new Error(`Catalog integration option query operation '${input.operation}' is not available in this runtime.`);

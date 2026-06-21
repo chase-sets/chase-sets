@@ -389,4 +389,126 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
       }),
     ]);
   });
+
+  it("maps Yu-Gi-Oh provider set and card selectors through the same option-query path", async () => {
+    const yugiohProfile = {
+      ...tcgdexPokemonTcgProviderProfile,
+      providerKey: "ygoprodeck",
+      displayName: "YGOPRODeck",
+      status: "active",
+      supportedScopes: ["set-name", "product/card"],
+      optionQueries: [
+        {
+          queryKind: "sets",
+          queryKeySynonyms: ["set"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          operation: "ygoprodeck-list-sets",
+          output: {
+            valuePath: "setName",
+            labelPath: "setName",
+            description: { kind: "path", path: "releaseDate" },
+            metadataPaths: { setName: "setName", setCode: "setCode", cardCount: "cardCount" },
+          },
+        },
+        {
+          queryKind: "cards",
+          queryKeySynonyms: ["card"],
+          displayName: "Card",
+          scope: "product/card",
+          parentScope: "set-name",
+          operation: "ygoprodeck-list-cards",
+          parentValue: {
+            required: true,
+            valueKind: "set-code",
+            diagnosticText: "YGOPRODeck card option queries require a selected set name or set code.",
+          },
+          output: {
+            valuePath: "cardPrintId",
+            labelPath: "name",
+            parentValuePath: "setName",
+            metadataPaths: { cardId: "cardId", setName: "setName", setCode: "setCode", rarity: "rarity" },
+          },
+        },
+      ] as const,
+      connector: {
+        kind: "ygoprodeck-json",
+        baseUrl: "https://db.ygoprodeck.com/api/v7",
+        sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+        authentication: { scheme: "public-api", credentialsRequired: false, userAgentRequired: true },
+        throttling: {
+          providerLimit: "20-requests-per-second",
+          cacheProviderDataLocally: true,
+          cacheImagesLocally: true,
+        },
+        acceptedEvidence: ["ygoprodeck-card-id", "passcode", "set-code", "set-name", "rarity"],
+        excludedEvidence: ["price", "seller", "inventory", "order", "message", "image-hotlink"],
+        assetPolicy: { hotlinkingAllowed: false, requiresCatalogAssetStorage: true },
+      },
+      normalizedObservationMapping: {
+        ...tcgdexPokemonTcgProviderProfile.normalizedObservationMapping,
+        kind: "yugioh-card-print",
+      },
+    } satisfies CatalogProviderIntegrationProfile;
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [yugiohProfile],
+        providerKey: "ygoprodeck",
+        queryKind: "set",
+        defaultProviderKey: "tcgdex",
+        transports: {
+          listYgoprodeckSets: async () => [
+            {
+              setName: "Legend of Blue Eyes White Dragon",
+              setCode: "LOB",
+              releaseDate: "2002-03-08",
+              cardCount: 126,
+            },
+          ],
+        },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "ygoprodeck",
+        queryKind: "sets",
+        value: "Legend of Blue Eyes White Dragon",
+        label: "Legend of Blue Eyes White Dragon",
+        description: "2002-03-08",
+        metadata: expect.objectContaining({ setCode: "LOB", cardCount: 126 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [yugiohProfile],
+        providerKey: "ygoprodeck",
+        queryKind: "card",
+        parentValue: "Legend of Blue Eyes White Dragon",
+        defaultProviderKey: "tcgdex",
+        transports: {
+          listYgoprodeckCards: async ({ setCode }: { setCode: string | null }) => [
+            {
+              cardPrintId: "89631139:LOB-001",
+              cardId: "89631139",
+              name: "Blue-Eyes White Dragon",
+              setName: setCode,
+              setCode: "LOB-001",
+              rarity: "Ultra Rare",
+            },
+          ],
+        },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "ygoprodeck",
+        queryKind: "cards",
+        value: "89631139:LOB-001",
+        label: "Blue-Eyes White Dragon",
+        parentValue: "Legend of Blue Eyes White Dragon",
+        metadata: expect.objectContaining({ cardId: "89631139", rarity: "Ultra Rare" }),
+      }),
+    ]);
+  });
 });

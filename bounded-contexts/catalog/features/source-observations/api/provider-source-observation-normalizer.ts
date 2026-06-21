@@ -162,6 +162,28 @@ function validateNormalizedObservationContract(
       requireNormalizedLiteral(normalized, "tcg", "magic", diagnostics);
       requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
       return;
+    case "yugioh-card-print":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "yugioh", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+    case "yugioh-set-reference":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "yugioh", diagnostics);
+      return;
+    case "yugioh-sealed-product":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "sealedProductForm", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "yugioh", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+    case "yugioh-pack-reference":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "packName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "yugioh", diagnostics);
+      return;
   }
 }
 

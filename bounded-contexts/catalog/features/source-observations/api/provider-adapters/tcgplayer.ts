@@ -11,6 +11,7 @@ import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider
 import {
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
 } from "../tcgplayer-executable-mapping-contract";
 import type {
   TcgplayerAutomationCatalogClient,
@@ -43,6 +44,13 @@ export const TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = 
 export const TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
   providerKey: "tcgplayer",
   productDomain: "mtg",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "yugioh",
   productForm: "single-card",
   ingestionPurpose: "source-observation-import",
 });
@@ -324,6 +332,15 @@ export async function runTcgplayerMtgSealedProductSourceObservationImportProofDr
   });
 }
 
+export async function runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
+    detail: tcgplayerYugiohSingleCardProofDetail,
+    fetchedAt: "2026-06-21T00:00:00.000Z",
+  });
+}
+
 async function listTcgplayerAdapterOptions(
   input: ProviderOptionQueryInput,
   options: TcgplayerProviderAdapterOptions,
@@ -534,6 +551,18 @@ function runTcgplayerMtgSourceObservationImportProofDryRun(input: {
   profileVersion: string;
   detail: TcgplayerAutomationProductDetail;
 }): CatalogIntegrationDryRunResult {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    ...input,
+    fetchedAt: "2026-06-19T00:00:00.000Z",
+  });
+}
+
+function runTcgplayerProviderProductSourceObservationImportProofDryRun(input: {
+  unitKey: string;
+  profileVersion: string;
+  detail: TcgplayerAutomationProductDetail;
+  fetchedAt: string;
+}): CatalogIntegrationDryRunResult {
   const payload = detailEnvelope(
     {
       unitKey: input.unitKey,
@@ -550,7 +579,7 @@ function runTcgplayerMtgSourceObservationImportProofDryRun(input: {
       transportSteps: ["Use fixture-backed TCGplayer product detail proof"],
     },
     input.detail,
-    "2026-06-19T00:00:00.000Z",
+    input.fetchedAt,
   );
 
   return runCatalogIntegrationDryRun({
@@ -657,6 +686,28 @@ const tcgplayerMtgSealedProductProofDetail: TcgplayerAutomationProductDetail = {
   listings: 25,
 };
 
+const tcgplayerYugiohSingleCardProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Cards",
+  rarityName: "Ultra Rare",
+  sealed: false,
+  productName: "Dark Magician",
+  setId: 2002,
+  setCode: "SDY",
+  productId: 17851,
+  setName: "Starter Deck: Yugi",
+  productLineId: 2,
+  productStatusId: 1,
+  productLineName: "Yu-Gi-Oh!",
+  customAttributes: { number: "SDY-006", releaseDate: "2002-03-29", cardType: ["Normal Monster"] },
+  formattedAttributes: {},
+  skus: [{ sku: 60017851, condition: "Near Mint", variant: "Unlimited", language: "English" }],
+  marketPrice: 2.34,
+  lowestPrice: 2.01,
+  lowestPriceWithShipping: 2.89,
+  medianPrice: 3.5,
+  listings: 25,
+};
+
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
   if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
     return {
@@ -664,6 +715,15 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
       productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
       defaultProductLineName: "Magic",
+      productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["yu-gi-oh!", "yugioh", "yu-gi-oh", "yu gi oh"],
+      productLineUrlNames: ["yugioh", "yu-gi-oh"],
+      defaultProductLineName: "Yu-Gi-Oh!",
       productForm: "single-card",
     };
   }

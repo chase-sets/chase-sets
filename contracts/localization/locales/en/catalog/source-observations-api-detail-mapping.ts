@@ -71,6 +71,14 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "MTGJSON public JSON files do not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.mtgjson.public.json.transport.configured":
     "MTGJSON public v5 JSON transport is configured.",
+  "catalog.features.sourceObservations.api.providerAdapters.ygoprodeck.credential.not.required":
+    "YGOPRODeck public API access does not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.ygoprodeck.public.api.transport.configured":
+    "YGOPRODeck public API transport is configured; callers must honor provider rate limits and cache image assets locally.",
+  "catalog.features.sourceObservations.api.providerAdapters.ygojson.credential.not.required":
+    "YGOJSON public JSON files do not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.ygojson.public.json.transport.configured":
+    "YGOJSON public JSON transport is configured.",
   "catalog.features.sourceObservations.api.providerAdapters.scryfall.credential.not.required":
     "Scryfall public API requests do not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.scryfall.public.api.transport.configured":

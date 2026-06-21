@@ -102,6 +102,46 @@ describe("provider integration executable mapping contract", () => {
     }
   });
 
+  it("represents Yu-Gi-Oh ingestion-unit identities without product-line-specific importer branches", () => {
+    const identities = [
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "ygoprodeck",
+        productDomain: "yugioh",
+        productForm: "single-card",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "ygojson",
+        productDomain: "yugioh",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "ygojson",
+        productDomain: "yugioh",
+        productForm: "pack",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "tcgplayer",
+        productDomain: "yugioh",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+    ];
+
+    expect(identities.map((identity) => identity.unitKey)).toEqual([
+      "ygoprodeck:yugioh:single-card:reference-data",
+      "ygojson:yugioh:set:reference-data",
+      "ygojson:yugioh:pack:reference-data",
+      "tcgplayer:yugioh:single-card:source-observation-import",
+    ]);
+
+    for (const identity of identities) {
+      expect(validateCatalogProviderExecutableMappingContract(identityOnlyContract(identity))).toEqual([]);
+    }
+  });
+
   it("flags missing fixture coverage and unsafe cross-context leakage", () => {
     const invalidContract: CatalogProviderExecutableMappingContract = {
       ...tcgplayerContract(),

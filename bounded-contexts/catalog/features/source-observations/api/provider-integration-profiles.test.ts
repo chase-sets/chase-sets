@@ -20,6 +20,11 @@ import {
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
+  tcgplayerYugiohSingleCardProviderProfile,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygoprodeckYugiohCardReferenceProviderProfile,
+  ygoprodeckYugiohSetReferenceProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
 import {
@@ -378,12 +383,15 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("keeps TCGplayer Magic single-card, Magic sealed, and Pokemon profile units distinct", () => {
+  it("keeps TCGplayer Magic, Yu-Gi-Oh, and Pokemon profile units distinct", () => {
     const magic = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "mtg-single-card-product-sku",
     });
     const sealed = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "mtg-sealed-product-sku",
+    });
+    const yugioh = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "yugioh-single-card-product-sku",
     });
     const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
       profileKey: "pokemon-tcg-automation-client",
@@ -403,6 +411,21 @@ describe("catalog provider integration profiles", () => {
         catalogFieldMapping: { blueprintKey: "magic-card-print" },
       },
     });
+    expect(yugioh).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      lifecycle: "active",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+        productDomain: "yugioh",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "provider-product" },
+        catalogFieldMapping: { blueprintKey: "yugioh-card-print" },
+      },
+    });
+    expect(yugioh?.profile).toBe(tcgplayerYugiohSingleCardProviderProfile);
     expect(sealed).toMatchObject({
       providerKey: "tcgplayer",
       profileKey: "mtg-sealed-product-sku",
@@ -455,6 +478,75 @@ describe("catalog provider integration profiles", () => {
         }),
       ]),
     );
+    expect(yugioh?.profile.selectedOptionMapping?.dimensions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimensionKey: "printing",
+          valueSynonyms: [
+            { optionKey: "unlimited", providerValues: ["Unlimited", "Unlimited Edition"] },
+            { optionKey: "first-edition", providerValues: ["1st Edition", "First Edition", "1st"] },
+            { optionKey: "limited", providerValues: ["Limited", "Limited Edition"] },
+            { optionKey: "duel-terminal", providerValues: ["Duel Terminal"] },
+          ],
+        }),
+      ]),
+    );
+  });
+
+  it("registers Yu-Gi-Oh public reference-data providers as shared importer profiles", () => {
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("ygoprodeck", {
+        profileKey: "yugioh-card-print-reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "ygoprodeck",
+      profileKey: "yugioh-card-print-reference-data",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "ygoprodeck:yugioh:single-card:reference-data",
+        productDomain: "yugioh",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "yugioh-card-print" },
+        connector: {
+          kind: "ygoprodeck-json",
+          assetPolicy: { hotlinkingAllowed: false, requiresCatalogAssetStorage: true },
+        },
+      },
+    });
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("ygoprodeck", {
+        profileKey: "yugioh-set-reference-data",
+      })?.profile,
+    ).toBe(ygoprodeckYugiohSetReferenceProviderProfile);
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("ygojson", {
+        profileKey: "yugioh-set-reference-data",
+      })?.profile,
+    ).toBe(ygojsonYugiohSetReferenceProviderProfile);
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("ygojson", {
+        profileKey: "yugioh-sealed-product-reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "ygojson",
+      profileKey: "yugioh-sealed-product-reference-data",
+      ingestionUnitIdentity: {
+        unitKey: "ygojson:yugioh:sealed-product:reference-data",
+        productDomain: "yugioh",
+        productForm: "sealed-product",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "yugioh-sealed-product" },
+      },
+    });
+    expect(ygoprodeckYugiohCardReferenceProviderProfile.optionQueries.map((query) => query.operation)).toEqual([
+      "ygoprodeck-list-sets",
+      "ygoprodeck-list-cards",
+    ]);
+    expect(ygojsonYugiohSealedProductReferenceProviderProfile.optionQueries.map((query) => query.operation)).toEqual([
+      "ygojson-list-sealed-products",
+    ]);
   });
 
   it("lists active and planned providers through the same provider catalog", () => {
@@ -466,7 +558,12 @@ describe("catalog provider integration profiles", () => {
       ["tcgdex", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "planned"],
+      ["ygojson", "active"],
+      ["ygojson", "active"],
+      ["ygoprodeck", "active"],
+      ["ygoprodeck", "active"],
     ]);
   });
 
@@ -479,9 +576,14 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.03", "test"],
+      ["ygojson", "2026.06.21", "active"],
+      ["ygojson", "2026.06.21", "active"],
+      ["ygoprodeck", "2026.06.21", "active"],
+      ["ygoprodeck", "2026.06.21", "active"],
     ]);
     expect(getCatalogProviderIntegrationProfileVersion("mtgjson")).toMatchObject({
       providerKey: "mtgjson",
@@ -672,6 +774,44 @@ describe("catalog provider integration profiles", () => {
     ]);
 
     for (const version of activeMagicVersions) {
+      expect(version.executableMappingContract, version.profileKey).toBeDefined();
+      expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
+      expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);
+      expect(validateCatalogProviderIntegrationProfileVersion(version), version.profileKey).toEqual([]);
+
+      const matchingCases = fixtureCases.filter(
+        (fixtureCase) =>
+          fixtureCase.providerKey === version.providerKey &&
+          fixtureCase.profileKey === version.profileKey &&
+          fixtureCase.profileVersion === version.profileVersion &&
+          fixtureCase.ingestionUnitKey === catalogProviderProfileVersionIngestionUnitKey(version),
+      );
+      expect(
+        matchingCases.map((fixtureCase) => fixtureCase.flow),
+        version.profileKey,
+      ).toEqual(catalogProviderRequiredFixtureFlows);
+    }
+  });
+
+  it("gates every active Yu-Gi-Oh profile version on executable fixture-backed mapping coverage", () => {
+    const fixtureCases = catalogProviderProfileFixtureCases();
+    const activeYugiohVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.active &&
+        version.lifecycle === "active" &&
+        executableContractProductDomain(version.executableMappingContract) === "yugioh" &&
+        ["ygoprodeck", "ygojson", "tcgplayer"].includes(version.providerKey),
+    );
+
+    expect(activeYugiohVersions.map((version) => version.profileKey)).toEqual([
+      "yugioh-card-print-reference-data",
+      "yugioh-set-reference-data",
+      "yugioh-set-reference-data",
+      "yugioh-sealed-product-reference-data",
+      "yugioh-single-card-product-sku",
+    ]);
+
+    for (const version of activeYugiohVersions) {
       expect(version.executableMappingContract, version.profileKey).toBeDefined();
       expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
       expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);

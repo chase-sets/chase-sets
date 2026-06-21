@@ -1,0 +1,10 @@
+{
+  "kind": "set-reference",
+  "set": {
+    "set_name": "Starter Deck: Yugi",
+    "set_code": "SDY",
+    "num_of_cards": 51,
+    "tcg_date": "2002-03-29"
+  },
+  "sourceUrl": "https://db.ygoprodeck.com/api/v7/cardsets.php"
+}
