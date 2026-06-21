@@ -1,12 +1,10 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useRef, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   appendFreshWriteTokenFromSources,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
-  readFreshWriteTokenState,
   readPostWriteHandoffState,
   recoverFreshWriteReadError,
   type PostWriteHandoffState,
@@ -25,10 +23,9 @@ import {
   isPendingAccountCartAddLineHandoff,
 } from "../support/request-support/account-cart-handoffs";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
+import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
-const CART_RECOVERY_REVALIDATE_INTERVAL_MS = 2_000;
-const CART_RECOVERY_MAX_REVALIDATIONS = 15;
 
 function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
@@ -376,107 +373,13 @@ export const meta: MetaFunction = () =>
     description: MARKETPLACE_DESCRIPTION,
   });
 
-function usePendingCartRecoveryRevalidation(enabled: boolean) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const navigation = useNavigation();
-  const currentPath = `${location.pathname}${location.search}${location.hash}`;
-  const navigateRef = useRef(navigate);
-  const navigationStateRef = useRef(navigation.state);
-  const attemptCountRef = useRef(0);
-  const finalAttemptDoneRef = useRef(false);
-  const [isAutoRevalidating, setIsAutoRevalidating] = useState(false);
-
-  useEffect(() => {
-    navigateRef.current = navigate;
-    navigationStateRef.current = navigation.state;
-  });
-
-  useEffect(() => {
-    if (!enabled) {
-      attemptCountRef.current = 0;
-      finalAttemptDoneRef.current = false;
-      setIsAutoRevalidating(false);
-      return;
-    }
-
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    attemptCountRef.current = 0;
-    finalAttemptDoneRef.current = false;
-
-    function hasAttemptBudget() {
-      return attemptCountRef.current < CART_RECOVERY_MAX_REVALIDATIONS;
-    }
-
-    function revalidateCurrentPath() {
-      if (!hasAttemptBudget()) {
-        return;
-      }
-      attemptCountRef.current += 1;
-      void navigateRef.current(currentPath, { replace: true, preventScrollReset: true });
-    }
-
-    function runFinalRevalidation() {
-      if (finalAttemptDoneRef.current || !hasAttemptBudget()) {
-        return;
-      }
-
-      finalAttemptDoneRef.current = true;
-      revalidateCurrentPath();
-    }
-
-    function tick() {
-      timeout = null;
-      const tokenState = readFreshWriteTokenState(currentPath);
-
-      if (tokenState.kind === "valid" && hasAttemptBudget()) {
-        if (navigationStateRef.current === "idle") {
-          revalidateCurrentPath();
-        }
-
-        timeout = setTimeout(tick, CART_RECOVERY_REVALIDATE_INTERVAL_MS);
-        return;
-      }
-
-      if (tokenState.kind === "expired") {
-        runFinalRevalidation();
-      }
-
-      setIsAutoRevalidating(false);
-    }
-
-    const initialTokenState = readFreshWriteTokenState(currentPath);
-    if (initialTokenState.kind === "expired") {
-      runFinalRevalidation();
-      setIsAutoRevalidating(false);
-      return;
-    }
-
-    if (initialTokenState.kind !== "valid" || !hasAttemptBudget()) {
-      setIsAutoRevalidating(false);
-      return;
-    }
-
-    setIsAutoRevalidating(true);
-    timeout = setTimeout(tick, CART_RECOVERY_REVALIDATE_INTERVAL_MS);
-
-    return () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    };
-  }, [currentPath, enabled]);
-
-  return { isAutoRevalidating };
-}
-
 export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const location = useLocation();
-  const currentPath = `${location.pathname}${location.search}${location.hash}`;
   const cartRecovery = "cartRecovery" in data ? data.cartRecovery : null;
-  const { isAutoRevalidating } = usePendingCartRecoveryRevalidation(cartRecovery?.kind === "pending-fresh-write");
+  const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
+    cartRecovery?.kind === "pending-fresh-write",
+  );
 
   return (
     <CheckoutCartPage

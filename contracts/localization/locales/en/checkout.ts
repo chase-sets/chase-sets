@@ -447,6 +447,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.registered.terms.line1":
     "Seller checkout revalidates the current fee quote before committing a sale.",
   "checkout.features.sellList.ui.sellListPage.refresh.needed": "Refresh needed",
+  "checkout.features.sellList.ui.sellListPage.refresh.sell.list": "Refresh Sell List",
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
@@ -493,6 +494,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.sales.fee": "Sales fee",
   "checkout.features.sellList.ui.sellListPage.sell.list": "Sell List",
   "checkout.features.sellList.ui.sellListPage.sell.list.lines": "Sell List lines",
+  "checkout.features.sellList.ui.sellListPage.sell.list.update.pending": "Updating Sell List",
+  "checkout.features.sellList.ui.sellListPage.sell.list.update.pending.title": "Your Sell List is catching up",
+  "checkout.features.sellList.ui.sellListPage.sell.list.update.refreshing": "Refreshing Sell List",
   "checkout.features.sellList.ui.sellListPage.seller.net": "Seller net",
   "checkout.features.sellList.ui.sellListPage.ship.from.inventory": "Ship-from inventory",
   "checkout.features.sellList.ui.sellListPage.shipping.allowance": "Shipping allowance",

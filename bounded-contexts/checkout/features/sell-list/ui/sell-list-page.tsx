@@ -115,6 +115,13 @@ type LineReadiness = Readonly<{
   tone: "success" | "warning";
 }>;
 
+type SellListRecoveryState = Readonly<{
+  kind: "pending-fresh-write";
+  message: string;
+  refreshHref: string;
+  isAutoRevalidating?: boolean;
+}>;
+
 function moneyNumber(value: string | null | undefined) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : 0;
@@ -949,6 +956,7 @@ export function CheckoutSellListPage({
   mergeError = null,
   errorMessage = null,
   recoveryMessage = null,
+  recoveryState = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
@@ -962,6 +970,7 @@ export function CheckoutSellListPage({
   mergeError?: string | null;
   errorMessage?: string | null;
   recoveryMessage?: string | null;
+  recoveryState?: SellListRecoveryState | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
@@ -1143,7 +1152,26 @@ export function CheckoutSellListPage({
 
         {isSignedIn ? <LatestSellListConfirmationPanel confirmation={latestConfirmation} /> : null}
 
-        {sellListLines.length === 0 && recoveryMessage ? (
+        {sellListLines.length === 0 && recoveryState?.kind === "pending-fresh-write" ? (
+          <Surface tone="subtle" elevated>
+            <Stack gap={3}>
+              <Badge tone="neutral">
+                {recoveryState.isAutoRevalidating
+                  ? t("checkout.features.sellList.ui.sellListPage.sell.list.update.pending")
+                  : t("checkout.features.sellList.ui.sellListPage.sell.list.update.refreshing")}
+              </Badge>
+              <Stack gap={1}>
+                <Text weight="semibold">
+                  {t("checkout.features.sellList.ui.sellListPage.sell.list.update.pending.title")}
+                </Text>
+                <Text tone="secondary">{recoveryState.message}</Text>
+              </Stack>
+              <LinkButton href={recoveryState.refreshHref} tone="secondary">
+                {t("checkout.features.sellList.ui.sellListPage.refresh.sell.list")}
+              </LinkButton>
+            </Stack>
+          </Surface>
+        ) : sellListLines.length === 0 && recoveryMessage ? (
           <MarketplaceNotice
             tone="info"
             title={t("checkout.features.sellList.ui.sellListPage.checkout")}

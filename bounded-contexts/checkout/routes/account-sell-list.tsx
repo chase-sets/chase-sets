@@ -45,6 +45,7 @@ import {
   SELLER_CHECKOUT_SIGN_IN_HREF,
 } from "../features/sell-list/ui/registration-return";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
+import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
@@ -876,6 +877,10 @@ export const meta: MetaFunction = () =>
 export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
+  const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
+    sellListRecovery?.kind === "pending-fresh-write",
+  );
 
   return (
     <CheckoutSellListPage
@@ -889,8 +894,18 @@ export default function CheckoutAccountSellListRoute() {
       registrationReturn={data.registrationReturn}
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}
-      errorMessage={actionData?.error ?? ("freshnessError" in data ? data.freshnessError : null)}
-      recoveryMessage={"sellListRecovery" in data ? (data.sellListRecovery?.message ?? null) : null}
+      errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
+      recoveryMessage={sellListRecovery?.message ?? null}
+      recoveryState={
+        sellListRecovery
+          ? {
+              kind: sellListRecovery.kind,
+              message: sellListRecovery.message,
+              refreshHref: currentPath,
+              isAutoRevalidating,
+            }
+          : null
+      }
     />
   );
 }
