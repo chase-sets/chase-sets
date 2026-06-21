@@ -111,6 +111,7 @@ export async function listOrderingSupplyCandidates(
        ON active_holds.item_id = item.item_id
      WHERE listing.status = 'active'
        AND listing.seller_listing_availability_status = 'available'
+       AND listing.terms_resolved_at IS NOT NULL
        AND listing.product_id = $1
        ${sellerClause}
      ORDER BY
@@ -216,6 +217,7 @@ export async function getOrderingSupplyCandidateByListingId(
        ON active_holds.item_id = item.item_id
      WHERE listing.status = 'active'
        AND listing.seller_listing_availability_status = 'available'
+       AND listing.terms_resolved_at IS NOT NULL
        AND listing.listing_id = $1`,
     [listingId],
   );
