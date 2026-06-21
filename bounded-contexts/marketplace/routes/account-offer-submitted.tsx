@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useSearchParams } from "react-router";
-import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -10,6 +10,13 @@ import { createMarketplaceRequestApiClient } from "../support/request-support/ap
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
+
+function submittedOfferPreparingResponse() {
+  return new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing.description"), {
+    status: 503,
+    statusText: t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing"),
+  });
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
@@ -24,6 +31,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       }),
     });
   } catch (error) {
+    const freshWriteRecovery = recoverFreshWriteReadError({
+      request,
+      error,
+      recoverTransient: submittedOfferPreparingResponse,
+    });
+    if (freshWriteRecovery) {
+      throw freshWriteRecovery;
+    }
+
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.not.found"), { status: 404 });
     }
