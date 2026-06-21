@@ -495,6 +495,89 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("keeps provider scope refresh usable when a stale previous scope makes review unavailable", async () => {
+    const profileReviews = {
+      items: [
+        profileReview({
+          providerKey: "ygojson",
+          profileKey: "ygojson-yugioh-set",
+          profileVersion: "2026.06.21",
+          ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+          displayName: "YGOJSON Yu-Gi-Oh sets",
+          lifecycle: "active",
+          active: true,
+          status: "active",
+          connectorKind: "ygojson",
+          profile: {
+            providerKey: "ygojson",
+            supportedScopes: ["yugioh/set"],
+          },
+          supportedScopes: ["yugioh/set"],
+          languageOptions: ["en"],
+          sourceOptionKinds: [
+            {
+              queryKind: "sets",
+              queryKeySynonyms: ["setName"],
+              displayName: "Set",
+              scope: "set-name",
+              parentScope: null,
+              parentRequired: false,
+              parentValueKind: null,
+              parentDiagnosticText: null,
+            },
+          ],
+        }),
+      ],
+      total: 1,
+      count: 1,
+    };
+    const listSourceObservations = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(400, { error: { code: "invalid_source_observation_filter" } }));
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      return sourceOptionResponse(params.get("queryKind") ?? "sets", {
+        status: "fresh",
+        source: "live",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+        value: "25th Anniversary Rarity Collection",
+        label: "25th Anniversary Rarity Collection",
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson%3Ayugioh%3Aset%3Areference-data&importScope=ja%3ASV%3ASV8&profileVersion=2026.06.21&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=ygojson&sourceOptionAction=force-refresh&sourceOptionQueryKind=sets",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(listSourceObservations).toHaveBeenCalledOnce();
+    expect(routeData.readModel.sourceObservationReview).toMatchObject({
+      freshness: "partial",
+      rows: [],
+    });
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    const optionQuery = new URLSearchParams(listSourceObservationIntegrationOptions.mock.calls[0]?.[0] ?? "");
+    expect(optionQuery.get("queryKind")).toBe("sets");
+    expect(optionQuery.get("forceRefresh")).toBe("true");
+    expect(optionQuery.get("languageCode")).toBe("en");
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "sets")).toMatchObject({
+      state: "live",
+      items: [expect.objectContaining({ label: "25th Anniversary Rarity Collection" })],
+    });
+  });
+
   it("fetches the audit-trimmed daily overview from the daily loader and the full overview from the providers loader", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };

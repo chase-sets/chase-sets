@@ -148,10 +148,7 @@ async function finalizeSurfaceLoad(input: {
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
   const reviewPagination = dailyReviewPaginationFor(routeContext);
-  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
-  const reviewObservations = reviewQuery
-    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
-    : null;
+  const reviewObservations = await selectedScopeReviewObservations(api, routeContext, reviewPagination);
 
   const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
     api,
@@ -175,6 +172,23 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     deferredSourceOptions: deferredSourceOptionsSlice(api, request, baseline, routeContext, readModel.sourceOptions),
     deferredAliasReview: selectedScopeAliasReview(api, routeContext),
   };
+}
+
+async function selectedScopeReviewObservations(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  reviewPagination: Readonly<{ limit: number; offset: number }>,
+): Promise<ListResponse<SourceObservationListItem> | null> {
+  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
+  if (!reviewQuery) {
+    return null;
+  }
+
+  try {
+    return await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery);
+  } catch {
+    return null;
+  }
 }
 
 // Resolve the streamed source-options slice: fetch the option fan-out (fail-soft

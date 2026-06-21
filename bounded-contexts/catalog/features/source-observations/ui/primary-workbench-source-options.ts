@@ -156,7 +156,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     .map((kind) => {
       const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
       const languageSelection = selections.get("language") ?? null;
-      const languageCode = languageSelection?.value ?? profile.languageOptions[0] ?? "en";
+      const languageCode = sourceOptionLanguageCode(profile, languageSelection?.value ?? null);
       const parentValue = kind.parentScope === "language" ? null : (parent?.value ?? null);
       const request = {
         providerKey,
@@ -428,6 +428,21 @@ function sourceOptionSelections(input: {
   }
 
   return selections;
+}
+
+function sourceOptionLanguageCode(
+  profile: CatalogProviderProfileVersionReview,
+  selectedLanguage: string | null,
+): string {
+  const profileDefault = profile.languageOptions[0]?.trim();
+  const selected = selectedLanguage?.trim();
+  const languageIsOperatorSelectable = profile.sourceOptionKinds.some((kind) => kind.scope === "language");
+
+  if (languageIsOperatorSelectable && selected) {
+    return selected;
+  }
+
+  return profileDefault || selected || "en";
 }
 
 function representativeSelectionValue(
