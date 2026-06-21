@@ -462,6 +462,71 @@ describe("Catalog primary workbench source options", () => {
     expect(setNameHref.searchParams.get("parentValue")).toBe("1");
   });
 
+  it("keeps Yu-Gi-Oh TCGplayer option queries pinned after stale legacy scope cleanup", () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const mtgProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: mtgUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["yugioh/single-card"],
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&importScope=ja:SV:SV8&profileVersion=2026.06.20&filter.importScope=ja:SV:SV8&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh&sourceOptionQueryKind=product-lines";
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [mtgProfile, yugiohProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      routeContext: readModel.routeContext,
+      scopes: [],
+      profiles: [mtgProfile, yugiohProfile],
+      cacheOnly: true,
+    });
+    const productLines = requests.find((request) => request.queryKind === "product-lines");
+    const setNames = requests.find((request) => request.queryKind === "set-names");
+    expect(productLines).toBeTruthy();
+    expect(setNames).toBeTruthy();
+    expect(productLines!.refreshHref).toBeTruthy();
+    const productLinesHref = new URL(productLines!.refreshHref!, "https://admin.example");
+    const setNamesHref = new URL(setNames!.queryHref, "https://admin.example");
+
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names"]);
+    expect(requests.every((request) => request.profileKey === "yugioh-single-card-product-sku")).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey === yugiohUnit)).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey !== mtgUnit)).toBe(true);
+    expect(productLinesHref.searchParams.get("profileKey")).toBe("yugioh-single-card-product-sku");
+    expect(productLinesHref.searchParams.get("ingestionUnitKey")).toBe(yugiohUnit);
+    expect(productLinesHref.searchParams.get("forceRefresh")).toBe("true");
+    expect(setNames).toMatchObject({
+      parentScope: "product-line/category",
+      languageCode: "en",
+      parentValue: null,
+      selectedParentValue: null,
+    });
+    expect(setNamesHref.searchParams.has("parentValue")).toBe(false);
+  });
+
   it("does not borrow another provider active profile for source option requests", () => {
     const tcgdexProfile = profileReview({ active: true, lifecycle: "active" });
     const scrydexProfile = profileReview({
