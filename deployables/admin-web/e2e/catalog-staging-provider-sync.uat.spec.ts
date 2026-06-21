@@ -10,6 +10,9 @@ const syncTimeoutMs = 120_000;
 type SelectChoice = Readonly<{
   labels?: readonly string[];
   values?: readonly string[];
+  fallbackToFirstAvailableOption?: Readonly<{
+    valuePattern?: RegExp;
+  }>;
 }>;
 
 type ScopeSelection = Readonly<{
@@ -26,12 +29,23 @@ type ProviderSyncJourney = Readonly<{
 
 type MissingOptionRecovery = () => Promise<boolean>;
 
-const yugiohSetChoices = [
+const preferredYugiohSetLabels = [
   "25th Anniversary Rarity Collection",
   "2-Player Starter Set",
   "Starter Deck: Yugi",
   "Legend of Blue Eyes White Dragon",
 ] as const;
+
+const yugiohSetChoice: SelectChoice = {
+  labels: preferredYugiohSetLabels,
+};
+
+const ygojsonSetChoice: SelectChoice = {
+  labels: preferredYugiohSetLabels,
+  fallbackToFirstAvailableOption: {
+    valuePattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  },
+};
 
 const providerSyncJourneys: readonly ProviderSyncJourney[] = [
   {
@@ -57,13 +71,13 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     name: "Yu-Gi-Oh set through YGOPRODeck",
     providerKey: "ygoprodeck",
     unitKey: "ygoprodeck:yugioh:single-card:reference-data",
-    scope: [{ label: "Set", choice: { labels: yugiohSetChoices } }],
+    scope: [{ label: "Set", choice: yugiohSetChoice }],
   },
   {
     name: "Yu-Gi-Oh set through YGOJSON / YAML Yugi upstream data",
     providerKey: "ygojson",
     unitKey: "ygojson:yugioh:set:reference-data",
-    scope: [{ label: "Set", choice: { labels: yugiohSetChoices } }],
+    scope: [{ label: "Set", choice: ygojsonSetChoice }],
   },
   {
     name: "Yu-Gi-Oh set through the shared TCGplayer provider",
@@ -71,7 +85,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
     scope: [
       { label: "Product Line", choice: { labels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"], values: ["2"] } },
-      { label: "Set Name", choice: { labels: yugiohSetChoices } },
+      { label: "Set Name", choice: yugiohSetChoice },
     ],
   },
 ];
@@ -317,6 +331,7 @@ async function waitForOption(
   const values = choice.values ?? [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
   let nextRecoveryAttemptAt = Date.now() + 5_000;
+  const fallbackOptionAllowedAt = Date.now() + 5_000;
   let recoveryAttempts = 0;
   let observedOptions: readonly { label: string; value: string }[] = [];
 
@@ -338,6 +353,14 @@ async function waitForOption(
     if (labelMatch) {
       return labelMatch;
     }
+    const fallback = choice.fallbackToFirstAvailableOption;
+    const fallbackOption =
+      fallback && Date.now() >= fallbackOptionAllowedAt && (!recoverMissingOptions || recoveryAttempts > 0)
+        ? observedOptions.find((option) => isSelectableFallbackOption(option, fallback))
+        : undefined;
+    if (fallbackOption) {
+      return fallbackOption;
+    }
 
     if (recoverMissingOptions && recoveryAttempts < 3 && Date.now() >= nextRecoveryAttemptAt) {
       recoveryAttempts += 1;
@@ -354,6 +377,17 @@ async function waitForOption(
     `Expected select to contain one of: ${[...values, ...labels].join(", ")}. Observed: ${observedOptions
       .map((option) => `${option.label} (${option.value})`)
       .join(", ")}`,
+  );
+}
+
+function isSelectableFallbackOption(
+  option: { label: string; value: string },
+  fallback: NonNullable<SelectChoice["fallbackToFirstAvailableOption"]>,
+): boolean {
+  return (
+    option.value.length > 0 &&
+    option.label.length > 0 &&
+    (!fallback.valuePattern || fallback.valuePattern.test(option.value))
   );
 }
 
