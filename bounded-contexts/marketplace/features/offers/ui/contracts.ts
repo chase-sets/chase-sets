@@ -1,5 +1,3 @@
-import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-
 export interface MarketplaceOffer {
   offer_id: string;
   buyer_account_id: string;
@@ -9,7 +7,6 @@ export interface MarketplaceOffer {
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
-  shipping_destination_snapshot: AddressSnapshot;
   price_amount: string;
   quantity_requested: number;
   status: string;

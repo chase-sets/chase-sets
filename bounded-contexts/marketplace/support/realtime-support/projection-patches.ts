@@ -1,4 +1,5 @@
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import { omitPrivateOfferResponseFields } from "../../features/offers/api/response-shape";
 
 export function createMarketplaceListingPatch(
   topics: readonly string[],
@@ -34,7 +35,7 @@ export function createMarketplaceOfferPatch(
         op: "upsert",
         entity: "marketplace.offer",
         id: offer.offer_id,
-        value: offer,
+        value: omitPrivateOfferResponseFields(offer),
       },
     ],
   };
@@ -56,7 +57,7 @@ export function createMarketplaceOfferMatchPatch(
             op: "upsert",
             entity: "marketplace.offerMatch",
             id: offerMatch.offer_id,
-            value: offerMatch,
+            value: omitPrivateOfferResponseFields(offerMatch),
           }
         : {
             op: "remove",
