@@ -532,6 +532,29 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Resolve this item before checkout or remove it from your cart.");
   });
 
+  it("blocks checkout for a locked listing while its selected seller option is missing", () => {
+    const lockedMissingOption: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_card_vault",
+      selected_listing_id: "lst_card_vault",
+      selected_listing_seller_account_id: "acc_card_vault",
+      selected_listing_seller_display_name: "Card Vault",
+      selected_listing_seller_slug: "card-vault",
+      selected_listing_price_amount: "389.00",
+      seller_options: [],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[lockedMissingOption]} />);
+
+    expect(markup).toContain("Some items need attention");
+    expect(markup).toContain("Waiting for supply");
+    expect(markup).toContain("Continue to checkout");
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
+    expect(markup).not.toContain("Check out");
+  });
+
   it("offers optional fulfillment savings as a secondary action before checkout starts", () => {
     const expensiveLine: CheckoutCartLine = {
       ...cartLine,

@@ -323,7 +323,7 @@ describe("seller-options readiness end-to-end (cart + checkout, one optimizer / 
     expect(session.current.optimization.savingsAmount).toBe("9.00");
   });
 
-  it("does not mark a product with no active options ready (needs attention / waiting)", async () => {
+  it("does not mark locked or Smart Match lines ready when no active options are projected", async () => {
     const db = new CartReadModelDb(
       [seededLine({ locked_listing_id: "lst_dear" })],
       [
@@ -338,9 +338,17 @@ describe("seller-options readiness end-to-end (cart + checkout, one optimizer / 
 
     const snapshot = createCartReadinessSnapshot(cartLines);
 
-    // With no projected options the locked line degrades gracefully and stays
-    // "ready" (no false needs-attention), but an OPTIMIZE line with no options is
-    // blocked — assert both shapes of "no active options" against one source.
+    // With no projected options, locked lines fail closed before checkout starts.
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_charizard"]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_charizard",
+      outcome: "checkout",
+      reason: "waiting-for-supply",
+    });
+
+    // Smart Match lines with no options are also blocked — assert both shapes of
+    // "no active options" against one source.
     const optimizeDb = new CartReadModelDb(
       [seededLine({ fulfillment_mode: "optimize", locked_listing_id: null, seller_preference_id: null })],
       [seededOption({ listing_id: "lst_withdrawn", status: "withdrawn" })],
@@ -348,12 +356,6 @@ describe("seller-options readiness end-to-end (cart + checkout, one optimizer / 
     const optimizeLines = await listCartLines(optimizeDb, "acc_buyer");
     const optimizeSnapshot = createCartReadinessSnapshot(optimizeLines);
 
-    // Locked line, no projected options yet: degrades gracefully (stays ready,
-    // no optimization), per the documented fail-safe in readiness.ts.
-    expect(snapshot.status).toBe("ready");
-    expect(snapshot.optimization.available).toBe(false);
-    // Optimize line with no active options is the real "no options" negative:
-    // it is not ready and surfaces needs-attention.
     expect(optimizeSnapshot.status).toBe("blocked");
     expect(optimizeSnapshot.unresolvedLineIds).toEqual(["cli_charizard"]);
     expect(optimizeSnapshot.lineOutcomes).toContainEqual({

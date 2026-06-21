@@ -173,6 +173,12 @@ function lockedListingIsGone(line: CartReadinessLine) {
   );
 }
 
+function lockedListingIsWaitingForSupply(line: CartReadinessLine) {
+  return (
+    line.fulfillment_mode === "locked-listing" && Boolean(line.locked_listing_id) && line.seller_options.length === 0
+  );
+}
+
 export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
   if (line.availability_state !== "available") {
     return false;
@@ -188,11 +194,7 @@ export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
       return optionCanFulfill(selected, line.quantity);
     }
 
-    // The locked listing is absent from populated options (withdrawn / sold
-    // out): the pinned listing is gone, so the line is not ready. When options
-    // are empty (no projected data yet) we degrade gracefully and keep today's
-    // behavior so products without projected options are not newly flagged.
-    return !lockedListingIsGone(line);
+    return false;
   }
 
   return Boolean(lowestCartReadinessListing(line));
@@ -210,6 +212,9 @@ function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcome
   }
   if (lockedListingIsGone(line)) {
     return "changed";
+  }
+  if (lockedListingIsWaitingForSupply(line)) {
+    return "waiting-for-supply";
   }
   return cartReadinessLineHasFulfillment(line) ? "ready" : "unassigned-fulfillment";
 }
