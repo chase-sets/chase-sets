@@ -26,6 +26,13 @@ type ProviderSyncJourney = Readonly<{
 
 type MissingOptionRecovery = () => Promise<boolean>;
 
+const yugiohSetChoices = [
+  "25th Anniversary Rarity Collection",
+  "2-Player Starter Set",
+  "Starter Deck: Yugi",
+  "Legend of Blue Eyes White Dragon",
+] as const;
+
 const providerSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "Pokemon set regression through TCGdex",
@@ -50,13 +57,13 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     name: "Yu-Gi-Oh set through YGOPRODeck",
     providerKey: "ygoprodeck",
     unitKey: "ygoprodeck:yugioh:single-card:reference-data",
-    scope: [{ label: "Set", choice: { labels: ["Starter Deck: Yugi", "Legend of Blue Eyes White Dragon"] } }],
+    scope: [{ label: "Set", choice: { labels: yugiohSetChoices } }],
   },
   {
     name: "Yu-Gi-Oh set through YGOJSON / YAML Yugi upstream data",
     providerKey: "ygojson",
     unitKey: "ygojson:yugioh:set:reference-data",
-    scope: [{ label: "Set", choice: { labels: ["Starter Deck: Yugi", "Legend of Blue Eyes White Dragon"] } }],
+    scope: [{ label: "Set", choice: { labels: yugiohSetChoices } }],
   },
   {
     name: "Yu-Gi-Oh set through the shared TCGplayer provider",
@@ -64,7 +71,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
     scope: [
       { label: "Product Line", choice: { labels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"], values: ["2"] } },
-      { label: "Set Name", choice: { labels: ["Starter Deck: Yugi", "Legend of Blue Eyes White Dragon"] } },
+      { label: "Set Name", choice: { labels: yugiohSetChoices } },
     ],
   },
 ];
@@ -323,11 +330,11 @@ async function waitForOption(
         })),
       )
       .catch(() => []);
-    const valueMatch = observedOptions.find((option) => values.includes(option.value));
+    const valueMatch = values.map((value) => observedOptions.find((option) => option.value === value)).find(Boolean);
     if (valueMatch) {
       return valueMatch;
     }
-    const labelMatch = observedOptions.find((option) => labels.includes(option.label));
+    const labelMatch = labels.map((label) => observedOptions.find((option) => option.label === label)).find(Boolean);
     if (labelMatch) {
       return labelMatch;
     }
