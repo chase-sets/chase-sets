@@ -5,6 +5,7 @@ import type {
   CatalogPrimaryWorkbenchSourceOptionsStatus,
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchScopeQueryKey } from "./primary-workbench-scope-context";
+import { scopeContextFromRouteContext } from "./primary-workbench-scope-context";
 import { sourceOptionDisplayLabel } from "./primary-workbench-source-option-labels";
 
 // Tone vocabulary shared by the guided scope selector and the source-options
@@ -91,9 +92,10 @@ function selectedSourceScopeValues(readModel: CatalogPrimaryWorkbenchReadModel):
   const selections = new Map<string, string>();
   const explicitScopes = new Set<string>();
   const parentScopeByScope = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.scope, kind.parentScope]));
+  const selectedScope = scopeContextFromRouteContext(readModel.routeContext);
 
   for (const scopeName of Object.keys(scopeQueryFieldByProviderScope)) {
-    const value = scopeFieldValue(readModel.routeContext.scope, scopeQueryFieldByProviderScope[scopeName]!);
+    const value = scopeFieldValue(selectedScope, scopeQueryFieldByProviderScope[scopeName]!);
     if (value) {
       selections.set(scopeName, value);
       explicitScopes.add(scopeName);

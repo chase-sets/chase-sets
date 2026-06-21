@@ -110,6 +110,40 @@ function dailyReadModelWithJapaneseExpansionOnly() {
   });
 }
 
+function dailyReadModelWithInferredJapaneseScope() {
+  const profile = profileReview({
+    active: true,
+    lifecycle: "active",
+    ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+  });
+  const scope = sourceObservationScope({
+    language_code: "ja",
+    product_line_id: "",
+    product_line_name: "",
+    series_id: "SV",
+    series_name: "Scarlet & Violet",
+    expansion_id: "SV8",
+    expansion_name: "Super Electric Breaker",
+  });
+  const requestUrl =
+    "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&profileVersion=2026.06.04";
+  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+    requestUrl,
+    scopes: [scope],
+    profiles: [profile],
+    cacheOnly: true,
+  });
+
+  return buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl,
+    scopes: { items: [scope], total: 1, count: 1 },
+    profileReviews: { items: [profile], total: 1, count: 1 },
+    sourceOptionPages: requests.map((request) => ({ request, response: japaneseSv8ResponseFor(request) })),
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+}
+
 function providerProfile(providerKey: "scrydex" | "tcgdex", displayName: string, supportedScope: string) {
   return profileReview({
     providerKey,
@@ -706,6 +740,23 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(expansion.value).toBe("SV8");
     expect(within(expansion).getByRole("option", { name: "Super Electric Breaker" })).toBeTruthy();
     expect(within(expansion).queryByRole("option", { name: "Base Set" })).toBeNull();
+  });
+
+  it("hydrates guided scope fields from the effective import scope when structured query fields are absent", () => {
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithInferredJapaneseScope()} />);
+    expandImportContextBar();
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+    const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+
+    expect(language.value).toBe("ja");
+    expect(within(language).getByRole("option", { name: "Japanese" })).toBeTruthy();
+    expect(series.value).toBe("SV");
+    expect(within(series).getByRole("option", { name: "Scarlet & Violet" })).toBeTruthy();
+    expect(expansion.value).toBe("SV8");
+    expect(within(expansion).getByRole("option", { name: "Super Electric Breaker" })).toBeTruthy();
   });
 
   it("does not hard-code TCGdex scope levels for a generic provider", () => {

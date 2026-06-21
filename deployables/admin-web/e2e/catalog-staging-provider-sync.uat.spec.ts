@@ -102,7 +102,9 @@ async function signInThroughVisibleForm(page: Page): Promise<void> {
     return;
   }
 
-  await page.getByRole("textbox", { name: /email|phone/i }).fill(catalogAdminEmail);
+  const emailInput = page.getByRole("textbox", { name: /email|phone/i });
+  await expect(emailInput).toBeVisible({ timeout: pageReadyTimeoutMs });
+  await emailInput.fill(catalogAdminEmail);
   await page.getByRole("button", { name: /^continue$/i }).click();
 
   const passwordChoice = page.getByText(/^Password$/).first();
@@ -110,7 +112,16 @@ async function signInThroughVisibleForm(page: Page): Promise<void> {
     await passwordChoice.click();
   }
 
-  await page.locator('input[type="password"]').first().fill(catalogAdminPassword);
+  if (await isImporterVisible(page, 5_000)) {
+    return;
+  }
+
+  const passwordInput = page.locator('input[type="password"]').first();
+  await expect(
+    passwordInput,
+    "Password input should appear after continuing with the staging admin email.",
+  ).toBeVisible({ timeout: 45_000 });
+  await passwordInput.fill(catalogAdminPassword);
   await page.getByRole("button", { name: /^sign in$/i }).click();
   await expectImporterVisible(page);
 }
