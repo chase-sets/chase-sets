@@ -57,13 +57,23 @@ export function buildItemDetailCommerce(
   const item = data.item;
 
   return (context) => {
-    const preferredSellAction = preferredSellActionFromActionData(actionData, actionErrorMessage);
+    const selectedOwnedListing =
+      data.sellerAccountId &&
+      context.selectedListingSource === "explicit" &&
+      context.selectedListing?.account_id === data.sellerAccountId
+        ? context.selectedListing
+        : null;
+    const preferredSellAction =
+      preferredSellActionFromActionData(actionData, actionErrorMessage) ??
+      (selectedOwnedListing ? "list-for-sale" : null);
     const ownListing =
       data.sellerAccountId && context.selectedProductId
-        ? (context.visibleListings.find(
+        ? (selectedOwnedListing ??
+          context.visibleListings.find(
             (listing) =>
               listing.account_id === data.sellerAccountId && listing.product_id === context.selectedProductId,
-          ) ?? null)
+          ) ??
+          null)
         : null;
     const renderBuy = (
       formId: string,
