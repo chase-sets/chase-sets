@@ -50,6 +50,8 @@ import {
 } from "../support/request-support/guest-checkout";
 
 const ACCOUNT_SIGN_IN_REQUIRED_CODE = "account_sign_in_required";
+const MERGED_CART_PROJECTION_WAIT_MS = 15_000;
+const MERGED_CART_PROJECTION_POLL_MS = 300;
 type CheckoutActor = Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
 type GuestCheckoutStart = Readonly<{
   accountId: string;
@@ -318,12 +320,32 @@ function mergedCartLineCount(source: unknown) {
   return Number.isFinite(count) && count > 0 ? count : 0;
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function waitForMergedCartProjection(api: CheckoutRequestApi, mergeResult: unknown) {
-  if (mergedCartLineCount(mergeResult) === 0) {
+  const expectedLineCount = mergedCartLineCount(mergeResult);
+  if (expectedLineCount === 0) {
     return;
   }
 
-  await api.getCart();
+  const deadline = Date.now() + MERGED_CART_PROJECTION_WAIT_MS;
+  while (Date.now() <= deadline) {
+    const cart = await api.getCart();
+    if (cart.count >= expectedLineCount) {
+      return;
+    }
+
+    await delay(MERGED_CART_PROJECTION_POLL_MS);
+  }
+
+  throw new CheckoutApiError(503, {
+    error: {
+      code: "projection_freshness_timeout",
+      message: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
+    },
+  });
 }
 
 function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
@@ -425,10 +447,10 @@ async function startGuestCheckoutSession(
   if (params.sourceType === "cart" && params.anonymousCartId) {
     const mergeResult = await guestApi.mergeGuestCartToAccount(params.anonymousCartId);
     writeSources.push(mergeResult);
+    await waitForMergedCartProjection(guestApi, mergeResult);
     guestApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult), {
       headers: guestHeaders,
     });
-    await waitForMergedCartProjection(guestApi, mergeResult);
   }
 
   const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
@@ -526,8 +548,8 @@ export async function action({ request }: ActionFunctionArgs) {
       if (sourceType === "cart" && anonymousCartId) {
         const mergeResult = await api.mergeGuestCartToAccount(anonymousCartId);
         writeSources.push(mergeResult);
+        await waitForMergedCartProjection(api, mergeResult);
         sessionApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult));
-        await waitForMergedCartProjection(sessionApi, mergeResult);
       }
 
       const sessionRequest = await ensureCartReadinessSnapshot(sessionApi, checkoutSessionRequestFromForm(formData), {
