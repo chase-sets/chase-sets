@@ -353,8 +353,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout":
     "Choose a ready offer or listing action before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
+  "checkout.features.sellList.ui.sellListPage.create.listing": "Create listing",
   "checkout.features.sellList.ui.sellListPage.create.listing.for.remaining": "Create listing for remaining quantity",
+  "checkout.features.sellList.ui.sellListPage.create.matching.listing": "Create matching listing",
   "checkout.features.sellList.ui.sellListPage.choose.inventory": "Choose inventory",
+  "checkout.features.sellList.ui.sellListPage.add.inventory": "Add inventory",
   "checkout.features.sellList.ui.sellListPage.estimated.payout": "Estimated payout",
   "checkout.features.sellList.ui.sellListPage.estimated.payout.aria": "View estimated payout details",
   "checkout.features.sellList.ui.sellListPage.estimated.payout.facts": "Payout facts",
@@ -426,6 +429,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.payout.setup.is.checked.before":
     "Payout setup and settlement readiness stay visible before accepting sale commitments.",
   "checkout.features.sellList.ui.sellListPage.payout.setup.required": "Payout setup required",
+  "checkout.features.sellList.ui.sellListPage.set.up.payouts": "Set up payouts",
   "checkout.features.sellList.ui.sellListPage.setup.required": "Setup required",
   "checkout.features.sellList.ui.sellListPage.payout.setup.required.description":
     "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",

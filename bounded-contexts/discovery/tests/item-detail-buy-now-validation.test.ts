@@ -821,6 +821,93 @@ describe("item detail buy now validation and watch intents", () => {
     ]);
   });
 
+  it.each(["draft", "paused"] as const)(
+    "shows the selected owned %s seller listing while the Discovery item-detail projection catches up",
+    async (status) => {
+      const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail({ status }));
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_seller",
+        permissions: ["listings.view", "listings.manage"],
+      });
+      mockCreateDiscoveryRequestApiClient.mockReturnValue({
+        getItemDetail: vi.fn().mockResolvedValue({
+          catalog_item_id: "cat_charizard",
+          slug: "charizard-base-set",
+          title: "Charizard",
+          market_summary: null,
+          market_listings: [],
+          offer_demand_matches: [],
+        }),
+      });
+      mockCreateMarketplaceRequestApiClient.mockReturnValue({
+        listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+        getSellerListing,
+      });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({});
+      mockCreateInventoryRequestApiClient.mockReturnValue({
+        listStorageLocations: vi.fn().mockResolvedValue({
+          items: [{ name: "Listing stock", ship_from_code: "LISTING-STOCK" }],
+          count: 1,
+          total: 1,
+        }),
+      });
+
+      const result = await loader({
+        request: new Request("http://localhost/items/charizard-base-set?market=sell&listing=lst_item_detail"),
+        params: { id: "charizard-base-set" },
+        context: {},
+      } as never);
+
+      expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+      expect(result.item?.market_listings).toEqual([
+        expect.objectContaining({
+          listing_id: "lst_item_detail",
+          account_id: "acc_seller",
+          status,
+          catalog_catalog_item_id: "cat_charizard",
+          product_id: "cat_charizard::form:raw",
+        }),
+      ]);
+    },
+  );
+
+  it("does not show a selected withdrawn seller listing fallback", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_summary: null,
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+      getSellerListing: vi.fn().mockResolvedValue(sellerListingDetail({ status: "withdrawn" })),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockResolvedValue({
+        items: [{ name: "Listing stock", ship_from_code: "LISTING-STOCK" }],
+        count: 1,
+        total: 1,
+      }),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell&listing=lst_item_detail"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.item?.market_listings).toEqual([]);
+  });
+
   it("uses stale item details when the selected seller listing fresh write is still projecting", async () => {
     const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
     const freshGetItemDetail = vi.fn().mockRejectedValue(

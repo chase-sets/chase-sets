@@ -105,4 +105,47 @@ describe("account listings route", () => {
       maxUnitsPerCustomerAccount: "",
     });
   });
+
+  it("pre-fills selected product options from listing setup links", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(false),
+      getSellerListingAvailability: vi.fn().mockResolvedValue({
+        account_id: "acc_seller",
+        status: "available",
+        disabled_reason_category: null,
+        available_again_on: null,
+        disabled_at: null,
+        enabled_at: null,
+        updated_at: "2026-04-17T00:00:00.000Z",
+      }),
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+    const selectedOptions = encodeURIComponent(JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]));
+
+    const result = await loader({
+      request: new Request(
+        `http://localhost/account/listings?catalogItemId=cat_charizard&recommendedPrice=350.00&selectedOptions=${selectedOptions}`,
+      ),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result.createForm).toEqual({
+      inventoryItemId: "",
+      catalogItemId: "cat_charizard",
+      selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+      priceAmount: "350.00",
+      quantityCap: "1",
+      maxUnitsPerOrder: "",
+      maxUnitsPerDay: "",
+      maxUnitsPerCustomerAccount: "",
+    });
+  });
 });

@@ -270,6 +270,40 @@ function productOptionsFromSelectedOptions(selections: readonly { dimensionId: s
   }));
 }
 
+function listingSetupHref(line: CheckoutSellListLineRow, priceAmount: string | null | undefined) {
+  const searchParams = new URLSearchParams({
+    catalogItemId: line.catalog_catalog_item_id,
+  });
+  if (positiveMoney(priceAmount) !== null && priceAmount) {
+    searchParams.set("recommendedPrice", priceAmount);
+  }
+  if (line.selected_options.length > 0) {
+    searchParams.set("selectedOptions", JSON.stringify(line.selected_options));
+  }
+
+  return `/account/listings?${searchParams.toString()}`;
+}
+
+function inventoryListingSetupHref(inventoryItemId: string, priceAmount: string | null | undefined) {
+  const searchParams = new URLSearchParams({ inventoryItemId });
+  if (positiveMoney(priceAmount) !== null && priceAmount) {
+    searchParams.set("recommendedPrice", priceAmount);
+  }
+
+  return `/account/listings?${searchParams.toString()}`;
+}
+
+function sellListLineSetupHref(line: CheckoutSellListLineRow, inventoryItem?: SellListInventoryItem | null) {
+  if (line.line_type === "product" && inventoryItem) {
+    return inventoryListingSetupHref(inventoryItem.item_id, line.minimum_listing_price_amount);
+  }
+
+  return listingSetupHref(
+    line,
+    line.line_type === "selected-offer" ? line.offer_price_amount : line.minimum_listing_price_amount,
+  );
+}
+
 function buyerLabel(offer: { buyer_display_name: string | null; buyer_account_id: string | null }) {
   const displayName = offer.buyer_display_name?.trim();
   return displayName || t("checkout.features.sellList.ui.sellListPage.buyer");
@@ -533,6 +567,7 @@ function SelectedOfferRow({
 }) {
   const readiness = selectedOfferReadiness(review);
   const comparisonDetail = comparisonInlineDetail(review?.comparison);
+  const setupHref = sellListLineSetupHref(line);
 
   return (
     <Surface element="article" tone="default" padding={4}>
@@ -566,6 +601,13 @@ function SelectedOfferRow({
           ) : null}
           {review?.terms || review?.comparison?.standardPreview ? (
             <SellListTermsReferenceInfo review={review} quantity={line.quantity} />
+          ) : null}
+          {!readiness.ready ? (
+            <Inline gap={2}>
+              <LinkButton href={setupHref} tone="secondary" size="sm">
+                {t("checkout.features.sellList.ui.sellListPage.create.matching.listing")}
+              </LinkButton>
+            </Inline>
           ) : null}
         </Stack>
         <KeyValueList
@@ -624,6 +666,7 @@ function ProductLineRow({
   const matchingOfferQuantity = review?.offers.reduce((sum, item) => sum + item.offer.quantity_requested, 0) ?? 0;
   const matchingOffersCoverLine = matchingOfferQuantity >= line.quantity;
   const defaultPrice = line.minimum_listing_price_amount ?? "";
+  const setupHref = sellListLineSetupHref(line, defaultInventoryItem);
 
   return (
     <Surface element="article" tone="default" padding={4}>
@@ -730,9 +773,21 @@ function ProductLineRow({
               ))}
             </Stack>
           ) : (
-            <Text size="sm" tone="secondary">
-              {t("checkout.features.sellList.ui.sellListPage.no.smart.match.offers.available")}
-            </Text>
+            <Stack gap={2}>
+              <Text size="sm" tone="secondary">
+                {t("checkout.features.sellList.ui.sellListPage.no.smart.match.offers.available")}
+              </Text>
+              {!readiness.ready ? (
+                <Inline gap={2}>
+                  <LinkButton href={setupHref} tone="secondary" size="sm">
+                    {t("checkout.features.sellList.ui.sellListPage.create.listing")}
+                  </LinkButton>
+                  <LinkButton href="/account/inventory" tone="ghost" size="sm">
+                    {t("checkout.features.sellList.ui.sellListPage.add.inventory")}
+                  </LinkButton>
+                </Inline>
+              ) : null}
+            </Stack>
           )}
           <Grid columns={{ base: 1, md: 3 }} gap={3}>
             <NativeSelect
@@ -1039,6 +1094,16 @@ export function CheckoutSellListPage({
   const readyLineCount = sellListLines.length - blockedLineCount;
   const payoutIsReady = isSignedIn ? payoutReadiness?.status === "ready" : true;
   const canContinue = payoutIsReady && blockedLineCount === 0 && sellListLines.length > 0;
+  const firstBlockedLine = sellListLines.find((line, index) => !lineReadiness[index]?.ready) ?? null;
+  const firstBlockedLineHref = firstBlockedLine
+    ? sellListLineSetupHref(firstBlockedLine, inventoryByProductId.get(firstBlockedLine.product_id)?.[0] ?? null)
+    : null;
+  const recoveryHref = !payoutIsReady ? "/account/payouts/setup" : (firstBlockedLineHref ?? "/search");
+  const recoveryLabel = !payoutIsReady
+    ? t("checkout.features.sellList.ui.sellListPage.set.up.payouts")
+    : blockedLineCount > 0
+      ? t("checkout.features.sellList.ui.sellListPage.resolve.items")
+      : t("checkout.features.sellList.ui.sellListPage.keep.selling");
   const primarySellerCheckoutLabel = isSignedIn
     ? t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")
     : t("checkout.features.sellList.ui.sellListPage.create.account.to.continue");
@@ -1218,6 +1283,11 @@ export function CheckoutSellListPage({
                         })
                       : t("checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description")
                   }
+                  action={
+                    <LinkButton href="/account/payouts/setup" tone="secondary" size="sm">
+                      {t("checkout.features.sellList.ui.sellListPage.set.up.payouts")}
+                    </LinkButton>
+                  }
                 />
               ) : null}
 
@@ -1257,15 +1327,9 @@ export function CheckoutSellListPage({
                         {primarySellerCheckoutLabel}
                       </Button>
                     </Form>
-                    {blockedLineCount > 0 ? (
-                      <LinkButton href="/checkout/sell/readiness" tone="secondary">
-                        {t("checkout.features.sellList.ui.sellListPage.resolve.items")}
-                      </LinkButton>
-                    ) : (
-                      <LinkButton href="/search" tone="secondary">
-                        {t("checkout.features.sellList.ui.sellListPage.keep.selling")}
-                      </LinkButton>
-                    )}
+                    <LinkButton href={recoveryHref} tone="secondary">
+                      {recoveryLabel}
+                    </LinkButton>
                   </Inline>
                 </Stack>
               </Surface>
@@ -1286,10 +1350,8 @@ export function CheckoutSellListPage({
                   </Button>
                 }
                 secondaryAction={
-                  <LinkButton href={blockedLineCount > 0 ? "/checkout/sell/readiness" : "/search"} tone="secondary">
-                    {blockedLineCount > 0
-                      ? t("checkout.features.sellList.ui.sellListPage.resolve.items")
-                      : t("checkout.features.sellList.ui.sellListPage.keep.selling")}
+                  <LinkButton href={recoveryHref} tone="secondary">
+                    {recoveryLabel}
                   </LinkButton>
                 }
               />

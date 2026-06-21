@@ -29,4 +29,31 @@ describe("platform auth actor resolution", () => {
     expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 502))).toBe(true);
     expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 500))).toBe(false);
   });
+
+  it("treats rejected auth fetches as transient auth resolution failures", async () => {
+    const cause = new TypeError("fetch failed");
+    const fetch: typeof globalThis.fetch = async () => {
+      throw cause;
+    };
+
+    await expect(
+      resolveActorFromAuthApi({
+        request: new Request("http://localhost/account"),
+        fetch,
+      }),
+    ).rejects.toMatchObject({
+      authApiBaseUrl: "http://localhost/api/auth",
+      status: 503,
+      cause,
+    });
+
+    try {
+      await resolveActorFromAuthApi({
+        request: new Request("http://localhost/account"),
+        fetch,
+      });
+    } catch (error) {
+      expect(isTransientAuthResolutionError(error)).toBe(true);
+    }
+  });
 });

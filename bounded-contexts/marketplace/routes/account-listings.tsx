@@ -116,6 +116,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const searchParams = new URL(request.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
+  const selectedOptions = parseSelectedOptions(searchParams.get("selectedOptions"));
   const recommendedPrice = searchParams.get("recommendedPrice") ?? "";
   const claimListingIntentId = searchParams.get("claimListingIntent")?.trim() ?? "";
   let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
@@ -184,7 +185,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           ? {
               inventoryItemId: "",
               catalogItemId: selectedCatalogItemId,
-              selectedOptions: [],
+              selectedOptions,
               priceAmount: recommendedPrice,
               quantityCap: "1",
               maxUnitsPerOrder: "",

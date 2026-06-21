@@ -10,11 +10,14 @@ export class AuthResolutionError extends Error {
   readonly authApiBaseUrl: string;
   readonly status: number;
 
-  constructor(authApiBaseUrl: string, status: number) {
+  constructor(authApiBaseUrl: string, status: number, options: ErrorOptions = {}) {
     super(`Unable to resolve current actor from '${authApiBaseUrl}'. Status ${status}.`);
     this.name = "AuthResolutionError";
     this.authApiBaseUrl = authApiBaseUrl;
     this.status = status;
+    if (options.cause !== undefined) {
+      this.cause = options.cause;
+    }
   }
 }
 
@@ -81,13 +84,18 @@ export async function resolveActorFromAuthApi(
   const authApiBaseUrl = options.authApiBaseUrl
     ? normalizeAuthApiBaseUrl(options.authApiBaseUrl)
     : resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
-  const response = await (options.fetch ?? globalThis.fetch)(
-    resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "session"),
-    {
-      headers: createForwardedAuthHeaders(options.request),
-      credentials: "include",
-    },
-  );
+  let response: Response;
+  try {
+    response = await (options.fetch ?? globalThis.fetch)(
+      resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "session"),
+      {
+        headers: createForwardedAuthHeaders(options.request),
+        credentials: "include",
+      },
+    );
+  } catch (error) {
+    throw new AuthResolutionError(authApiBaseUrl, 503, { cause: error });
+  }
 
   if (response.status === 401) {
     return null;

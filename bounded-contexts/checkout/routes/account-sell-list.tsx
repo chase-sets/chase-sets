@@ -121,6 +121,41 @@ function freshnessOutcomeForHandoffState(state: PostWriteHandoffState) {
   }
 }
 
+function isExpiredAccountSellListAddLineHandoff(
+  state: PostWriteHandoffState,
+): state is Extract<PostWriteHandoffState, { kind: "not-fresh-write" }> {
+  return (
+    state.kind === "not-fresh-write" &&
+    state.freshWrite.kind === "expired" &&
+    isAccountSellListAddLineHandoff(state.handoff)
+  );
+}
+
+function isTransientSellListReadError(error: unknown) {
+  const status = checkoutApiErrorStatus(error);
+  const code = checkoutApiErrorCode(error);
+
+  return (
+    status === 404 ||
+    (status === 503 && code === "projection_freshness_timeout") ||
+    ((status === 502 || status === 503 || status === 504) && !code)
+  );
+}
+
+function pendingSellListRecovery(
+  actorMode: AccountSellListActorMode,
+  state: PostWriteHandoffState,
+  correctionSource: string,
+) {
+  return {
+    kind: "pending-fresh-write" as const,
+    message: t("checkout.routes.accountSellList.sell.list.pending.fresh.write"),
+    actorMode,
+    freshnessOutcome: freshnessOutcomeForHandoffState(state),
+    correctionSource,
+  };
+}
+
 async function loadSellListWithPostWriteRecovery(
   request: Request,
   load: () => Promise<AccountSellList>,
@@ -147,13 +182,11 @@ async function loadSellListWithPostWriteRecovery(
       return {
         sellList,
         freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
-        sellListRecovery: {
-          kind: "pending-fresh-write" as const,
-          message: t("checkout.routes.accountSellList.sell.list.pending.fresh.write"),
+        sellListRecovery: pendingSellListRecovery(
           actorMode,
-          freshnessOutcome: freshnessOutcomeForHandoffState(handoffState),
-          correctionSource: `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
-        },
+          handoffState,
+          `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
+        ),
       };
     }
 
@@ -168,11 +201,24 @@ async function loadSellListWithPostWriteRecovery(
       recoverTransient: () => ({
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
-        sellListRecovery: null,
+        sellListRecovery: pendingSellListRecovery(actorMode, readPostWriteHandoffState(request), "fresh-read"),
       }),
     });
     if (recovery) {
       return recovery;
+    }
+
+    const handoffState = readPostWriteHandoffState(request);
+    if (isExpiredAccountSellListAddLineHandoff(handoffState) && isTransientSellListReadError(error)) {
+      return {
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListRecovery: pendingSellListRecovery(
+          actorMode,
+          handoffState,
+          `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
+        ),
+      };
     }
 
     throw error;
