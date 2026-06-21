@@ -55,6 +55,35 @@ function apiErrorCode(error: unknown) {
   return typeof code === "string" && code.trim() ? code : null;
 }
 
+function apiErrorMessage(error: unknown) {
+  const body = apiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const bodyMessage =
+    typeof apiError === "object" && apiError !== null ? (apiError as { message?: unknown }).message : null;
+
+  if (typeof bodyMessage === "string" && bodyMessage.trim()) {
+    return bodyMessage;
+  }
+
+  return error instanceof Error ? error.message : null;
+}
+
+function isProjectionFreshnessTimeout(error: unknown) {
+  return (
+    apiErrorCode(error) === "projection_freshness_timeout" ||
+    /projection read model did not catch up .*freshness timeout/i.test(apiErrorMessage(error) ?? "")
+  );
+}
+
+function freshWriteRecoveryStatus(error: unknown) {
+  const status = apiErrorStatus(error);
+  return isProjectionFreshnessTimeout(error) && status !== 404 ? 503 : status;
+}
+
+function freshWriteRecoveryCode(error: unknown) {
+  return apiErrorCode(error) ?? (isProjectionFreshnessTimeout(error) ? "projection_freshness_timeout" : null);
+}
+
 function requestWithoutFreshWriteToken(request: Request) {
   const url = new URL(request.url);
   url.searchParams.delete("afterWrite");
@@ -88,8 +117,8 @@ function canRecoverSelectedSellerListingRead(
     recoverFreshWriteReadError({
       request,
       error,
-      getStatus: apiErrorStatus,
-      getErrorCode: apiErrorCode,
+      getStatus: freshWriteRecoveryStatus,
+      getErrorCode: freshWriteRecoveryCode,
       getBody: apiErrorBody,
       recoverTransient: () => true,
     }),
@@ -351,8 +380,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         const recovery = recoverFreshWriteReadError({
           request,
           error,
-          getStatus: apiErrorStatus,
-          getErrorCode: apiErrorCode,
+          getStatus: freshWriteRecoveryStatus,
+          getErrorCode: freshWriteRecoveryCode,
           getBody: apiErrorBody,
           recoverTransient: () => ({
             hasListingStockLocation: false,
