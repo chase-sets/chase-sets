@@ -15,16 +15,74 @@ import { InventoryItemListPage } from "../../features/inventory-items/ui/invento
 
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 
+function parseSelectedOptionsParam(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((entry) => ({
+        dimensionId: String(entry?.dimensionId ?? "").trim(),
+        optionId: String(entry?.optionId ?? "").trim(),
+      }))
+      .filter((entry) => entry.dimensionId && entry.optionId);
+  } catch {
+    return [];
+  }
+}
+
+function safeAccountReturnTo(value: FormDataEntryValue | string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
+    return null;
+  }
+
+  try {
+    const url = new URL(raw, "http://localhost");
+    if (url.origin !== "http://localhost" || !url.pathname.startsWith("/account/")) {
+      return null;
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function appendFeedback(destination: string, feedback: URLSearchParams) {
+  const [pathAndSearch, hash = ""] = destination.split("#", 2);
+  const [path, search = ""] = pathAndSearch.split("?", 2);
+  const params = new URLSearchParams(search);
+  for (const [key, value] of feedback) {
+    params.set(key, value);
+  }
+
+  const query = params.toString();
+  return `${path}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
     permission: "inventory.view",
   });
   const api = createInventoryRequestApiClient(request);
+  const url = new URL(request.url);
 
   return {
     items: await api.listItems(DEFAULT_ITEM_QUERY),
     locations: await api.listStorageLocations(),
+    createItemDraft: {
+      catalogItemId: url.searchParams.get("catalogItemId")?.trim() ?? "",
+      selectedOptions: parseSelectedOptionsParam(url.searchParams.get("selectedOptions")),
+      returnTo: safeAccountReturnTo(url.searchParams.get("returnTo")),
+    },
   };
 }
 
@@ -51,6 +109,10 @@ export async function action({ request }: ActionFunctionArgs) {
       });
       if (result.id) {
         feedback.set("feedbackEntityId", result.id);
+        const returnTo = safeAccountReturnTo(formData.get("returnTo"));
+        if (returnTo) {
+          return redirect(appendFreshWriteToken(appendFeedback(returnTo, feedback), result));
+        }
         return redirect(
           appendFreshWriteToken(`/account/inventory/items/${encodeURIComponent(result.id)}?${feedback}`, result),
         );
@@ -87,6 +149,7 @@ export default function MarketplaceInventoryRoute() {
     <InventoryItemListPage
       data={data.items as ListResponse<InventoryItemListItem>}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
+      createItemDraft={data.createItemDraft}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
         shouldShowFeedback ? (

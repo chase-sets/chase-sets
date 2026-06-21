@@ -94,6 +94,52 @@ describe("marketplace inventory routes", () => {
     expect(result.locations.items).toEqual([]);
   });
 
+  it("loads Sell List inventory create draft from safe query parameters", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const selectedOptions = encodeURIComponent(JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]));
+    const result = await inventoryLoader({
+      request: new Request(
+        `http://localhost/account/inventory?catalogItemId=cat_1&selectedOptions=${selectedOptions}&returnTo=%2Faccount%2Fsell-list`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.createItemDraft).toEqual({
+      catalogItemId: "cat_1",
+      selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+      returnTo: "/account/sell-list",
+    });
+  });
+
   it("returns action errors from the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -187,6 +233,57 @@ describe("marketplace inventory routes", () => {
     expect(location).toContain("/account/inventory/items/inv_created?");
     expect(location).toContain("feedbackWorkflow=inventory-create");
     expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
+  });
+
+  it("returns to Sell List after creating inventory from a Sell List recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("62")));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-item");
+    form.set("catalogItemId", "cat_1");
+    form.set("selectedOptions", "[]");
+    form.set("storageLocationId", "loc_1");
+    form.set("totalQuantity", "3");
+    form.set("returnTo", "/account/sell-list");
+
+    const response = (await inventoryAction({
+      request: new Request("http://localhost/account/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/account/sell-list?");
+    expect(location).toContain("feedbackWorkflow=inventory-create");
+    expect(location).toContain("feedbackEntityId=inv_created");
+    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("62");
   });
 
   it("loads inventory item detail through the inventory API", async () => {

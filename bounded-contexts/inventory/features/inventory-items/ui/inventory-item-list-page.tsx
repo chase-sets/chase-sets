@@ -53,20 +53,32 @@ function getOrderedDimensions(schema: InventoryProductSchema) {
     .filter((dimension): dimension is InventoryProductSchema["dimensions"][number] => dimension !== undefined);
 }
 
+function selectedOptionssFromEntries(entries: readonly { dimensionId: string; optionId: string }[]) {
+  return Object.fromEntries(entries.map((entry) => [entry.dimensionId, entry.optionId]));
+}
+
 export function InventoryItemListPage({
   data,
   locations,
   errorMessage,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   feedbackPrompt,
+  createItemDraft,
 }: {
   data: { items: readonly InventoryItemListItem[] };
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
   catalogItemApiBaseUrl?: string;
   feedbackPrompt?: ReactNode;
+  createItemDraft?: {
+    catalogItemId?: string | null;
+    selectedOptions?: readonly { dimensionId: string; optionId: string }[];
+    returnTo?: string | null;
+  } | null;
 }) {
-  const [catalogItemId, setCatalogItemId] = useState("");
+  const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
+  const [initialSelectedOptionss] = useState(() => selectedOptionssFromEntries(createItemDraft?.selectedOptions ?? []));
+  const [catalogItemId, setCatalogItemId] = useState(initialCatalogItemId);
   const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
   const [catalogLookupPending, setCatalogLookupPending] = useState(false);
@@ -102,7 +114,14 @@ export function InventoryItemListPage({
       .then((item) => {
         setCatalogItem(item);
         setCatalogLookupError(null);
-        setVersionSelections(item.product_schema ? normalizeSelectedOptionssForSchema(item.product_schema, {}) : {});
+        setVersionSelections(
+          item.product_schema
+            ? normalizeSelectedOptionssForSchema(
+                item.product_schema,
+                trimmedCatalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
+              )
+            : {},
+        );
       })
       .catch((error) => {
         if (controller.signal.aborted) {
@@ -124,7 +143,7 @@ export function InventoryItemListPage({
       });
 
     return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId]);
+  }, [catalogItemApiBaseUrl, catalogItemId, initialCatalogItemId, initialSelectedOptionss]);
 
   const serializedVersionSelection = catalogItem?.product_schema
     ? JSON.stringify(
@@ -173,6 +192,9 @@ export function InventoryItemListPage({
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <HiddenInput type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
+                {createItemDraft?.returnTo ? (
+                  <HiddenInput type="hidden" name="returnTo" value={createItemDraft.returnTo} />
+                ) : null}
                 <TextInput
                   label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
                   name="catalogItemId"
