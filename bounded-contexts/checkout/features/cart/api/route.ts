@@ -178,7 +178,7 @@ export function createAccountCartRoutes(
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/cart", async (c) => {
-    const access = requireCartAccess(c);
+    const access = requireCartAccess(c, { allowGuestCheckout: true });
     if (access.response) {
       return access.response;
     }

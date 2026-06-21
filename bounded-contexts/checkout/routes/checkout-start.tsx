@@ -309,6 +309,23 @@ function requestWithFreshWriteSource(request: Request, source: unknown) {
   return new Request(new URL(freshPath, request.url), { headers: request.headers });
 }
 
+function mergedCartLineCount(source: unknown) {
+  if (typeof source !== "object" || source === null || !("mergedLineCount" in source)) {
+    return 0;
+  }
+
+  const count = Number((source as { mergedLineCount?: unknown }).mergedLineCount);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+async function waitForMergedCartProjection(api: CheckoutRequestApi, mergeResult: unknown) {
+  if (mergedCartLineCount(mergeResult) === 0) {
+    return;
+  }
+
+  await api.getCart();
+}
+
 function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
   return appendFreshWriteTokenFromSources(`/checkout/buy/session/${session.session_id}`, [...writeSources, session]);
 }
@@ -411,6 +428,7 @@ async function startGuestCheckoutSession(
     guestApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult), {
       headers: guestHeaders,
     });
+    await waitForMergedCartProjection(guestApi, mergeResult);
   }
 
   const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
@@ -509,6 +527,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const mergeResult = await api.mergeGuestCartToAccount(anonymousCartId);
         writeSources.push(mergeResult);
         sessionApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult));
+        await waitForMergedCartProjection(sessionApi, mergeResult);
       }
 
       const sessionRequest = await ensureCartReadinessSnapshot(sessionApi, checkoutSessionRequestFromForm(formData), {

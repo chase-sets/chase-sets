@@ -135,6 +135,23 @@ describe("checkout cart routes", () => {
     });
   });
 
+  it("lets guest checkout actors read their merged account cart", async () => {
+    const services = createServices();
+    vi.mocked(services.listCartLines).mockResolvedValue([{ line_id: "cli_1", quantity: 1 }] as never);
+    const app = buildApp({
+      actor: guestCheckoutActor(),
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/cart"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      count: 1,
+    });
+    expect(services.listCartLines).toHaveBeenCalledWith("acc_guest");
+  });
+
   it("adds a browsed marketplace item to the current account cart", async () => {
     const services = createServices();
     const app = buildApp({
