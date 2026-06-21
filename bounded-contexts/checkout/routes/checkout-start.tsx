@@ -356,6 +356,17 @@ async function loadGuestCheckoutStartContact(
   }
 }
 
+function guestCheckoutContactFromForm(formData: FormData) {
+  return {
+    contactName: String(formData.get("contactName") ?? "").trim(),
+    email: String(formData.get("email") ?? "").trim(),
+  };
+}
+
+function hasGuestCheckoutContact(contact: Readonly<{ contactName: string; email: string }>) {
+  return Boolean(contact.contactName && contact.email);
+}
+
 async function createGuestCheckoutStart(
   request: Request,
   contact: Readonly<{ contactName: string; email: string }>,
@@ -520,10 +531,11 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  const contact = {
-    contactName: String(formData.get("contactName") ?? "").trim(),
-    email: String(formData.get("email") ?? "").trim(),
-  };
+  const contact = guestCheckoutContactFromForm(formData);
+  if (!hasGuestCheckoutContact(contact)) {
+    return null;
+  }
+
   let guest: GuestCheckoutStart;
 
   try {
