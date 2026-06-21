@@ -203,13 +203,23 @@ async function isImporterVisible(page: Page, timeout: number): Promise<boolean> 
 
 async function selectOption(select: Locator, choice: SelectChoice): Promise<void> {
   await expect(select).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(select).toBeEnabled({ timeout: sourceOptionTimeoutMs });
 
   const option = await waitForOption(select, choice);
-  await select.selectOption(option);
+  if (await select.isDisabled()) {
+    const currentValue = await select.inputValue();
+    if (currentValue === option.value) {
+      return;
+    }
+    throw new Error(
+      `Expected disabled select to already use ${option.label} (${option.value}), but current value is ${currentValue}.`,
+    );
+  }
+
+  await expect(select).toBeEnabled({ timeout: sourceOptionTimeoutMs });
+  await select.selectOption({ value: option.value });
 }
 
-async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ label?: string; value?: string }> {
+async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ label: string; value: string }> {
   const labels = choice.labels ?? [];
   const values = choice.values ?? [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
@@ -222,13 +232,13 @@ async function waitForOption(select: Locator, choice: SelectChoice): Promise<{ l
         value: (node as HTMLOptionElement).value,
       })),
     );
-    const matchingValue = values.find((value) => observedOptions.some((option) => option.value === value));
-    if (matchingValue) {
-      return { value: matchingValue };
+    const valueMatch = observedOptions.find((option) => values.includes(option.value));
+    if (valueMatch) {
+      return valueMatch;
     }
-    const matchingLabel = labels.find((label) => observedOptions.some((option) => option.label === label));
-    if (matchingLabel) {
-      return { label: matchingLabel };
+    const labelMatch = observedOptions.find((option) => labels.includes(option.label));
+    if (labelMatch) {
+      return labelMatch;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
