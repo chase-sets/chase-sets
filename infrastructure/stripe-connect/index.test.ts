@@ -139,6 +139,23 @@ describe("money movement adapters", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ input: String(input), init });
 
+      if (String(input) === "https://stripe.test/v2/core/accounts/acct_123") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Content-Type")).toBe("application/json");
+        expect(headers.get("Idempotency-Key")).toBe("embedded-setup-key:contact-email");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          contact_email: "seller@example.test",
+        });
+
+        return new Response(JSON.stringify({ id: "acct_123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       if (String(input) === "https://stripe.test/v1/account_sessions") {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
@@ -202,6 +219,7 @@ describe("money movement adapters", () => {
       adapter.createPayoutSetupSession({
         accountId: "acc_seller" as never,
         providerReference: "acct_123",
+        contactEmail: " seller@example.test ",
         idempotencyKey: "embedded-setup-key",
       }),
     ).resolves.toMatchObject({
@@ -222,7 +240,11 @@ describe("money movement adapters", () => {
         missingRequirements: ["external_account"],
       },
     });
-    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.input)).toEqual([
+      "https://stripe.test/v2/core/accounts/acct_123",
+      "https://stripe.test/v1/account_sessions",
+      "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+    ]);
   });
 
   it("Stripe adapter maps restricted capabilities to blocked provider-neutral readiness", async () => {

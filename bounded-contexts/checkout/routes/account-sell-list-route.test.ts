@@ -214,6 +214,42 @@ describe("checkout web routes: account sell list", () => {
     );
   });
 
+  it("shows actionable Sell List recovery when an expired add-line handoff still reads an empty account projection", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list",
+          checkoutCommit("42", "evt_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: expect.any(String),
+        sellListRecovery: expect.objectContaining({
+          kind: "missing-after-fresh-write",
+          actorMode: "account",
+          freshnessOutcome: "expired-after-write",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+      }),
+    );
+  });
+
   it("treats account Sell List projection timeouts without a fresh receipt as permanent loader failures", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async (): Promise<never> => {
@@ -267,7 +303,7 @@ describe("checkout web routes: account sell list", () => {
     ).rejects.toMatchObject({ status: 503 });
   });
 
-  it("shows temporary Sell List recovery when an expired add-line handoff still hits projection freshness", async () => {
+  it("shows actionable Sell List recovery when an expired add-line handoff still hits projection freshness", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async (): Promise<never> => {
       throw new MockCheckoutApiError(503, {
@@ -302,7 +338,7 @@ describe("checkout web routes: account sell list", () => {
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
-          kind: "pending-fresh-write",
+          kind: "missing-after-fresh-write",
           actorMode: "account",
           freshnessOutcome: "expired-after-write",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",

@@ -156,6 +156,16 @@ function pendingSellListRecovery(
   };
 }
 
+function missingAddLineRecovery(actorMode: AccountSellListActorMode, state: PostWriteHandoffState) {
+  return {
+    kind: "missing-after-fresh-write" as const,
+    message: t("checkout.routes.accountSellList.sell.list.missing.after.fresh.write"),
+    actorMode,
+    freshnessOutcome: freshnessOutcomeForHandoffState(state),
+    correctionSource: `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
+  };
+}
+
 async function loadSellListWithPostWriteRecovery(
   request: Request,
   load: () => Promise<AccountSellList>,
@@ -190,6 +200,18 @@ async function loadSellListWithPostWriteRecovery(
       };
     }
 
+    if (
+      handoff.kind === "not-applicable" &&
+      isExpiredAccountSellListAddLineHandoff(handoff.state) &&
+      isPendingAccountSellListAddLineHandoff(sellList, handoff.state.handoff)
+    ) {
+      return {
+        sellList,
+        freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListRecovery: missingAddLineRecovery(actorMode, handoffState),
+      };
+    }
+
     return { sellList, freshnessError: null, sellListRecovery: null };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
@@ -213,11 +235,7 @@ async function loadSellListWithPostWriteRecovery(
       return {
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
-        sellListRecovery: pendingSellListRecovery(
-          actorMode,
-          handoffState,
-          `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
-        ),
+        sellListRecovery: missingAddLineRecovery(actorMode, handoffState),
       };
     }
 
@@ -944,12 +962,18 @@ export default function CheckoutAccountSellListRoute() {
       recoveryMessage={sellListRecovery?.message ?? null}
       recoveryState={
         sellListRecovery
-          ? {
-              kind: sellListRecovery.kind,
-              message: sellListRecovery.message,
-              refreshHref: currentPath,
-              isAutoRevalidating,
-            }
+          ? sellListRecovery.kind === "pending-fresh-write"
+            ? {
+                kind: sellListRecovery.kind,
+                message: sellListRecovery.message,
+                refreshHref: currentPath,
+                isAutoRevalidating,
+              }
+            : {
+                kind: sellListRecovery.kind,
+                message: sellListRecovery.message,
+                refreshHref: "/account/sell-list",
+              }
           : null
       }
     />

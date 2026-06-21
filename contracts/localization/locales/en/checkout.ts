@@ -501,6 +501,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.sell.list.update.pending": "Updating Sell List",
   "checkout.features.sellList.ui.sellListPage.sell.list.update.pending.title": "Your Sell List is catching up",
   "checkout.features.sellList.ui.sellListPage.sell.list.update.refreshing": "Refreshing Sell List",
+  "checkout.features.sellList.ui.sellListPage.sell.list.update.missing.title": "Sell List line not visible yet",
   "checkout.features.sellList.ui.sellListPage.seller.net": "Seller net",
   "checkout.features.sellList.ui.sellListPage.ship.from.inventory": "Ship-from inventory",
   "checkout.features.sellList.ui.sellListPage.shipping.allowance": "Shipping allowance",
@@ -764,6 +765,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountSellList.sell.list.chase.sets": "Sell List | Chase Sets",
   "checkout.routes.accountSellList.sell.list.pending.fresh.write":
     "Your Sell List is updating. Refresh in a moment if the new line is not visible yet.",
+  "checkout.routes.accountSellList.sell.list.missing.after.fresh.write":
+    "We saved the Sell List request, but the new line is still not visible. Refresh the Sell List or add the offer or product again from the marketplace.",
   "checkout.routes.accountSellList.sell.list.request.failed": "Sell List request failed.",
   "checkout.routes.accountSellList.sell.list.readiness.must.be.resolved":
     "Resolve Sell List readiness before seller checkout starts.",
