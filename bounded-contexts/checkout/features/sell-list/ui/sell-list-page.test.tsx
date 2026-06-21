@@ -267,6 +267,27 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Browse products");
   });
 
+  it("shows an actionable expired fresh-write recovery when the added line stays missing", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        recoveryState={{
+          kind: "missing-after-fresh-write",
+          message: "We saved the Sell List request, but the new line is still not visible.",
+          refreshHref: "/account/sell-list",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Sell List line not visible yet");
+    expect(markup).toContain("We saved the Sell List request");
+    expect(markup).toContain("Refresh Sell List");
+    expect(markup).toContain('href="/account/sell-list"');
+    expect(markup).toContain("Browse products");
+    expect(markup).not.toContain("Your Sell List is catching up");
+    expect(markup).not.toContain("Your Sell List is empty");
+  });
+
   it("shows a signed-in registration return notice after anonymous Sell List merge", () => {
     const markup = renderToString(
       <CheckoutSellListPage

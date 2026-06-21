@@ -29,6 +29,7 @@ describe("fake money movement gateway", () => {
       gateway.createPayoutSetupSession({
         accountId: "acc_seller" as never,
         providerReference: "acct_fake",
+        contactEmail: "seller@example.test",
         idempotencyKey: "embedded-setup-key",
       }),
     ).resolves.toMatchObject({

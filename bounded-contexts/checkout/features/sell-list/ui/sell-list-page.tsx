@@ -115,12 +115,19 @@ type LineReadiness = Readonly<{
   tone: "success" | "warning";
 }>;
 
-type SellListRecoveryState = Readonly<{
-  kind: "pending-fresh-write";
-  message: string;
-  refreshHref: string;
-  isAutoRevalidating?: boolean;
-}>;
+type SellListRecoveryState = Readonly<
+  | {
+      kind: "pending-fresh-write";
+      message: string;
+      refreshHref: string;
+      isAutoRevalidating?: boolean;
+    }
+  | {
+      kind: "missing-after-fresh-write";
+      message: string;
+      refreshHref: string;
+    }
+>;
 
 function moneyNumber(value: string | null | undefined) {
   const amount = Number(value);
@@ -1236,6 +1243,21 @@ export function CheckoutSellListPage({
               </LinkButton>
             </Stack>
           </Surface>
+        ) : sellListLines.length === 0 && recoveryState?.kind === "missing-after-fresh-write" ? (
+          <MarketplaceEmptyState
+            title={t("checkout.features.sellList.ui.sellListPage.sell.list.update.missing.title")}
+            description={recoveryState.message}
+            recoveryActions={
+              <>
+                <LinkButton href={recoveryState.refreshHref} tone="secondary">
+                  {t("checkout.features.sellList.ui.sellListPage.refresh.sell.list")}
+                </LinkButton>
+                <LinkButton href="/search">
+                  {t("checkout.features.sellList.ui.sellListPage.browse.products")}
+                </LinkButton>
+              </>
+            }
+          />
         ) : sellListLines.length === 0 && recoveryMessage ? (
           <MarketplaceNotice
             tone="info"

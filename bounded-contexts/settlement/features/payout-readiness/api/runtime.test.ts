@@ -59,6 +59,10 @@ describe("payout readiness runtime", () => {
         transferCapabilityStatus: "active",
         payoutCapabilityStatus: "pending",
         payoutDestinationStatus: "pending",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
         missingRequirements: ["external_account"],
       })),
       refreshPayoutReadiness: vi.fn(),
@@ -75,6 +79,10 @@ describe("payout readiness runtime", () => {
             transferCapabilityStatus: "active",
             payoutCapabilityStatus: "pending",
             payoutDestinationStatus: "pending",
+            payoutAccountDashboard: "none",
+            lossesCollector: "application",
+            feesCollector: "application",
+            requirementsCollector: "application",
             missingRequirements: ["external_account"],
           },
         };
@@ -102,7 +110,12 @@ describe("payout readiness runtime", () => {
       },
     });
 
-    await expect(services.createPayoutSetupSession({ accountId: "acc_seller" as never }, context)).resolves.toEqual({
+    await expect(
+      services.createPayoutSetupSession(
+        { accountId: "acc_seller" as never, contactEmail: "seller@example.test" },
+        context,
+      ),
+    ).resolves.toEqual({
       clientSecret: "provider_session_secret",
       providerReference: "acct_123",
       expiresAt: "2026-06-01T15:00:00.000Z",
@@ -116,6 +129,18 @@ describe("payout readiness runtime", () => {
     });
     expect(setupKeys).toHaveLength(1);
     expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);
+    expect(moneyMovementGateway.ensurePayoutAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        contactEmail: "seller@example.test",
+      }),
+    );
+    expect(moneyMovementGateway.createPayoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerReference: "acct_123",
+        contactEmail: "seller@example.test",
+      }),
+    );
     expect(JSON.stringify(eventStore.appendToStream.mock.calls)).not.toContain("provider_session_secret");
     expect(operationEvents).toContainEqual(
       expect.objectContaining({
@@ -128,6 +153,93 @@ describe("payout readiness runtime", () => {
       }),
     );
     expect(JSON.stringify(operationEvents)).not.toContain("provider_session_secret");
+  });
+
+  it("passes contact email into setup sessions for existing provider accounts", async () => {
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "pending",
+            missing_requirements: ["external_account"],
+            provider_reference: "acct_existing",
+            onboarding_status: "pending",
+            transfer_capability_status: "active",
+            payout_capability_status: "pending",
+            payout_destination_status: "missing",
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const readiness: ProviderPayoutReadiness = {
+      providerReference: "acct_existing",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "active",
+      payoutCapabilityStatus: "pending",
+      payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
+      missingRequirements: ["external_account"],
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(async () => readiness),
+      createPayoutSetupSession: vi.fn(async () => ({
+        providerReference: "acct_existing",
+        clientSecret: "provider_session_secret",
+        expiresAt: null,
+        components: ["payout-setup"],
+        readiness,
+      })),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+    });
+
+    await expect(
+      services.createPayoutSetupSession(
+        { accountId: "acc_seller" as never, contactEmail: "seller@example.test" },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      providerReference: "acct_existing",
+      components: ["payout-setup"],
+    });
+    expect(moneyMovementGateway.refreshPayoutReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        providerReference: "acct_existing",
+      }),
+    );
+    expect(moneyMovementGateway.ensurePayoutAccount).not.toHaveBeenCalled();
+    expect(moneyMovementGateway.createPayoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        providerReference: "acct_existing",
+        contactEmail: "seller@example.test",
+      }),
+    );
   });
 
   it("records setup session failures by safe category without leaking provider messages", async () => {

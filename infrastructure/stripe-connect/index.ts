@@ -274,6 +274,11 @@ function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference:
   return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
 }
 
+function normalizeContactEmail(value: string | null | undefined) {
+  const contactEmail = value?.trim();
+  return contactEmail ? contactEmail : null;
+}
+
 export function createStripeConnectMoneyMovementGateway(
   options: StripeConnectMoneyMovementOptions,
 ): MoneyMovementGateway {
@@ -345,6 +350,26 @@ export function createStripeConnectMoneyMovementGateway(
     });
   }
 
+  async function updateAccountContactEmail(
+    providerReference: string,
+    contactEmail: string | null | undefined,
+    idempotencyKey: string,
+  ) {
+    const normalizedContactEmail = normalizeContactEmail(contactEmail);
+    if (!normalizedContactEmail) {
+      return;
+    }
+
+    await stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ contact_email: normalizedContactEmail }),
+      idempotencyKey,
+    });
+  }
+
   async function createEmbeddedAccountSession(
     providerReference: string,
     component: "account_onboarding" | "account_management",
@@ -377,13 +402,14 @@ export function createStripeConnectMoneyMovementGateway(
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
+      const contactEmail = normalizeContactEmail(input.contactEmail);
       const createdAccount = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          ...(input.contactEmail ? { contact_email: input.contactEmail } : {}),
+          ...(contactEmail ? { contact_email: contactEmail } : {}),
           identity: {
             country: input.countryCode ?? "US",
           },
@@ -423,6 +449,11 @@ export function createStripeConnectMoneyMovementGateway(
       return readiness;
     },
     async createPayoutSetupSession(input) {
+      await updateAccountContactEmail(
+        input.providerReference,
+        input.contactEmail,
+        `${input.idempotencyKey}:contact-email`,
+      );
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_onboarding",

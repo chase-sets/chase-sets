@@ -307,6 +307,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         const session = await deps.moneyMovementGateway.createPayoutSetupSession({
           accountId: params.accountId,
           providerReference: ensured.providerReference,
+          contactEmail: params.contactEmail,
           idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-setup:${createId("setup")}`,
         });
 
