@@ -215,6 +215,28 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Continue to seller checkout");
   });
 
+  it("shows pending fresh-write recovery instead of the normal empty Sell List state", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "Your Sell List is updating.",
+          refreshHref: "/account/sell-list?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Updating Sell List");
+    expect(markup).toContain("Your Sell List is catching up");
+    expect(markup).toContain("Your Sell List is updating.");
+    expect(markup).toContain("Refresh Sell List");
+    expect(markup).toContain('href="/account/sell-list?afterWrite=receipt"');
+    expect(markup).not.toContain("Your Sell List is empty");
+    expect(markup).not.toContain("Browse products");
+  });
+
   it("shows a signed-in registration return notice after anonymous Sell List merge", () => {
     const markup = renderToString(
       <CheckoutSellListPage
