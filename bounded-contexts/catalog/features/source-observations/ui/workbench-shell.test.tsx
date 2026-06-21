@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
@@ -142,6 +142,12 @@ function dailyReadModelWithExplicitJapaneseImportScope() {
     controlPlaneOverview: null,
     canManageCatalog: true,
   });
+}
+
+function rejectedSourceOptionsPromise() {
+  const promise = Promise.reject(new Error("streamed source options unavailable"));
+  promise.catch(() => undefined);
+  return promise;
 }
 
 function providerProfile(providerKey: "scrydex" | "tcgdex", displayName: string, supportedScope: string) {
@@ -913,6 +919,26 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect((action as HTMLInputElement).value).toBe("force-refresh-all");
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(submitSpy.mock.calls[0]![0]).toBe(form);
+  });
+
+  it("keeps the importer usable when the streamed source-options slice rejects", async () => {
+    const { container } = render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={surfaceReadModel("daily")}
+        deferredSourceOptions={rejectedSourceOptionsPromise()}
+      />,
+    );
+    expandImportContextBar();
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Language")).toBeTruthy();
+    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Series")).toBeTruthy();
+    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion")).toBeTruthy();
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-catalog-source-options-status]")).not.toBeNull();
+    });
   });
 });
 

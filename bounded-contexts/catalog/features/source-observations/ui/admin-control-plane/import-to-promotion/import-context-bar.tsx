@@ -334,7 +334,10 @@ function DeferredGuidedSourceScopeFields({
 
   return (
     <Suspense fallback={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}>
-      <Await resolve={deferredSourceOptions}>
+      <Await
+        resolve={deferredSourceOptions}
+        errorElement={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}
+      >
         {(sourceOptions) => (
           <GuidedSourceScopeFields fields={guidedSourceScopeFields({ ...readModel, sourceOptions })} submit={submit} />
         )}
@@ -520,7 +523,12 @@ function DeferredSourceOptionsStatusPanel({
         />
       }
     >
-      <Await resolve={deferredSourceOptions}>
+      <Await
+        resolve={deferredSourceOptions}
+        errorElement={
+          <SourceOptionsStatusPanel sourceOptions={readModel.sourceOptions} routeContext={readModel.routeContext} />
+        }
+      >
         {(sourceOptions) => (
           <SourceOptionsStatusPanel sourceOptions={sourceOptions} routeContext={readModel.routeContext} />
         )}
