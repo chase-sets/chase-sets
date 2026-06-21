@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect, redirectDocument } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -304,6 +304,15 @@ function currentPathWithSearch(request: Request) {
   return `${url.pathname}${url.search}`;
 }
 
+function requestWithFreshWriteSource(request: Request, source: unknown) {
+  const freshPath = appendFreshWriteToken(currentPathWithSearch(request), source);
+  return new Request(new URL(freshPath, request.url), { headers: request.headers });
+}
+
+function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
+  return appendFreshWriteTokenFromSources(`/checkout/buy/session/${session.session_id}`, [...writeSources, session]);
+}
+
 function signInPathForReturnTo(returnTo: string) {
   return `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
 }
@@ -386,21 +395,29 @@ async function startGuestCheckoutSession(
     guest: GuestCheckoutStart;
   }>,
 ) {
-  const guestApi = createCheckoutRequestApiClient(request, {
+  const guestHeaders = {
+    cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(params.guest.guestToken)}`,
+  };
+  let guestApi = createCheckoutRequestApiClient(request, {
     headers: {
-      cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(params.guest.guestToken)}`,
+      ...guestHeaders,
     },
   });
+  const writeSources: unknown[] = [];
   const forceReadinessRefresh = params.sourceType === "cart" && Boolean(params.anonymousCartId);
   if (params.sourceType === "cart" && params.anonymousCartId) {
-    await guestApi.mergeGuestCartToAccount(params.anonymousCartId);
+    const mergeResult = await guestApi.mergeGuestCartToAccount(params.anonymousCartId);
+    writeSources.push(mergeResult);
+    guestApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult), {
+      headers: guestHeaders,
+    });
   }
 
   const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
     forceRefresh: forceReadinessRefresh,
   });
   const session = await guestApi.createCheckoutSession(sessionRequest);
-  const response = redirectDocument(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
+  const response = redirectDocument(checkoutSessionPath(session, writeSources));
   appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request);
   appendClearedAnonymousCartCookie(response.headers, request);
 
@@ -486,15 +503,19 @@ export async function action({ request }: ActionFunctionArgs) {
   if (actor) {
     try {
       const forceReadinessRefresh = sourceType === "cart" && Boolean(anonymousCartId);
+      let sessionApi = api;
+      const writeSources: unknown[] = [];
       if (sourceType === "cart" && anonymousCartId) {
-        await api.mergeGuestCartToAccount(anonymousCartId);
+        const mergeResult = await api.mergeGuestCartToAccount(anonymousCartId);
+        writeSources.push(mergeResult);
+        sessionApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult));
       }
 
-      const sessionRequest = await ensureCartReadinessSnapshot(api, checkoutSessionRequestFromForm(formData), {
+      const sessionRequest = await ensureCartReadinessSnapshot(sessionApi, checkoutSessionRequestFromForm(formData), {
         forceRefresh: forceReadinessRefresh,
       });
-      const session = await api.createCheckoutSession(sessionRequest);
-      const response = redirect(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
+      const session = await sessionApi.createCheckoutSession(sessionRequest);
+      const response = redirect(checkoutSessionPath(session, writeSources));
       if (anonymousCartId) {
         appendClearedAnonymousCartCookie(response.headers, request);
       }
