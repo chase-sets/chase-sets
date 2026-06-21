@@ -17,11 +17,13 @@ import {
 import {
   alternateListing,
   alternateOffer,
+  baseAccountOfferMatch,
   baseListing,
   baseOffer,
   captureItemDetailRailAnalytics,
   createItem,
   expansionReference,
+  renderItemDetailRoute,
   renderWithDataRouter,
   requiredSchema,
 } from "./item-detail-commerce-panel-test-harness";
@@ -782,6 +784,53 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.getByRole("button", { name: /List this product/ }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Create listing form")).toBeTruthy();
     expect(screen.queryByText("Selected offer form")).toBeNull();
+  });
+
+  it("opens owned listing controls after an explicit seller listing redirect", async () => {
+    const ownedListing = {
+      ...baseListing,
+      listing_id: "listing_new_after_create",
+      inventory_item_id: "inventory_new_after_create",
+      account_id: "seller_1",
+      price_amount: "375.00",
+    };
+
+    renderItemDetailRoute({
+      item: createItem({
+        market_listings: [ownedListing],
+        offer_demand_matches: [baseOffer],
+      }),
+      accountOfferMatches: [baseAccountOfferMatch],
+      sellerInventoryItems: [],
+      sellerAccountId: "seller_1",
+      hasListingStockLocation: true,
+      viewerAccountId: "seller_1",
+      initialMarketIntent: "sell",
+      initialSelectedListingId: ownedListing.listing_id,
+      initialSelectedOfferId: null,
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: true,
+      canUseListingFeatures: true,
+      canUseGuestListingDraft: false,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+      productAlertClaimError: null,
+      listingSetupLoadError: null,
+    });
+
+    const listForSaleAction = (await screen.findAllByRole("button", { name: /List this product/ }))[0];
+
+    expect(listForSaleAction.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByText("Update your listing")).toBeTruthy();
+    expect(screen.getByText("Your active listing is 375.00.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Manage listing" }).getAttribute("href")).toBe(
+      `/account/listings/${ownedListing.listing_id}`,
+    );
   });
 
   it("keeps product Sell List guidance in Reference Info", () => {

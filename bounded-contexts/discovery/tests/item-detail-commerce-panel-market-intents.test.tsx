@@ -465,6 +465,56 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.getByRole("button", { name: "Selected Card Vault listing at $410.00" })).toBeTruthy();
   });
 
+  it("uses an explicit owned listing as the sell-side product selection", () => {
+    const ownedListing: DiscoveryMarketListing = {
+      ...baseListing,
+      account_id: "seller_1",
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const gradedOffer = {
+      ...baseOffer,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded",
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [ownedListing],
+          offer_demand_matches: [gradedOffer],
+        })}
+        viewerAccountId="seller_1"
+        initialMarketIntent="sell"
+        initialSelectedListingId={ownedListing.listing_id}
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          sell: (
+            <form>
+              <input data-testid="selected-product-id" readOnly value={context.selectedProductId ?? ""} />
+              <input data-testid="selected-product-summary" readOnly value={context.selectedProductSummary ?? ""} />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="selected-offer-id" readOnly value={context.selectedOffer?.offer_id ?? ""} />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty("value", "cat_charizard::form:raw");
+    expect(screen.getByTestId("selected-product-summary")).toHaveProperty("value", "Raw");
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", ownedListing.listing_id);
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "");
+  });
+
   it("recovers stale explicit listing URL state to the implicit default", () => {
     render(
       <ItemDetailPage

@@ -142,6 +142,10 @@ export function useItemDetailPageModel({
   const explicitSelectedListing = selectedListingId
     ? (visibleListings.find((listing) => listing.listing_id === selectedListingId) ?? null)
     : null;
+  const explicitOwnedListing =
+    explicitSelectedListing && viewerAccountId && explicitSelectedListing.account_id === viewerAccountId
+      ? explicitSelectedListing
+      : null;
   const selectedListing = explicitSelectedListing ?? visibleListings[0] ?? null;
   const selectedListingSource: MarketSelectionSource = explicitSelectedListing ? "explicit" : "implicit";
   const staleSelectedListingId = selectedListingId && !explicitSelectedListing ? selectedListingId : null;
@@ -196,11 +200,14 @@ export function useItemDetailPageModel({
     (suppressImplicitProductSelection
       ? null
       : marketIntent === "sell"
-        ? (selectedOffer?.product_id ?? null)
+        ? (explicitOwnedListing?.product_id ?? selectedOffer?.product_id ?? null)
         : (selectedListing?.product_id ?? singleMatchingListing?.product_id ?? null));
-  const selectedOfferForProduct = !suppressImplicitProductSelection && marketIntent === "sell" ? selectedOffer : null;
+  const selectedOfferForProduct =
+    !suppressImplicitProductSelection && marketIntent === "sell" && !explicitOwnedListing ? selectedOffer : null;
   const selectedListingForProduct =
-    !suppressImplicitProductSelection && marketIntent !== "sell" ? selectedListing : null;
+    !suppressImplicitProductSelection && (marketIntent !== "sell" || explicitOwnedListing)
+      ? (explicitOwnedListing ?? selectedListing)
+      : null;
   const selectedProductOptions =
     hasCompleteProductSelection || (!selectedListingForProduct && !selectedOfferForProduct && !singleMatchingListing)
       ? explicitSelectedProductOptions
