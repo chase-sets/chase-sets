@@ -261,6 +261,34 @@ describe("checkout cart routes", () => {
     });
   });
 
+  it("creates a guest checkout account cart readiness snapshot after anonymous cart merge", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: guestCheckoutActor(),
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      readiness: { snapshotId: "cr_ready", status: "ready" },
+    });
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      accountId: "acc_guest",
+      decisions: {
+        lineOutcomes: [],
+        optimization: null,
+      },
+    });
+  });
+
   it("emits redacted readiness telemetry when fulfillment is unresolved before checkout", async () => {
     const services = createServices();
     vi.mocked(services.createReadinessSnapshot).mockResolvedValue({

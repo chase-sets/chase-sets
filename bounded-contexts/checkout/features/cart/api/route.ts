@@ -191,7 +191,7 @@ export function createAccountCartRoutes(
   });
 
   app.post("/cart/readiness", async (c) => {
-    const access = requireCartAccess(c);
+    const access = requireCartAccess(c, { allowGuestCheckout: true });
     if (access.response) {
       return access.response;
     }
