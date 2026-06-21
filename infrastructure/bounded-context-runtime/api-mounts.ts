@@ -1,5 +1,5 @@
 import type { BcApiModule, BcApiMount } from "@chase-sets/bounded-context-module";
-import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core";
+import { getEventCommitMetadata, runWithEventCommitMetadata, type EventCommitMetadata } from "@chase-sets/event-core";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
@@ -294,36 +294,43 @@ export function attachWriteConsistencyMiddleware(
 ): void {
   for (const mountPath of uniqueMountPaths(mounts.map((mount) => mount.mountPath))) {
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
-      await runWithEventCommitMetadata(next);
-
       const req = (context as { req?: { method?: string } }).req;
       const method = req?.method?.toUpperCase() ?? "GET";
       if (method === "GET" || method === "HEAD") {
+        await next();
         return;
       }
 
-      const metadata = getEventCommitMetadata();
-      if (metadata.eventIds.length === 0) {
-        return;
-      }
+      await runWithEventCommitMetadata(async () => {
+        await next();
 
-      const headers: [string, string][] = [["Chase-Sets-Consistency", "eventual"]];
-      if (metadata.maxGlobalPosition) {
-        headers.push(["Chase-Sets-Commit-Position", metadata.maxGlobalPosition]);
-      }
+        const metadata = getEventCommitMetadata();
+        if (metadata.eventIds.length === 0) {
+          return;
+        }
 
-      if (metadata.sources.length > 0) {
-        headers.push([CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(metadata.sources)]);
-      }
-
-      const compactEventIds = metadata.eventIds.join(",");
-      if (compactEventIds.length <= 4_000) {
-        headers.push(["Chase-Sets-Commit-Event-Ids", compactEventIds]);
-      }
-
-      setResponseHeaders(context, headers);
+        setResponseHeaders(context, writeConsistencyHeaders(metadata));
+      });
     });
   }
+}
+
+function writeConsistencyHeaders(metadata: EventCommitMetadata): readonly [string, string][] {
+  const headers: [string, string][] = [["Chase-Sets-Consistency", "eventual"]];
+  if (metadata.maxGlobalPosition) {
+    headers.push(["Chase-Sets-Commit-Position", metadata.maxGlobalPosition]);
+  }
+
+  if (metadata.sources.length > 0) {
+    headers.push([CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(metadata.sources)]);
+  }
+
+  const compactEventIds = metadata.eventIds.join(",");
+  if (compactEventIds.length <= 4_000) {
+    headers.push(["Chase-Sets-Commit-Event-Ids", compactEventIds]);
+  }
+
+  return headers;
 }
 
 function setResponseHeaders(context: unknown, headers: readonly [string, string][]) {
