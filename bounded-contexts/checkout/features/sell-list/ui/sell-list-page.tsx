@@ -578,67 +578,69 @@ function SelectedOfferRow({
 
   return (
     <Surface element="article" tone="default" padding={4}>
-      <Grid templateColumns="minmax(0,1fr) minmax(11rem,14rem) auto" stackUntil="md" gap={4}>
-        <Stack gap={2}>
-          <Inline gap={2}>
-            <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.selected.offer")}</Badge>
-            {readinessBadge(readiness)}
-          </Inline>
-          <Stack gap={1}>
-            <Text weight="semibold" wrap="anywhere">
-              {line.item_title}
+      <Grid templateColumns="minmax(0,1fr) auto" stackUntil="md" gap={4}>
+        <Stack gap={3}>
+          <Stack gap={2}>
+            <Inline gap={2}>
+              <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.selected.offer")}</Badge>
+              {readinessBadge(readiness)}
+            </Inline>
+            <Stack gap={1}>
+              <Text weight="semibold" wrap="anywhere">
+                {line.item_title}
+              </Text>
+              {line.item_subtitle ? (
+                <Text size="sm" tone="secondary" wrap="anywhere">
+                  {line.item_subtitle}
+                </Text>
+              ) : null}
+              <ProductOptions
+                options={productOptionsFromSelectedOptions(line.selected_options)}
+                emptyLabel={line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")}
+              />
+            </Stack>
+            <Text size="sm" tone="secondary">
+              {readiness.detail}
             </Text>
-            {line.item_subtitle ? (
-              <Text size="sm" tone="secondary" wrap="anywhere">
-                {line.item_subtitle}
+            {comparisonDetail ? (
+              <Text size="sm" tone="secondary">
+                {comparisonDetail}
               </Text>
             ) : null}
-            <ProductOptions
-              options={productOptionsFromSelectedOptions(line.selected_options)}
-              emptyLabel={line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")}
-            />
+            {review?.terms || review?.comparison?.standardPreview ? (
+              <SellListTermsReferenceInfo review={review} quantity={line.quantity} />
+            ) : null}
+            {!readiness.ready ? (
+              <Inline gap={2}>
+                <LinkButton href={setupHref} tone="secondary" size="sm">
+                  {t("checkout.features.sellList.ui.sellListPage.create.matching.listing")}
+                </LinkButton>
+              </Inline>
+            ) : null}
           </Stack>
-          <Text size="sm" tone="secondary">
-            {readiness.detail}
-          </Text>
-          {comparisonDetail ? (
-            <Text size="sm" tone="secondary">
-              {comparisonDetail}
-            </Text>
-          ) : null}
-          {review?.terms || review?.comparison?.standardPreview ? (
-            <SellListTermsReferenceInfo review={review} quantity={line.quantity} />
-          ) : null}
-          {!readiness.ready ? (
-            <Inline gap={2}>
-              <LinkButton href={setupHref} tone="secondary" size="sm">
-                {t("checkout.features.sellList.ui.sellListPage.create.matching.listing")}
-              </LinkButton>
-            </Inline>
-          ) : null}
+          <KeyValueList
+            density="compact"
+            variant="plain"
+            items={[
+              {
+                key: t("checkout.features.sellList.ui.sellListPage.buyer"),
+                value: buyerLabel(line),
+              },
+              {
+                key: t("checkout.features.sellList.ui.sellListPage.quantity"),
+                value: line.quantity,
+              },
+              {
+                key: t("checkout.features.sellList.ui.sellListPage.offer"),
+                value: formatMoney(line.offer_price_amount),
+              },
+              {
+                key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
+                value: review?.terms ? formatMoney(review.terms.seller_net_unit_amount) : "-",
+              },
+            ]}
+          />
         </Stack>
-        <KeyValueList
-          density="compact"
-          variant="plain"
-          items={[
-            {
-              key: t("checkout.features.sellList.ui.sellListPage.buyer"),
-              value: buyerLabel(line),
-            },
-            {
-              key: t("checkout.features.sellList.ui.sellListPage.quantity"),
-              value: line.quantity,
-            },
-            {
-              key: t("checkout.features.sellList.ui.sellListPage.offer"),
-              value: formatMoney(line.offer_price_amount),
-            },
-            {
-              key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
-              value: review?.terms ? formatMoney(review.terms.seller_net_unit_amount) : "-",
-            },
-          ]}
-        />
         <Form spacing="none" method="post">
           <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
           <HiddenInput type="hidden" name="lineId" value={line.line_id} />
@@ -678,63 +680,65 @@ function ProductLineRow({
   return (
     <Surface element="article" tone="default" padding={4}>
       <Stack gap={4}>
-        <Grid templateColumns="minmax(0,1fr) minmax(11rem,14rem) auto" stackUntil="md" gap={4}>
-          <Stack gap={2}>
-            <Inline gap={2}>
-              <Badge tone="info">{t("checkout.features.sellList.ui.sellListPage.product.line")}</Badge>
-              {readinessBadge(readiness)}
-            </Inline>
-            <Stack gap={1}>
-              <Text weight="semibold" wrap="anywhere">
-                {line.item_title}
-              </Text>
-              {line.item_subtitle ? (
-                <Text size="sm" tone="secondary" wrap="anywhere">
-                  {line.item_subtitle}
+        <Grid templateColumns="minmax(0,1fr) auto" stackUntil="md" gap={4}>
+          <Stack gap={3}>
+            <Stack gap={2}>
+              <Inline gap={2}>
+                <Badge tone="info">{t("checkout.features.sellList.ui.sellListPage.product.line")}</Badge>
+                {readinessBadge(readiness)}
+              </Inline>
+              <Stack gap={1}>
+                <Text weight="semibold" wrap="anywhere">
+                  {line.item_title}
                 </Text>
-              ) : null}
-              <ProductOptions
-                options={productOptionsFromSelectedOptions(line.selected_options)}
-                emptyLabel={line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")}
-              />
+                {line.item_subtitle ? (
+                  <Text size="sm" tone="secondary" wrap="anywhere">
+                    {line.item_subtitle}
+                  </Text>
+                ) : null}
+                <ProductOptions
+                  options={productOptionsFromSelectedOptions(line.selected_options)}
+                  emptyLabel={line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")}
+                />
+              </Stack>
+              <Text size="sm" tone="secondary" wrap="anywhere">
+                {readiness.detail}
+              </Text>
             </Stack>
-            <Text size="sm" tone="secondary">
-              {readiness.detail}
-            </Text>
-          </Stack>
-          <KeyValueList
-            density="compact"
-            variant="plain"
-            items={[
-              {
-                key: t("checkout.features.sellList.ui.sellListPage.quantity"),
-                value: line.quantity,
-              },
-              {
-                key: t("checkout.features.sellList.ui.sellListPage.matching.offers"),
-                value:
-                  matchingOfferQuantity > 0
-                    ? t("checkout.features.sellList.ui.sellListPage.matching.offer.quantity", {
-                        quantity: matchingOfferQuantity,
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={[
+                {
+                  key: t("checkout.features.sellList.ui.sellListPage.quantity"),
+                  value: line.quantity,
+                },
+                {
+                  key: t("checkout.features.sellList.ui.sellListPage.matching.offers"),
+                  value:
+                    matchingOfferQuantity > 0
+                      ? t("checkout.features.sellList.ui.sellListPage.matching.offer.quantity", {
+                          quantity: matchingOfferQuantity,
+                        })
+                      : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers"),
+                },
+                {
+                  key: t("checkout.features.sellList.ui.sellListPage.minimum.listing.price"),
+                  value: formatMoney(line.minimum_listing_price_amount),
+                },
+                {
+                  key: t("checkout.features.sellList.ui.sellListPage.inventory"),
+                  value: defaultInventoryItem
+                    ? t("checkout.features.sellList.ui.sellListPage.inventory.option.label", {
+                        location: defaultInventoryItem.storage_location_name,
+                        shipFrom: defaultInventoryItem.ship_from_code,
+                        quantity: defaultInventoryItem.available_quantity,
                       })
-                    : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers"),
-              },
-              {
-                key: t("checkout.features.sellList.ui.sellListPage.minimum.listing.price"),
-                value: formatMoney(line.minimum_listing_price_amount),
-              },
-              {
-                key: t("checkout.features.sellList.ui.sellListPage.inventory"),
-                value: defaultInventoryItem
-                  ? t("checkout.features.sellList.ui.sellListPage.inventory.option.label", {
-                      location: defaultInventoryItem.storage_location_name,
-                      shipFrom: defaultInventoryItem.ship_from_code,
-                      quantity: defaultInventoryItem.available_quantity,
-                    })
-                  : t("checkout.features.sellList.ui.sellListPage.inventory.required"),
-              },
-            ]}
-          />
+                    : t("checkout.features.sellList.ui.sellListPage.inventory.required"),
+                },
+              ]}
+            />
+          </Stack>
           <Form spacing="none" method="post">
             <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
             <HiddenInput type="hidden" name="lineId" value={line.line_id} />
