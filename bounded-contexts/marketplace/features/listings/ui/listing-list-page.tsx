@@ -44,11 +44,18 @@ type ListingCatalogItemSnapshot = Readonly<{
   product_schema: ProductSchema | null;
 }>;
 
+type ProductApplicabilityClause = Readonly<{
+  dimensionId: string;
+  optionIds: readonly string[];
+}>;
+
 type ProductSchema = Readonly<{
   canonicalDimensionOrder: readonly Readonly<{ dimensionId: string }>[];
   dimensions: readonly Readonly<{
     dimensionId: string;
     dimensionName: string;
+    required?: boolean;
+    appliesWhen?: readonly ProductApplicabilityClause[];
     allowedOptions: readonly Readonly<{
       optionId: string;
       code: string;
@@ -219,20 +226,49 @@ function optionLabel(option: ProductSchema["dimensions"][number]["allowedOptions
   return option.label ?? option.code ?? option.optionId;
 }
 
+function isDimensionActive(dimension: ProductSchema["dimensions"][number], selections: Record<string, string>) {
+  return (dimension.appliesWhen ?? []).every((clause) => {
+    const selectedOptionId = selections[clause.dimensionId];
+
+    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
+  });
+}
+
 function normalizeSelections(schema: ProductSchema, current: Record<string, string>) {
-  const next: Record<string, string> = {};
+  const next = { ...current };
 
   for (const dimension of getOrderedDimensions(schema)) {
-    const selected = current[dimension.dimensionId];
-    const fallback = dimension.allowedOptions[0]?.optionId ?? "";
-    if (selected && dimension.allowedOptions.some((option) => option.optionId === selected)) {
-      next[dimension.dimensionId] = selected;
-    } else if (fallback) {
-      next[dimension.dimensionId] = fallback;
+    if (!isDimensionActive(dimension, next)) {
+      delete next[dimension.dimensionId];
+      continue;
     }
+
+    const allowedOptionIds = dimension.allowedOptions.map((option) => option.optionId);
+    const selectedOptionId = next[dimension.dimensionId];
+
+    if (selectedOptionId !== undefined && allowedOptionIds.includes(selectedOptionId)) {
+      continue;
+    }
+
+    if (dimension.required && allowedOptionIds.length > 0) {
+      next[dimension.dimensionId] = allowedOptionIds[0]!;
+      continue;
+    }
+
+    delete next[dimension.dimensionId];
   }
 
   return next;
+}
+
+function selectedOptionEntries(schema: ProductSchema, selections: Record<string, string>) {
+  return getOrderedDimensions(schema)
+    .map((dimension) => {
+      const optionId = selections[dimension.dimensionId];
+
+      return optionId ? { dimensionId: dimension.dimensionId, optionId } : null;
+    })
+    .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null);
 }
 
 export function MarketplaceListingListPage({
@@ -279,15 +315,13 @@ export function MarketplaceListingListPage({
     count: pausedListings,
     label: pausedListings === 1 ? "listing" : "listings",
   });
-  const serializedSelectedOptions = catalogItem?.product_schema
-    ? JSON.stringify(
-        getOrderedDimensions(catalogItem.product_schema)
-          .map((dimension) => {
-            const optionId = selectedOptions[dimension.dimensionId];
-            return optionId ? { dimensionId: dimension.dimensionId, optionId } : null;
-          })
-          .filter((entry): entry is { dimensionId: string; optionId: string } => Boolean(entry)),
+  const activeProductDimensions = catalogItem?.product_schema
+    ? getOrderedDimensions(catalogItem.product_schema).filter((dimension) =>
+        isDimensionActive(dimension, selectedOptions),
       )
+    : [];
+  const serializedSelectedOptions = catalogItem?.product_schema
+    ? JSON.stringify(selectedOptionEntries(catalogItem.product_schema, selectedOptions))
     : JSON.stringify(createForm?.selectedOptions ?? []);
 
   useEffect(() => {
@@ -558,7 +592,7 @@ export function MarketplaceListingListPage({
                     {catalogItem?.product_schema ? (
                       <Stack gap={2}>
                         <Text weight="semibold">{catalogItem.title}</Text>
-                        {getOrderedDimensions(catalogItem.product_schema).map((dimension) => (
+                        {activeProductDimensions.map((dimension) => (
                           <NativeSelect
                             key={dimension.dimensionId}
                             label={dimension.dimensionName}
