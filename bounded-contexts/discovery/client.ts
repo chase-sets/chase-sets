@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
-import { attachResponseMetadata } from "@chase-sets/http/responses";
+import { attachResponseMetadata, readApiErrorMessage } from "@chase-sets/http/responses";
 import type { buildDiscoveryApi } from "./api";
 import type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
 import type {
@@ -45,11 +45,7 @@ export class DiscoveryApiError extends Error {
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(readApiErrorMessage(body, `API error ${status}`));
   }
 }
 
