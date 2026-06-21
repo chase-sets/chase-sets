@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useCallback, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useRevalidator } from "react-router";
+import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { SettlementApiError, createSettlementApiClient, type SettlementPayoutReadinessRow } from "../../client";
@@ -12,6 +12,14 @@ type PayoutSetupActionData = Readonly<{
   error?: string;
   payoutReadiness?: SettlementPayoutReadinessRow;
   setupNotice?: string;
+}>;
+
+type MarketplaceRootData = Readonly<{
+  actorDisplay?: {
+    user?: {
+      primary_email?: string | null;
+    } | null;
+  } | null;
 }>;
 
 export const CONNECT_EMBEDDED_COMPONENT_CSP = [
@@ -118,10 +126,12 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountPayoutSetupRoute() {
   const data = useLoaderData<typeof loader>();
+  const rootData = useRouteLoaderData("root") as MarketplaceRootData | undefined;
   const actionData = useActionData() as PayoutSetupActionData | undefined;
   const revalidator = useRevalidator();
   const [providerErrorMessage, setProviderErrorMessage] = useState<string | null>(null);
   const [providerReadinessSnapshot, setProviderReadinessSnapshot] = useState<SettlementPayoutReadinessRow | null>(null);
+  const contactEmail = rootData?.actorDisplay?.user?.primary_email?.trim() || null;
 
   const handleProviderExit = useCallback(async () => {
     setProviderErrorMessage(null);
@@ -146,6 +156,7 @@ export default function MarketplaceAccountPayoutSetupRoute() {
       }
       mode={data.mode as PayoutSetupMode}
       stripePublishableKey={data.stripePublishableKey}
+      contactEmail={contactEmail}
       setupNotice={actionData?.setupNotice ?? data.setupNotice}
       providerErrorMessage={providerErrorMessage ?? actionData?.error ?? null}
       onProviderExit={handleProviderExit}

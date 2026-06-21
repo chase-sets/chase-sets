@@ -309,4 +309,44 @@ describe("payout setup page", () => {
     expect(console.warn).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
   });
+
+  it("sends the signed-in contact email when creating setup sessions", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_setup_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(fetchEmbeddedClientSecret("setup", " seller@example.test ")).resolves.toBe("acs_setup_secret");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settlement/payout-setup/embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ contactEmail: "seller@example.test" }),
+      }),
+    );
+  });
+
+  it("keeps management sessions independent from contact email", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_manage_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(fetchEmbeddedClientSecret("management", " seller@example.test ")).resolves.toBe("acs_manage_secret");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settlement/payout-setup/account-management-embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: "{}",
+      }),
+    );
+  });
 });

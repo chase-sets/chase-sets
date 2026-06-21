@@ -42,10 +42,12 @@ export function loadStripeConnectComponent({
   mode,
   publishableKey,
   fetchClientSecret,
+  contactEmail,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string;
   fetchClientSecret?: FetchClientSecret;
+  contactEmail?: string | null;
 }) {
   if (typeof window === "undefined") {
     throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
@@ -53,7 +55,7 @@ export function loadStripeConnectComponent({
 
   return loadConnectAndInitialize({
     publishableKey,
-    fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode)),
+    fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode, contactEmail)),
     locale: "en-US",
     appearance: {
       overlays: "dialog",
@@ -70,12 +72,18 @@ function embeddedEndpoint(mode: PayoutSetupMode) {
     : "/api/settlement/payout-setup/embedded-session";
 }
 
-export async function fetchEmbeddedClientSecret(mode: PayoutSetupMode) {
+function setupSessionRequestBody(contactEmail?: string | null) {
+  const normalizedContactEmail = contactEmail?.trim();
+
+  return normalizedContactEmail ? JSON.stringify({ contactEmail: normalizedContactEmail }) : "{}";
+}
+
+export async function fetchEmbeddedClientSecret(mode: PayoutSetupMode, contactEmail?: string | null) {
   const response = await fetch(embeddedEndpoint(mode), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: setupSessionRequestBody(mode === "setup" ? contactEmail : null),
   });
 
   const body = (await response.json().catch(() => ({}))) as {
@@ -104,8 +112,11 @@ function createStripeConnectElement(
   mode: PayoutSetupMode,
   publishableKey: string,
   fetchClientSecret?: FetchClientSecret,
+  contactEmail?: string | null,
 ): ConnectHTMLElementRecord[StripeConnectComponentName] {
-  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret }).create(componentName(mode));
+  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret, contactEmail }).create(
+    componentName(mode),
+  );
 }
 
 function providerPanelTitle(mode: PayoutSetupMode) {
@@ -180,10 +191,12 @@ export function StripeConnectEmbeddedComponent({
   mode,
   publishableKey,
   onProviderExit,
+  contactEmail,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string | null;
   onProviderExit?: () => void;
+  contactEmail?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const componentRef = useRef<StripeConnectElement | null>(null);
@@ -203,20 +216,25 @@ export function StripeConnectEmbeddedComponent({
     setErrorMessage(null);
 
     const mount = async () => {
-      const clientSecret = await fetchEmbeddedClientSecret(mode);
+      const clientSecret = await fetchEmbeddedClientSecret(mode, contactEmail);
       let preflightClientSecretAvailable = true;
       if (cancelled || !containerRef.current) {
         return;
       }
 
-      const component = createStripeConnectElement(mode, publishableKey, async () => {
-        if (preflightClientSecretAvailable) {
-          preflightClientSecretAvailable = false;
-          return clientSecret;
-        }
+      const component = createStripeConnectElement(
+        mode,
+        publishableKey,
+        async () => {
+          if (preflightClientSecretAvailable) {
+            preflightClientSecretAvailable = false;
+            return clientSecret;
+          }
 
-        return fetchEmbeddedClientSecret(mode);
-      }) as StripeConnectElement;
+          return fetchEmbeddedClientSecret(mode, contactEmail);
+        },
+        contactEmail,
+      ) as StripeConnectElement;
 
       component.setOnLoaderStart?.(() => {
         if (!cancelled) {
@@ -254,7 +272,7 @@ export function StripeConnectEmbeddedComponent({
       componentRef.current = null;
       containerRef.current?.replaceChildren();
     };
-  }, [mode, onProviderExit, publishableKey, retryCount]);
+  }, [contactEmail, mode, onProviderExit, publishableKey, retryCount]);
 
   return (
     <Stack gap={3}>
@@ -289,6 +307,7 @@ export function PayoutSetupPage({
   payoutReadiness,
   mode,
   stripePublishableKey,
+  contactEmail = null,
   setupNotice = null,
   providerErrorMessage = null,
   onProviderExit,
@@ -296,6 +315,7 @@ export function PayoutSetupPage({
   payoutReadiness: SettlementPayoutReadinessRow;
   mode: PayoutSetupMode;
   stripePublishableKey: string | null;
+  contactEmail?: string | null;
   setupNotice?: string | null;
   providerErrorMessage?: string | null;
   onProviderExit?: () => void;
@@ -412,6 +432,7 @@ export function PayoutSetupPage({
                 mode={mode}
                 publishableKey={stripePublishableKey}
                 onProviderExit={onProviderExit}
+                contactEmail={contactEmail}
               />
             ) : (
               <Banner
