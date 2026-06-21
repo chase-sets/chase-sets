@@ -436,6 +436,9 @@ function importBlockers(
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
 ): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
   const shared = sharedCommandBlockers(canManage, selectedScope, profile, unitKey, importScope, blockers);
+  if (shared.includes("import-scope-required")) {
+    return shared;
+  }
   return activeJobCount > 0 ? [...shared, "active-job-conflict"] : shared;
 }
 
@@ -473,11 +476,11 @@ function sharedCommandBlockers(
   importScope: string | null,
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
 ): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
-  if (!canManage) {
-    return ["permission-denied"];
-  }
   if (!selectedScope.hasConcreteScope || !importScope) {
     return ["import-scope-required"];
+  }
+  if (!canManage) {
+    return ["permission-denied"];
   }
   if (!unitKey) {
     return ["unit-selection-required"];

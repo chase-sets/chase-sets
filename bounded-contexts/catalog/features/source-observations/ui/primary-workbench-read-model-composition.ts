@@ -135,9 +135,15 @@ function buildCatalogPrimaryWorkbenchCore(
     ? null
     : structuredSelectionImportScope(parsedContext.importScope, routeScope, explicitStructuredScope);
   const structuredImportScope = explicitStructuredScope ? importScopeFromScopeContext(routeScope) : null;
+  const unitRouteWithoutExplicitScope = Boolean(
+    parsedContext.unitKey && !parsedContext.importScope && !explicitStructuredScope,
+  );
   const inferredImportScope =
-    explicitStructuredScope || legacyImportScopeMismatch ? null : inferImportScope(input.scopes.items, providerKey);
+    explicitStructuredScope || legacyImportScopeMismatch || unitRouteWithoutExplicitScope
+      ? null
+      : inferImportScope(input.scopes.items, providerKey);
   const importScope = unitContextMismatch ? null : (parsedImportScope ?? structuredImportScope ?? inferredImportScope);
+  const discardParsedImportScopeFilters = discardParsedImportScope || unitRouteWithoutExplicitScope;
   const profileVersion =
     unitContextMismatch || useActiveProfileForSourceOptions
       ? (activeProfile?.profileVersion ?? null)
@@ -156,7 +162,7 @@ function buildCatalogPrimaryWorkbenchCore(
       providerKey,
       importScope,
       explicitStructuredScope,
-      discardParsedImportScope,
+      discardParsedImportScope: discardParsedImportScopeFilters,
     }),
   };
   const providerScopeRows = providerKey

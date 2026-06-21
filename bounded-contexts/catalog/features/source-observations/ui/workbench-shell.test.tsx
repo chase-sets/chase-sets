@@ -110,7 +110,7 @@ function dailyReadModelWithJapaneseExpansionOnly() {
   });
 }
 
-function dailyReadModelWithInferredJapaneseScope() {
+function dailyReadModelWithExplicitJapaneseImportScope() {
   const profile = profileReview({
     active: true,
     lifecycle: "active",
@@ -126,7 +126,7 @@ function dailyReadModelWithInferredJapaneseScope() {
     expansion_name: "Super Electric Breaker",
   });
   const requestUrl =
-    "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&profileVersion=2026.06.04";
+    "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&importScope=ja:SV:SV8&profileVersion=2026.06.04";
   const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
     requestUrl,
     scopes: [scope],
@@ -743,7 +743,9 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
   });
 
   it("hydrates guided scope fields from the effective import scope when structured query fields are absent", () => {
-    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithInferredJapaneseScope()} />);
+    render(
+      <CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithExplicitJapaneseImportScope()} />,
+    );
     expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
