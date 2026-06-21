@@ -364,17 +364,6 @@ describe("checkout web routes: account cart", () => {
       freshnessOutcome: "malformed-handoff",
     },
     {
-      name: "expired",
-      href: appendPostWriteHandoff(
-        "/account/cart",
-        checkoutCommit("42", "evt_cart_line"),
-        ACCOUNT_CART_ADD_LINE_HANDOFF,
-        Date.now() - 40_000,
-      ),
-      outcome: "handoff_expired",
-      freshnessOutcome: "expired-after-write",
-    },
-    {
       name: "far-future",
       href: appendPostWriteHandoff(
         "/account/cart",
@@ -421,6 +410,81 @@ describe("checkout web routes: account cart", () => {
       );
     },
   );
+
+  it("keeps an expired add-line handoff in cart recovery when the cart projection is still empty", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: { items: [], count: 0 },
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_expired",
+        freshnessOutcome: "expired-after-write",
+        recoveryAction: "pending_empty_state",
+      }),
+    );
+  });
+
+  it("recovers an expired add-line handoff when the cart read still times out", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockRejectedValue(
+      new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: null,
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_expired",
+        freshnessOutcome: "expired-after-write",
+        recoveryAction: "pending_empty_state",
+      }),
+    );
+  });
 
   it("recovers signed-in account cart self-refresh when a fresh receipt reads a transient not-found cart", async () => {
     vi.useFakeTimers();

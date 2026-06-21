@@ -121,6 +121,37 @@ function recordNotApplicableAccountCartHandoffState(actorMode: AccountCartActorM
   recordAccountCartSemanticHandoffOutcome(actorMode, outcome, freshnessOutcomeForHandoffState(state), "none");
 }
 
+function isExpiredAccountCartAddLineHandoff(
+  state: PostWriteHandoffState,
+): state is Extract<PostWriteHandoffState, { kind: "not-fresh-write" }> {
+  return (
+    state.kind === "not-fresh-write" &&
+    state.freshWrite.kind === "expired" &&
+    isAccountCartAddLineHandoff(state.handoff)
+  );
+}
+
+function isTransientCartReadError(error: unknown) {
+  const status = checkoutApiErrorStatus(error);
+  const code = checkoutApiErrorCode(error);
+
+  return (
+    status === 404 ||
+    (status === 503 && code === "projection_freshness_timeout") ||
+    ((status === 502 || status === 503 || status === 504) && !code)
+  );
+}
+
+function pendingCartRecovery<TCart>(cart: TCart | null, message: string) {
+  return {
+    cart,
+    cartRecovery: {
+      kind: "pending-fresh-write" as const,
+      message,
+    },
+  };
+}
+
 async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unknown[]; count: number }>(
   request: Request,
   load: () => Promise<TCart>,
@@ -143,6 +174,19 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
         !isPendingAccountCartAddLineHandoff(candidate, postWriteHandoff),
     });
     if (handoff.kind === "not-applicable") {
+      if (
+        isExpiredAccountCartAddLineHandoff(handoff.state) &&
+        isPendingAccountCartAddLineHandoff(cart, handoff.state.handoff)
+      ) {
+        recordAccountCartSemanticHandoffOutcome(
+          actorMode,
+          "handoff_expired",
+          freshnessOutcomeForHandoffState(handoffState),
+          "pending_empty_state",
+        );
+        return pendingCartRecovery(cart, t("checkout.routes.accountCart.cart.pending.fresh.write"));
+      }
+
       recordNotApplicableAccountCartHandoffState(actorMode, handoff.state);
     } else if (!isAccountCartAddLineHandoff(handoff.handoff)) {
       recordAccountCartSemanticHandoffOutcome(actorMode, "handoff_invalid", "valid-after-write", "none");
@@ -153,13 +197,7 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
         freshnessOutcomeForHandoffState(handoffState),
         "pending_empty_state",
       );
-      return {
-        cart,
-        cartRecovery: {
-          kind: "pending-fresh-write" as const,
-          message: t("checkout.routes.accountCart.adding.item.description"),
-        },
-      };
+      return pendingCartRecovery(cart, t("checkout.routes.accountCart.adding.item.description"));
     } else {
       recordAccountCartSemanticHandoffOutcome(
         actorMode,
@@ -187,6 +225,17 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
     });
     if (recovery) {
       return recovery;
+    }
+
+    const handoffState = readPostWriteHandoffState(request);
+    if (isExpiredAccountCartAddLineHandoff(handoffState) && isTransientCartReadError(error)) {
+      recordAccountCartSemanticHandoffOutcome(
+        actorMode,
+        "handoff_expired",
+        freshnessOutcomeForHandoffState(handoffState),
+        "pending_empty_state",
+      );
+      return pendingCartRecovery<TCart>(null, t("checkout.routes.accountCart.cart.pending.fresh.write"));
     }
 
     throw error;
