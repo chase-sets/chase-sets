@@ -13,6 +13,7 @@ import {
   deploymentForDiagnostics,
   deploymentComponentNames,
   latestDeployment,
+  listDeploymentSummariesFromApi,
   parseDeploymentSummaryRows,
   pendingDomains,
   planAppChanged,
@@ -253,6 +254,51 @@ running BUILDING 2026-06-19T22:05:00Z
     ]);
   });
 
+  it("loads recent deployment summaries from the paginated DigitalOcean API", async () => {
+    const summaries = await listDeploymentSummariesFromApi("app-id", {
+      accessToken: "token",
+      fetch: async (url, init) => {
+        expect(String(url)).toBe("https://api.digitalocean.com/v2/apps/app-id/deployments?per_page=20&page=1");
+        expect(init.headers.authorization).toBe("Bearer token");
+
+        return new Response(
+          JSON.stringify({
+            deployments: [
+              {
+                id: "latest",
+                phase: "ACTIVE",
+                created_at: "2026-06-21T06:00:00Z",
+                updated_at: "2026-06-21T06:02:00Z",
+              },
+              {
+                id: "older",
+                phase: "SUPERSEDED",
+                created_at: "2026-06-21T05:00:00Z",
+                updated_at: "2026-06-21T05:02:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      },
+    });
+
+    expect(summaries).toEqual([
+      {
+        id: "latest",
+        phase: "ACTIVE",
+        createdAt: "2026-06-21T06:00:00Z",
+        updatedAt: "2026-06-21T06:02:00Z",
+      },
+      {
+        id: "older",
+        phase: "SUPERSEDED",
+        createdAt: "2026-06-21T05:00:00Z",
+        updatedAt: "2026-06-21T05:02:00Z",
+      },
+    ]);
+  });
+
   it("collects component names from an App Platform spec", () => {
     expect(
       deploymentComponentNames({
@@ -301,6 +347,31 @@ running BUILDING 2026-06-19T22:05:00Z
     });
 
     expect(sleeps).toBe(1);
+  });
+
+  it("uses the DigitalOcean API deployment summary when a token is available", async () => {
+    let fetches = 0;
+    let sleeps = 0;
+
+    await waitForDeployments("app-id", {
+      accessToken: "token",
+      fetch: async () => {
+        fetches += 1;
+
+        return new Response(
+          JSON.stringify({
+            deployments: [{ id: "latest", phase: "ACTIVE", updated_at: "2026-06-21T06:02:00Z" }],
+          }),
+          { status: 200 },
+        );
+      },
+      sleep: async () => {
+        sleeps += 1;
+      },
+    });
+
+    expect(fetches).toBe(1);
+    expect(sleeps).toBe(0);
   });
 
   it("waits until App Platform domains are active", async () => {
