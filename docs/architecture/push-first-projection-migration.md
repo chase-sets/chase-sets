@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-18.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-21.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -114,7 +114,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (50)
+## Read-After-Write Route Inventory (51)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -122,6 +122,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | --- | --- | --- | --- | --- |
 | `auth.session-detail-self-refresh` | auth | important | exact wait | deferred until wave 4 |
 | `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
+| `checkout.guest-cart-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-sell-list-to-checkout` | checkout | important | accepted exception (checkout, review 2026-07-31, #1809) | push-accelerated |
 | `checkout.sell-checkout-confirmation-detail` | checkout | critical | not-post-write-read exception (checkout, review 2026-07-31) | push-accelerated |
 | `checkout.sell-list-self-refresh` | checkout | important | exact wait | push-accelerated |

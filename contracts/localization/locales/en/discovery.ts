@@ -289,7 +289,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.buy.now.selected.action.guidance": "Checkout confirms the listing before you pay.",
   "discovery.routes.itemDetail.buy.now.workflow.helper": "Check out with the selected listing.",
   "discovery.routes.itemDetail.best.available.listing.workflow.helper":
-    "Check out with the current best available listing.",
+    "Start with the current best available listing.",
   "discovery.routes.itemDetail.mobile.buy.best.available.listing.description":
     "Buy the current best listing, save this product to Buy Cart, or make an offer.",
   "discovery.routes.itemDetail.mobile.buy.selected.listing.description":
@@ -744,7 +744,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.referenceInfo.productCart.line2":
     "You can choose or lock an exact listing before checkout.",
   "discovery.routes.itemDetail.referenceInfo.productCart.line3":
-    "Buy best match starts checkout with the current best available listing.",
+    "Buy best match opens Buy Cart with the selected product ready for review.",
   "discovery.routes.itemDetail.referenceInfo.productCart.summary":
     "The Buy Cart saves the product and selected options.",
   "discovery.routes.itemDetail.referenceInfo.productCart.title": "Buying this product",

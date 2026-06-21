@@ -414,7 +414,7 @@ describe("item detail buy now checkout actions", () => {
     expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
   });
 
-  it("creates a buy-now checkout session and redirects to checkout", async () => {
+  it("creates a seller-locked listing checkout session and redirects to checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: ["orders.manage"],
@@ -438,12 +438,12 @@ describe("item detail buy now checkout actions", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("intent", "buy-now");
+    form.set("intent", "buy-this-listing");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
-    form.set("listingId", "lst_charizard");
+    form.set("lockedListingId", "lst_charizard");
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -1007,7 +1007,7 @@ describe("item detail buy now checkout actions", () => {
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
-  it("starts signed-out buy now at guest checkout contact instead of sign-in", async () => {
+  it("starts signed-out seller-locked checkout at guest checkout contact instead of sign-in", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateDiscoveryRequestApiClient.mockReturnValue({
       getItemDetail: vi.fn().mockResolvedValue({
@@ -1025,12 +1025,12 @@ describe("item detail buy now checkout actions", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("intent", "buy-now");
+    form.set("intent", "buy-this-listing");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
-    form.set("listingId", "lst_charizard");
+    form.set("lockedListingId", "lst_charizard");
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -1203,6 +1203,67 @@ describe("item detail buy now checkout actions", () => {
     });
   });
 
+  it("sends signed-out best-match buyers to the anonymous Buy Cart", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [activeListing()],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine,
+      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
+        commandResult({ id: "cli_1", version: 1, status: "active" }),
+      ),
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "buy-best-match");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAddGuestCartLine).toHaveBeenCalledWith(
+      "anon_cart_1",
+      expect.objectContaining({
+        productId: "cat_charizard::form:raw",
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
+        sellerPreferenceId: null,
+        quantity: 1,
+      }),
+    );
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1", expect.any(Request));
+    expect(response.status).toBe(302);
+    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/account/cart");
+    expect(readFreshWriteToken(redirectUrl)).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
+    });
+    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    });
+  });
+
   it("adds signed-in buyer cart lines to the account cart without order-management permissions", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
@@ -1252,7 +1313,7 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(200);
   });
 
-  it("creates best-match buy-now sessions for signed-in buyers without order-management permissions", async () => {
+  it("sends signed-in best-match buyers to Buy Cart without order-management permissions", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -1267,17 +1328,13 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue(
-        commandResult({
-          session_id: "chk_buy_now",
-        }),
-      ),
-      addCartLine: mockAddCartLine,
+      createCheckoutSession: mockCreateCheckoutSession,
+      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
       addGuestCartLine: mockAddGuestCartLine,
     });
 
     const form = new URLSearchParams();
-    form.set("intent", "buy-now");
+    form.set("intent", "buy-best-match");
     form.set("productId", "cat_charizard::form:raw");
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
@@ -1293,17 +1350,27 @@ describe("item detail buy now checkout actions", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      source: expect.objectContaining({
-        type: "buy-now",
-        fulfillmentMode: "locked-listing",
-        listingId: "lst_charizard",
-        lockedListingId: "lst_charizard",
+    expect(mockAddCartLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productId: "cat_charizard::form:raw",
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
+        sellerPreferenceId: null,
         quantity: 1,
       }),
-    });
+    );
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expectFreshWriteRedirect(response, "/checkout/buy/session/chk_buy_now");
+    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/account/cart");
+    expect(readFreshWriteToken(redirectUrl)).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
+    });
+    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    });
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 

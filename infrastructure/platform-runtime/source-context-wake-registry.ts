@@ -189,6 +189,7 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [
       "checkout.cart-self-refresh",
+      "checkout.guest-cart-add-line-handoff",
       "checkout.guest-sell-list-to-checkout",
       "checkout.sell-checkout-confirmation-detail",
       "checkout.sell-list-self-refresh",
