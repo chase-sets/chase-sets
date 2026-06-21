@@ -111,6 +111,9 @@ function buildCatalogPrimaryWorkbenchCore(
     normalizedRouteUnitKey,
     activeProfile,
   );
+  const sourceOptionIntent = requestHasSourceOptionIntent(input.requestUrl);
+  const useActiveProfileForSourceOptions =
+    sourceOptionIntent && Boolean(parsedContext.profileVersion) && !selectedProfile && Boolean(activeProfile);
   const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
@@ -135,9 +138,12 @@ function buildCatalogPrimaryWorkbenchCore(
   const inferredImportScope =
     explicitStructuredScope || legacyImportScopeMismatch ? null : inferImportScope(input.scopes.items, providerKey);
   const importScope = unitContextMismatch ? null : (parsedImportScope ?? structuredImportScope ?? inferredImportScope);
-  const profileVersion = unitContextMismatch
-    ? (activeProfile?.profileVersion ?? null)
-    : (parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null);
+  const profileVersion =
+    unitContextMismatch || useActiveProfileForSourceOptions
+      ? (activeProfile?.profileVersion ?? null)
+      : (parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null);
+  const routeSelectedProfile = useActiveProfileForSourceOptions ? activeProfile : selectedProfile;
+  const routeRequestedProfileVersion = useActiveProfileForSourceOptions ? profileVersion : parsedContext.profileVersion;
   const routeContext: CatalogPrimaryWorkbenchRouteContext = {
     ...parsedContext,
     providerKey,
@@ -277,8 +283,8 @@ function buildCatalogPrimaryWorkbenchCore(
       unitKey,
       importScope,
       activeProfile,
-      selectedProfile,
-      requestedProfileVersion: parsedContext.profileVersion,
+      selectedProfile: routeSelectedProfile,
+      requestedProfileVersion: routeRequestedProfileVersion,
       readinessBlockers,
       rolloutEnabled,
       activeJobCount,
@@ -810,11 +816,33 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
     return false;
   }
 
+  if (
+    input.importScope &&
+    !input.explicitStructuredScope &&
+    legacyImportScopeIsNotKnownProviderScope({
+      importScope: input.importScope,
+      providerKey: input.providerKey,
+      scopes: input.scopes,
+    })
+  ) {
+    return true;
+  }
+
   return sourceOptionProfileCannotSelectScope(input.activeProfile, input.scope);
 }
 
 function requestHasSourceOptionIntent(requestUrl: string | URL): boolean {
   return Boolean(new URL(requestUrl, "https://admin.example").searchParams.get("sourceOptionAction")?.trim());
+}
+
+function legacyImportScopeIsNotKnownProviderScope(input: {
+  importScope: string;
+  providerKey: string;
+  scopes: readonly SourceObservationIntegrationScope[];
+}): boolean {
+  return !input.scopes.some(
+    (scope) => scope.provider_key === input.providerKey && importScopeMatchesProviderScope(input.importScope, scope),
+  );
 }
 
 function sourceOptionProfileCannotSelectScope(
