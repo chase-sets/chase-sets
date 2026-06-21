@@ -1157,6 +1157,14 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     expect(
       container.querySelector('[data-source-option-page="set-names"][data-source-option-state="not-requested"]'),
     ).not.toBeNull();
+    const setNamesPage = container.querySelector('[data-source-option-page="set-names"]');
+    expect(setNamesPage).not.toBeNull();
+    expect(
+      within(setNamesPage as HTMLElement).getByRole<HTMLButtonElement>("button", { name: "Reload" }).disabled,
+    ).toBe(true);
+    expect(
+      within(setNamesPage as HTMLElement).getByRole<HTMLButtonElement>("button", { name: "Force refresh" }).disabled,
+    ).toBe(true);
     // The guided Set Name select is disabled until its required product-line parent
     // is chosen.
     const setName = screen.getByLabelText<HTMLSelectElement>("Set Name");

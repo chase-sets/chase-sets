@@ -387,9 +387,13 @@ async function selectedProviderSourceOptionPages(
   // A workbench reload stays cache-only; a per-group or refresh-all intent escalates
   // the matching request(s) to the force-refresh (live) query the read model exposes.
   const refreshIntent = parseCatalogPrimaryWorkbenchSourceOptionIntent(request.url);
+  const requestsToResolve =
+    refreshIntent?.queryKind && refreshIntent.action !== "force-refresh-all"
+      ? requests.filter((sourceOptionRequest) => sourceOptionRequest.queryKind === refreshIntent.queryKind)
+      : requests;
 
   return Promise.all(
-    requests.map(async (sourceOptionRequest): Promise<CatalogPrimaryWorkbenchSourceOptionPageSnapshot> => {
+    requestsToResolve.map(async (sourceOptionRequest): Promise<CatalogPrimaryWorkbenchSourceOptionPageSnapshot> => {
       if (
         sourceOptionRequest.parentRequired &&
         sourceOptionRequest.parentScope !== null &&
