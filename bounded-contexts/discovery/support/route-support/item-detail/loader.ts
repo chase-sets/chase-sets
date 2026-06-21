@@ -216,11 +216,35 @@ async function attachSelectedSellerListingFallback(
   }
 
   try {
-    const listing = await loadFreshlyWrittenResource({
-      request: options.request,
-      isNotFound: (error) => apiErrorStatus(error) === 404,
-      load: () => options.marketplaceApi.getSellerListing(options.initialSelectedListingId!),
-    });
+    const selectedListingId = options.initialSelectedListingId;
+    const loadSellerListing = () => options.marketplaceApi.getSellerListing(selectedListingId);
+    let listing: MarketplaceListingDetail;
+
+    try {
+      listing = await loadFreshlyWrittenResource({
+        request: options.request,
+        isNotFound: (error) => apiErrorStatus(error) === 404,
+        load: loadSellerListing,
+      });
+    } catch (error) {
+      const canRecover = recoverFreshWriteReadError({
+        request: options.request,
+        error,
+        getStatus: freshWriteRecoveryStatus,
+        getErrorCode: freshWriteRecoveryCode,
+        getBody: apiErrorBody,
+        recoverTransient: () => true,
+      });
+
+      if (!canRecover) {
+        throw error;
+      }
+
+      listing = await createMarketplaceRequestApiClient(
+        requestWithoutFreshWriteToken(options.request),
+      ).getSellerListing(selectedListingId);
+    }
+
     const fallbackListing =
       listing.account_id === options.actor.accountId ? sellerListingFallbackFromMarketplace(item, listing) : null;
 
