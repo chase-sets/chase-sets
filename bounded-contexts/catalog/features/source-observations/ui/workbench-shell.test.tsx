@@ -18,18 +18,25 @@ import { profileReview, sourceObservationScope } from "./primary-workbench-test-
 // captures the client-navigation submits the context form/source-option controls
 // now issue (replacing the former full-document form.requestSubmit()).
 const submitSpy = vi.fn();
+const submittedFormDataSnapshots: FormData[] = [];
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
     useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
-    useSubmit: () => submitSpy,
+    useSubmit: () => (target: unknown, options: unknown) => {
+      if (target instanceof HTMLFormElement) {
+        submittedFormDataSnapshots.push(new FormData(target));
+      }
+      submitSpy(target, options);
+    },
   };
 });
 
 afterEach(() => {
   submitSpy.mockClear();
+  submittedFormDataSnapshots.length = 0;
 });
 
 function surfaceReadModel(surface: CatalogControlPlaneRouteSurfaceKey) {
@@ -333,6 +340,12 @@ function expandImportContextBar(): void {
   }
 }
 
+function latestSubmittedFormData(): FormData {
+  const submitted = submittedFormDataSnapshots.at(-1);
+  expect(submitted).toBeDefined();
+  return submitted!;
+}
+
 describe("CatalogWorkbenchShell single per-surface return affordance", () => {
   afterEach(() => {
     cleanup();
@@ -414,11 +427,11 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
 
     expect(provider.value).toBe("scrydex");
     expect(unit.value).toBe("");
-    expect(unit.disabled).toBe(true);
+    expect(unit.disabled).toBe(false);
     expect(profileVersion.value).toBe("");
-    expect(profileVersion.disabled).toBe(true);
+    expect(profileVersion.disabled).toBe(false);
 
-    const submitted = new FormData(provider.form!);
+    const submitted = latestSubmittedFormData();
     expect(submitted.get("providerKey")).toBe("scrydex");
     expect(submitted.has("unitKey")).toBe(false);
     expect(submitted.has("languageCode")).toBe(false);
@@ -459,9 +472,9 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
     fireEvent.change(unit, { target: { value: unit.value } });
 
     expect(profileVersion.value).toBe("");
-    expect(profileVersion.disabled).toBe(true);
+    expect(profileVersion.disabled).toBe(false);
 
-    const submitted = new FormData(form!);
+    const submitted = latestSubmittedFormData();
     expect(submitted.get("providerKey")).toBe("tcgdex");
     expect(submitted.get("unitKey")).toBe("tcgdex:pokemon:card:import");
     expect(submitted.has("languageCode")).toBe(false);

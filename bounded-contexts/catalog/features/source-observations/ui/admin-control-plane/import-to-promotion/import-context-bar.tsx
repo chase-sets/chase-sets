@@ -281,12 +281,14 @@ function submitImportContextFilter(
     clearSourceOptionRefreshIntent(form);
   }
 
+  const disabledFields: Array<HTMLInputElement | HTMLSelectElement> = [];
   for (const fieldName of dependentFieldNames) {
     const field = form.elements.namedItem(fieldName);
     if (field instanceof HTMLSelectElement || field instanceof HTMLInputElement) {
       field.value = "";
       if (options.disableClearedFields) {
         field.disabled = true;
+        disabledFields.push(field);
       }
     }
   }
@@ -295,6 +297,9 @@ function submitImportContextFilter(
   // place so the page stays mounted and the changed select keeps focus, instead of
   // a full-document reload that strands keyboard focus mid-navigation.
   submit(form, importContextSubmitOptions);
+  for (const field of disabledFields) {
+    field.disabled = false;
+  }
 }
 
 function clearSourceOptionRefreshIntent(form: HTMLFormElement): void {
