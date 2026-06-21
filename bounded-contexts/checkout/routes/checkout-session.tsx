@@ -14,6 +14,7 @@ import {
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
   loadFreshlyWrittenResource,
+  type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -289,6 +290,21 @@ function paymentPathForActor(actor: Awaited<ReturnType<typeof resolveActorFromAu
 
 function confirmationPathForSession(sessionId: string) {
   return `/checkout/buy/session/${sessionId}/confirmation`;
+}
+
+type VisibleFreshWriteSource = Readonly<{
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly SourceCommitPosition[];
+}>;
+
+function visibleFreshWriteSource(source: unknown): VisibleFreshWriteSource {
+  const candidate = typeof source === "object" && source !== null ? (source as Partial<VisibleFreshWriteSource>) : {};
+  return {
+    ...(typeof candidate.commitPosition === "string" ? { commitPosition: candidate.commitPosition } : {}),
+    ...(Array.isArray(candidate.commitEventIds) ? { commitEventIds: [...candidate.commitEventIds] } : {}),
+    ...(Array.isArray(candidate.commitPositions) ? { commitPositions: [...candidate.commitPositions] } : {}),
+  };
 }
 
 function currentPathWithSearch(request: Request) {
@@ -584,7 +600,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       if (result.offer_id) {
         return redirect(
-          appendFreshWriteToken(`/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`, result),
+          appendFreshWriteTokenFromSources(
+            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
+            [result, visibleFreshWriteSource(result)],
+          ),
         );
       }
       if (!result.payment_id) {

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { getMutationResultCommandReceipt, type SourceCommitPosition } from "@chase-sets/http/responses";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
@@ -147,6 +148,84 @@ function checkoutSessionStartedResponse(result: CheckoutSessionCreateResult) {
     ...(result.commitPosition ? { commitPosition: result.commitPosition } : {}),
     ...(commitEventIds.length > 0 ? { commitEventIds } : {}),
     ...(commitPositions.length > 0 ? { commitPositions } : {}),
+  };
+}
+
+type CommitMetadata = Readonly<{
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly SourceCommitPosition[];
+}>;
+
+function maxCommitPosition(left: string | undefined, right: string | undefined) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return BigInt(right) > BigInt(left) ? right : left;
+}
+
+function commitMetadataFromSource(source: unknown): CommitMetadata | null {
+  const commandReceipt = getMutationResultCommandReceipt(source);
+  if (commandReceipt) {
+    return commandReceipt;
+  }
+
+  if (typeof source !== "object" || source === null) {
+    return null;
+  }
+
+  const candidate = source as Partial<CommitMetadata>;
+  if (
+    typeof candidate.commitPosition !== "string" &&
+    !Array.isArray(candidate.commitEventIds) &&
+    !Array.isArray(candidate.commitPositions)
+  ) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function checkoutCommitMetadataFromSources(sources: readonly unknown[]): CommitMetadata {
+  let commitPosition: string | undefined;
+  const commitEventIds = new Set<string>();
+  const commitPositions = new Map<string, SourceCommitPosition>();
+
+  for (const source of sources) {
+    const metadata = commitMetadataFromSource(source);
+    commitPosition = maxCommitPosition(commitPosition, metadata?.commitPosition);
+
+    for (const eventId of metadata?.commitEventIds ?? []) {
+      commitEventIds.add(eventId);
+    }
+
+    for (const position of metadata?.commitPositions ?? []) {
+      const current = commitPositions.get(position.sourceContextName);
+      if (!current) {
+        commitPositions.set(position.sourceContextName, position);
+        continue;
+      }
+
+      commitPositions.set(position.sourceContextName, {
+        sourceContextName: position.sourceContextName,
+        maxGlobalPosition:
+          maxCommitPosition(current.maxGlobalPosition, position.maxGlobalPosition) ?? position.maxGlobalPosition,
+        eventIds: [...new Set([...current.eventIds, ...position.eventIds])],
+      });
+    }
+  }
+
+  const mergedCommitPositions = [...commitPositions.values()].sort((left, right) =>
+    left.sourceContextName.localeCompare(right.sourceContextName),
+  );
+
+  return {
+    ...(commitPosition ? { commitPosition } : {}),
+    ...(commitEventIds.size > 0 ? { commitEventIds: [...commitEventIds] } : {}),
+    ...(mergedCommitPositions.length > 0 ? { commitPositions: mergedCommitPositions } : {}),
   };
 }
 
@@ -724,20 +803,21 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       if (session.source_type === "offer-intent") {
-        const offerId = await submitPurchaseIntentThroughMarketplace(c.req.raw, session);
+        const offerSubmission = await submitPurchaseIntentThroughMarketplace(c.req.raw, session);
         const offerResult = await services.recordOfferSubmitted(
           {
             sessionId,
             accountId: access.actor.accountId as AccountId,
-            offerId,
+            offerId: offerSubmission.offerId,
           },
           context,
         );
         session = offerResult.session;
         return c.json({
-          offer_id: offerId,
+          offer_id: offerSubmission.offerId,
           status: "purchase-intent-submitted",
           session,
+          ...checkoutCommitMetadataFromSources([offerSubmission.writeResult, offerResult]),
         });
       }
 

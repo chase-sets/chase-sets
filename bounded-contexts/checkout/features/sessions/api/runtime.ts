@@ -461,6 +461,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     return {
       sessionId: params.sessionId,
       session: stateToCheckoutSessionRow(result.state),
+      ...commitMetadataFromStoredEvents(result.storedEvents),
     };
   }
 
