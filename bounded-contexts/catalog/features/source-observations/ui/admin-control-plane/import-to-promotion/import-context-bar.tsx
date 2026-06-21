@@ -548,12 +548,14 @@ function SourceOptionRefreshButton({
   size,
   tone,
   leadingIcon,
+  disabled = false,
   children,
 }: {
   href: string;
   size: "sm";
   tone: "secondary" | "ghost";
   leadingIcon: "refreshCcw" | "spark";
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const submit = useSubmit();
@@ -564,6 +566,7 @@ function SourceOptionRefreshButton({
       size={size}
       tone={tone}
       leadingIcon={leadingIcon}
+      disabled={disabled}
       onClick={() => submitSourceOptionRefresh(href, submit)}
     >
       {children}
@@ -675,6 +678,7 @@ function SourceOptionsStatusPanel({
                 size="sm"
                 tone="ghost"
                 leadingIcon="refreshCcw"
+                disabled={page.actionState === "disabled"}
                 href={catalogPrimaryWorkbenchSourceOptionHref(routeContext, {
                   action: "reload",
                   queryKind: page.queryKind,
@@ -687,6 +691,7 @@ function SourceOptionsStatusPanel({
                   size="sm"
                   tone="ghost"
                   leadingIcon="spark"
+                  disabled={page.actionState === "disabled"}
                   href={catalogPrimaryWorkbenchSourceOptionHref(routeContext, {
                     action: "force-refresh",
                     queryKind: page.queryKind,
