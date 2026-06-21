@@ -495,7 +495,7 @@ describe("Catalog integrations route", () => {
     });
   });
 
-  it("keeps provider scope refresh usable when a stale previous scope makes review unavailable", async () => {
+  it("drops stale legacy import scope before YGOJSON source option refresh", async () => {
     const profileReviews = {
       items: [
         profileReview({
@@ -510,9 +510,9 @@ describe("Catalog integrations route", () => {
           connectorKind: "ygojson",
           profile: {
             providerKey: "ygojson",
-            supportedScopes: ["yugioh/set"],
+            supportedScopes: ["set-name"],
           },
-          supportedScopes: ["yugioh/set"],
+          supportedScopes: ["set-name"],
           languageOptions: ["en"],
           sourceOptionKinds: [
             {
@@ -531,9 +531,7 @@ describe("Catalog integrations route", () => {
       total: 1,
       count: 1,
     };
-    const listSourceObservations = vi
-      .fn()
-      .mockRejectedValue(new CatalogApiError(400, { error: { code: "invalid_source_observation_filter" } }));
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
     const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
       const params = new URLSearchParams(query);
       return sourceOptionResponse(params.get("queryKind") ?? "sets", {
@@ -563,10 +561,20 @@ describe("Catalog integrations route", () => {
     } as Parameters<typeof loader>[0]);
 
     expect(listSourceObservations).toHaveBeenCalledOnce();
-    expect(routeData.readModel.sourceObservationReview).toMatchObject({
-      freshness: "partial",
-      rows: [],
+    const reviewQuery = new URLSearchParams(listSourceObservations.mock.calls[0]?.[0] ?? "");
+    expect(reviewQuery.get("provider")).toBe("ygojson");
+    expect(reviewQuery.get("language")).toBeNull();
+    expect(reviewQuery.get("seriesId")).toBeNull();
+    expect(reviewQuery.get("expansionId")).toBeNull();
+    expect(reviewQuery.get("setId")).toBeNull();
+    expect(routeData.readModel.routeContext.importScope).toBeNull();
+    expect(routeData.readModel.routeContext.scope).toMatchObject({
+      providerKey: "ygojson",
+      languageCode: null,
+      seriesId: null,
+      expansionId: null,
     });
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "ygojson" });
     const deferredSourceOptions = await routeData.deferredSourceOptions;
     const optionQuery = new URLSearchParams(listSourceObservationIntegrationOptions.mock.calls[0]?.[0] ?? "");
     expect(optionQuery.get("queryKind")).toBe("sets");

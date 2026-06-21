@@ -147,8 +147,13 @@ async function finalizeSurfaceLoad(input: {
 // or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
-  const reviewPagination = dailyReviewPaginationFor(routeContext);
-  const reviewObservations = await selectedScopeReviewObservations(api, routeContext, reviewPagination);
+  const normalizedRouteContext = normalizedDailyRouteContext(request, baseline, routeContext);
+  const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
+  const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
+  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
+  const reviewObservations = reviewQuery
+    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
+    : null;
 
   const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
     api,
@@ -169,26 +174,32 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     // boundary (null/empty on absence/error) lives INSIDE each promise, so a
     // missing endpoint or transient failure resolves to an empty/absent panel
     // rather than rejecting the boundary into an error page.
-    deferredSourceOptions: deferredSourceOptionsSlice(api, request, baseline, routeContext, readModel.sourceOptions),
-    deferredAliasReview: selectedScopeAliasReview(api, routeContext),
+    deferredSourceOptions: deferredSourceOptionsSlice(
+      api,
+      request,
+      baseline,
+      readModel.routeContext,
+      readModel.sourceOptions,
+    ),
+    deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
   };
 }
 
-async function selectedScopeReviewObservations(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
+function normalizedDailyRouteContext(
+  request: Request,
+  baseline: CatalogIntegrationsBaseline,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
-  reviewPagination: Readonly<{ limit: number; offset: number }>,
-): Promise<ListResponse<SourceObservationListItem> | null> {
-  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
-  if (!reviewQuery) {
-    return null;
-  }
-
-  try {
-    return await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery);
-  } catch {
-    return null;
-  }
+): CatalogPrimaryWorkbenchRouteContext {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+    requestUrl: request.url,
+    scopes: baseline.routeData.data,
+    profileReviews: baseline.profileReviews,
+    controlPlaneOverview: baseline.controlPlaneOverview,
+    reviewObservations: null,
+    reviewPagination: dailyReviewPaginationFor(routeContext),
+    sourceOptionPages: null,
+    canManageCatalog: baseline.canManageCatalog,
+  }).routeContext;
 }
 
 // Resolve the streamed source-options slice: fetch the option fan-out (fail-soft
