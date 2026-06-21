@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
+import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
 
 function requireOfferAccess(
   c: {
@@ -142,10 +143,11 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       offset,
     });
 
+    const response = publicOfferListResponse(result);
+
     return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
+      ...response,
+      count: response.items.length,
     });
   });
 
@@ -164,7 +166,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       );
     }
 
-    return c.json(offer);
+    return c.json(omitPrivateOfferResponseFields(offer));
   });
 
   app.post("/offers/submitted", async (c) => {
@@ -241,10 +243,11 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       canFulfill: c.req.query("canFulfill") === "true" ? true : undefined,
     });
 
+    const response = publicOfferListResponse(result);
+
     return c.json({
-      items: result.items,
-      total: result.total,
-      count: result.items.length,
+      ...response,
+      count: response.items.length,
     });
   });
 
@@ -263,7 +266,7 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       );
     }
 
-    return c.json(offer);
+    return c.json(omitPrivateOfferResponseFields(offer));
   });
 
   app.get("/offers/matches/:id/terms-preview", async (c) => {

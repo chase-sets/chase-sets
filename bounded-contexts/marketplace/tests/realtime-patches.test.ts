@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
+import {
+  createMarketplaceOfferMatchPatch,
+  createMarketplaceOfferPatch,
+} from "../support/realtime-support/projection-patches";
 import { listOfferMatchesForSellers } from "../features/offers/read-model/queries";
 
 describe("marketplace realtime list patches", () => {
@@ -64,6 +68,27 @@ describe("marketplace realtime list patches", () => {
 });
 
 describe("marketplace realtime offer-match patch payloads", () => {
+  it("omits private shipping destination snapshots from offer patches", () => {
+    const offer = {
+      offer_id: "offer_1",
+      shipping_destination_snapshot: {
+        name: "Private Buyer",
+        line1: "100 Market Street",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        email: "alternate-contact@example.test",
+      },
+    };
+
+    const offerPatch = createMarketplaceOfferPatch(["account:buyer:offers"], offer);
+    const offerMatchPatch = createMarketplaceOfferMatchPatch(["account:seller:offers"], "offer_1", offer);
+
+    expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("shipping_destination_snapshot");
+    expect(JSON.stringify({ offerPatch, offerMatchPatch })).not.toContain("alternate-contact@example.test");
+  });
+
   it("loads seller-specific offer match rows for multiple sellers in one query", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {

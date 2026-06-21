@@ -67,6 +67,34 @@ function createServices(): MarketplaceOfferServices {
   } as unknown as MarketplaceOfferServices;
 }
 
+const submittedOfferWithPrivateDestination = {
+  offer_id: "off_1",
+  buyer_account_id: "acc_buyer",
+  catalog_catalog_item_id: "cat_charizard",
+  product_id: "cat_charizard::",
+  item_title: "Charizard",
+  item_subtitle: "Base Set 4/102 Holo Rare",
+  selected_options: [{ dimensionId: "form", optionId: "raw" }],
+  product_summary: "Form: Raw",
+  shipping_destination_snapshot: {
+    name: "Private Buyer",
+    line1: "100 Market Street",
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    email: "alternate-contact@example.test",
+    phone: "3125550100",
+  },
+  price_amount: "350.00",
+  quantity_requested: 1,
+  status: "submitted",
+  accepted_seller_account_id: null,
+  accepted_at: null,
+  created_at: "2026-03-31T00:00:00.000Z",
+  updated_at: "2026-03-31T00:00:00.000Z",
+};
+
 describe("marketplace offer routes", () => {
   it("passes product and fulfillability filters to the offer match source list", async () => {
     const services = createServices();
@@ -148,6 +176,38 @@ describe("marketplace offer routes", () => {
     );
   });
 
+  it("omits private shipping destination snapshots from submitted offer responses", async () => {
+    const services = createServices();
+    vi.mocked(services.listSubmittedOffers).mockResolvedValue({
+      items: [submittedOfferWithPrivateDestination],
+      total: 1,
+    } as never);
+    vi.mocked(services.getSubmittedOffer).mockResolvedValue(submittedOfferWithPrivateDestination as never);
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view"],
+      },
+      services,
+    });
+
+    const listResponse = await app.fetch(new Request("http://marketplace.test/account/offers/submitted"));
+    const listBody = (await listResponse.json()) as { items: unknown[] };
+    const detailResponse = await app.fetch(new Request("http://marketplace.test/account/offers/submitted/off_1"));
+    const detailBody = await detailResponse.json();
+
+    expect(listResponse.status).toBe(200);
+    expect(detailResponse.status).toBe(200);
+    expect(listBody.items[0]).not.toHaveProperty("shipping_destination_snapshot");
+    expect(detailBody).not.toHaveProperty("shipping_destination_snapshot");
+    expect(JSON.stringify({ listBody, detailBody })).not.toContain("alternate-contact@example.test");
+  });
+
   it("rejects anonymous offer submission", async () => {
     const services = createServices();
     const app = buildApp({
@@ -210,6 +270,7 @@ describe("marketplace offer routes", () => {
   it("returns offer matches from the matching demand board", async () => {
     const services = createServices();
     vi.mocked(services.getOfferMatch).mockResolvedValue({
+      ...submittedOfferWithPrivateDestination,
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
       catalog_catalog_item_id: "cat_charizard",
@@ -253,10 +314,13 @@ describe("marketplace offer routes", () => {
     const response = await app.fetch(new Request("http://marketplace.test/account/offers/matches/off_1"));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       offer_id: "off_1",
       buyer_display_name: "Buyer One",
     });
+    expect(body).not.toHaveProperty("shipping_destination_snapshot");
+    expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
   });
 
