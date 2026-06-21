@@ -101,6 +101,11 @@ function isAlreadySubmittedOfferError(error: unknown) {
   return message.includes("Offer has already been submitted.");
 }
 
+export type PurchaseIntentSubmissionResult = Readonly<{
+  offerId: string;
+  writeResult: unknown | null;
+}>;
+
 export async function submitPurchaseIntentThroughMarketplace(request: Request, session: CheckoutSessionRow) {
   if (!session.shipping_address) {
     throw new Error("Shipping destination is required before checkout can place purchase intent.");
@@ -137,10 +142,16 @@ export async function submitPurchaseIntentThroughMarketplace(request: Request, s
       quantityRequested: line.quantity,
     })) as { id?: string; offer_id?: string };
 
-    return offer.id ?? offer.offer_id ?? offerId;
+    return {
+      offerId: offer.id ?? offer.offer_id ?? offerId,
+      writeResult: offer,
+    } satisfies PurchaseIntentSubmissionResult;
   } catch (error) {
     if (isAlreadySubmittedOfferError(error)) {
-      return offerId;
+      return {
+        offerId,
+        writeResult: null,
+      } satisfies PurchaseIntentSubmissionResult;
     }
 
     throw error;

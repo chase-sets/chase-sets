@@ -1663,7 +1663,24 @@ describe("checkout session routes", () => {
   });
 
   it("submits purchase intent through Marketplace without creating orders or payment", async () => {
-    mockSubmitPurchaseIntentThroughMarketplace.mockResolvedValue("off_chk_1");
+    mockSubmitPurchaseIntentThroughMarketplace.mockResolvedValue({
+      offerId: "off_chk_1",
+      writeResult: {
+        id: "off_chk_1",
+        commandReceipt: {
+          mode: "eventual",
+          commitPosition: "42",
+          commitEventIds: ["evt_marketplace_offer_submitted"],
+          commitPositions: [
+            {
+              sourceContextName: "marketplace",
+              maxGlobalPosition: "42",
+              eventIds: ["evt_marketplace_offer_submitted"],
+            },
+          ],
+        },
+      },
+    });
     const offerIntentSession = createSession({
       source_type: "offer-intent",
       lines: [
@@ -1688,6 +1705,15 @@ describe("checkout session routes", () => {
       recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({
         sessionId,
         session: { ...offerIntentSession, submitted_offer_id: "off_chk_1" },
+        commitPosition: "43",
+        commitEventIds: ["evt_checkout_offer_submitted"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "43",
+            eventIds: ["evt_checkout_offer_submitted"],
+          },
+        ],
       })),
     });
     const app = buildApp(services);
@@ -1704,6 +1730,20 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       offer_id: "off_chk_1",
       status: "purchase-intent-submitted",
+      commitPosition: "43",
+      commitEventIds: ["evt_marketplace_offer_submitted", "evt_checkout_offer_submitted"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "43",
+          eventIds: ["evt_checkout_offer_submitted"],
+        },
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_marketplace_offer_submitted"],
+        },
+      ],
     });
     expect(mockSubmitPurchaseIntentThroughMarketplace).toHaveBeenCalledWith(
       expect.any(Request),

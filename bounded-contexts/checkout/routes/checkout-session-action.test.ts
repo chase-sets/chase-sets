@@ -951,7 +951,24 @@ describe("checkout web routes: checkout session action", () => {
   it("redirects confirmed purchase intent to the submitted offer", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
     mockSelectShippingOption.mockResolvedValue({});
-    mockConfirmCheckoutSession.mockResolvedValue({ offer_id: "off_chk_1", status: "purchase-intent-submitted" });
+    mockConfirmCheckoutSession.mockResolvedValue({
+      offer_id: "off_chk_1",
+      status: "purchase-intent-submitted",
+      commitPosition: "44",
+      commitEventIds: ["evt_checkout_offer_submitted", "evt_marketplace_offer_submitted"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_checkout_offer_submitted"],
+        },
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "43",
+          eventIds: ["evt_marketplace_offer_submitted"],
+        },
+      ],
+    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -988,6 +1005,19 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit");
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/offers\/submitted\/off_chk_1\?feedbackWorkflow=offer-submit&afterWrite=/);
+    expect(readFreshWriteToken(location)?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "44",
+        eventIds: ["evt_checkout_offer_submitted"],
+      },
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "43",
+        eventIds: ["evt_marketplace_offer_submitted"],
+      },
+    ]);
   });
 });
