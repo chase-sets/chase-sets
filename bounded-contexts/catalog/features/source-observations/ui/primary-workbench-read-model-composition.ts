@@ -115,6 +115,7 @@ function buildCatalogPrimaryWorkbenchCore(
   const useActiveProfileForSourceOptions =
     sourceOptionIntent && Boolean(parsedContext.profileVersion) && !selectedProfile && Boolean(activeProfile);
   const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
+  const explicitLanguageScope = requestHasExplicitLanguageScopeSelection(input.requestUrl);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
   const legacyImportScopeMismatch = legacyImportScopeConflictsWithSelectedProvider({
@@ -128,9 +129,12 @@ function buildCatalogPrimaryWorkbenchCore(
     unitContextMismatch,
   });
   const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch;
-  const routeScope = discardParsedImportScope
-    ? providerOnlyScopeContext(providerKey)
-    : structuredScopeWithProfileLanguage(parsedContext.scope, activeProfile, explicitStructuredScope);
+  const routeScope =
+    discardParsedImportScope && legacyImportScopeMismatch && explicitStructuredScope
+      ? sanitizeScopeForSourceOptionProfile(parsedContext.scope, activeProfile, providerKey, explicitLanguageScope)
+      : discardParsedImportScope
+        ? providerOnlyScopeContext(providerKey)
+        : structuredScopeWithProfileLanguage(parsedContext.scope, activeProfile, explicitStructuredScope);
   const parsedImportScope = discardParsedImportScope
     ? null
     : structuredSelectionImportScope(parsedContext.importScope, routeScope, explicitStructuredScope);
@@ -772,6 +776,11 @@ function requestHasStructuredImportScopeSelection(requestUrl: string | URL): boo
   return structuredScopeKeys.some((key) => Boolean(searchParams.get(key)?.trim()));
 }
 
+function requestHasExplicitLanguageScopeSelection(requestUrl: string | URL): boolean {
+  const searchParams = new URL(requestUrl, "https://admin.example").searchParams;
+  return Boolean(searchParams.get("language")?.trim() || searchParams.get("languageCode")?.trim());
+}
+
 function structuredSelectionImportScope(
   importScope: string | null,
   scope: CatalogPrimaryWorkbenchRouteContext["scope"],
@@ -871,6 +880,34 @@ function sourceOptionProfileCannotSelectScope(
       !selectableScopes.has("expansion") &&
       !selectableScopes.has("set-name"))
   );
+}
+
+function sanitizeScopeForSourceOptionProfile(
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+  profile: CatalogProviderProfileVersionReview | null,
+  providerKey: string | null,
+  explicitLanguageScope: boolean,
+): CatalogPrimaryWorkbenchRouteContext["scope"] {
+  if (!profile || !scope || profile.sourceOptionKinds.length === 0) {
+    return providerOnlyScopeContext(providerKey);
+  }
+
+  const selectableScopes = new Set(profile.sourceOptionKinds.map((kind) => kind.scope));
+  const supportsSetName = selectableScopes.has("set-name");
+
+  return {
+    providerKey,
+    languageCode: explicitLanguageScope ? (scope.languageCode ?? null) : null,
+    productLineId:
+      selectableScopes.has("product-line/category") || supportsSetName ? (scope.productLineId ?? null) : null,
+    productLineName:
+      selectableScopes.has("product-line/category") || supportsSetName ? (scope.productLineName ?? null) : null,
+    seriesId: selectableScopes.has("series") ? (scope.seriesId ?? null) : null,
+    seriesName: selectableScopes.has("series") ? (scope.seriesName ?? null) : null,
+    expansionId: selectableScopes.has("expansion") ? (scope.expansionId ?? null) : null,
+    expansionName: selectableScopes.has("expansion") || supportsSetName ? (scope.expansionName ?? null) : null,
+    status: scope.status ?? null,
+  };
 }
 
 function importScopeMatchesStructuredSelection(

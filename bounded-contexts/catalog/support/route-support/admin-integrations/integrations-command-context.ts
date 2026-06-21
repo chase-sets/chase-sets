@@ -50,7 +50,9 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
   const parsedContext = parseCatalogPrimaryWorkbenchRouteContext(requestUrl);
   const selectedObservationIds = observationIdsFromFormData(formData, parsedContext.selectedObservationIds);
   const providerKey = stringValue(formData.get("providerKey")) ?? parsedContext.providerKey;
-  const importScope = stringValue(formData.get("importScope")) ?? parsedContext.importScope;
+  const importScope = formData.has("importScope")
+    ? stringValue(formData.get("importScope"))
+    : parsedContext.importScope;
   const baseScope = scopeContextFromRouteContext({ ...parsedContext, providerKey, importScope });
   const scope = clearExplicitEmptyScopeFields(scopeContextFromFormData(formData, baseScope), formData);
 

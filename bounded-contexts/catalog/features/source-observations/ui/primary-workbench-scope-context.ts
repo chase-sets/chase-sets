@@ -365,6 +365,15 @@ function importScopeForStructuredMerge(
   const expansionSegment = segments.at(-1) ?? null;
   const explicitExpansion = explicitScope.expansionId ?? explicitScope.expansionName;
   if (
+    explicitExpansion &&
+    expansionSegment &&
+    comparableScopeValue(explicitExpansion, explicitScope.providerKey) !==
+      comparableScopeValue(expansionSegment, explicitScope.providerKey)
+  ) {
+    return null;
+  }
+
+  if (
     explicitScope.productLineId &&
     !explicitScope.seriesId &&
     explicitExpansion &&

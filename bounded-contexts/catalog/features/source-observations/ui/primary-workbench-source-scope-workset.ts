@@ -362,24 +362,82 @@ function providerCommandScope(
   const providerScope = matchingScope
     ? scopeContextFromProviderScope(matchingScope)
     : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
-  const preferProviderScope = Boolean(matchingScope) && selectedScope.providerKey !== candidate.providerKey;
+  const selectedScopeMatchesCandidate =
+    selectedScope.providerKey === candidate.providerKey && profileCanSelectScope(candidate.profile, selectedScope);
+  const canProjectSelectedScope = selectedScopeMatchesCandidate || Boolean(matchingScope);
+  const preferProviderScope = Boolean(matchingScope) && !selectedScopeMatchesCandidate;
 
   return {
     providerKey: candidate.providerKey,
-    languageCode:
-      selectedScope.languageCode ?? providerScope.languageCode ?? candidate.profile?.languageOptions[0] ?? null,
-    productLineId: scopedValue(selectedScope.productLineId, providerScope.productLineId, preferProviderScope),
-    productLineName: scopedValue(selectedScope.productLineName, providerScope.productLineName, preferProviderScope),
-    seriesId: scopedValue(selectedScope.seriesId, providerScope.seriesId, preferProviderScope),
-    seriesName: scopedValue(selectedScope.seriesName, providerScope.seriesName, preferProviderScope),
-    expansionId: scopedValue(selectedScope.expansionId, providerScope.expansionId, preferProviderScope),
-    expansionName: scopedValue(selectedScope.expansionName, providerScope.expansionName, preferProviderScope),
-    status: selectedScope.status ?? null,
+    languageCode: canProjectSelectedScope
+      ? (selectedScope.languageCode ?? providerScope.languageCode ?? candidate.profile?.languageOptions[0] ?? null)
+      : providerScope.languageCode,
+    productLineId: scopedValue(
+      canProjectSelectedScope ? selectedScope.productLineId : null,
+      providerScope.productLineId,
+      preferProviderScope,
+    ),
+    productLineName: scopedValue(
+      canProjectSelectedScope ? selectedScope.productLineName : null,
+      providerScope.productLineName,
+      preferProviderScope,
+    ),
+    seriesId: scopedValue(
+      canProjectSelectedScope ? selectedScope.seriesId : null,
+      providerScope.seriesId,
+      preferProviderScope,
+    ),
+    seriesName: scopedValue(
+      canProjectSelectedScope ? selectedScope.seriesName : null,
+      providerScope.seriesName,
+      preferProviderScope,
+    ),
+    expansionId: scopedValue(
+      canProjectSelectedScope ? selectedScope.expansionId : null,
+      providerScope.expansionId,
+      preferProviderScope,
+    ),
+    expansionName: scopedValue(
+      canProjectSelectedScope ? selectedScope.expansionName : null,
+      providerScope.expansionName,
+      preferProviderScope,
+    ),
+    status: canProjectSelectedScope ? (selectedScope.status ?? null) : null,
   };
 }
 
 function scopedValue(selected: string | null, provider: string | null, preferProviderScope: boolean): string | null {
   return preferProviderScope ? (provider ?? selected) : (selected ?? provider);
+}
+
+function profileCanSelectScope(
+  profile: CatalogProviderProfileVersionReview | null,
+  scope: CatalogPrimaryWorkbenchScopeContext,
+): boolean {
+  if (!profile || profile.sourceOptionKinds.length === 0) {
+    return true;
+  }
+
+  const selectableScopes = new Set(profile.sourceOptionKinds.map((kind) => kind.scope));
+  const selectsSetName = selectableScopes.has("set-name");
+  if (
+    Boolean(scope.productLineId || scope.productLineName) &&
+    !selectableScopes.has("product-line/category") &&
+    !selectsSetName
+  ) {
+    return false;
+  }
+  if (Boolean(scope.seriesId || scope.seriesName) && !selectableScopes.has("series")) {
+    return false;
+  }
+  if (scope.expansionId && !selectableScopes.has("expansion") && !(selectsSetName && scope.expansionName)) {
+    return false;
+  }
+  if (scope.expansionName && !selectableScopes.has("expansion") && !selectableScopes.has("set-name")) {
+    return false;
+  }
+
+  return true;
 }
 
 function providerCounts(scopes: readonly SourceObservationIntegrationScope[]) {
