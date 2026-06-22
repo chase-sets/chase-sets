@@ -17,9 +17,12 @@ import {
   type MarketplaceListingFeeHistoryEntry,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
+import { ListingDetailErrorBoundary } from "../features/listings/ui/listing-detail-error-boundary";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
+
+export { ListingDetailErrorBoundary as ErrorBoundary };
 
 function listingPreparingResponse() {
   return new Response(t("marketplace.routes.accountListing.listing.preparing.description"), {
