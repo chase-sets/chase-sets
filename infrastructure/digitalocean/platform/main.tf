@@ -1128,7 +1128,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
-        instance_size_slug = var.app_instance_size_slug
+        instance_size_slug = local.worker_instance_size_slug
         instance_count     = local.worker_instances
 
         image {
@@ -1578,7 +1578,7 @@ resource "digitalocean_app" "platform" {
       content {
         name               = "admin-support-worker"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
-        instance_size_slug = var.app_instance_size_slug
+        instance_size_slug = local.worker_instance_size_slug
         instance_count     = local.worker_instances
 
         image {

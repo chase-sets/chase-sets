@@ -251,8 +251,23 @@ describe("DigitalOcean platform configuration", () => {
       "settlement_payout_reconciliation_job_lanes",
       'local.is_staging ? "2" : "1"',
     );
-    expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
-    expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
+    expectTerraformAssignment(platformLocals, "default_worker_instances", "local.is_staging ? 2 : 1");
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_default_instance_size_slug",
+      'local.is_staging ? "apps-s-1vcpu-2gb" : var.app_instance_size_slug',
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_instance_size_slug",
+      'trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug',
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_instances",
+      "var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances",
+    );
+    expect(platformVariables).toContain('variable "worker_instance_size_slug"');
     expect(platformVariables).toContain('variable "worker_instance_count"');
     expect(platformVariables).toContain('variable "worker_job_concurrency"');
     expect(platformVariables).toContain('variable "worker_database_pool_max"');
@@ -265,6 +280,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
     expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
+    expect(occurrenceCount(platformMain, "instance_size_slug = local.worker_instance_size_slug")).toBe(2);
     expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
