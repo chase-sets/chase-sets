@@ -15,11 +15,24 @@ const freshWriteHelperNames = new Set([
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
+const semanticPostWriteHandoffHelperNames = new Set([
+  "appendPostWriteHandoff",
+  "appendPostWriteHandoffFromSources",
+  "evaluatePostWriteHandoff",
+  "readPostWriteHandoff",
+  "readPostWriteHandoffState",
+]);
 const helperImportPattern = /from\s+["']@chase-sets\/http\/responses["']/;
 const rawPostWriteHandoffMetadataPattern =
   /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);
 const supportedExceptionStatuses = new Set(["accepted", "not-read-model-backed", "not-post-write-read"]);
+const POST_WRITE_HANDOFF_EXPECTATIONS = new Set([
+  "resource-present",
+  "resource-updated",
+  "resource-absent",
+  "collection-non-empty",
+]);
 const mutatingHttpMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const supportedMutationStrategies = new Set([
   "fresh-read",
@@ -57,6 +70,10 @@ function isNonEmptyString(value) {
 
 function isNonEmptyStringArray(value) {
   return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+}
+
+function isPortableHandoffText(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 }
 
 function formatValues(values) {
@@ -683,6 +700,55 @@ function validateHelperUseClaims(options) {
   }
 }
 
+function validatePostWriteHandoffDeclarations(options) {
+  const { entryLabel, sectionName, section, violations } = options;
+  const helperUses = Array.isArray(section.helperUses) ? section.helperUses : [];
+  const semanticHelperUses = helperUses.filter((helperName) => semanticPostWriteHandoffHelperNames.has(helperName));
+  const hasDeclarations = "postWriteHandoffs" in section;
+
+  if (semanticHelperUses.length > 0 && !hasDeclarations) {
+    violations.push(
+      `${entryLabel}: ${sectionName}.postWriteHandoffs must declare portable handoff receipts when using ${semanticHelperUses
+        .sort()
+        .join(", ")}`,
+    );
+    return;
+  }
+
+  if (!hasDeclarations) {
+    return;
+  }
+
+  if (!Array.isArray(section.postWriteHandoffs) || section.postWriteHandoffs.length === 0) {
+    violations.push(`${entryLabel}: ${sectionName}.postWriteHandoffs must be a non-empty array when provided`);
+    return;
+  }
+
+  for (const [handoffIndex, handoff] of section.postWriteHandoffs.entries()) {
+    const handoffLabel = `${entryLabel}: ${sectionName}.postWriteHandoffs[${handoffIndex}]`;
+    if (!isPlainObject(handoff)) {
+      violations.push(`${handoffLabel} must be an object`);
+      continue;
+    }
+
+    const unsupportedKeys = Object.keys(handoff).filter((key) => !["kind", "expectation", "surface"].includes(key));
+    if (unsupportedKeys.length > 0) {
+      violations.push(`${handoffLabel} contains unsupported field(s): ${unsupportedKeys.sort().join(", ")}`);
+    }
+    if (!isPortableHandoffText(handoff.kind)) {
+      violations.push(`${handoffLabel}.kind must use portable handoff text`);
+    }
+    if (!POST_WRITE_HANDOFF_EXPECTATIONS.has(handoff.expectation)) {
+      violations.push(
+        `${handoffLabel}.expectation must be one of ${[...POST_WRITE_HANDOFF_EXPECTATIONS].sort().join(", ")}`,
+      );
+    }
+    if (handoff.surface !== undefined && !isPortableHandoffText(handoff.surface)) {
+      violations.push(`${handoffLabel}.surface must use portable handoff text when provided`);
+    }
+  }
+}
+
 function collectMutationConsistencyDeclarations(contextManifests) {
   const declarations = [];
   for (const context of contextManifests.values()) {
@@ -1008,6 +1074,13 @@ function validateInventoryEntry(options) {
     if ("files" in section && !isNonEmptyStringArray(section.files)) {
       violations.push(`${entryLabel}: ${sectionName}.files must be a non-empty string array when provided`);
     }
+
+    validatePostWriteHandoffDeclarations({
+      entryLabel,
+      sectionName,
+      section,
+      violations,
+    });
   }
 
   if (isPlainObject(entry.exception)) {

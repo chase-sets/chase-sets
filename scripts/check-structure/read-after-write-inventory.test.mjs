@@ -249,6 +249,13 @@ describe("read-after-write route inventory guard", () => {
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
+              postWriteHandoffs: [
+                {
+                  kind: "checkout.cart.add-line",
+                  expectation: "collection-non-empty",
+                  surface: "account-cart",
+                },
+              ],
             },
             destination: {
               routeId: "buy-checkout-session",
@@ -256,6 +263,13 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/account/checkout-sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
+              postWriteHandoffs: [
+                {
+                  kind: "checkout.cart.add-line",
+                  expectation: "collection-non-empty",
+                  surface: "account-cart",
+                },
+              ],
               transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
             },
           },
@@ -406,6 +420,107 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendPostWriteHandoff on route 'buy-checkout-readiness' must be declared in readAfterWriteRouteInventory or an exception",
+    );
+  });
+
+  it("fails when semantic handoff helper coverage omits the portable receipt declaration", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", [
+      "loadFreshlyWrittenResource",
+      "evaluatePostWriteHandoff",
+    ]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendPostWriteHandoff"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
+              postWriteHandoffs: [
+                {
+                  kind: "checkout.cart.add-line",
+                  expectation: "collection-non-empty",
+                  surface: "account-cart",
+                },
+              ],
+              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs must declare portable handoff receipts when using appendPostWriteHandoff",
+    );
+  });
+
+  it("fails when semantic handoff receipt declarations do not match the portable contract", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", [
+      "loadFreshlyWrittenResource",
+      "evaluatePostWriteHandoff",
+    ]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendPostWriteHandoff"],
+              postWriteHandoffs: [
+                {
+                  kind: "checkout cart add line",
+                  expectation: "cart-has-line",
+                  payload: "line-id",
+                },
+              ],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
+              postWriteHandoffs: [
+                {
+                  kind: "checkout.cart.add-line",
+                  expectation: "collection-non-empty",
+                  surface: "account-cart",
+                },
+              ],
+              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0] contains unsupported field(s): payload",
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0].kind must use portable handoff text",
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0].expectation must be one of collection-non-empty, resource-absent, resource-present, resource-updated",
+      ]),
     );
   });
 

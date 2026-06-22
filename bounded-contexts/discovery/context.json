@@ -451,6 +451,13 @@
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout.",
         "helperUses": ["appendPostWriteHandoff"],
+        "postWriteHandoffs": [
+          {
+            "kind": "checkout.cart.add-line",
+            "expectation": "collection-non-empty",
+            "surface": "account-cart"
+          }
+        ],
         "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
       }
     },
@@ -473,6 +480,13 @@
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the Sell List redirect URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-sell-list destination is owned and tested in Checkout.",
         "helperUses": ["appendPostWriteHandoff"],
+        "postWriteHandoffs": [
+          {
+            "kind": "checkout.sell-list.add-line",
+            "expectation": "collection-non-empty",
+            "surface": "account-sell-list"
+          }
+        ],
         "files": [
           "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
           "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
