@@ -147,7 +147,10 @@
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item and hold projections before rendering the new stock record."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item and hold projections before rendering the new stock record."
+        }
       }
     },
     {
@@ -166,7 +169,10 @@
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
+        }
       }
     },
     {
@@ -181,7 +187,10 @@
       },
       "destination": {
         "routeIds": ["account-inventory-imports", "account-inventory-import"],
-        "transientRecovery": "Import batch detail uses compatibility fresh-write not-found retries while job-backed inventory routes are classified."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Import batch detail uses compatibility fresh-write not-found retries while job-backed inventory routes are classified."
+        }
       },
       "exception": {
         "status": "not-read-model-backed",
@@ -206,7 +215,10 @@
         "apiRoutePath": "/storage-locations",
         "readModelTables": ["inventory_storage_locations"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
+        }
       }
     }
   ],
@@ -276,7 +288,10 @@
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
-        "transientRecovery": "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
@@ -298,7 +313,10 @@
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
-        "transientRecovery": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item or hold projections."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item or hold projections."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
@@ -320,7 +338,10 @@
         "apiContextName": "inventory",
         "apiRoutePath": "/storage-locations",
         "readModelTables": ["inventory_storage_locations"],
-        "transientRecovery": "Storage location create, update, and archive redirect with afterWrite to the locations list; the loader waits on the storage-location projection and shows bounded recovery copy during valid projection catch-up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Storage location create, update, and archive redirect with afterWrite to the locations list; the loader waits on the storage-location projection and shows bounded recovery copy during valid projection catch-up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]

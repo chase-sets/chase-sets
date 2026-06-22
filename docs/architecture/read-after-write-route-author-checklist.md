@@ -68,7 +68,7 @@ Every helper use in production route modules must be represented in `readAfterWr
 - `destination.apiRoutePath`: route path matching `apiMounts[].readFreshnessRoutes[].routePath`.
 - `destination.readModelTables` or `destination.projectionDependencies`: exact dependency proof.
 - `destination.helperUses`: loader helper, usually `loadFreshlyWrittenResource`; include `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` when semantic handoff metadata is consumed.
-- `destination.transientRecovery`: route-owned behavior for temporary lag.
+- `destination.transientRecovery`: object with `kinds` and `behavior`. `kinds` is the canonical post-write recovery kind or array of kinds that the route can surface. `behavior` describes the route-owned customer recovery behavior. Use `refreshable-catching-up` for valid fresh-write `404`, `projection_freshness_timeout`, or bounded gateway/service lag; add `pending-projection` when a valid semantic handoff can leave a stale successful response pending; use the remaining canonical kinds only when the route explicitly documents that terminal or user-action recovery state.
 
 File-level entries are allowed only when the scanner cannot map a helper use to a deployable route contribution. Prefer route ids whenever possible.
 
@@ -96,6 +96,15 @@ Supported statuses are:
 Each exception must include `owner`, `reason`, and `reviewBy` in `YYYY-MM-DD` form. Renew or remove exceptions during release hardening. Critical customer-facing routes should not keep accepted exceptions after their exact dependency and recovery behavior are implemented.
 
 ## Transient Recovery Rules
+
+Manifest declarations use the canonical post-write recovery taxonomy from the Post-Write Consistency Policy:
+
+- `pending-projection`
+- `refreshable-catching-up`
+- `stale-projection`
+- `action-required`
+- `expired-handoff`
+- `terminal-failure`
 
 `404` is permanent by default. It may be treated as temporary only when `readFreshWriteTokenState(request)` or `recoverFreshWriteReadError` sees a valid, unexpired `afterWrite` token.
 

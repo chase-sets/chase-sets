@@ -61,6 +61,10 @@ function writeRoute(root, relativeFile, helpers) {
   );
 }
 
+function recovery(kinds, behavior = "temporary checkout recovery") {
+  return { kinds, behavior };
+}
+
 function createContextManifest(root, overrides = {}) {
   const manifest = {
     contextName: "checkout",
@@ -118,7 +122,7 @@ function createContextManifest(root, overrides = {}) {
           apiRoutePath: "/account/checkout-sessions/:sessionId",
           readModelTables: ["checkout_session_pages"],
           helperUses: ["loadFreshlyWrittenResource"],
-          transientRecovery: "temporary checkout recovery",
+          transientRecovery: recovery("refreshable-catching-up"),
         },
       },
     ],
@@ -134,7 +138,7 @@ function createContextManifest(root, overrides = {}) {
           apiContextName: "checkout",
           apiRoutePath: "/account/checkout-sessions/:sessionId",
           readModelTables: ["checkout_session_pages"],
-          transientRecovery: "temporary checkout recovery",
+          transientRecovery: recovery("refreshable-catching-up"),
         },
       },
     ],
@@ -189,6 +193,22 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("fails when transient recovery declares an unknown recovery kind", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.readAfterWriteRouteInventory[0].destination.transientRecovery =
+      recovery("temporary checkout recovery");
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.transientRecovery.kinds must be a canonical post-write recovery kind or non-empty array of kinds (action-required, expired-handoff, pending-projection, refreshable-catching-up, stale-projection, terminal-failure)",
+    );
+  });
+
   it("maps route-support helper usage to the matching deployable route id", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/action.ts", [
@@ -211,7 +231,7 @@ describe("read-after-write route inventory guard", () => {
               apiContextName: "checkout",
               apiRoutePath: "/account/checkout-sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
-              transientRecovery: "temporary checkout recovery",
+              transientRecovery: recovery("refreshable-catching-up"),
             },
           },
         ],
@@ -270,7 +290,7 @@ describe("read-after-write route inventory guard", () => {
                   surface: "account-cart",
                 },
               ],
-              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+              transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
         ],
@@ -363,7 +383,7 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource"],
-              transientRecovery: "temporary checkout recovery",
+              transientRecovery: recovery("refreshable-catching-up"),
             },
           },
         ],
@@ -379,7 +399,7 @@ describe("read-after-write route inventory guard", () => {
               apiContextName: "checkout",
               apiRoutePath: "/sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
-              transientRecovery: "temporary checkout recovery",
+              transientRecovery: recovery("refreshable-catching-up"),
             },
           },
         ],
@@ -456,7 +476,7 @@ describe("read-after-write route inventory guard", () => {
                   surface: "account-cart",
                 },
               ],
-              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+              transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
         ],
@@ -508,7 +528,7 @@ describe("read-after-write route inventory guard", () => {
                   surface: "account-cart",
                 },
               ],
-              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+              transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
         ],
@@ -796,7 +816,7 @@ describe("read-after-write route inventory guard", () => {
             },
             destination: {
               routeId: "buy-checkout-session",
-              transientRecovery: "Destination freshness is owned by another context.",
+              transientRecovery: recovery("terminal-failure"),
             },
             exception: {
               status: "not-post-write-read",
@@ -835,7 +855,7 @@ describe("read-after-write route inventory guard", () => {
             },
             destination: {
               routeId: "buy-checkout-session",
-              transientRecovery: "Cart self-refresh remains an accepted migration gap.",
+              transientRecovery: recovery("action-required"),
             },
             exception: {
               status: "accepted",
@@ -925,7 +945,7 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/account/missing/:id",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource"],
-              transientRecovery: "temporary checkout recovery",
+              transientRecovery: recovery("refreshable-catching-up"),
             },
           },
         ],

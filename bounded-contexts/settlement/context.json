@@ -164,7 +164,10 @@
         "apiRoutePath": "/payouts/:id",
         "readModelTables": ["settlement_payout_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Payout detail redirects carry the Settlement payout request receipt; the API waits on settlement_payout_pages and the loader treats fresh 404 or projection freshness timeout as temporary payout preparation."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Payout detail redirects carry the Settlement payout request receipt; the API waits on settlement_payout_pages and the loader treats fresh 404 or projection freshness timeout as temporary payout preparation."
+        }
       }
     }
   ],

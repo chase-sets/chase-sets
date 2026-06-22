@@ -19,6 +19,19 @@ The consistency floor is durable domain state plus context-owned projections. Pu
 
 Use the smallest strategy that preserves trust. Combining strategies is expected: a quantity stepper may use `optimistic-with-correction` plus `snapshot-return`; checkout session start uses `fresh-read`; the checkout review page may also use `realtime-correction` to reload after later projection changes.
 
+## Recovery Kind Taxonomy
+
+Fresh-read and semantic handoff routes declare `transientRecovery` as an object with canonical `kinds` and route-owned `behavior` prose. `kinds` is one canonical recovery kind or an array of canonical kinds:
+
+| Kind | Meaning |
+| --- | --- |
+| `pending-projection` | A valid semantic post-write handoff is not yet visible in an otherwise successful read response. |
+| `refreshable-catching-up` | A valid fresh-write read hit a temporary `404`, `projection_freshness_timeout`, or bounded gateway/service timeout and can retry or revalidate. |
+| `stale-projection` | The route can identify a stale projection shape that should not be presented as final. |
+| `action-required` | The route has left the bounded temporary state and needs a user retry, reload, restart, or similar explicit recovery action. |
+| `expired-handoff` | The semantic handoff or fresh-write receipt expired before the expected state became visible. |
+| `terminal-failure` | The token, handoff, authorization, or destination state is malformed, missing, wrong-scope, or otherwise not recoverable as temporary lag. |
+
 ## Flow Class Rules
 
 | Flow Class | Default Strategy | Allowed Additions | Required User Outcome |

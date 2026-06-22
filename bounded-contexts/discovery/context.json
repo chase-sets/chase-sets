@@ -407,7 +407,10 @@
             "surface": "item-detail"
           }
         ],
-        "transientRecovery": "Item-detail listing redirects carry Marketplace command receipts and listing publish/update semantic handoffs back to the selected sell listing surface; the loader forwards the receipt into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Item-detail listing redirects carry Marketplace command receipts and listing publish/update semantic handoffs back to the selected sell listing surface; the loader forwards the receipt into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
+        }
       }
     },
     {
@@ -421,7 +424,10 @@
       },
       "destination": {
         "routeId": "item-detail",
-        "transientRecovery": "Discovery item detail helper use is a Checkout handoff token carrier, not a Discovery read-model destination."
+        "transientRecovery": {
+          "kinds": "terminal-failure",
+          "behavior": "Discovery item detail helper use is a Checkout handoff token carrier, not a Discovery read-model destination."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -446,7 +452,10 @@
         "apiContextName": "inventory",
         "apiRoutePath": "/storage-locations",
         "readModelTables": ["inventory_storage_locations"],
-        "transientRecovery": "Item detail forwards the Inventory storage-location commit receipt to the ship-from setup read and shows temporary recovery copy while the Inventory projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Item detail forwards the Inventory storage-location commit receipt to the ship-from setup read and shows temporary recovery copy while the Inventory projection catches up."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -468,7 +477,10 @@
       },
       "destination": {
         "routeId": "account-cart",
-        "transientRecovery": "Discovery carries the Checkout-owned add-line semantic handoff to /account/cart; Checkout owns the destination fresh-read wait, pending empty-cart state, and diagnostics in checkout.cart-self-refresh."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Discovery carries the Checkout-owned add-line semantic handoff to /account/cart; Checkout owns the destination fresh-read wait, pending empty-cart state, and diagnostics in checkout.cart-self-refresh."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -497,7 +509,10 @@
       },
       "destination": {
         "routeId": "account-sell-list",
-        "transientRecovery": "Discovery carries the Checkout-owned add-line semantic handoff to /account/sell-list; Checkout owns the destination fresh-read wait, pending empty-list state, and diagnostics in checkout.sell-list-self-refresh."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Discovery carries the Checkout-owned add-line semantic handoff to /account/sell-list; Checkout owns the destination fresh-read wait, pending empty-list state, and diagnostics in checkout.sell-list-self-refresh."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
