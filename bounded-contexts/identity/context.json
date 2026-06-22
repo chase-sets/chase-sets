@@ -215,11 +215,14 @@
         "readModelTables": ["identity_accounts"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Marketplace account profile redirects carry the Identity account command receipt so the account loader reads after the account projection catches up."
+          "behavior": "Marketplace account profile redirects carry the Identity account command receipt. While the receipt is valid, 404, projection_freshness_timeout, and bounded gateway timeout account reads return a temporary actor account fallback with refreshable-catching-up recovery metadata; missing or expired receipts and unclassified failures surface normally."
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+        "tests": [
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
+          "bounded-contexts/identity/tests/account-route-loader.test.ts"
+        ]
       }
     },
     {
