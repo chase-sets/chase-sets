@@ -82,6 +82,7 @@ export function MarketplaceListingSubmissionSection({
   bestListing,
   ownListing,
   hasListingStockLocation,
+  listingSetupLoadState = hasListingStockLocation ? "ready" : "missing",
   allowDraftWithoutShipFromSetup = false,
   errorMessage,
 }: {
@@ -103,6 +104,7 @@ export function MarketplaceListingSubmissionSection({
   } | null;
   ownListing: DiscoveryMarketListing | null;
   hasListingStockLocation: boolean;
+  listingSetupLoadState?: "not-applicable" | "ready" | "missing" | "fresh-write-recovering" | "load-failed";
   allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
@@ -110,6 +112,7 @@ export function MarketplaceListingSubmissionSection({
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
   const requiresShipFromSetup = !listing && !hasListingStockLocation && !allowDraftWithoutShipFromSetup;
+  const canCreateShipFromSetup = requiresShipFromSetup && listingSetupLoadState === "missing";
   const canUseListAction = Boolean(productId && !requiresShipFromSetup);
   const defaultActions = listing ? (
     <LinkButton href={`/account/listings/${listing.listing_id}`} block>
@@ -229,10 +232,12 @@ export function MarketplaceListingSubmissionSection({
         )}
         {!listing && requiresShipFromSetup ? (
           <Text size="sm" tone="secondary">
-            {t("discovery.routes.itemDetail.ship.from.setup.required")}
+            {listingSetupLoadState === "fresh-write-recovering" && errorMessage
+              ? errorMessage
+              : t("discovery.routes.itemDetail.ship.from.setup.required")}
           </Text>
         ) : null}
-        {errorMessage ? <Text>{errorMessage}</Text> : null}
+        {errorMessage && listingSetupLoadState !== "fresh-write-recovering" ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </Form>
@@ -243,7 +248,7 @@ export function MarketplaceListingSubmissionSection({
       <FormPanel variant={panelVariant} glow={Boolean(listing)}>
         {form}
       </FormPanel>
-      {requiresShipFromSetup ? (
+      {canCreateShipFromSetup ? (
         <ListingStockShipFromSetupSection formId={`${formId}-ship-from-setup`} errorMessage={errorMessage} />
       ) : null}
     </Stack>

@@ -201,6 +201,7 @@ export function buildItemDetailCommerce(
         bestListing={context.bestListing}
         ownListing={ownListing}
         hasListingStockLocation={data.hasListingStockLocation}
+        listingSetupLoadState={data.listingSetupLoadState}
         allowDraftWithoutShipFromSetup={data.canUseGuestListingDraft}
         errorMessage={data.listingSetupLoadError ?? actionErrorMessage}
       />

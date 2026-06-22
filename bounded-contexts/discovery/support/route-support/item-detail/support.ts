@@ -12,6 +12,7 @@ export const MARKETPLACE_DESCRIPTION = t("discovery.routes.itemDetail.browse.the
 export const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 export const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
 export const LISTING_STOCK_SHIP_FROM_CODE = "LISTING-STOCK";
+export type ListingSetupLoadState = "not-applicable" | "ready" | "missing" | "fresh-write-recovering" | "load-failed";
 
 export function isListingStockLocation(location: Readonly<{ ship_from_code?: string | null; name?: string | null }>) {
   return location.ship_from_code === LISTING_STOCK_SHIP_FROM_CODE || location.name === LISTING_STOCK_LOCATION_NAME;
@@ -37,6 +38,7 @@ export const EMPTY_ITEM_DETAIL_RESULT = {
   registerToSellHref: "/register",
   notFound: false,
   error: null,
+  listingSetupLoadState: "not-applicable" as const,
   listingSetupLoadError: null,
   canonicalUrl: null,
   productAlertClaimError: null,

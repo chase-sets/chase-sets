@@ -113,6 +113,7 @@ describe("item detail commerce panel market intents and listing selection", () =
       sellerInventoryItems: [],
       sellerAccountId: "seller_1",
       hasListingStockLocation: false,
+      listingSetupLoadState: "missing",
       viewerAccountId: "seller_1",
       initialMarketIntent: "buy",
       initialSelectedOptions: [],
