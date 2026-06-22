@@ -10,6 +10,7 @@ import {
 export const TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION = "2026.06.20";
+export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION = "2026.06.22";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -28,6 +29,13 @@ export const tcgplayerMtgSingleCardIngestionUnitIdentity = defineCatalogProvider
 export const tcgplayerYugiohSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "yugioh",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerOnePieceSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "one-piece",
   productForm: "single-card",
   ingestionPurpose: "source-observation-import",
 });
@@ -372,6 +380,35 @@ export const tcgplayerYugiohSingleCardProviderProductSourceObservationMappingCon
     ...providerProductNormalizedObservation,
     fields: {
       tcg: constantExpression("yugioh", "catalog-truth", ["normalized-observation", "hash-material"]),
+      ...providerProductFields,
+    },
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "one-piece-single-card-product-sku",
+  displayName: "TCGplayer One Piece Single-Card Product and SKU",
+  profileVersion: TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerOnePieceSingleCardIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-one-piece-single-card-production-v1",
+  },
+  fixtures: {
+    fixtureRoot:
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-one-piece-single-card",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      tcg: constantExpression("one-piece", "catalog-truth", ["normalized-observation", "hash-material"]),
       ...providerProductFields,
     },
   },

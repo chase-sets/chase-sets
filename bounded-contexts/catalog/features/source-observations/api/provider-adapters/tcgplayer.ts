@@ -55,6 +55,13 @@ export const TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = d
   ingestionPurpose: "source-observation-import",
 });
 
+export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "one-piece",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
 export const TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
   providerKey: "tcgplayer",
   productDomain: "mtg",
@@ -724,6 +731,15 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineNames: ["yu-gi-oh!", "yugioh", "yu-gi-oh", "yu gi oh"],
       productLineUrlNames: ["yugioh", "yu-gi-oh"],
       defaultProductLineName: "Yu-Gi-Oh!",
+      productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["one piece card game", "one piece", "onepiece", "opcg"],
+      productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
+      defaultProductLineName: "One Piece Card Game",
       productForm: "single-card",
     };
   }

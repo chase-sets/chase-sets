@@ -40,6 +40,7 @@ describe("Catalog provider profile review", () => {
       ["tcgplayer", "2026.06.19", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
       ["tcgplayer", "2026.06.20", "valid"],
+      ["tcgplayer", "2026.06.22", "valid"],
       ["tcgplayer", "2026.06.03", "valid"],
     ]);
     expect(reviews.find((review) => review.profileKey === "mtg-card-print-reference-data")).toMatchObject({
