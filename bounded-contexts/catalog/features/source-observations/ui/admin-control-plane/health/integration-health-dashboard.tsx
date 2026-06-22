@@ -278,6 +278,22 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.payload"),
             value: row.payloadAcquisition,
           },
+          ...(row.usageBudget
+            ? [
+                {
+                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.credits"),
+                  value: formatUsageBudgetCredits(row.usageBudget),
+                },
+                {
+                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.budget.readiness"),
+                  value: row.usageBudget.readiness,
+                },
+                {
+                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.estimated.calls"),
+                  value: formatEstimatedCalls(row.usageBudget),
+                },
+              ]
+            : []),
         ]}
       />
     ),
@@ -508,4 +524,22 @@ function formatDateTime(value: string | null | undefined) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatUsageBudgetCredits(
+  budget: NonNullable<CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]>,
+): string {
+  if (budget.creditBalance === null) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+  }
+
+  return [String(budget.creditBalance), budget.creditUnit].filter(Boolean).join(" ");
+}
+
+function formatEstimatedCalls(budget: NonNullable<CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]>): string {
+  if (budget.estimatedCalls === null) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+  }
+
+  return [String(budget.estimatedCalls), budget.estimatedScope].filter(Boolean).join(" / ");
 }

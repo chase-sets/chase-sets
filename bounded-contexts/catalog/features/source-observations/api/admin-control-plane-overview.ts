@@ -76,7 +76,17 @@ export type CatalogIntegrationProviderReadiness = Readonly<{
   optionQueryHealth: CatalogIntegrationProviderCapabilityStatus;
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
+  usageBudget: CatalogIntegrationProviderUsageBudget | null;
   diagnostics: readonly CatalogIntegrationControlPlaneDiagnostic[];
+}>;
+
+export type CatalogIntegrationProviderUsageBudget = Readonly<{
+  creditBalance: number | null;
+  creditUnit: string | null;
+  readiness: "ready" | "degraded" | "blocked" | "unknown";
+  estimatedCalls: number | null;
+  estimatedScope: string | null;
+  refreshedAt: string | null;
 }>;
 
 export type CatalogIntegrationProviderCapabilityStatus = Readonly<{
@@ -255,6 +265,7 @@ function buildProviderReadiness(
         optionQueryHealth: summarizeCapability(diagnostics, ["option", "query"]),
         rateLimitStatus: summarizeCapability(diagnostics, ["rate-limit", "cooldown", "throttle"]),
         payloadAcquisition: summarizeCapability(diagnostics, ["payload", "fetch", "acquisition", "fixture"]),
+        usageBudget: null,
         diagnostics,
       };
     });

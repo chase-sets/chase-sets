@@ -698,6 +698,7 @@ function overviewForProfiles(profiles: readonly CatalogProviderProfileVersionRev
         optionQueryHealth: { status: "ready", diagnosticCodes: [], message: null },
         rateLimitStatus: { status: "ready", diagnosticCodes: [], message: null },
         payloadAcquisition: { status: "ready", diagnosticCodes: [], message: null },
+        usageBudget: null,
         diagnostics: [],
       })),
     },

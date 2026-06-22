@@ -292,6 +292,73 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("renders generic provider usage budget fields for a One Piece import unit", () => {
+    const baseOverview = controlPlaneOverview();
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const baseProvider = baseOverview.providerReadiness.providers[0]!;
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${unitKey}&section=triage`,
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "scrydex",
+            product_line_id: "one-piece",
+            product_line_name: "One Piece",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: controlPlaneOverview({
+        readiness: {
+          ...baseOverview.readiness,
+          units: [
+            {
+              ...baseOverview.readiness.units[0]!,
+              unitKey,
+              providerKey: "scrydex",
+              displayName: "Scrydex One Piece cards",
+              productDomain: "one-piece",
+              productForm: "single-card",
+            },
+          ],
+        },
+        providerReadiness: {
+          ...baseOverview.providerReadiness,
+          providers: [
+            {
+              ...baseProvider,
+              providerKey: "scrydex",
+              adapterKey: "scrydex",
+              readiness: "degraded",
+              unitKeys: [unitKey],
+              usageBudget: {
+                creditBalance: 980,
+                creditUnit: "credits",
+                readiness: "degraded",
+                estimatedCalls: 4,
+                estimatedScope: "bulk import",
+                refreshedAt: "2026-06-22T20:00:00.000Z",
+              },
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="health" readModel={readModel} />);
+
+    expect(screen.getAllByText("Scrydex One Piece cards").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Credits").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("980 credits").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Budget readiness").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Estimated calls").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("4 / bulk import").length).toBeGreaterThan(0);
+    expect(screen.queryByText("One Piece sync")).toBeNull();
+  });
+
   it("renders governance controls with RBAC, kill switches, observability, and complete-removal evidence", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

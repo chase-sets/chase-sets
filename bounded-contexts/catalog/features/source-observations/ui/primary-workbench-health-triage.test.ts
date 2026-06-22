@@ -72,4 +72,123 @@ describe("Catalog primary workbench read model - health triage", () => {
       statusMessage: "Audit lifecycle projection is unavailable.",
     });
   });
+
+  it("projects provider usage budget metadata through the shared provider readiness interface", () => {
+    const baseOverview = controlPlaneOverview();
+    const baseUnit = baseOverview.readiness.units[0]!;
+    const baseProvider = baseOverview.providerReadiness.providers[0]!;
+    const onePieceUnitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const pokemonUnitKey = "tcgdex:pokemon:single-card:source-observation-import";
+    const magicUnitKey = "scryfall:magic:single-card:source-observation-import";
+    const overview = controlPlaneOverview({
+      readiness: {
+        ...baseOverview.readiness,
+        units: [
+          {
+            ...baseUnit,
+            unitKey: pokemonUnitKey,
+            providerKey: "tcgdex",
+            displayName: "TCGdex Pokemon cards",
+            productDomain: "pokemon",
+            productForm: "single-card",
+          },
+          {
+            ...baseUnit,
+            unitKey: magicUnitKey,
+            providerKey: "scryfall",
+            displayName: "Scryfall Magic cards",
+            productDomain: "magic",
+            productForm: "single-card",
+          },
+          {
+            ...baseUnit,
+            unitKey: onePieceUnitKey,
+            providerKey: "scrydex",
+            displayName: "Scrydex One Piece cards",
+            productDomain: "one-piece",
+            productForm: "single-card",
+          },
+        ],
+      },
+      providerReadiness: {
+        ...baseOverview.providerReadiness,
+        providers: [
+          {
+            ...baseProvider,
+            providerKey: "tcgdex",
+            adapterKey: "tcgdex",
+            unitKeys: [pokemonUnitKey],
+            usageBudget: null,
+          },
+          {
+            ...baseProvider,
+            providerKey: "scryfall",
+            adapterKey: "scryfall",
+            unitKeys: [magicUnitKey],
+            usageBudget: null,
+          },
+          {
+            ...baseProvider,
+            providerKey: "scrydex",
+            adapterKey: "scrydex",
+            readiness: "degraded",
+            unitKeys: [onePieceUnitKey],
+            usageBudget: {
+              creditBalance: 980,
+              creditUnit: "credits",
+              readiness: "degraded",
+              estimatedCalls: 4,
+              estimatedScope: "bulk import",
+              refreshedAt: "2026-06-22T20:00:00.000Z",
+            },
+          },
+        ],
+      },
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${onePieceUnitKey}&section=triage`,
+      scopes: {
+        items: [
+          sourceObservationScope({ provider_key: "tcgdex", product_line_name: "Pokemon" }),
+          sourceObservationScope({ provider_key: "scryfall", product_line_id: "magic", product_line_name: "Magic" }),
+          sourceObservationScope({
+            provider_key: "scrydex",
+            product_line_id: "one-piece",
+            product_line_name: "One Piece",
+          }),
+        ],
+        total: 3,
+        count: 3,
+      },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.healthTriage.providers.map((provider) => provider.providerKey)).toEqual([
+      "tcgdex",
+      "scryfall",
+      "scrydex",
+    ]);
+    expect(readModel.healthTriage.providers.find((provider) => provider.providerKey === "scrydex")).toMatchObject({
+      usageBudget: {
+        creditBalance: 980,
+        creditUnit: "credits",
+        readiness: "degraded",
+        estimatedCalls: 4,
+        estimatedScope: "bulk import",
+      },
+    });
+    expect(readModel.healthTriage.providers.find((provider) => provider.providerKey === "tcgdex")?.usageBudget).toBe(
+      null,
+    );
+    expect(readModel.healthTriage.providers.find((provider) => provider.providerKey === "scryfall")?.usageBudget).toBe(
+      null,
+    );
+    expect(readModel.providerScope.providers.find((provider) => provider.providerKey === "scrydex")).toMatchObject({
+      units: [{ unitKey: onePieceUnitKey, productDomain: "one-piece", productForm: "single-card" }],
+    });
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
+  });
 });
