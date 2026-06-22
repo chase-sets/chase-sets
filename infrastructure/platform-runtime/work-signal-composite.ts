@@ -270,13 +270,13 @@ export function createPostgresWorkSignalWaiter(
 
   const resetClient = (client: PostgresNotificationClient, onError: () => void) => {
     removeListener(client, "notification", onNotification);
-    removeListener(client, "error", onError);
     clientPromise = null;
     if (activeClient === client) {
       activeClient = null;
       activeErrorListener = null;
     }
     client.release();
+    removeListener(client, "error", onError);
   };
 
   const onNotification = (message?: Readonly<{ channel?: string; payload?: string }>) => {
@@ -421,13 +421,14 @@ export function createPostgresWorkSignalWaiter(
       }
 
       removeListener(client, "notification", onNotification);
-      if (activeErrorListener) {
-        removeListener(client, "error", activeErrorListener);
-      }
+      const errorListener = activeErrorListener;
       try {
         await client.query(`UNLISTEN ${channel}`);
       } finally {
         client.release();
+        if (errorListener) {
+          removeListener(client, "error", errorListener);
+        }
         activeClient = null;
         activeErrorListener = null;
       }

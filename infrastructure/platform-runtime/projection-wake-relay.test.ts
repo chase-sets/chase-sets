@@ -503,6 +503,36 @@ describe("projection wake relay active runtime", () => {
     });
   });
 
+  it("keeps the listener error handler attached until the listener client is released", async () => {
+    const abortController = new AbortController();
+    const listener = new FakeRelayListenerClient({ recordErrorListenerDuringUnlisten: true });
+    const { store } = recordingWorkSignalStore();
+
+    await runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane: recordingRelayControlPlane(),
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: eventStoreWithRows([]),
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: () => abortController.abort(),
+      },
+    });
+
+    expect(listener.hadErrorListenerDuringUnlisten).toBe(true);
+    expect(listener.isListening("error")).toBe(false);
+  });
+
   it("continues durable startup catch-up when listener setup cleanup fails", async () => {
     const abortController = new AbortController();
     const listener = new FakeRelayListenerClient({ failListen: true, failUnlisten: true });
@@ -998,11 +1028,21 @@ class FakeRelayListenerClient {
   readonly queries: string[] = [];
   private readonly listeners = new Map<string, Set<(message?: unknown) => void>>();
   released = false;
+  hadErrorListenerDuringUnlisten = false;
 
-  constructor(private readonly options: Readonly<{ failListen?: boolean; failUnlisten?: boolean }> = {}) {}
+  constructor(
+    private readonly options: Readonly<{
+      failListen?: boolean;
+      failUnlisten?: boolean;
+      recordErrorListenerDuringUnlisten?: boolean;
+    }> = {},
+  ) {}
 
   async query(sql: string) {
     this.queries.push(sql);
+    if (this.options.recordErrorListenerDuringUnlisten && sql.startsWith("UNLISTEN ")) {
+      this.hadErrorListenerDuringUnlisten = this.isListening("error");
+    }
     if (this.options.failListen && sql.startsWith("LISTEN ")) {
       throw new Error("LISTEN failed");
     }
@@ -1025,6 +1065,10 @@ class FakeRelayListenerClient {
 
   off(event: "notification" | "error", listener: (message?: unknown) => void) {
     this.listeners.get(event)?.delete(listener);
+  }
+
+  isListening(event: "notification" | "error") {
+    return (this.listeners.get(event)?.size ?? 0) > 0;
   }
 
   emit(channel: string, payload: string) {

@@ -798,7 +798,7 @@ jobs:
             exit 0
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300 || true
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
 
       - name: Wait for Terraform App Platform deployment
         if: env.SHOULD_DEPLOY != 'false'
@@ -1089,7 +1089,7 @@ jobs:
             artifacts/release-health/account-buy-now-freshness-canary.json
 
       - name: Upload staging Buy Now canary evidence
-        if: always() && env.SHOULD_DEPLOY != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_canaries.conclusion != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: staging-buy-now-freshness-canaries
