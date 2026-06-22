@@ -1,11 +1,12 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { OrderingOrderSourceType } from "@chase-sets/checkout-order-source";
 
 export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
 
 export type ShippingOption = "standard" | "expedited" | "priority";
 export type OrderStatus = "pending-reservation" | "pending-payment" | "ready-for-fulfillment" | "cancelled";
-export type OrderSourceType = "cart-checkout" | "offer-acceptance" | "buy-now";
+export type OrderSourceType = OrderingOrderSourceType;
 
 export type VersionSelectedOptionEntry = Readonly<{
   dimensionId: string;

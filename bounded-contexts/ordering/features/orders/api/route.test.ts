@@ -209,6 +209,90 @@ describe("ordering purchase routes", () => {
     );
   });
 
+  it("rejects pre-commitment Checkout sources at the Ordering preview boundary", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_buyer",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_buyer",
+        roleKey: "member",
+        permissions: ["accounts.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/purchases/checkout/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutSessionId: "chk_1",
+          sourceType: "offer-intent",
+          shippingOption: "standard",
+          lines: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Ordering checkout source must be cart-checkout or buy-now.",
+      },
+    });
+    expect(services.previewCheckoutFulfillment).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown checkout sources at the Ordering creation boundary", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_buyer",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_buyer",
+        roleKey: "member",
+        permissions: ["accounts.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/purchases/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutSessionId: "chk_1",
+          sourceType: "cart",
+          shippingOption: "standard",
+          shippingAddress: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          lines: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Ordering checkout source must be cart-checkout or buy-now.",
+      },
+    });
+    expect(services.createOrdersFromCheckout).not.toHaveBeenCalled();
+  });
+
   it("lets signed-in buyers without order-management permissions confirm checkout as account buyers", async () => {
     const services = createServices();
     const app = buildApp({

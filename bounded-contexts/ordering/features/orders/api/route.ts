@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { parseCheckoutOrderingSourceType } from "@chase-sets/checkout-order-source";
 import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
 import type { OrderingOrderServices } from "./runtime";
@@ -115,7 +116,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       const result = await services.previewCheckoutFulfillment({
         buyerAccountId: access.actor.accountId as AccountId,
         checkoutSessionId: String(body.checkoutSessionId ?? ""),
-        sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
+        sourceType: parseCheckoutOrderingSourceType(body.sourceType),
         shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
         shippingAddress:
           body.shippingAddress && typeof body.shippingAddress === "object"
@@ -180,7 +181,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
         {
           buyerAccountId: access.actor.accountId as AccountId,
           checkoutSessionId: String(body.checkoutSessionId ?? ""),
-          sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
+          sourceType: parseCheckoutOrderingSourceType(body.sourceType),
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
           shippingAddress: parseShippingAddress(body.shippingAddress),
           optimizationGoal: body.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",

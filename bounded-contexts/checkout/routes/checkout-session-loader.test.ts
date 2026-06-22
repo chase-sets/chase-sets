@@ -143,6 +143,95 @@ describe("checkout web routes: checkout session loader", () => {
     );
   });
 
+  it("maps cart checkout sessions to Ordering cart-checkout preview source", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "cart",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "rev_1",
+      readyLineKeys: ["cli_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "4.00",
+        salesTaxAmount: "2.00",
+        totalAmount: "26.00",
+        packageCount: 1,
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+
+    await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkoutSessionId: "chk_1",
+        sourceType: "cart-checkout",
+      }),
+    );
+  });
+
+  it("does not ask Ordering to preview offer-intent sessions", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "offer-intent",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [],
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.fulfillmentPreview).toBeNull();
+    expect(result.previewError).toBeNull();
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+  });
+
   it("passes safe checkout edit section query state to the checkout page", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetCheckoutSession.mockResolvedValue({
