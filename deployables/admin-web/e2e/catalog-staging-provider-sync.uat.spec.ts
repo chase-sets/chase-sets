@@ -27,6 +27,12 @@ type ProviderSyncJourney = Readonly<{
   scope: readonly ScopeSelection[];
 }>;
 
+type SelectedProviderScope = Readonly<{
+  providerKey: string;
+  importScope: string;
+  displayLabel: string;
+}>;
+
 type MissingOptionRecovery = () => Promise<boolean>;
 
 const preferredYugiohSetLabels = [
@@ -45,6 +51,11 @@ const ygojsonSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: {
     valuePattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   },
+};
+
+const tcgplayerYugiohSetChoice: SelectChoice = {
+  labels: ["Ancient Sanctuary", "Absolute Powerforce", "Bonds Beyond Time Movie Pack"],
+  fallbackToFirstAvailableOption: {},
 };
 
 const providerSyncJourneys: readonly ProviderSyncJourney[] = [
@@ -85,7 +96,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
     scope: [
       { label: "Product Line", choice: { labels: ["Yu-Gi-Oh!", "Yu-Gi-Oh", "YuGiOh"], values: ["2"] } },
-      { label: "Set Name", choice: yugiohSetChoice },
+      { label: "Set Name", choice: tcgplayerYugiohSetChoice },
     ],
   },
 ];
@@ -107,8 +118,8 @@ test.describe("catalog staging provider sync UAT", () => {
 
     for (const journey of providerSyncJourneys) {
       await test.step(journey.name, async () => {
-        await selectProviderScope(page, journey);
-        await syncSelectedProviderUnit(page, journey.unitKey);
+        const selectedScope = await selectProviderScope(page, journey);
+        await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
       });
     }
   });
@@ -162,7 +173,7 @@ async function assertSharedImporterSurface(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: /Magic.*sync|Yu-Gi-Oh.*sync|Pokemon.*sync/i })).toHaveCount(0);
 }
 
-async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Promise<void> {
+async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Promise<SelectedProviderScope> {
   const contextBar = page.locator("[data-catalog-import-context-bar='true']");
   await expandImportContextBar(contextBar);
 
@@ -183,7 +194,9 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
   }
 
   await contextBar.getByRole("button", { name: "Select source scope" }).click();
-  await expect(sourceScopeSyncForms(page, journey.unitKey).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  const commandForm = sourceScopeSyncForms(page, journey.unitKey).first();
+  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  return selectedProviderScopeFromCommandForm(commandForm);
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
@@ -207,7 +220,11 @@ async function isImportContextBarExpanded(trigger: Locator): Promise<boolean> {
     );
 }
 
-async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<void> {
+async function syncSelectedProviderUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<void> {
   const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
 
@@ -220,8 +237,8 @@ async function syncSelectedProviderUnit(page: Page, unitKey: string): Promise<vo
       return;
     }
 
-    if (await hasActiveImportJobForSelectedUnit(page, unitKey, 1_000)) {
-      await expectActiveImportJobForSelectedUnit(page, unitKey);
+    if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 1_000)) {
+      await expectActiveImportJobForSelectedUnit(page, unitKey, selectedScope);
       return;
     }
 
@@ -248,15 +265,24 @@ async function expectCommandQueued(page: Page): Promise<void> {
   ).toBeVisible({ timeout: syncTimeoutMs });
 }
 
-async function hasActiveImportJobForSelectedUnit(page: Page, unitKey: string, timeout: number): Promise<boolean> {
-  return activeImportJobRowsForSelectedUnit(page, unitKey)
+async function hasActiveImportJobForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  timeout: number,
+): Promise<boolean> {
+  return activeImportJobRowsForSelectedUnit(page, unitKey, selectedScope)
     .first()
     .isVisible({ timeout })
     .catch(() => false);
 }
 
-async function expectActiveImportJobForSelectedUnit(page: Page, unitKey: string): Promise<void> {
-  const activeJobRow = activeImportJobRowsForSelectedUnit(page, unitKey).first();
+async function expectActiveImportJobForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<void> {
+  const activeJobRow = activeImportJobRowsForSelectedUnit(page, unitKey, selectedScope).first();
   await expect(page.getByText("Import already running", { exact: true }).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
@@ -270,17 +296,44 @@ async function expectActiveImportJobForSelectedUnit(page: Page, unitKey: string)
   await expect(activeJobRow.getByText("Current scope", { exact: true }).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
+  await expect(activeJobRow.getByText(`Scope: ${selectedScope.displayLabel}`, { exact: true }).first()).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
   await expect(activeJobRow.getByText(/import job .*(?:queued|running)/i).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
 }
 
-function activeImportJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
+function activeImportJobRowsForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Locator {
   return page
     .getByRole("row")
     .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
     .filter({ has: page.getByText("Current scope", { exact: true }) })
+    .filter({ has: page.getByText(`Scope: ${selectedScope.displayLabel}`, { exact: true }) })
     .filter({ has: page.getByText(/import job .*(?:queued|running)/i) });
+}
+
+async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promise<SelectedProviderScope> {
+  const providerKey = await hiddenInputValue(commandForm, "providerKey");
+  const importScope = await hiddenInputValue(commandForm, "importScope");
+  expect(importScope, "The shared importer command form should carry the selected source scope.").not.toBe("");
+  return {
+    providerKey,
+    importScope,
+    displayLabel: scopeDisplayLabelFromImportScope(providerKey, importScope),
+  };
+}
+
+async function hiddenInputValue(form: Locator, name: string): Promise<string> {
+  return form.locator(`input[name="${name}"]`).first().inputValue();
+}
+
+function scopeDisplayLabelFromImportScope(providerKey: string, importScope: string): string {
+  return [providerKey, ...importScope.split(":").filter(Boolean)].filter(Boolean).join(" / ");
 }
 
 async function expectImporterVisible(page: Page): Promise<void> {
