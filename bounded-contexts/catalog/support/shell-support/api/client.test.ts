@@ -167,6 +167,39 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     );
   });
 
+  it("previews source observation integration imports without enqueueing a job", async () => {
+    const preview = {
+      action: "import",
+      providerKey: "scrydex",
+      targetCount: 1,
+      targets: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse(preview));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.previewSourceObservationIntegrationImport<typeof preview>({
+        provider: "scrydex",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        language: "en",
+        setId: "op-01",
+      }),
+    ).resolves.toEqual(preview);
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/integration-jobs/preview");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        action: "import",
+        scope: {
+          provider: "scrydex",
+          ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+          language: "en",
+          setId: "op-01",
+        },
+      }),
+    );
+  });
+
   it("posts bulk deferral decisions with the shared operator reason", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ jobId: "job_defer" }));
     const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });

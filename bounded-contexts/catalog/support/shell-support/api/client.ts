@@ -1656,6 +1656,23 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewSourceObservationIntegrationImport<T>(scope: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/preview`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({
+            action: "import",
+            scope,
+          }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async retrySourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
       return sourceObservationIntegrationJobLifecycleCommand<T>({
         baseUrl,

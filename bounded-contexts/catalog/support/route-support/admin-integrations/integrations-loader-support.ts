@@ -14,6 +14,7 @@ import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../..
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogIntegrationControlPlaneOverview,
+  SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationOptionResponse,
 } from "../../../features/source-observations/ui/contracts";
 import {
@@ -45,6 +46,7 @@ import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/s
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
+import { integrationScopeFromContext } from "./integrations-command-context";
 import {
   loadCatalogListRouteData,
   readCatalogListQuery,
@@ -242,6 +244,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
       readModel.routeContext,
       readModel.sourceOptions,
     ),
+    deferredImportPreview: selectedImportPreview(api, readModel.routeContext),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
   };
 }
@@ -302,6 +305,26 @@ async function deferredSourceOptionsSlice(
     });
   } catch {
     return fallbackSourceOptions;
+  }
+}
+
+async function selectedImportPreview(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<SourceObservationIntegrationImportPreview | null> {
+  if (!context.providerKey || !context.unitKey || !context.importScope) {
+    return null;
+  }
+  if (typeof api.previewSourceObservationIntegrationImport !== "function") {
+    return null;
+  }
+
+  try {
+    return await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(
+      integrationScopeFromContext(context),
+    );
+  } catch {
+    return null;
   }
 }
 

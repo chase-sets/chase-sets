@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -1083,6 +1083,67 @@ describe("source observation runtime: provider integration jobs", () => {
           }),
         }),
       ]);
+    } finally {
+      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("previews Scrydex One Piece set imports without fetching provider payloads", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
+    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
+    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    const fetch = vi.fn(scrydexOnePieceFetch());
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    const harness = createIntegrationJobClaimHandoffHarness();
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      const preview = await services.previewIntegrationImport({
+        scope: {
+          provider: "scrydex",
+          profileKey: "one-piece-card-print-source-observation",
+          ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+          language: "en",
+          setId: "op-01",
+        },
+        context,
+      });
+
+      expect(preview).toMatchObject({
+        action: "import",
+        providerKey: "scrydex",
+        targetCount: 1,
+        targets: [
+          expect.objectContaining({
+            targetId: "set:op-01",
+            name: "op-01",
+            languageCode: "en",
+            scopeKey: "expansion-cards",
+            planKey: "scrydex:one-piece:expansion:op-01:cards",
+            estimatedPayloads: null,
+            transportSteps: [
+              "Fetch Scrydex One Piece expansion cards with max page size",
+              "Sanitize card payloads",
+              "Attach payload provenance",
+            ],
+            usageEstimate: expect.objectContaining({
+              requestStrategy: "bulk-first",
+              estimateState: "estimate-unavailable",
+              estimatedRequestCount: null,
+              usageCheckState: "not-configured",
+              perRecordFallbackReason: null,
+              selectedFields: expect.arrayContaining(["id", "name", "number", "expansion"]),
+              pageSize: 250,
+            }),
+          }),
+        ],
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(harness.appendedSourceEvents).toEqual([]);
     } finally {
       restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
       restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);

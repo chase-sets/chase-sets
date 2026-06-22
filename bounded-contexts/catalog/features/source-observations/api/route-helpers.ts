@@ -90,7 +90,9 @@ export function isIntegrationJobValidationError(error: unknown): error is Error 
     error instanceof Error &&
     (error.message.includes("does not support background import") ||
       error.message.includes("No active Catalog source observation import provider is configured") ||
-      error.message.includes("multiple active profile units"))
+      error.message.includes("multiple active profile units") ||
+      error.message.includes("import requires") ||
+      error.message.includes("import planning requires"))
   );
 }
 
