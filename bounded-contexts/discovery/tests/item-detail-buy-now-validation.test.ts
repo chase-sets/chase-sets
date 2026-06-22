@@ -793,9 +793,53 @@ describe("item detail buy now validation and watch intents", () => {
     } as never);
 
     expect(result.hasListingStockLocation).toBe(false);
+    expect(result.listingSetupLoadState).toBe("fresh-write-recovering");
     expect(result.listingSetupLoadError).toBe(
       "Ship-from setup is still updating. Refresh in a moment if it is not visible yet.",
     );
+  });
+
+  it("does not recover listing setup load failures without a fresh-write receipt", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      listStorageLocations: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+          status: 503,
+          body: {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+        }),
+      ),
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=sell"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.hasListingStockLocation).toBe(false);
+    expect(result.listingSetupLoadState).toBe("load-failed");
+    expect(result.listingSetupLoadError).toBe("Projection read model did not catch up before the freshness timeout.");
   });
 
   it("shows the selected owned seller listing while the Discovery item-detail projection catches up", async () => {

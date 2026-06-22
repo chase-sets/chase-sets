@@ -547,6 +547,29 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.getByRole("button", { name: "Save ship-from setup" })).toBeTruthy();
   });
 
+  it("shows ship-from setup recovery without re-opening setup inputs", () => {
+    render(
+      <MarketplaceListingSubmissionSection
+        formId="list-at-price-form"
+        productId="cat_charizard::"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        bestListing={baseListing}
+        ownListing={null}
+        hasListingStockLocation={false}
+        listingSetupLoadState="fresh-write-recovering"
+        errorMessage="Ship-from setup is still updating. Refresh in a moment if it is not visible yet."
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Create listing" })).toHaveProperty("disabled", true);
+    expect(
+      screen.getByText("Ship-from setup is still updating. Refresh in a moment if it is not visible yet."),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Ship-from name")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save ship-from setup" })).toBeNull();
+  });
+
   it("keeps item media constrained on narrow item-detail screens", () => {
     renderWithDataRouter(
       <ItemDetailPage
@@ -804,6 +827,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
       sellerInventoryItems: [],
       sellerAccountId: "seller_1",
       hasListingStockLocation: true,
+      listingSetupLoadState: "ready",
       viewerAccountId: "seller_1",
       initialMarketIntent: "sell",
       initialSelectedListingId: ownedListing.listing_id,
