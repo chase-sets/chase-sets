@@ -55,6 +55,7 @@ export type AuthActionNotice =
       message: string;
     }>;
 type AuthActionResult = Response | AuthActionError | AuthActionNotice;
+const TRANSIENT_PASSWORD_SIGN_IN_RETRY_DELAYS_MS = [100, 250] as const;
 
 type MagicLinkRequestResult = Readonly<{
   tokenId: string;
@@ -176,7 +177,48 @@ function toActionError(error: unknown): AuthActionError {
     return { error: error.message };
   }
 
+  if (isTransientInternalAuthFetchError(error)) {
+    return {
+      error: t("auth.support.routeSupport.authHost.sign.in.temporarily.unavailable"),
+    };
+  }
+
   throw error;
+}
+
+function isTransientInternalAuthFetchError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const cause = "cause" in error && error.cause && typeof error.cause === "object" ? error.cause : null;
+  const code = cause && "code" in cause ? String(cause.code) : "";
+  return (
+    error instanceof TypeError &&
+    /fetch failed|network|terminated/i.test(error.message) &&
+    ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(code)
+  );
+}
+
+function waitForRetry(delayMs: number) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function retryTransientPasswordSignIn<T>(operation: () => Promise<T>) {
+  for (let attempt = 0; attempt <= TRANSIENT_PASSWORD_SIGN_IN_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const retryDelayMs = TRANSIENT_PASSWORD_SIGN_IN_RETRY_DELAYS_MS[attempt];
+      if (!isTransientInternalAuthFetchError(error) || retryDelayMs === undefined) {
+        throw error;
+      }
+
+      await waitForRetry(retryDelayMs);
+    }
+  }
+
+  throw new Error("Password sign-in retry loop exhausted.");
 }
 
 function addReturnPrompt(path: string, prompt: "add-passkey") {
@@ -371,10 +413,12 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                       externalCredentialId: formData.get("externalCredentialId"),
                       accountId: formData.get("accountId"),
                     })
-                  : await api.signInWithPassword<InteractiveAuthResult>({
-                      email: formData.get("email"),
-                      password: formData.get("password"),
-                    });
+                  : await retryTransientPasswordSignIn(() =>
+                      api.signInWithPassword<InteractiveAuthResult>({
+                        email: formData.get("email"),
+                        password: formData.get("password"),
+                      }),
+                    );
 
           return completeAuthentication(request, result);
         } catch (error) {

@@ -124,6 +124,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.invitationRoutes.invitation.is.unavailable": "Invitation is unavailable.",
   "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has": "Magic link is invalid or has expired.",
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
+  "auth.support.routeSupport.authHost.sign.in.temporarily.unavailable":
+    "Sign-in is temporarily unavailable. Try again in a few seconds.",
   "auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired":
     "Passkey challenge is invalid or expired.",
   "auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired.2":
