@@ -34,6 +34,9 @@ export type CatalogProviderOptionQueryTransports = Readonly<{
   listScryfallSets?: () => Promise<readonly JsonValue[]>;
   listScryfallCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listScrydexSets?: () => Promise<readonly JsonValue[]>;
+  listScrydexOnePieceSets?: () => Promise<readonly JsonValue[]>;
+  listScrydexOnePieceCards?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
+  listScrydexOnePieceSealedProducts?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
   listYgoprodeckSets?: () => Promise<readonly JsonValue[]>;
   listYgoprodeckCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listYgojsonSets?: () => Promise<readonly JsonValue[]>;
@@ -178,6 +181,18 @@ async function executeOptionQueryOperation(input: {
   }
   if (input.operation === "scrydex-list-sets" && input.transports.listScrydexSets) {
     return input.transports.listScrydexSets();
+  }
+  if (input.operation === "scrydex-one-piece-list-sets" && input.transports.listScrydexOnePieceSets) {
+    return input.transports.listScrydexOnePieceSets();
+  }
+  if (input.operation === "scrydex-one-piece-list-cards" && input.transports.listScrydexOnePieceCards) {
+    return input.transports.listScrydexOnePieceCards({ setId: input.parentValue });
+  }
+  if (
+    input.operation === "scrydex-one-piece-list-sealed-products" &&
+    input.transports.listScrydexOnePieceSealedProducts
+  ) {
+    return input.transports.listScrydexOnePieceSealedProducts({ setId: input.parentValue });
   }
   if (input.operation === "ygoprodeck-list-sets" && input.transports.listYgoprodeckSets) {
     return input.transports.listYgoprodeckSets();

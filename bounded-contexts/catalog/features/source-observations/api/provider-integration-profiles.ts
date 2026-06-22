@@ -100,6 +100,9 @@ export type CatalogProviderOptionQueryOperation =
   | "scryfall-list-sets"
   | "scryfall-list-cards"
   | "scrydex-list-sets"
+  | "scrydex-one-piece-list-sets"
+  | "scrydex-one-piece-list-cards"
+  | "scrydex-one-piece-list-sealed-products"
   | "ygoprodeck-list-sets"
   | "ygoprodeck-list-cards"
   | "ygojson-list-sets"
@@ -193,6 +196,74 @@ export type ScrydexScryfallJsonConnectorProfile = Readonly<{
     | "tcgplayer-id"
   )[];
   excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality")[];
+}>;
+
+export type ScrydexOnePieceJsonConnectorProfile = Readonly<{
+  kind: "scrydex-one-piece-json";
+  sourceContractDocument: string;
+  fixtureBackedOnly: true;
+  authentication: Readonly<{
+    scheme: "scrydex-api-key";
+    credentialsRequired: true;
+    teamIdentifierRequired: true;
+    retainedCredentialMaterial: "never";
+  }>;
+  requestPolicy: Readonly<{
+    normalImportStrategy: "bulk-first";
+    allowedOperations: readonly (
+      | "bulk-list-sets"
+      | "bulk-list-cards"
+      | "bulk-list-sealed-products"
+      | "usage-summary"
+      | "webhook-freshness"
+    )[];
+    forbiddenNormalOperations: readonly (
+      | "one-call-per-card"
+      | "one-call-per-variant"
+      | "one-call-per-sealed-product"
+    )[];
+    selectedFieldsOnly: true;
+    highestSafePageSizeRequired: true;
+    perRecordFallbackPolicy: "documented-tested-preflighted-operator-visible";
+  }>;
+  usageSummaryPolicy: Readonly<{
+    retention: "redacted-summary-only";
+    fields: readonly (
+      | "estimated-request-count"
+      | "actual-request-count"
+      | "page-count"
+      | "cache-hit-count"
+      | "cache-miss-count"
+      | "usage-check-state"
+      | "credit-diagnostic"
+      | "degraded-diagnostic"
+    )[];
+  }>;
+  acceptedEvidence: readonly (
+    | "scrydex-card-id"
+    | "scrydex-variant-id"
+    | "scrydex-set-id"
+    | "scrydex-sealed-product-id"
+    | "set-code"
+    | "set-name"
+    | "card-number"
+    | "language"
+    | "image-url"
+    | "tcgplayer-id"
+    | "freshness-diagnostic"
+    | "redacted-usage-summary"
+  )[];
+  excludedEvidence: readonly (
+    | "raw-provider-body"
+    | "api-key"
+    | "team-id"
+    | "seller"
+    | "inventory"
+    | "listing"
+    | "order"
+    | "message"
+    | "unapproved-price-history"
+  )[];
 }>;
 
 export type ScryfallJsonConnectorProfile = Readonly<{
@@ -320,6 +391,7 @@ export type CatalogProviderConnectorProfile =
   | MtgjsonJsonConnectorProfile
   | ScryfallJsonConnectorProfile
   | ScrydexScryfallJsonConnectorProfile
+  | ScrydexOnePieceJsonConnectorProfile
   | YgoprodeckJsonConnectorProfile
   | YgojsonJsonConnectorProfile
   | YamlYugiJsonConnectorProfile;
@@ -1721,6 +1793,70 @@ export const tcgplayerYugiohSingleCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const scrydexOnePieceConnectorProfile = {
+  kind: "scrydex-one-piece-json",
+  sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
+  fixtureBackedOnly: true,
+  authentication: {
+    scheme: "scrydex-api-key",
+    credentialsRequired: true,
+    teamIdentifierRequired: true,
+    retainedCredentialMaterial: "never",
+  },
+  requestPolicy: {
+    normalImportStrategy: "bulk-first",
+    allowedOperations: [
+      "bulk-list-sets",
+      "bulk-list-cards",
+      "bulk-list-sealed-products",
+      "usage-summary",
+      "webhook-freshness",
+    ],
+    forbiddenNormalOperations: ["one-call-per-card", "one-call-per-variant", "one-call-per-sealed-product"],
+    selectedFieldsOnly: true,
+    highestSafePageSizeRequired: true,
+    perRecordFallbackPolicy: "documented-tested-preflighted-operator-visible",
+  },
+  usageSummaryPolicy: {
+    retention: "redacted-summary-only",
+    fields: [
+      "estimated-request-count",
+      "actual-request-count",
+      "page-count",
+      "cache-hit-count",
+      "cache-miss-count",
+      "usage-check-state",
+      "credit-diagnostic",
+      "degraded-diagnostic",
+    ],
+  },
+  acceptedEvidence: [
+    "scrydex-card-id",
+    "scrydex-variant-id",
+    "scrydex-set-id",
+    "scrydex-sealed-product-id",
+    "set-code",
+    "set-name",
+    "card-number",
+    "language",
+    "image-url",
+    "tcgplayer-id",
+    "freshness-diagnostic",
+    "redacted-usage-summary",
+  ],
+  excludedEvidence: [
+    "raw-provider-body",
+    "api-key",
+    "team-id",
+    "seller",
+    "inventory",
+    "listing",
+    "order",
+    "message",
+    "unapproved-price-history",
+  ],
+} as const satisfies ScrydexOnePieceJsonConnectorProfile;
+
 export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
@@ -3007,7 +3143,9 @@ function inferCatalogProviderIngestionUnitKey(
   }).unitKey;
 }
 
-function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRecord): "pokemon" | "mtg" | "yugioh" {
+function inferProductDomain(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): "pokemon" | "mtg" | "yugioh" | "one-piece" {
   const signals = [
     version.profileKey,
     version.profile.catalogFieldMapping.blueprintKey,
@@ -3031,6 +3169,9 @@ function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRec
     signals.includes("ygojson")
   ) {
     return "yugioh";
+  }
+  if (signals.includes("one-piece") || signals.includes("one piece") || signals.includes("onepiece")) {
+    return "one-piece";
   }
   return signals.includes("magic") || signals.includes("scryfall") || signals.includes("mtg") ? "mtg" : "pokemon";
 }

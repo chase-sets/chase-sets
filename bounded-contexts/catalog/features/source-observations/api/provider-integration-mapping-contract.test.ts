@@ -142,6 +142,53 @@ describe("provider integration executable mapping contract", () => {
     }
   });
 
+  it("represents One Piece ingestion-unit identities without product-line-specific importer branches", () => {
+    const identities = [
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "scrydex",
+        productDomain: "one-piece",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "scrydex",
+        productDomain: "one-piece",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "scrydex",
+        productDomain: "one-piece",
+        productForm: "sealed-product",
+        ingestionPurpose: "source-observation-import",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "tcgplayer",
+        productDomain: "one-piece",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "tcgplayer",
+        productDomain: "one-piece",
+        productForm: "sealed-product",
+        ingestionPurpose: "source-observation-import",
+      }),
+    ];
+
+    expect(identities.map((identity) => identity.unitKey)).toEqual([
+      "scrydex:one-piece:single-card:source-observation-import",
+      "scrydex:one-piece:set:reference-data",
+      "scrydex:one-piece:sealed-product:source-observation-import",
+      "tcgplayer:one-piece:single-card:source-observation-import",
+      "tcgplayer:one-piece:sealed-product:source-observation-import",
+    ]);
+
+    for (const identity of identities) {
+      expect(validateCatalogProviderExecutableMappingContract(identityOnlyContract(identity))).toEqual([]);
+    }
+  });
+
   it("flags missing fixture coverage and unsafe cross-context leakage", () => {
     const invalidContract: CatalogProviderExecutableMappingContract = {
       ...tcgplayerContract(),
