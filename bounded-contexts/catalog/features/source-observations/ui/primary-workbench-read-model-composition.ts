@@ -33,6 +33,7 @@ import {
   profilePointerForProfile,
   providerTransportBlockerFor,
   providerTransportFor,
+  sourceOptionKindsForProfile,
   sum,
 } from "./primary-workbench-read-model-support";
 import { importScopeFromScopeContext } from "./primary-workbench-scope-context";
@@ -870,7 +871,7 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
   // source-option scope selection. That scope is only legacy route state;
   // preserving it leaks a previous product line into review queries before the
   // operator can pick a fresh guided scope.
-  if (!input.activeProfile || input.activeProfile.sourceOptionKinds.length === 0) {
+  if (!input.activeProfile || sourceOptionKindsForProfile(input.activeProfile).length === 0) {
     return Boolean(input.unitKey && input.importScope);
   }
 
@@ -993,7 +994,7 @@ function sourceOptionProfileCannotSelectScope(
     return false;
   }
 
-  const selectableScopes = new Set(profile.sourceOptionKinds.map((kind) => kind.scope));
+  const selectableScopes = new Set(sourceOptionKindsForProfile(profile).map((kind) => kind.scope));
   if (selectableScopes.size === 0) {
     return false;
   }
@@ -1013,11 +1014,11 @@ function sanitizeScopeForSourceOptionProfile(
   providerKey: string | null,
   explicitLanguageScope: boolean,
 ): CatalogPrimaryWorkbenchRouteContext["scope"] {
-  if (!profile || !scope || profile.sourceOptionKinds.length === 0) {
+  if (!profile || !scope || sourceOptionKindsForProfile(profile).length === 0) {
     return providerOnlyScopeContext(providerKey);
   }
 
-  const selectableScopes = new Set(profile.sourceOptionKinds.map((kind) => kind.scope));
+  const selectableScopes = new Set(sourceOptionKindsForProfile(profile).map((kind) => kind.scope));
   const supportsSetName = selectableScopes.has("set-name");
 
   return {
