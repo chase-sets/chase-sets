@@ -81,6 +81,26 @@ export type CatalogRealProviderProofPromotionPreviewEvidence = Readonly<{
   confirmationRequired: true;
 }>;
 
+export type CatalogRedactedProviderUsageProofSummary = Readonly<{
+  dataClass: "provider-usage-summary";
+  providerKey: "scrydex";
+  unitKey: string;
+  sourceScopeRedacted: true;
+  estimatedRequestCount: number | "estimate-unavailable";
+  actualRequestCount: number;
+  pageCount: number;
+  cacheHitCount: number;
+  cacheMissCount: number;
+  usageCheckState: "passed" | "degraded" | "blocked" | "not-run";
+  creditState: "available" | "low" | "exhausted" | "unknown";
+  bulkFirstConfirmed: boolean;
+  perRecordFallbackReasonRedacted: string | null;
+  diagnosticsRedacted: true;
+  rawProviderUsageRetained: false;
+  accountOrTeamIdentifiersRetained: false;
+  fullProviderUrlsRetained: false;
+}>;
+
 export type CatalogRealProviderProofPacket = Readonly<{
   schemaVersion: typeof catalogRealProviderProofSchemaVersion;
   environment: string;
@@ -150,6 +170,47 @@ export type CatalogRealProviderProofPacket = Readonly<{
     forbiddenOutcomes: typeof catalogPrimaryWorkbenchRetirementPolicy.forbiddenOutcomes;
   }>;
 }>;
+
+export function assertCatalogRedactedProviderUsageProofSummaryIsSafe(
+  summary: CatalogRedactedProviderUsageProofSummary,
+): void {
+  if (summary.dataClass !== "provider-usage-summary") {
+    throw new Error("Provider usage proof must use the provider-usage-summary data class.");
+  }
+  if (!summary.sourceScopeRedacted || !summary.diagnosticsRedacted) {
+    throw new Error("Provider usage proof must redact source scope and diagnostics.");
+  }
+  if (summary.rawProviderUsageRetained) {
+    throw new Error("Provider usage proof must not retain raw provider usage responses.");
+  }
+  if (summary.accountOrTeamIdentifiersRetained) {
+    throw new Error("Provider usage proof must not retain account or team identifiers.");
+  }
+  if (summary.fullProviderUrlsRetained) {
+    throw new Error("Provider usage proof must not retain full provider URLs.");
+  }
+  if (!Number.isInteger(summary.actualRequestCount) || summary.actualRequestCount < 0) {
+    throw new Error("Provider usage proof actual request count must be a non-negative integer.");
+  }
+  if (!Number.isInteger(summary.pageCount) || summary.pageCount < 0) {
+    throw new Error("Provider usage proof page count must be a non-negative integer.");
+  }
+  if (!Number.isInteger(summary.cacheHitCount) || summary.cacheHitCount < 0) {
+    throw new Error("Provider usage proof cache hit count must be a non-negative integer.");
+  }
+  if (!Number.isInteger(summary.cacheMissCount) || summary.cacheMissCount < 0) {
+    throw new Error("Provider usage proof cache miss count must be a non-negative integer.");
+  }
+  if (
+    summary.estimatedRequestCount !== "estimate-unavailable" &&
+    (!Number.isInteger(summary.estimatedRequestCount) || summary.estimatedRequestCount < 0)
+  ) {
+    throw new Error("Provider usage proof estimated request count must be a non-negative integer or unavailable.");
+  }
+  if (summary.bulkFirstConfirmed && summary.perRecordFallbackReasonRedacted) {
+    throw new Error("Provider usage proof must not record a per-record fallback reason when bulk-first is confirmed.");
+  }
+}
 
 export async function runCatalogTcgdexRealProviderProof(
   input: Readonly<{

@@ -125,6 +125,87 @@ describe("Catalog integration rollout controls", () => {
     ).toMatchObject({ allowed: true });
   });
 
+  it("requires unit-aware One Piece production signoff without blocking Pokemon or MTG TCGplayer units", () => {
+    const openProductionEnv = {
+      DEPLOYMENT_ENVIRONMENT: "production",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "open",
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "open",
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "#2025 #2039 staging UAT evidence",
+    };
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(openProductionEnv);
+
+    expect(
+      unsignedPolicy.decide({
+        capability: "import",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({
+          controlId: "one-piece-production-signoff-required",
+          providerKeys: ["scrydex", "tcgplayer"],
+          unitKeys: [
+            "scrydex:one-piece:single-card:source-observation-import",
+            "scrydex:one-piece:sealed-product:source-observation-import",
+            "tcgplayer:one-piece:single-card:source-observation-import",
+            "tcgplayer:one-piece:sealed-product:source-observation-import",
+          ],
+        }),
+      ],
+    });
+    expect(
+      unsignedPolicy.decide({
+        capability: "promotion",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "one-piece-production-signoff-required" })],
+    });
+    expect(
+      unsignedPolicy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+    expect(
+      unsignedPolicy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+
+    const signedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...openProductionEnv,
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE:
+        "#2285 UI-only staging UAT; Scrydex provider usage summary redacted",
+    });
+
+    expect(
+      signedPolicy.decide({
+        capability: "import",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+    expect(
+      signedPolicy.decide({
+        capability: "activation",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+        profileLifecycle: "active",
+      }),
+    ).toMatchObject({ allowed: true });
+  });
+
   it("blocks provider transport and option queries when a provider adapter is disabled", () => {
     const policy = createCatalogIntegrationRolloutControlPolicy({
       disabledProviderAdapters: ["tcgdex"],
