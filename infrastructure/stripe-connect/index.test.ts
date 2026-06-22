@@ -314,6 +314,162 @@ describe("money movement adapters", () => {
     });
   });
 
+  it("Stripe adapter maps Accounts v2 requirement entries into payout setup blockers", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "https://stripe.test/v1/balance_settings") {
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (String(input) === "https://stripe.test/v2/core/accounts") {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ id: "acct_entries" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_entries?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      );
+      return new Response(
+        JSON.stringify({
+          id: "acct_entries",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
+          requirements: {
+            entries: [
+              {
+                minimum_deadline: { status: "currently_due" },
+                reference: { type: "payment_method", resource: "pm_test" },
+                impact: {
+                  restricts_capabilities: [
+                    {
+                      configuration: "recipient",
+                      capability: "stripe_balance.payouts",
+                      deadline: { status: "past_due" },
+                    },
+                  ],
+                },
+              },
+              {
+                minimum_deadline: { status: "currently_due" },
+                reference: { type: "person", resource: "person_test" },
+                requested_reasons: [{ code: "routine_onboarding" }],
+              },
+            ],
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "pending" },
+                  payouts: { status: "pending" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.ensurePayoutAccount({
+        accountId: "acc_seller" as never,
+        currencyCode: "usd",
+        idempotencyKey: "entries-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_entries",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "pending",
+      payoutCapabilityStatus: "pending",
+      payoutDestinationStatus: "missing",
+      missingRequirements: ["identity_and_business", "payout_account"],
+    });
+  });
+
+  it("Stripe adapter treats capability status details with required provider info as setup blockers", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "https://stripe.test/v1/balance_settings") {
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (String(input) === "https://stripe.test/v2/core/accounts") {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ id: "acct_status_details" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(
+        JSON.stringify({
+          id: "acct_status_details",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
+          requirements: { entries: [] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: {
+                    status: "pending",
+                    status_details: [{ code: "requirements_past_due", resolution: "provide_info" }],
+                  },
+                  payouts: {
+                    status: "pending",
+                    status_details: [{ code: "requirements_past_due", resolution: "provide_info" }],
+                  },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.ensurePayoutAccount({
+        accountId: "acc_seller" as never,
+        currencyCode: "usd",
+        idempotencyKey: "status-detail-key",
+      }),
+    ).resolves.toMatchObject({
+      onboardingStatus: "pending",
+      missingRequirements: ["identity_and_business", "payout_account"],
+    });
+  });
+
   it("Stripe adapter creates embedded payout account management sessions", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
