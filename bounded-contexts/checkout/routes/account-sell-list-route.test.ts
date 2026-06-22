@@ -655,6 +655,63 @@ describe("checkout web routes: account sell list", () => {
     expectNoSellerCommitSideEffects();
   });
 
+  it("preserves product fallback listing choices when no Smart Match offer is selected", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const sellListLine = {
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      quantity: 1,
+    };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
+      createSellListReadiness: mockCreateSellListReadiness,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("fallbackMode:sll_product", "create-listing");
+    form.set("inventoryItemId:sll_product", "inv_1");
+    form.set("priceAmount:sll_product", "12.00");
+    form.set("quantityCap:sll_product", "1");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const redirect = expectSignedInSellCheckoutRedirect(response);
+    expect(mockGetOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
+      lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
+      lineOutcomes: [],
+    });
+    expect(redirect.readinessDecisions).toEqual({
+      lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
+      lineOutcomes: [],
+    });
+    expect((redirect.sellListReviewPlan.lines as unknown[])[0]).toEqual(
+      expect.objectContaining({
+        lineId: "sll_product",
+        productOfferTargets: [],
+        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+      }),
+    );
+    expectNoSellerCommitSideEffects();
+  });
+
   it("keeps partially resolved product lines out of seller checkout until the remainder is assigned", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({

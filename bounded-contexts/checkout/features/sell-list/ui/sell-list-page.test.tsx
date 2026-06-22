@@ -268,11 +268,62 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Create listing");
     expect(markup).toContain("Add inventory");
     expect(markup).toContain('href="/account/listings?catalogItemId=cat_charizard');
-    expect(markup).toContain('href="/account/inventory"');
+    expect(markup).toContain('href="/account/inventory?catalogItemId=cat_charizard');
+    expect(markup).toContain("returnTo=%2Faccount%2Fsell-list");
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Continue sale checkout to safely resume");
     expect(markup).not.toContain("provider diagnostics");
     expect(markup).not.toContain("settlement internals");
+  });
+
+  it("lets a product line submit fallback listing checkout when inventory is available", () => {
+    const productWithoutMatches: CheckoutSellListLineRow = {
+      ...productLine,
+      fallback_mode: "none",
+      minimum_listing_price_amount: null,
+    };
+
+    const { container } = render(
+      <CheckoutSellListPage
+        sellListLines={[productWithoutMatches]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "unavailable",
+            offers: [],
+            message: "No ready matching offers are currently available.",
+          },
+        ]}
+        inventoryItems={[
+          {
+            item_id: "inv_charizard",
+            product_id: productLine.product_id,
+            item_title: "Charizard",
+            product_summary: "Raw / Near Mint",
+            storage_location_name: "Home Vault",
+            ship_from_code: "KS",
+            available_quantity: 1,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Inventory is ready. Enter a listing price before continuing seller checkout."),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Continue to seller checkout" })[0]?.hasAttribute("disabled")).toBe(
+      false,
+    );
+    expect(
+      (container.querySelector('select[name="fallbackMode:sll_product"]') as HTMLSelectElement | null)?.value,
+    ).toBe("create-listing");
+    expect(
+      (container.querySelector('select[name="inventoryItemId:sll_product"]') as HTMLSelectElement | null)?.value,
+    ).toBe("inv_charizard");
+    expect(
+      (container.querySelector('input[name="priceAmount:sll_product"]') as HTMLInputElement | null)?.required,
+    ).toBe(true);
   });
 
   it("links unavailable selected offers to matching listing setup", () => {

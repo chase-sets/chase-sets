@@ -291,6 +291,18 @@ function listingSetupHref(line: CheckoutSellListLineRow, priceAmount: string | n
   return `/account/listings?${searchParams.toString()}`;
 }
 
+function inventorySetupHref(line: CheckoutSellListLineRow) {
+  const searchParams = new URLSearchParams({
+    catalogItemId: line.catalog_catalog_item_id,
+    returnTo: "/account/sell-list",
+  });
+  if (line.selected_options.length > 0) {
+    searchParams.set("selectedOptions", JSON.stringify(line.selected_options));
+  }
+
+  return `/account/inventory?${searchParams.toString()}`;
+}
+
 function inventoryListingSetupHref(inventoryItemId: string, priceAmount: string | null | undefined) {
   const searchParams = new URLSearchParams({ inventoryItemId });
   if (positiveMoney(priceAmount) !== null && priceAmount) {
@@ -309,6 +321,14 @@ function sellListLineSetupHref(line: CheckoutSellListLineRow, inventoryItem?: Se
     line,
     line.line_type === "selected-offer" ? line.offer_price_amount : line.minimum_listing_price_amount,
   );
+}
+
+function sellListLineRecoveryHref(line: CheckoutSellListLineRow, inventoryItem?: SellListInventoryItem | null) {
+  if (line.line_type === "product" && !inventoryItem) {
+    return inventorySetupHref(line);
+  }
+
+  return sellListLineSetupHref(line, inventoryItem);
 }
 
 function buyerLabel(offer: { buyer_display_name: string | null; buyer_account_id: string | null }) {
@@ -336,6 +356,14 @@ function selectedOfferReadiness(review: SellListOfferReview | undefined): LineRe
   };
 }
 
+function productLineCanSubmitCheckout(options: {
+  review: SellListProductOfferReview | undefined;
+  defaultInventoryItem: SellListInventoryItem | null;
+}): boolean {
+  const readyOfferCount = options.review?.offers.length ?? 0;
+  return readyOfferCount > 0 || Boolean(options.defaultInventoryItem);
+}
+
 function productLineReadiness(options: {
   review: SellListProductOfferReview | undefined;
   line: CheckoutSellListLineRow;
@@ -347,14 +375,16 @@ function productLineReadiness(options: {
     Boolean(options.defaultInventoryItem) &&
     positiveMoney(options.line.minimum_listing_price_amount) !== null;
 
-  if (readyOfferCount > 0 || fallbackReady) {
+  if (readyOfferCount > 0 || fallbackReady || (readyOfferCount === 0 && options.defaultInventoryItem)) {
     return {
       ready: true,
       label: t("checkout.features.sellList.ui.sellListPage.ready"),
       detail:
         readyOfferCount > 0
           ? t("checkout.features.sellList.ui.sellListPage.smart.match.ready.detail", { count: readyOfferCount })
-          : t("checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail"),
+          : fallbackReady
+            ? t("checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail")
+            : t("checkout.features.sellList.ui.sellListPage.fallback.listing.form.ready.detail"),
       tone: "success",
     };
   }
@@ -676,6 +706,7 @@ function ProductLineRow({
   const matchingOffersCoverLine = matchingOfferQuantity >= line.quantity;
   const defaultPrice = line.minimum_listing_price_amount ?? "";
   const setupHref = sellListLineSetupHref(line, defaultInventoryItem);
+  const inventoryHref = inventorySetupHref(line);
 
   return (
     <Surface element="article" tone="default" padding={4}>
@@ -793,7 +824,7 @@ function ProductLineRow({
                   <LinkButton href={setupHref} tone="secondary" size="sm">
                     {t("checkout.features.sellList.ui.sellListPage.create.listing")}
                   </LinkButton>
-                  <LinkButton href="/account/inventory" tone="ghost" size="sm">
+                  <LinkButton href={inventoryHref} tone="ghost" size="sm">
                     {t("checkout.features.sellList.ui.sellListPage.add.inventory")}
                   </LinkButton>
                 </Inline>
@@ -1101,13 +1132,25 @@ export function CheckoutSellListPage({
           defaultInventoryItem: inventoryByProductId.get(line.product_id)?.[0] ?? null,
         }),
   );
+  const lineCanSubmitCheckout = sellListLines.map((line) =>
+    line.line_type === "selected-offer"
+      ? selectedOfferReadiness(offerReviewsByLineId.get(line.line_id)).ready
+      : productLineCanSubmitCheckout({
+          review: productOfferReviewsByLineId.get(line.line_id),
+          defaultInventoryItem: inventoryByProductId.get(line.product_id)?.[0] ?? null,
+        }),
+  );
   const blockedLineCount = lineReadiness.filter((readiness) => !readiness.ready).length;
+  const blockedSubmissionLineCount = lineCanSubmitCheckout.filter((canSubmit) => !canSubmit).length;
   const readyLineCount = sellListLines.length - blockedLineCount;
   const payoutIsReady = isSignedIn ? payoutReadiness?.status === "ready" : true;
-  const canContinue = payoutIsReady && blockedLineCount === 0 && sellListLines.length > 0;
-  const firstBlockedLine = sellListLines.find((line, index) => !lineReadiness[index]?.ready) ?? null;
+  const canContinue = payoutIsReady && blockedSubmissionLineCount === 0 && sellListLines.length > 0;
+  const firstBlockedLine =
+    sellListLines.find((line, index) => !lineCanSubmitCheckout[index]) ??
+    sellListLines.find((line, index) => !lineReadiness[index]?.ready) ??
+    null;
   const firstBlockedLineHref = firstBlockedLine
-    ? sellListLineSetupHref(firstBlockedLine, inventoryByProductId.get(firstBlockedLine.product_id)?.[0] ?? null)
+    ? sellListLineRecoveryHref(firstBlockedLine, inventoryByProductId.get(firstBlockedLine.product_id)?.[0] ?? null)
     : null;
   const recoveryHref = !payoutIsReady ? "/account/payouts/setup" : (firstBlockedLineHref ?? "/search");
   const recoveryLabel = !payoutIsReady

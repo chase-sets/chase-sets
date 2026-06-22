@@ -368,6 +368,8 @@ export const checkoutEnglishTranslations = {
     "Expected payout before seller checkout",
   "checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail":
     "Inventory and listing price are ready for the remaining quantity.",
+  "checkout.features.sellList.ui.sellListPage.fallback.listing.form.ready.detail":
+    "Inventory is ready. Enter a listing price before continuing seller checkout.",
   "checkout.features.sellList.ui.sellListPage.inventory": "Inventory",
   "checkout.features.sellList.ui.sellListPage.inventory.option.label": "{location} / {shipFrom} ({quantity})",
   "checkout.features.sellList.ui.sellListPage.inventory.required": "Inventory required",
