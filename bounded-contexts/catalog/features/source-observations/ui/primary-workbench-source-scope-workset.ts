@@ -257,12 +257,14 @@ function sourceScopeUnitRow(
   );
   const routeScope = providerCommandScope(candidate, selectedScope.scope, matchingScopes[0] ?? null);
   const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
-  const jobs = input.importJobs.jobs.filter(
-    (job) =>
-      job.providerKey === candidate.providerKey &&
-      (!candidate.unitKey || job.unitKey === candidate.unitKey) &&
-      (!importScope || job.importScope === importScope),
-  );
+  const jobs = importScope
+    ? input.importJobs.jobs.filter(
+        (job) =>
+          job.providerKey === candidate.providerKey &&
+          (!candidate.unitKey || job.unitKey === candidate.unitKey) &&
+          job.importScope === importScope,
+      )
+    : [];
   const activeJobCount = jobs.filter((job) => job.state === "queued" || job.state === "running").length;
   const counts = providerCounts(matchingScopes);
   const blockers = unitReadinessBlockers(candidate, input);

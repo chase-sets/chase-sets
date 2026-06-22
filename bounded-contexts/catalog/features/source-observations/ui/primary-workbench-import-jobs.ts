@@ -262,10 +262,13 @@ function jobMatchesRouteScope(
   job: CatalogIntegrationRecentJobReadModel,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): boolean {
+  if (!routeContext.importScope) {
+    return !job.importScope;
+  }
+
   return (
-    !routeContext.importScope ||
     comparableImportScopeKey(job.importScope, job.providerKey) ===
-      comparableImportScopeKey(routeContext.importScope, routeContext.providerKey)
+    comparableImportScopeKey(routeContext.importScope, routeContext.providerKey)
   );
 }
 
