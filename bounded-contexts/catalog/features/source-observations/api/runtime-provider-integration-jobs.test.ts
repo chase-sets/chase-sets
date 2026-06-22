@@ -1128,6 +1128,39 @@ describe("source observation runtime: provider integration jobs", () => {
       imported: 1,
       observed: 1,
       failed: 0,
+      outcomes: [
+        expect.objectContaining({
+          providerKey: "scrydex",
+          expansionId: "set:op-01",
+          providerUsageEvidence: expect.objectContaining({
+            unitKey: "scrydex:one-piece:single-card:source-observation-import",
+            requestStrategy: "bulk-first",
+            estimateState: "estimate-unavailable",
+            estimatedRequestCount: null,
+            estimateReason: "Card page count is available only after the first Scrydex paged response.",
+            actualRequestCount: 1,
+            pageCount: 1,
+            cacheHitCount: 0,
+            cacheMissCount: 1,
+            usageCheckState: "not-configured",
+            bulkFirstConfirmed: true,
+            perRecordFallbackReason: null,
+            selectedFields: [
+              "id",
+              "name",
+              "number",
+              "printed_number",
+              "rarity",
+              "rarity_code",
+              "type",
+              "language",
+              "language_code",
+              "expansion",
+            ],
+            pageSize: 250,
+          }),
+        }),
+      ],
     });
     expect(harness.appendedSourceEvents).toHaveLength(1);
     expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({

@@ -16,6 +16,7 @@ import type {
   ProviderOptionQueryResult,
   ProviderPayloadEnvelope,
   ProviderTransportDiagnostic,
+  ProviderUsageEstimate,
 } from "./provider-adapter";
 
 export const SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
@@ -48,6 +49,8 @@ const scrydexSealedPageSize = 100;
 const scrydexExpansionSelect = "id,name,code,total,release_date,language,language_code";
 const scrydexCardSelect = "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion";
 const scrydexSealedSelect = "id,name,type,language,language_code,expansion";
+const scrydexUsageCheckNotConfiguredDiagnostic =
+  "Scrydex usage endpoint is not configured in the Catalog adapter yet; import evidence records estimated request posture plus actual redacted request/page counts.";
 
 export type ScrydexOnePieceCredentials = Readonly<{
   apiKey?: string | null;
@@ -464,6 +467,11 @@ function planScrydexOnePieceSetImport(scope: ProviderImportScope): ProviderImpor
       "Sanitize set reference payload",
       "Attach payload provenance",
     ],
+    usageEstimate: scrydexSingleRecordUsageEstimate({
+      estimatedRequestCount: 1,
+      selectedFields: [],
+      perRecordFallbackReason: "Selected set-reference import uses the Scrydex expansion detail endpoint.",
+    }),
   };
 }
 
@@ -476,6 +484,11 @@ function planScrydexOnePieceCardImport(scope: ProviderImportScope): ProviderImpo
       scope: { unitKey: scope.unitKey, scopeKey: "single-card", values: { ...scope.values, cardId } },
       estimatedPayloads: 1,
       transportSteps: ["Fetch Scrydex One Piece card by id", "Sanitize card payload", "Attach payload provenance"],
+      usageEstimate: scrydexSingleRecordUsageEstimate({
+        estimatedRequestCount: 1,
+        selectedFields: [],
+        perRecordFallbackReason: "Operator selected one explicit Scrydex card id.",
+      }),
     };
   }
 
@@ -492,6 +505,11 @@ function planScrydexOnePieceCardImport(scope: ProviderImportScope): ProviderImpo
       "Sanitize card payloads",
       "Attach payload provenance",
     ],
+    usageEstimate: scrydexBulkFirstUsageEstimate({
+      pageSize: scrydexCardPageSize,
+      selectedFields: scrydexCardSelect,
+      estimateReason: "Card page count is available only after the first Scrydex paged response.",
+    }),
   };
 }
 
@@ -512,6 +530,11 @@ function planScrydexOnePieceSealedImport(scope: ProviderImportScope): ProviderIm
         "Sanitize sealed-product payload",
         "Attach payload provenance",
       ],
+      usageEstimate: scrydexSingleRecordUsageEstimate({
+        estimatedRequestCount: 1,
+        selectedFields: [],
+        perRecordFallbackReason: "Operator selected one explicit Scrydex sealed product id.",
+      }),
     };
   }
 
@@ -528,7 +551,57 @@ function planScrydexOnePieceSealedImport(scope: ProviderImportScope): ProviderIm
       "Sanitize sealed-product payloads",
       "Attach payload provenance",
     ],
+    usageEstimate: scrydexBulkFirstUsageEstimate({
+      pageSize: scrydexSealedPageSize,
+      selectedFields: scrydexSealedSelect,
+      estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+    }),
   };
+}
+
+function scrydexBulkFirstUsageEstimate(input: {
+  pageSize: number;
+  selectedFields: string;
+  estimateReason: string;
+}): ProviderUsageEstimate {
+  return {
+    requestStrategy: "bulk-first",
+    estimateState: "estimate-unavailable",
+    estimatedRequestCount: null,
+    estimateReason: input.estimateReason,
+    pageSize: input.pageSize,
+    selectedFields: selectedFieldList(input.selectedFields),
+    perRecordFallbackReason: null,
+    usageCheckState: "not-configured",
+    creditDiagnostic: scrydexUsageCheckNotConfiguredDiagnostic,
+    degradedDiagnostic: null,
+  };
+}
+
+function scrydexSingleRecordUsageEstimate(input: {
+  estimatedRequestCount: number;
+  selectedFields: readonly string[];
+  perRecordFallbackReason: string;
+}): ProviderUsageEstimate {
+  return {
+    requestStrategy: "single-record",
+    estimateState: "estimated",
+    estimatedRequestCount: input.estimatedRequestCount,
+    estimateReason: null,
+    pageSize: null,
+    selectedFields: input.selectedFields,
+    perRecordFallbackReason: input.perRecordFallbackReason,
+    usageCheckState: "not-configured",
+    creditDiagnostic: scrydexUsageCheckNotConfiguredDiagnostic,
+    degradedDiagnostic: null,
+  };
+}
+
+function selectedFieldList(select: string): readonly string[] {
+  return select
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => field.length > 0);
 }
 
 async function fetchScrydexExpansions(

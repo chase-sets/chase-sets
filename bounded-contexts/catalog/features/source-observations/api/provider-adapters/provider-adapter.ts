@@ -78,12 +78,26 @@ export type ProviderImportScope = Readonly<{
   values: Readonly<Record<string, string>>;
 }>;
 
+export type ProviderUsageEstimate = Readonly<{
+  requestStrategy: "bulk-first" | "single-record" | "unknown";
+  estimateState: "estimated" | "estimate-unavailable";
+  estimatedRequestCount: number | null;
+  estimateReason: string | null;
+  pageSize: number | null;
+  selectedFields: readonly string[];
+  perRecordFallbackReason: string | null;
+  usageCheckState: "checked" | "not-supported" | "not-configured" | "unavailable" | "unknown";
+  creditDiagnostic: string | null;
+  degradedDiagnostic: string | null;
+}>;
+
 export type ProviderImportPlan = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
   planKey: string;
   scope: ProviderImportScope;
   estimatedPayloads?: number;
   transportSteps: readonly string[];
+  usageEstimate?: ProviderUsageEstimate;
 }>;
 
 export type ProviderPayloadFetchProgress = Readonly<{
