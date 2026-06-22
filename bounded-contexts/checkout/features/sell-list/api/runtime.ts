@@ -18,6 +18,7 @@ import {
   decideCheckoutSellList,
   evolveCheckoutSellList,
   initialCheckoutSellListState,
+  type CheckoutSellListLine,
   type CheckoutSellListCommand,
   type CheckoutSellListEvent,
   type CheckoutSellListState,
@@ -287,6 +288,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       : projectedLines;
   }
 
+  async function listAggregateSellListLines(sellerAccountId: string): Promise<readonly CheckoutSellListLine[]> {
+    const aggregate = await repository.load(sellListStreamId(sellerAccountId));
+    return aggregate.state.lines;
+  }
+
   const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
     const normalized = await normalizeInput(params);
     const existingLine = (await listCanonicalSellListLines(params.sellerAccountId)).find((line) =>
@@ -433,12 +439,12 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     getConfirmation: (sellerAccountId, confirmationId) =>
       getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
     mergeSellListIntoAccount: async (params, context) => {
-      const sourceLines = await listCanonicalSellListLines(params.sourceOwnerId);
+      const sourceLines = await listAggregateSellListLines(params.sourceOwnerId);
       const existingTargetLineIds = new Set(
-        (await listCanonicalSellListLines(params.targetAccountId)).map((line) => line.line_id),
+        (await listAggregateSellListLines(params.targetAccountId)).map((line) => line.lineId),
       );
       for (const line of sourceLines) {
-        if (existingTargetLineIds.has(line.line_id)) {
+        if (existingTargetLineIds.has(line.lineId)) {
           continue;
         }
 
@@ -448,21 +454,21 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
             command: {
               type: "AddSellListLine",
               sellerAccountId: params.targetAccountId,
-              lineId: line.line_id as SellListLineId,
-              lineType: line.line_type,
-              offerId: line.offer_id,
-              buyerAccountId: line.buyer_account_id,
-              buyerDisplayName: line.buyer_display_name,
-              offerPriceAmount: line.offer_price_amount,
-              catalogItemId: line.catalog_catalog_item_id,
-              productId: line.product_id,
-              itemTitle: line.item_title,
-              itemSubtitle: line.item_subtitle,
-              selectedOptions: line.selected_options,
-              productSummary: line.product_summary,
+              lineId: line.lineId,
+              lineType: line.lineType,
+              offerId: line.offerId,
+              buyerAccountId: line.buyerAccountId,
+              buyerDisplayName: line.buyerDisplayName,
+              offerPriceAmount: line.offerPriceAmount,
+              catalogItemId: line.catalogItemId,
+              productId: line.productId,
+              itemTitle: line.itemTitle,
+              itemSubtitle: line.itemSubtitle,
+              selectedOptions: line.selectedOptions,
+              productSummary: line.productSummary,
               quantity: line.quantity,
-              fallbackMode: line.fallback_mode,
-              minimumListingPriceAmount: line.minimum_listing_price_amount,
+              fallbackMode: line.fallbackMode,
+              minimumListingPriceAmount: line.minimumListingPriceAmount,
             },
             context,
           });
@@ -480,7 +486,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
               streamId: `checkout.sell-list-${params.sourceOwnerId}`,
               command: {
                 type: "RemoveSellListLine",
-                lineId: line.line_id as SellListLineId,
+                lineId: line.lineId,
               },
               context,
             });
