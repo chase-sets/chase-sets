@@ -257,6 +257,9 @@ function sourceScopeUnitRow(
   );
   const routeScope = providerCommandScope(candidate, selectedScope.scope, matchingScopes[0] ?? null);
   const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
+  const workbenchScope = selectedScope.hasConcreteScope
+    ? routeScope
+    : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
   const jobs = importScope
     ? input.importJobs.jobs.filter(
         (job) =>
@@ -307,7 +310,7 @@ function sourceScopeUnitRow(
         ...input.routeContext,
         providerKey: candidate.providerKey,
         unitKey: candidate.unitKey,
-        scope: routeScope,
+        scope: workbenchScope,
         importScope,
         profileVersion: candidate.profile?.profileVersion ?? null,
         promotionPreviewId: null,
