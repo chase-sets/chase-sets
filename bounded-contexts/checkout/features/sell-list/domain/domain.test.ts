@@ -29,6 +29,10 @@ describe("checkout sell list domain", () => {
       lineId: "sll_1" as never,
       quantity: 3,
     });
+    expect(updated[0]).toMatchObject({
+      type: "checkout.sell-list.line-quantity-set",
+      data: { sellerAccountId: "acc_seller", lineId: "sll_1", quantity: 3 },
+    });
     const updatedState = updated.reduce(evolveCheckoutSellList, addedState);
 
     expect(updatedState.sellerAccountId).toBe("acc_seller");
@@ -39,6 +43,10 @@ describe("checkout sell list domain", () => {
     const removed = decideCheckoutSellList(updatedState, {
       type: "RemoveSellListLine",
       lineId: "sll_1" as never,
+    });
+    expect(removed[0]).toMatchObject({
+      type: "checkout.sell-list.line-removed",
+      data: { sellerAccountId: "acc_seller", lineId: "sll_1" },
     });
     const removedState = removed.reduce(evolveCheckoutSellList, updatedState);
 

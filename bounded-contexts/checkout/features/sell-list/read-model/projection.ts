@@ -1,6 +1,15 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+function resolveSellListSellerAccountId(event: { streamId: string }, data: { sellerAccountId?: unknown }) {
+  if (typeof data.sellerAccountId === "string" && data.sellerAccountId.trim()) {
+    return data.sellerAccountId;
+  }
+
+  const streamPrefix = "checkout.sell-list-";
+  return event.streamId.startsWith(streamPrefix) ? event.streamId.slice(streamPrefix.length) : null;
+}
+
 export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "checkout.sell-list.line-added": async (event) => {
@@ -82,7 +91,20 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
       );
     },
     "checkout.sell-list.line-quantity-set": async (event) => {
-      const data = event.data as { lineId: string; quantity: number };
+      const data = event.data as { sellerAccountId?: string | null; lineId: string; quantity: number };
+      const sellerAccountId = resolveSellListSellerAccountId(event, data);
+
+      if (sellerAccountId) {
+        await db.query(
+          `UPDATE checkout_sell_list_line_pages
+           SET quantity = $3,
+               updated_at = $4
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [sellerAccountId, data.lineId, data.quantity, event.timing.recordedAt],
+        );
+        return;
+      }
 
       await db.query(
         `UPDATE checkout_sell_list_line_pages
@@ -93,7 +115,18 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
       );
     },
     "checkout.sell-list.line-removed": async (event) => {
-      const data = event.data as { lineId: string };
+      const data = event.data as { sellerAccountId?: string | null; lineId: string };
+      const sellerAccountId = resolveSellListSellerAccountId(event, data);
+
+      if (sellerAccountId) {
+        await db.query(
+          `DELETE FROM checkout_sell_list_line_pages
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [sellerAccountId, data.lineId],
+        );
+        return;
+      }
 
       await db.query(
         `DELETE FROM checkout_sell_list_line_pages
