@@ -25,6 +25,7 @@ import {
   credentialBlockerFor,
   providerTransportBlockerFor,
   providerTransportFor,
+  sourceOptionKindsForProfile,
 } from "./primary-workbench-read-model-support";
 
 type SourceScopeWorksetInput = Readonly<{
@@ -414,11 +415,12 @@ function profileCanSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchScopeContext,
 ): boolean {
-  if (!profile || profile.sourceOptionKinds.length === 0) {
+  const sourceOptionKinds = sourceOptionKindsForProfile(profile);
+  if (!profile || sourceOptionKinds.length === 0) {
     return true;
   }
 
-  const selectableScopes = new Set(profile.sourceOptionKinds.map((kind) => kind.scope));
+  const selectableScopes = new Set(sourceOptionKinds.map((kind) => kind.scope));
   const selectsSetName = selectableScopes.has("set-name");
   if (
     Boolean(scope.productLineId || scope.productLineName) &&

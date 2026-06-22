@@ -84,14 +84,15 @@ async function loadIntegrationsBaseline(
   const api = createCatalogRequestApiClient(request);
   const [routeDataResult, profileReviews, controlPlaneOverviewResult, actor] = await Promise.all([
     catalogApiResult(
-      loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
-        api.listSourceObservationIntegrationScopes(query),
-      ),
+      () =>
+        loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
+          api.listSourceObservationIntegrationScopes(query),
+        ),
       emptyListRouteData<SourceObservationIntegrationScope>(request),
     ),
     api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
     catalogApiResult(
-      api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
+      () => api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
       null,
     ),
     resolveActorFromAuthApi({ request }),
@@ -177,7 +178,10 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
   const reviewObservationResult = reviewQuery
-    ? await catalogApiResult(api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
+    ? await catalogApiResult(
+        () => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery),
+        null,
+      )
     : ({ value: null, failed: false } as const);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...baseline.readModelFailures];
   if (reviewObservationResult.failed) {
@@ -264,16 +268,13 @@ async function deferredSourceOptionsSlice(
 }
 
 async function catalogApiResult<T>(
-  operation: Promise<T>,
+  operation: () => Promise<T>,
   fallback: T,
 ): Promise<Readonly<{ value: T; failed: boolean }>> {
   try {
-    return { value: await operation, failed: false };
-  } catch (error) {
-    if (error instanceof CatalogApiError) {
-      return { value: fallback, failed: true };
-    }
-    throw error;
+    return { value: await operation(), failed: false };
+  } catch {
+    return { value: fallback, failed: true };
   }
 }
 

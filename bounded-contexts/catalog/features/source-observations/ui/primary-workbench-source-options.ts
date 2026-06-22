@@ -11,7 +11,11 @@ import type {
   SourceObservationIntegrationScope,
 } from "./contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
-import { actionStateForBlockers, profilePointerForProfile } from "./primary-workbench-read-model-support";
+import {
+  actionStateForBlockers,
+  profilePointerForProfile,
+  sourceOptionKindsForProfile,
+} from "./primary-workbench-read-model-support";
 import {
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
@@ -142,7 +146,8 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     context.requestedUnitKey,
     context.activeProfileAmbiguous,
   );
-  if (!profile?.sourceOptionKinds.length || !providerKey) {
+  const sourceOptionKinds = sourceOptionKindsForProfile(profile);
+  if (!profile || sourceOptionKinds.length === 0 || !providerKey) {
     return [];
   }
 
@@ -154,7 +159,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     allowRepresentativeScope: context.allowRepresentativeScope,
   });
   const limit = input.limit ?? SOURCE_OPTION_PAGE_LIMIT;
-  return profile.sourceOptionKinds
+  return sourceOptionKinds
     .filter((kind) => sourceScopeOptionScopes.has(kind.scope))
     .map((kind) => {
       const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
@@ -481,7 +486,7 @@ function sourceOptionLanguageCode(
 ): string {
   const profileDefault = profile.languageOptions[0]?.trim();
   const selected = selectedLanguage?.trim();
-  const languageIsOperatorSelectable = profile.sourceOptionKinds.some((kind) => kind.scope === "language");
+  const languageIsOperatorSelectable = sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "language");
 
   if (languageIsOperatorSelectable && selected) {
     return selected;
@@ -515,8 +520,9 @@ function sourceOptionSelectedContextScopes(
     return selectedScopes;
   }
 
-  const parentScopeByScope = new Map(profile.sourceOptionKinds.map((kind) => [kind.scope, kind.parentScope]));
-  for (const kind of profile.sourceOptionKinds) {
+  const sourceOptionKinds = sourceOptionKindsForProfile(profile);
+  const parentScopeByScope = new Map(sourceOptionKinds.map((kind) => [kind.scope, kind.parentScope]));
+  for (const kind of sourceOptionKinds) {
     if (explicitScopeIncludesSelection(scope, kind.scope)) {
       addScopeAndAncestors(selectedScopes, parentScopeByScope, kind.scope);
     }
@@ -613,7 +619,7 @@ function sourceOptionKindReadModel(
   request: CatalogPrimaryWorkbenchSourceOptionRequest,
   profile: CatalogProviderProfileVersionReview | null,
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["optionKinds"][number] {
-  const kind = profile?.sourceOptionKinds.find((candidate) => candidate.queryKind === request.queryKind);
+  const kind = sourceOptionKindsForProfile(profile).find((candidate) => candidate.queryKind === request.queryKind);
   const missing = Boolean(kind?.parentRequired && kind.parentScope && !request.selectedParentValue);
   return {
     queryKind: request.queryKind,

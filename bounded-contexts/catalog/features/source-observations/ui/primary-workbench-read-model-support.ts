@@ -4,7 +4,11 @@ import type {
   CatalogPrimaryWorkbenchProviderTransportCategory,
   CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
-import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVersionReview } from "./contracts";
+import type {
+  CatalogIntegrationControlPlaneOverview,
+  CatalogProviderProfileVersionReview,
+  CatalogProviderSourceOptionKind,
+} from "./contracts";
 import {
   comparableImportScopeKey as comparableStructuredImportScopeKey,
   importScopeSegment as structuredImportScopeSegment,
@@ -230,6 +234,12 @@ export function profilePointerForProfile(
     connectorSourceVersion: null,
     sourceMappingFingerprint: null,
   };
+}
+
+export function sourceOptionKindsForProfile(
+  profile: CatalogProviderProfileVersionReview | null | undefined,
+): readonly CatalogProviderSourceOptionKind[] {
+  return Array.isArray(profile?.sourceOptionKinds) ? profile.sourceOptionKinds : [];
 }
 
 export function normalizeUnitSegment(value: string): string {
