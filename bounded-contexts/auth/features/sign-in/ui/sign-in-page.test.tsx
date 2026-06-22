@@ -63,6 +63,18 @@ describe("sign-in page two-step journey", () => {
     expect(form.querySelector('button[type="submit"]')?.textContent).toBe("Continue");
   });
 
+  it("posts credential forms to the supplied auth action so return targets survive", () => {
+    const action = "/sign-in?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout";
+    render(<SignInPage action={action} />);
+
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+
+    const passwordForm = document.querySelector('input[name="intent"][value="password"]')?.closest("form");
+
+    expect(passwordForm?.getAttribute("action")).toBe(action);
+  });
+
   it("can render an admin Google Workspace SSO entry point", () => {
     render(
       <SignInPage

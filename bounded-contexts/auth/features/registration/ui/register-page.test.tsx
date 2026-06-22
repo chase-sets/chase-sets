@@ -112,6 +112,17 @@ describe("registration page", () => {
     expect(document.querySelector('input[name="intent"][value="password"]')).not.toBeNull();
   });
 
+  it("posts registration forms to the supplied auth action so return targets survive", () => {
+    const action = "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout";
+    render(<RegisterPage action={action} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
+
+    const passwordForm = document.querySelector('input[name="intent"][value="password"]')?.closest("form");
+
+    expect(passwordForm?.getAttribute("action")).toBe(action);
+  });
+
   it("explains passkey failures and lets the user continue with magic link without losing progress", async () => {
     render(<RegisterPage />);
     fillIdentity();
