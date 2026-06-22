@@ -1,4 +1,7 @@
 export type PlatformPostWriteConsistencyOutcome =
+  | "projection_hit"
+  | "fallback_used"
+  | "fallback_failed"
   | "missing_strategy"
   | "optimistic_applied"
   | "freshness_timeout"
@@ -24,6 +27,11 @@ export type PlatformPostWriteConsistencyEvent = Readonly<{
   actorMode?: string | null;
   recoveryAction?: string | null;
   freshnessOutcome?: string | null;
+  sourceContextName?: string | null;
+  projectionName?: string | null;
+  readModelTable?: string | null;
+  fallbackId?: string | null;
+  fallbackCategory?: string | null;
 }>;
 
 export type PlatformPostWriteConsistencyRecorder = (event: PlatformPostWriteConsistencyEvent) => void;

@@ -363,6 +363,9 @@ describe("checkout observability", () => {
 describe("post-write consistency observability", () => {
   it("maps canonical post-write outcomes to low-cardinality labels", () => {
     const outcomes = [
+      "projection_hit",
+      "fallback_used",
+      "fallback_failed",
       "missing_strategy",
       "optimistic_applied",
       "freshness_timeout",
@@ -406,6 +409,11 @@ describe("post-write consistency observability", () => {
         actor_mode: "account",
         recovery_action: outcome === "freshness_timeout" ? "reload_prompt" : "none",
         freshness_outcome: outcome === "freshness_timeout" ? "timeout" : "none",
+        source_context: "none",
+        projection: "none",
+        read_model_table: "none",
+        fallback_id: "none",
+        fallback_category: "none",
       })),
     );
   });
@@ -444,6 +452,11 @@ describe("post-write consistency observability", () => {
       actor_mode: "account",
       recovery_action: "discarded-stale-snapshot",
       freshness_outcome: "not-required",
+      source_context: "none",
+      projection: "none",
+      read_model_table: "none",
+      fallback_id: "none",
+      fallback_category: "none",
     });
     expect(serializedAttributes).not.toContain("account_123");
     expect(serializedAttributes).not.toContain("cart_123");
@@ -467,6 +480,48 @@ describe("post-write consistency observability", () => {
         freshnessOutcome: "not-required",
       }),
     ).not.toThrow();
+  });
+
+  it("maps projection fallback diagnostics without exposing source payloads", () => {
+    const attributes = postWriteConsistencyEventAttributes({
+      boundedContextName: "commercial-terms",
+      surface: "commercial-terms-resolution",
+      strategy: "projection-fallback",
+      outcome: "fallback_failed",
+      sourceContextName: "identity",
+      projectionName: "commercial-terms-account-projection",
+      readModelTable: "commercial_terms_account_pages",
+      fallbackId: "commercial-terms.identity-account-source-fresh-account",
+      fallbackCategory: "host-owned bridge",
+      accountId: "acc_123",
+      identityPayload: {
+        email: "seller@example.com",
+        accountId: "acc_123",
+      },
+    } as never);
+
+    expect(attributes).toEqual({
+      type: "post-write.consistency",
+      context: "commercial-terms",
+      surface: "commercial-terms-resolution",
+      strategy: "projection-fallback",
+      outcome: "fallback_failed",
+      route_id: "none",
+      route_template: "none",
+      correction_source: "none",
+      actor_mode: "none",
+      recovery_action: "none",
+      freshness_outcome: "none",
+      source_context: "identity",
+      projection: "commercial-terms-account-projection",
+      read_model_table: "commercial_terms_account_pages",
+      fallback_id: "commercial-terms.identity-account-source-fresh-account",
+      fallback_category: "host-owned_bridge",
+    });
+
+    const serializedAttributes = JSON.stringify(attributes);
+    expect(serializedAttributes).not.toContain("acc_123");
+    expect(serializedAttributes).not.toContain("seller@example.com");
   });
 
   it("maps semantic handoff diagnostics without exposing handoff payloads", () => {
@@ -507,6 +562,11 @@ describe("post-write consistency observability", () => {
       actor_mode: "guest",
       recovery_action: "pending_empty_state",
       freshness_outcome: "valid-after-write",
+      source_context: "none",
+      projection: "none",
+      read_model_table: "none",
+      fallback_id: "none",
+      fallback_category: "none",
     });
     expect(serializedAttributes).not.toContain("raw-token");
     expect(serializedAttributes).not.toContain("postWriteHandoff");

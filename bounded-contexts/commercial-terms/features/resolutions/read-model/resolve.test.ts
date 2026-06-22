@@ -1,6 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { createCommercialTermsResolver } from "./resolve";
+
+const accountSourceTelemetryBase = {
+  boundedContextName: "commercial-terms",
+  sourceContextName: "identity",
+  projectionName: "commercial-terms-account-projection",
+  readModelTable: "commercial_terms_account_pages",
+  fallbackId: "commercial-terms.identity-account-source-fresh-account",
+  fallbackCategory: "host-owned bridge",
+  surface: "commercial-terms-resolution",
+  strategy: "projection-fallback",
+} as const;
+
+const accountSourceTelemetryRecorder = vi.fn();
+let unregisterAccountSourceTelemetryRecorder: (() => void) | null = null;
 
 function createDb(
   options: Readonly<{
@@ -91,6 +106,16 @@ function createPublicStandardDb(
 }
 
 describe("commercial terms resolver", () => {
+  beforeEach(() => {
+    accountSourceTelemetryRecorder.mockReset();
+    unregisterAccountSourceTelemetryRecorder = registerPostWriteConsistencyRecorder(accountSourceTelemetryRecorder);
+  });
+
+  afterEach(() => {
+    unregisterAccountSourceTelemetryRecorder?.();
+    unregisterAccountSourceTelemetryRecorder = null;
+  });
+
   it("resolves the default schedule for personal accounts", async () => {
     const resolver = createCommercialTermsResolver({
       db: createDb({
@@ -140,6 +165,10 @@ describe("commercial terms resolver", () => {
     expect(result.sellerNetUnitAmount).toBe("9.05");
     expect(result.scheduleId).toBe("cts_business");
     expect(result.agreementId).toBeNull();
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      ...accountSourceTelemetryBase,
+      outcome: "projection_hit",
+    });
   });
 
   it("resolves the default schedule for enterprise accounts", async () => {
@@ -247,6 +276,105 @@ describe("commercial terms resolver", () => {
     expect(result.accountType).toBe("personal");
     expect(result.marketplaceSalesFeeUnitAmount).toBe("1.05");
     expect(result.scheduleId).toBe("cts_personal");
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      ...accountSourceTelemetryBase,
+      outcome: "fallback_used",
+    });
+  });
+
+  it("records a fallback failure when the host account source is missing the account", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        accountMissing: true,
+        schedule: {
+          schedule_id: "cts_personal",
+          marketplace_sales_fee_percentage_bps: 900,
+          marketplace_sales_fee_fixed_amount: "0.15",
+        },
+      }),
+      accountSource: {
+        getAccount: async () => null,
+      },
+    });
+
+    await expect(
+      resolver.resolveListingTerms({
+        accountId: "acc_fresh",
+        amount: "10.00",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("is not available for commercial terms");
+
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      ...accountSourceTelemetryBase,
+      outcome: "fallback_failed",
+    });
+  });
+
+  it("records a fallback failure when the host account source returns an inactive account", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        accountMissing: true,
+        schedule: {
+          schedule_id: "cts_personal",
+          marketplace_sales_fee_percentage_bps: 900,
+          marketplace_sales_fee_fixed_amount: "0.15",
+        },
+      }),
+      accountSource: {
+        getAccount: async (accountId) => ({
+          account_id: accountId,
+          account_type: "personal",
+          status: "suspended",
+        }),
+      },
+    });
+
+    await expect(
+      resolver.resolveListingTerms({
+        accountId: "acc_fresh",
+        amount: "10.00",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("is not active");
+
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      ...accountSourceTelemetryBase,
+      outcome: "fallback_failed",
+    });
+  });
+
+  it("records a fallback failure when the host account source omits the account type", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        accountMissing: true,
+        schedule: {
+          schedule_id: "cts_personal",
+          marketplace_sales_fee_percentage_bps: 900,
+          marketplace_sales_fee_fixed_amount: "0.15",
+        },
+      }),
+      accountSource: {
+        getAccount: async (accountId) =>
+          ({
+            account_id: accountId,
+            status: "active",
+          }) as never,
+      },
+    });
+
+    await expect(
+      resolver.resolveListingTerms({
+        accountId: "acc_fresh",
+        amount: "10.00",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("is missing account type");
+
+    expect(accountSourceTelemetryRecorder).toHaveBeenCalledWith({
+      ...accountSourceTelemetryBase,
+      outcome: "fallback_failed",
+    });
   });
 
   it("falls back to the schedule when the account agreement is inactive or out of range", async () => {
