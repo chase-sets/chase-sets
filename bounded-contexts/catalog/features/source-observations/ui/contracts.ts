@@ -743,12 +743,56 @@ export interface SourceObservationIntegrationJobConsistency {
 
 export interface SourceObservationIntegrationJobScope {
   provider?: string;
+  profileKey?: string;
+  ingestionUnitKey?: string;
   language?: string;
   seriesId?: string;
   setId?: string;
   productLineId?: string;
   setName?: string;
   productId?: string;
+}
+
+export interface SourceObservationProviderUsageEstimate {
+  requestStrategy: "bulk-first" | "single-record" | "unknown";
+  estimateState: "estimated" | "estimate-unavailable";
+  estimatedRequestCount: number | null;
+  estimateReason: string | null;
+  pageSize: number | null;
+  selectedFields: string[];
+  perRecordFallbackReason: string | null;
+  usageCheckState: "checked" | "not-supported" | "not-configured" | "unavailable" | "unknown";
+  creditDiagnostic: string | null;
+  degradedDiagnostic: string | null;
+}
+
+export interface SourceObservationProviderUsageEvidence extends SourceObservationProviderUsageEstimate {
+  unitKey: string;
+  actualRequestCount: number | null;
+  pageCount: number | null;
+  cacheHitCount: number | null;
+  cacheMissCount: number | null;
+  bulkFirstConfirmed: boolean | null;
+}
+
+export interface SourceObservationIntegrationImportPreviewTarget {
+  targetId: string;
+  name: string;
+  languageCode: string;
+  scopeKey: string;
+  planKey: string;
+  estimatedPayloads: number | null;
+  transportSteps: string[];
+  usageEstimate: SourceObservationProviderUsageEstimate | null;
+}
+
+export interface SourceObservationIntegrationImportPreview {
+  action: "import";
+  providerKey: string;
+  scope: SourceObservationIntegrationJobScope;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  targetCount: number;
+  targets: SourceObservationIntegrationImportPreviewTarget[];
 }
 
 export interface SourceObservationIntegrationJobOutcome {
@@ -759,6 +803,7 @@ export interface SourceObservationIntegrationJobOutcome {
   observed: number;
   reapplied: number;
   reason: string | null;
+  providerUsageEvidence?: SourceObservationProviderUsageEvidence | null;
 }
 
 export interface SourceObservationIntegrationJobResult {

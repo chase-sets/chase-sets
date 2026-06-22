@@ -78,6 +78,55 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     return c.json(job, 202);
   });
 
+  app.post("/integration-jobs/preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      action?: unknown;
+      scope?: unknown;
+    };
+    const actionValue = String(body.action ?? "import");
+    if (actionValue !== "import") {
+      return c.json(
+        {
+          error: {
+            code: "invalid_action",
+            message: t("catalog.features.sourceObservations.api.route.integration.job.invalid.action"),
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      const preview = await services.previewIntegrationImport({
+        scope: parseIntegrationJobScope(body.scope),
+        context: c.get("context"),
+      });
+      return c.json(preview);
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      if (!isIntegrationJobValidationError(error)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "invalid_scope",
+            message: error.message,
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/integration-jobs/active", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
     if (permissionError) {

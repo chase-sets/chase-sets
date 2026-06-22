@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
+import type { SourceObservationIntegrationImportPreview } from "./contracts";
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
@@ -16,6 +17,7 @@ import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-
 export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   aliasVisibility?: ReactElement | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
 }>;
 
 export type CatalogPrimaryWorkbenchWorkspaceRenderer = (
@@ -34,6 +36,7 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
       readModel={readModel}
       aliasVisibility={slots.aliasVisibility}
       deferredSourceOptions={slots.deferredSourceOptions}
+      deferredImportPreview={slots.deferredImportPreview}
     />
   ),
   "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,

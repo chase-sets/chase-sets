@@ -737,6 +737,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /reapply",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/resume",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/retry",
@@ -802,6 +803,7 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9d96152ce165#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd82bcf180987#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hfc8f3ecbaae5#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hfd5a82933793#1"
       ],
       "visibleDestination": {

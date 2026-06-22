@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from "react";
+import { Suspense, useMemo, type ReactNode } from "react";
+import { Await } from "react-router";
 import {
   Badge,
   BadgeCluster,
@@ -7,6 +8,7 @@ import {
   EmptyState,
   KeyValueList,
   LinkText,
+  WorkbenchDetailPanel,
   WorkbenchActionRow,
   WorkbenchDataCell,
   WorkbenchForm,
@@ -23,6 +25,12 @@ import type {
   CatalogPrimaryWorkbenchProviderTransportCategory,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
+import type {
+  SourceObservationIntegrationImportPreview,
+  SourceObservationIntegrationImportPreviewTarget,
+  SourceObservationProviderUsageEstimate,
+} from "../../contracts";
+import { DeferredSupplementaryPanel } from "../../deferred-supplementary-panel";
 import {
   catalogPrimaryWorkbenchProviderTransportSummary,
   getCatalogPrimaryWorkbenchProviderTransportCopy,
@@ -37,8 +45,10 @@ type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][numbe
 
 export function CatalogIntegrationImportJobsModule({
   readModel,
+  deferredImportPreview = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
 }>) {
   // Live progress: while a durable import is active and the tab is visible, the
   // loader revalidates on a bounded interval and `jobProgress` carries the
@@ -333,6 +343,9 @@ export function CatalogIntegrationImportJobsModule({
           <WorkbenchGridSpan>
             <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
           </WorkbenchGridSpan>
+          <WorkbenchGridSpan>
+            <DeferredImportPreviewEvidence deferredImportPreview={deferredImportPreview} />
+          </WorkbenchGridSpan>
         </WorkbenchGrid>
       ) : (
         <EmptyState
@@ -351,6 +364,148 @@ export function CatalogIntegrationImportJobsModule({
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")}
       />
     </WorkflowModule>
+  );
+}
+
+function DeferredImportPreviewEvidence({
+  deferredImportPreview,
+}: Readonly<{
+  deferredImportPreview: Promise<SourceObservationIntegrationImportPreview | null> | null;
+}>) {
+  if (!deferredImportPreview) {
+    return null;
+  }
+
+  return (
+    <Suspense
+      fallback={
+        <DeferredSupplementaryPanel
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.loading")}
+        />
+      }
+    >
+      <Await resolve={deferredImportPreview}>
+        {(preview) => (preview ? <ImportPreviewEvidence preview={preview} /> : null)}
+      </Await>
+    </Suspense>
+  );
+}
+
+function ImportPreviewEvidence({
+  preview,
+}: Readonly<{
+  preview: SourceObservationIntegrationImportPreview;
+}>) {
+  const usage = previewUsageSummary(preview.targets);
+  const transportSteps = uniqueStrings(preview.targets.flatMap((target) => target.transportSteps));
+
+  return (
+    <WorkbenchDetailPanel
+      data-catalog-import-preview="ready"
+      data-catalog-import-preview-strategy={usage.requestStrategy ?? "none"}
+      data-catalog-import-preview-usage-state={usage.usageCheckState ?? "none"}
+    >
+      <WorkbenchStack>
+        <WorkbenchActionRow align="between" stackOnMobile>
+          <WorkbenchStack gap="sm">
+            <WorkbenchText tone="foreground" weight="semibold">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
+            </WorkbenchText>
+            <WorkbenchText size="sm" tone="secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.description")}
+            </WorkbenchText>
+          </WorkbenchStack>
+          <BadgeCluster
+            items={[
+              {
+                key: "targets",
+                tone: "info",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.targets", {
+                  count: preview.targetCount,
+                }),
+              },
+              {
+                key: "strategy",
+                tone: usageStrategyTone(usage.requestStrategy),
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.strategy", {
+                  value: usage.requestStrategy ? stateLabel(usage.requestStrategy) : stateLabel("unknown"),
+                }),
+              },
+              {
+                key: "usage-check",
+                tone: usageCheckTone(usage.usageCheckState),
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.usageCheck", {
+                  value: usage.usageCheckState ? stateLabel(usage.usageCheckState) : stateLabel("unknown"),
+                }),
+              },
+            ]}
+          />
+        </WorkbenchActionRow>
+        <WorkbenchGrid columns="equalDetail">
+          <KeyValueList
+            items={[
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimatedRequests"),
+                value: formatEstimatedRequests(usage),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimatedPayloads"),
+                value: formatEstimatedPayloads(preview.targets),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.pageSize"),
+                value: usage.pageSize ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+              },
+            ]}
+          />
+          <KeyValueList
+            items={[
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.selectedFields"),
+                value:
+                  usage.selectedFields.length > 0
+                    ? usage.selectedFields.join(", ")
+                    : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.fallback"),
+                value:
+                  usage.perRecordFallbackReason ??
+                  t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.bulkFirst"),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.transportSteps"),
+                value:
+                  transportSteps.length > 0
+                    ? transportSteps.join(" / ")
+                    : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
+              },
+            ]}
+          />
+          <KeyValueList
+            items={[
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.creditDiagnostic"),
+                value:
+                  usage.creditDiagnostic ??
+                  t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noCreditDiagnostic"),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.degradedDiagnostic"),
+                value:
+                  usage.degradedDiagnostic ??
+                  t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noDegradedDiagnostic"),
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.planKeys"),
+                value: preview.targets.map((target) => target.planKey).join(", "),
+              },
+            ]}
+          />
+        </WorkbenchGrid>
+      </WorkbenchStack>
+    </WorkbenchDetailPanel>
   );
 }
 
@@ -380,6 +535,123 @@ function ImportJobLifecycleAction({
       </Button>
     </WorkbenchForm>
   );
+}
+
+type ImportPreviewUsageSummary = Readonly<{
+  requestStrategy: SourceObservationProviderUsageEstimate["requestStrategy"] | null;
+  estimateState: SourceObservationProviderUsageEstimate["estimateState"] | null;
+  estimatedRequestCount: number | null;
+  usageCheckState: SourceObservationProviderUsageEstimate["usageCheckState"] | null;
+  pageSize: number | null;
+  selectedFields: readonly string[];
+  perRecordFallbackReason: string | null;
+  creditDiagnostic: string | null;
+  degradedDiagnostic: string | null;
+}>;
+
+function previewUsageSummary(
+  targets: readonly SourceObservationIntegrationImportPreviewTarget[],
+): ImportPreviewUsageSummary {
+  const estimates = targets.map((target) => target.usageEstimate).filter(isUsageEstimate);
+  if (estimates.length === 0) {
+    return {
+      requestStrategy: null,
+      estimateState: null,
+      estimatedRequestCount: null,
+      usageCheckState: null,
+      pageSize: null,
+      selectedFields: [],
+      perRecordFallbackReason: null,
+      creditDiagnostic: null,
+      degradedDiagnostic: null,
+    };
+  }
+
+  const estimatedRequestCount = estimates.every((estimate) => estimate.estimatedRequestCount !== null)
+    ? sum(estimates, (estimate) => estimate.estimatedRequestCount ?? 0)
+    : null;
+
+  return {
+    requestStrategy: commonValue(estimates.map((estimate) => estimate.requestStrategy)),
+    estimateState: estimates.some((estimate) => estimate.estimateState === "estimate-unavailable")
+      ? "estimate-unavailable"
+      : "estimated",
+    estimatedRequestCount,
+    usageCheckState: commonValue(estimates.map((estimate) => estimate.usageCheckState)),
+    pageSize: commonValue(estimates.map((estimate) => estimate.pageSize)),
+    selectedFields: uniqueStrings(estimates.flatMap((estimate) => estimate.selectedFields)),
+    perRecordFallbackReason:
+      estimates.find((estimate) => estimate.perRecordFallbackReason)?.perRecordFallbackReason ?? null,
+    creditDiagnostic: estimates.find((estimate) => estimate.creditDiagnostic)?.creditDiagnostic ?? null,
+    degradedDiagnostic: estimates.find((estimate) => estimate.degradedDiagnostic)?.degradedDiagnostic ?? null,
+  };
+}
+
+function isUsageEstimate(
+  value: SourceObservationProviderUsageEstimate | null,
+): value is SourceObservationProviderUsageEstimate {
+  return value !== null;
+}
+
+function commonValue<T>(values: readonly T[]): T | null {
+  const [first, ...rest] = values;
+  if (first === undefined) {
+    return null;
+  }
+  return rest.every((value) => value === first) ? first : null;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function sum<T>(items: readonly T[], value: (item: T) => number): number {
+  return items.reduce((total, item) => total + value(item), 0);
+}
+
+function formatEstimatedRequests(usage: ImportPreviewUsageSummary): string {
+  if (usage.estimatedRequestCount !== null) {
+    return String(usage.estimatedRequestCount);
+  }
+  if (usage.estimateState === "estimate-unavailable") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimateUnavailable");
+  }
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+}
+
+function formatEstimatedPayloads(targets: readonly SourceObservationIntegrationImportPreviewTarget[]): string {
+  if (targets.length === 0 || targets.some((target) => target.estimatedPayloads === null)) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+  }
+
+  return String(sum(targets, (target) => target.estimatedPayloads ?? 0));
+}
+
+function usageStrategyTone(
+  requestStrategy: SourceObservationProviderUsageEstimate["requestStrategy"] | null,
+): "success" | "warning" | "danger" | "neutral" | "info" {
+  if (requestStrategy === "bulk-first") {
+    return "success";
+  }
+  if (requestStrategy === "single-record") {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function usageCheckTone(
+  usageCheckState: SourceObservationProviderUsageEstimate["usageCheckState"] | null,
+): "success" | "warning" | "danger" | "neutral" | "info" {
+  if (usageCheckState === "checked") {
+    return "success";
+  }
+  if (usageCheckState === "unavailable") {
+    return "danger";
+  }
+  if (usageCheckState === "not-configured" || usageCheckState === "unknown") {
+    return "warning";
+  }
+  return "neutral";
 }
 
 function importScopeDisplayLabel(importScope: string | null, providerKey: string | null): string {

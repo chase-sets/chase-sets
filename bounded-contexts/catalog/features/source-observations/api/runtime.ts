@@ -434,6 +434,26 @@ export type SourceObservationProviderUsageEvidence = Readonly<{
   pageSize: number | null;
 }>;
 
+export type SourceObservationIntegrationImportPreviewTarget = Readonly<{
+  targetId: string;
+  name: string;
+  languageCode: string;
+  scopeKey: string;
+  planKey: string;
+  estimatedPayloads: number | null;
+  transportSteps: readonly string[];
+  usageEstimate: ProviderUsageEstimate | null;
+}>;
+
+export type SourceObservationIntegrationImportPreview = Readonly<{
+  action: "import";
+  providerKey: string;
+  scope: SourceObservationIntegrationJobScope;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  targetCount: number;
+  targets: readonly SourceObservationIntegrationImportPreviewTarget[];
+}>;
+
 export type SourceObservationIntegrationJobResult = Readonly<{
   requested: number;
   imported: number;
@@ -799,6 +819,10 @@ export type BulkReviewJobServices = Readonly<{
 }>;
 
 export type IntegrationJobServices = Readonly<{
+  previewIntegrationImport: (input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationImportPreview>;
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
@@ -2403,6 +2427,37 @@ export function createSourceObservationRuntime(
     }));
   }
 
+  async function previewIntegrationImport(input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationImportPreview> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
+    rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
+    const providerProfileVersion = await requireCatalogImportProfileVersion(
+      profileVersions,
+      scope.provider,
+      profileSelectorFromScope(scope),
+    );
+    const providerProfile = providerProfileVersion.profile;
+
+    const targets =
+      providerProfile.providerKey === "tcgplayer"
+        ? await previewTcgplayerIntegrationImportTargets(scope, providerProfileVersion)
+        : providerProfile.providerKey === "tcgdex"
+          ? await previewTcgdexIntegrationImportTargets(scope, providerProfileVersion)
+          : await previewProviderAdapterIntegrationImportTargets(scope, providerProfile, providerProfileVersion);
+
+    return {
+      action: "import",
+      providerKey: providerProfile.providerKey,
+      scope,
+      profileSnapshot: snapshotCatalogProfileVersion(providerProfileVersion),
+      targetCount: targets.length,
+      targets,
+    };
+  }
+
   async function enqueueIntegrationJob(input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
@@ -3425,6 +3480,103 @@ export function createSourceObservationRuntime(
     );
   }
 
+  async function previewProviderAdapterIntegrationImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+    providerProfile: CatalogProviderIntegrationProfile,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
+    const adapter = providerAdapterRegistry.require(providerProfile.providerKey);
+    const targets = await resolveProviderAdapterImportTargets(scope, providerProfileVersion);
+    return Promise.all(
+      targets.map(async (target) => {
+        const plan = await adapter.planImport({
+          unitKey: catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion),
+          scopeKey: target.scopeKey,
+          values: target.values,
+        });
+        return integrationImportPreviewTargetFromPlan({
+          targetId: target.targetId,
+          name: target.name,
+          languageCode: target.languageCode,
+          plan,
+        });
+      }),
+    );
+  }
+
+  async function previewTcgdexIntegrationImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
+    const languageCode = scope.language || "en";
+    const expansions = scope.setId
+      ? [
+          {
+            expansionId: scope.setId,
+            name: scope.setId,
+            seriesId: scope.seriesId || null,
+          },
+        ]
+      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
+          languageCode,
+          seriesId: scope.seriesId || null,
+        });
+    const adapter = tcgdexAdapterForProfileVersion(providerAdapterRegistry, providerProfileVersion);
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
+
+    return Promise.all(
+      expansions.map(async (expansion) => {
+        const plan = await adapter.planImport({
+          unitKey,
+          scopeKey: "expansion",
+          values: { languageCode, setId: expansion.expansionId, seriesId: expansion.seriesId ?? "" },
+        });
+        return integrationImportPreviewTargetFromPlan({
+          targetId: expansion.expansionId,
+          name: expansion.name,
+          languageCode,
+          plan,
+        });
+      }),
+    );
+  }
+
+  async function previewTcgplayerIntegrationImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
+    const targets = await resolveTcgplayerImportTargets(scope, providerProfileVersion);
+    const adapter = tcgplayerAdapterForProfileVersion(
+      providerAdapterRegistry,
+      providerProfileVersion,
+      deps.tcgplayerAutomationCatalogClient,
+    );
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
+
+    return Promise.all(
+      targets.map(async (target) => {
+        const plan = await adapter.planImport({
+          unitKey,
+          scopeKey: target.productId !== undefined ? "product" : "set-name",
+          values:
+            target.productId !== undefined
+              ? { productId: String(target.productId), productName: target.name }
+              : {
+                  productLineId: target.productLineId === undefined ? "" : String(target.productLineId),
+                  productLineName: target.productLineName ?? "",
+                  setName: target.setName ?? "",
+                },
+        });
+        return integrationImportPreviewTargetFromPlan({
+          targetId: target.targetId,
+          name: target.name,
+          languageCode: "en",
+          plan,
+        });
+      }),
+    );
+  }
+
   async function importProviderAdapterIntegrationTarget(input: {
     target: ProviderAdapterIntegrationImportTarget;
     providerProfile: CatalogProviderIntegrationProfile;
@@ -4014,6 +4166,7 @@ export function createSourceObservationRuntime(
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
     getBulkReviewWorkUnitSummary: (input = {}) => bulkReviewWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
+    previewIntegrationImport,
     enqueueIntegrationJob,
     retryIntegrationJob,
     resumeIntegrationJob,
@@ -7163,6 +7316,24 @@ function summarizeIntegrationJobOutcomes(
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
+  };
+}
+
+function integrationImportPreviewTargetFromPlan(input: {
+  targetId: string;
+  name: string;
+  languageCode: string;
+  plan: ProviderImportPlan;
+}): SourceObservationIntegrationImportPreviewTarget {
+  return {
+    targetId: input.targetId,
+    name: input.name,
+    languageCode: input.languageCode,
+    scopeKey: input.plan.scope.scopeKey,
+    planKey: input.plan.planKey,
+    estimatedPayloads: input.plan.estimatedPayloads ?? null,
+    transportSteps: input.plan.transportSteps,
+    usageEstimate: input.plan.usageEstimate ?? null,
   };
 }
 

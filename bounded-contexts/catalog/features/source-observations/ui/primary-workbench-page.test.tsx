@@ -250,6 +250,101 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBe(1);
   });
 
+  it("shows selected-scope import preflight usage evidence before sync", async () => {
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:single-card:source-observation-import&languageCode=en&expansionId=op-01&profileVersion=2026.06.18";
+    const profile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "one-piece-card-print-source-observation",
+      ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+      displayName: "Scrydex One Piece cards",
+      profileVersion: "2026.06.18",
+      active: true,
+      lifecycle: "active",
+      profile: {
+        providerKey: "scrydex",
+        supportedScopes: ["one-piece/card"],
+      },
+      supportedScopes: ["one-piece/card"],
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "scrydex",
+            language_code: "en",
+            product_line_id: "",
+            series_id: "",
+            expansion_id: "op-01",
+            expansion_name: "Romance Dawn",
+            total_observations: 0,
+            observed_observations: 0,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const { container } = render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={readModel}
+        deferredImportPreview={Promise.resolve({
+          action: "import",
+          providerKey: "scrydex",
+          scope: {
+            provider: "scrydex",
+            ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+            language: "en",
+            setId: "op-01",
+          },
+          profileSnapshot: null,
+          targetCount: 1,
+          targets: [
+            {
+              targetId: "set:op-01",
+              name: "op-01",
+              languageCode: "en",
+              scopeKey: "expansion-cards",
+              planKey: "scrydex:one-piece:expansion:op-01:cards",
+              estimatedPayloads: null,
+              transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+              usageEstimate: {
+                requestStrategy: "bulk-first",
+                estimateState: "estimate-unavailable",
+                estimatedRequestCount: null,
+                estimateReason: "Card page count is available only after the first Scrydex paged response.",
+                pageSize: 250,
+                selectedFields: ["id", "name", "number", "expansion"],
+                perRecordFallbackReason: null,
+                usageCheckState: "not-configured",
+                creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+                degradedDiagnostic: null,
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(await screen.findByText("Import preflight")).toBeTruthy();
+    await waitFor(() => expect(container.querySelector('[data-catalog-import-preview="ready"]')).toBeTruthy());
+    const panel = container.querySelector('[data-catalog-import-preview="ready"]');
+    expect(panel?.getAttribute("data-catalog-import-preview-strategy")).toBe("bulk-first");
+    expect(panel?.getAttribute("data-catalog-import-preview-usage-state")).toBe("not-configured");
+    expect(screen.getByText("Estimate unavailable")).toBeTruthy();
+    expect(screen.getByText("250")).toBeTruthy();
+    expect(screen.getByText("id, name, number, expansion")).toBeTruthy();
+  });
+
   it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

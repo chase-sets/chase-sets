@@ -82,6 +82,75 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
+  it("previews provider integration imports with normalized selected-scope aliases", async () => {
+    const preview = {
+      action: "import",
+      providerKey: "scrydex",
+      scope: {
+        provider: "scrydex",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        language: "en",
+        setId: "op-01",
+      },
+      profileSnapshot: null,
+      targetCount: 1,
+      targets: [
+        {
+          targetId: "set:op-01",
+          name: "op-01",
+          languageCode: "en",
+          scopeKey: "expansion-cards",
+          planKey: "scrydex:one-piece:expansion:op-01:cards",
+          estimatedPayloads: null,
+          transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+          usageEstimate: {
+            requestStrategy: "bulk-first",
+            estimateState: "estimate-unavailable",
+            estimatedRequestCount: null,
+            estimateReason: "Card page count is available only after the first Scrydex paged response.",
+            pageSize: 250,
+            selectedFields: ["id", "name", "number", "expansion"],
+            perRecordFallbackReason: null,
+            usageCheckState: "not-configured",
+            creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+            degradedDiagnostic: null,
+          },
+        },
+      ],
+    };
+    const previewIntegrationImport = vi.fn(async () => preview);
+    const services = {
+      previewIntegrationImport,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        scope: {
+          source: "scrydex",
+          unitKey: "scrydex:one-piece:single-card:source-observation-import",
+          languageCode: "en",
+          expansionId: "op-01",
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(preview);
+    expect(previewIntegrationImport).toHaveBeenCalledWith({
+      scope: {
+        provider: "scrydex",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        language: "en",
+        setId: "op-01",
+      },
+      context,
+    });
+  });
+
   it("returns a validation error when a provider integration job is not importable", async () => {
     const enqueueIntegrationJob = vi.fn(async () => {
       throw new Error("Provider 'tcgplayer' does not support background import.");

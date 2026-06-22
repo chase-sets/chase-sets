@@ -3,6 +3,7 @@ import { Await } from "react-router";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
+import type { SourceObservationIntegrationImportPreview } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
@@ -26,6 +27,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   // option snapshots never reach the browser payload. Each promise resolves
   // null/empty on absence/error, so the streamed boundary stays fail-soft.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
 }>;
 
@@ -62,6 +64,7 @@ export function CatalogIntegrationsSurfaceRouteView({
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
       aliasVisibility={aliasVisibility}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
+      deferredImportPreview={routeData.deferredImportPreview ?? null}
     />
   );
 }
