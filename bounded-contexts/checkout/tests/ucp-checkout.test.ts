@@ -324,6 +324,73 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("returns a trusted handoff for headless offer-intent completion without ordering or payment side effects", async () => {
+    const offerIntentSession = session({
+      source_type: "offer-intent",
+      lines: [
+        {
+          listingId: null,
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "cat_1::form:raw",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Raw",
+          offerPriceAmount: "350.00",
+          quantity: 1,
+          fulfillmentMode: "optimize",
+          lockedListingId: null,
+          sellerPreferenceId: null,
+          availabilityState: "waiting-for-supply",
+        },
+      ],
+    });
+    const sessions = createSessions({
+      getSession: vi.fn(async () => offerIntentSession),
+    });
+    const handlers = createCheckoutUcpHandlers(
+      {
+        sessions,
+      },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-agentic-payment",
+            agenticPayment: {} as never,
+            evidence: { mandate: "verified" },
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+        },
+        { id: "chk_1" },
+      ),
+    );
+
+    expect(response.ucp.status).toBe("requires_action");
+    expect(response.action).toEqual({
+      type: "trusted_checkout_handoff",
+      reason: "Purchase-intent offer submission still requires trusted UI review.",
+    });
+    expect(response.messages).toEqual([
+      expect.objectContaining({
+        code: "trusted_ui_required",
+        message: "UCP headless payment completion is only enabled for buy-now and cart checkout sessions.",
+      }),
+    ]);
+    expect(sessions.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(sessions.recordOfferSubmitted).not.toHaveBeenCalled();
+  });
+
   it("requires a linked buyer account", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
