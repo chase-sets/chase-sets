@@ -298,6 +298,38 @@
       }
     }
   ],
+  "crossContextFallbackInventory": [
+    {
+      "id": "commercial-terms.identity-account-source-fresh-account",
+      "owner": "commercial-terms",
+      "category": "host-owned bridge",
+      "sourceContextName": "identity",
+      "targetContextName": "commercial-terms",
+      "behaviorOwner": "Commercial Terms owns resolution; Identity owns Account source state.",
+      "implementation": {
+        "consumer": "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts",
+        "hostBridges": ["deployables/platform-api/src/app.ts", "deployables/platform-worker/src/main.ts"],
+        "providerSurface": "@chase-sets/identity services.accounts.getAccountState"
+      },
+      "actorOwnershipGuard": "The host composes the bridge from Identity services inside platform-api and platform-worker only; Commercial Terms receives no actor-identifying data and consumes only account id, account type, and status for the account id being resolved.",
+      "catalogSourceGuard": "Not catalog-scoped. The source guard is the requested account id and the Identity Account source state projected from identity.account.* events.",
+      "freshnessScope": "Commercial Terms resolution may recover account type/status for a fresh account when commercial_terms_account_pages has not yet projected the Identity Account event.",
+      "projectionWaitedOn": {
+        "projectionName": "commercial-terms-account-projection",
+        "readModelTable": "commercial_terms_account_pages",
+        "sourceContextName": "identity"
+      },
+      "terminationRule": "The resolver always reads commercial_terms_account_pages first and calls the Identity account source only when that row is missing. Once the projection catches up, the fallback is bypassed; missing account, missing account type, or inactive status fails closed.",
+      "observability": "Structure follow-up should count projection-hit, fallback-used, and fallback-failed outcomes with context/projection labels only; do not log account ids or Identity payloads.",
+      "proof": {
+        "tests": ["bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"],
+        "testCases": [
+          "uses the host account source when the commercial terms account projection has not caught up",
+          "fails when the account is not active"
+        ]
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",

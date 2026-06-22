@@ -28,6 +28,25 @@ Use the smallest strategy that preserves trust. Combining strategies is expected
 | Operator/Admin | `snapshot-return` or `realtime-correction` with explicit freshness, lag, partial, or unavailable states. Use `fresh-read` only for operator writes that immediately navigate to projection-backed detail. | Durable job SSE, projection operation SSE, and realtime reload prompts. | Operators can distinguish fresh, stale, lagging, partial, and unavailable data, and have an explicit retry/reload or diagnostic path. |
 | Background Flows | No browser immediacy requirement. Durable jobs, projections, scheduled reconciliation, and outbox processing own convergence. | SSE or notification updates can expose progress, but must replay from durable rows or return `sync.required`. | The system converges through durable queues/projections; missed wake signals cost latency only. User-visible surfaces show status or refresh from projections. |
 
+## Cross-Context Fresh-Write Fallbacks
+
+Cross-context fallback is allowed only when it is explicit, guarded, observable, and removable. A fallback must not become the normal read model for another bounded context. Prefer event projection and exact freshness waits first; use one of these categories only when a bounded fresh write can otherwise hide a committed fact while the destination projection catches up.
+
+| Category | Allowed Shape | Required Guards | Termination |
+| --- | --- | --- | --- |
+| Host-owned bridge | A deployable or worker composition root wires a narrow provider-owned server surface into the consuming context for request-time recovery while the consumer's own projection catches up. | Provider surface is explicit in `allowedContextDependencies` or host ports; response is limited to the fields the consumer already projects; no direct cross-context SQL; actor or system ownership is established by the host call site. | Consumer projection wins whenever present. Fallback runs only on projection miss or bounded recovery branch and must be removable after catch-up hardening. |
+| Same-actor post-write recovery | A source route carries a receipt for a write the same actor just performed, and the destination reads the provider-owned projection or API only while that receipt is valid. | Valid fresh-write receipt; actor/account scope matches the original write; destination owns user-visible recovery copy; catalog/source guard names the exact source fact being recovered. | Stop on token expiry, retry budget exhaustion, wrong actor/source, or permanent provider failure. |
+| Synchronous projection | The source command or host waits for the destination projection group to reach the exact source position before returning or navigating. | Exact projection dependency; bounded wait budget; observability for wait outcome and timeout; no unrelated target-context fallback. | Stop after the exact projection reaches the source position or the bounded wait returns a retryable/temporary result. |
+| Forbidden shortcut | Directly reading another context's database, reusing another context's internal integration surface, or treating another context's stale projection as authority without a receipt or projection wait. | Not allowed. | Remove or replace with one of the allowed categories. |
+
+Every declared fallback must name the actor/ownership guard, catalog/source guard where applicable, freshness scope, projection waited on, termination rule, and observability guidance. Existing fallback declarations belong in the owning context manifest until `check:structure` gains a dedicated cross-context fallback inventory; that future guard should validate the category, source and target contexts, projection group/table, allowed dependency or host port, proof tests, and termination rule.
+
+Current audited fallbacks:
+
+| Fallback | Category | Freshness Scope | Projection Waited On | Termination / Observability |
+| --- | --- | --- | --- | --- |
+| Commercial Terms account-source resolution | Host-owned bridge | Commercial Terms resolution for a specific account after a fresh Identity account creation or profile state change. | `commercial-terms-account-projection` into `commercial_terms_account_pages`, sourced from Identity account events. | `commercial_terms_account_pages` wins whenever present; the Identity account source is invoked only on projection miss, returns only account id/type/status, fails closed when Identity has no account/type or inactive status, and should log/metric fallback-used versus projection-hit without identifiers. See `bounded-contexts/commercial-terms/context.json` `crossContextFallbackInventory`. |
+
 ## Concrete Flow Guidance
 
 Critical Checkout examples:
