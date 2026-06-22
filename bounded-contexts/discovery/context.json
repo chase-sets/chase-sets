@@ -394,6 +394,19 @@
           "discovery_market_listings",
           "discovery_offer_demand_matches"
         ],
+        "helperUses": ["readPostWriteHandoff"],
+        "postWriteHandoffs": [
+          {
+            "kind": "marketplace.listing.publish",
+            "expectation": "resource-present",
+            "surface": "item-detail"
+          },
+          {
+            "kind": "marketplace.listing.update",
+            "expectation": "resource-updated",
+            "surface": "item-detail"
+          }
+        ],
         "transientRecovery": "Item-detail listing redirects carry Marketplace command receipts and listing publish/update semantic handoffs back to the selected sell listing surface; the loader forwards the receipt into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
       }
     },
@@ -502,6 +515,42 @@
         "files": [
           "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
           "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
+        ]
+      }
+    }
+  ],
+  "crossContextFallbackInventory": [
+    {
+      "id": "discovery.item-detail-selected-seller-listing-post-write-recovery",
+      "owner": "discovery",
+      "category": "same-actor post-write recovery",
+      "sourceContextName": "marketplace",
+      "targetContextName": "discovery",
+      "behaviorOwner": "Discovery owns item-detail rendering and fallback admission; Marketplace owns seller listing source reads.",
+      "implementation": {
+        "consumer": "bounded-contexts/discovery/support/route-support/item-detail/loader.ts"
+      },
+      "actorOwnershipGuard": "The fallback runs only for a signed-in actor with listings.view and listings.manage, and the Marketplace seller listing source row must belong to the same actor account before Discovery appends it.",
+      "catalogSourceGuard": "The item-detail URL must be market=sell with a selected listing id and a valid Marketplace listing publish/update item-detail post-write handoff; the Marketplace seller listing must have the selected id, draft/active/paused status, and catalog_catalog_item_id matching the Discovery item catalog_item_id.",
+      "freshnessScope": "A same-actor Marketplace listing publish/update redirect may recover the selected seller listing while discovery-market-projection catches up to discovery_market_listings for that listing.",
+      "projectionWaitedOn": {
+        "projectionName": "discovery-market-projection",
+        "readModelTable": "discovery_market_listings",
+        "sourceContextName": "marketplace"
+      },
+      "terminationRule": "Discovery reads its item-detail projection first and bypasses the fallback when the selected listing is already present. The fallback stops on missing/expired/malformed/non-Marketplace fresh-write receipts, missing item-detail handoff, non-sell market, missing selected listing id, missing listing permissions, wrong actor, wrong catalog item, unsupported listing status, permanent Marketplace failure, or the bounded Marketplace retry branch completing without a safe listing.",
+      "observability": "The route emits no fallback logs or telemetry today. Any future fallback metric must use bounded labels such as context=discovery, surface=item-detail, strategy=fresh-read, route_id=item-detail, recovery_action=selected-seller-listing-fallback, and freshness_outcome only; never include raw receipts, account ids, listing ids, item ids, or full URLs.",
+      "proof": {
+        "tests": ["bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts"],
+        "testCases": [
+          "shows the selected owned seller listing while the Discovery item-detail projection catches up",
+          "does not use the selected seller listing fallback without the Marketplace listing handoff",
+          "does not use the selected seller listing fallback once the Discovery projection contains the listing",
+          "does not show a selected seller listing fallback for a different actor",
+          "does not use the selected seller listing fallback outside the sell market",
+          "does not use the selected seller listing fallback without listing management permission",
+          "uses stale seller listing details when the selected seller listing fresh read is still projecting",
+          "does not retry selected seller listing fallback reads indefinitely"
         ]
       }
     }

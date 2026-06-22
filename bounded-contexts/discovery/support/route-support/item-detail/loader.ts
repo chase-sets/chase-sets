@@ -1,7 +1,12 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
-import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import {
+  loadFreshlyWrittenResource,
+  readFreshWriteToken,
+  readPostWriteHandoff,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../../request-support/api-client";
 import {
@@ -40,6 +45,10 @@ type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
   }>;
 
 const SELLER_MANAGEMENT_LISTING_FALLBACK_STATUSES = new Set(["draft", "active", "paused"]);
+const SELECTED_SELLER_LISTING_HANDOFF_EXPECTATIONS = {
+  "marketplace.listing.publish": "resource-present",
+  "marketplace.listing.update": "resource-updated",
+} as const;
 
 function apiErrorStatus(error: unknown) {
   const status = (error as { status?: unknown })?.status;
@@ -96,6 +105,20 @@ function requestWithoutFreshWriteToken(request: Request) {
   });
 }
 
+function isSelectedSellerListingFreshWriteRecovery(request: Request) {
+  const receipt = readFreshWriteToken(request);
+  if (!receipt?.sources.some((source) => source.sourceContextName === "marketplace")) {
+    return false;
+  }
+
+  const handoff = readPostWriteHandoff(request);
+  const expected =
+    SELECTED_SELLER_LISTING_HANDOFF_EXPECTATIONS[
+      handoff?.kind as keyof typeof SELECTED_SELLER_LISTING_HANDOFF_EXPECTATIONS
+    ];
+  return Boolean(handoff && expected === handoff.expectation && handoff.surface === "item-detail");
+}
+
 function canRecoverSelectedSellerListingRead(
   request: Request,
   error: unknown,
@@ -106,6 +129,7 @@ function canRecoverSelectedSellerListingRead(
   }>,
 ) {
   if (
+    !isSelectedSellerListingFreshWriteRecovery(request) ||
     options.initialMarketIntent !== "sell" ||
     !options.initialSelectedListingId ||
     !options.actor?.accountId ||
@@ -208,6 +232,7 @@ async function attachSelectedSellerListingFallback(
   }>,
 ): Promise<DiscoveryItemDetail> {
   if (
+    !isSelectedSellerListingFreshWriteRecovery(options.request) ||
     options.initialMarketIntent !== "sell" ||
     !options.initialSelectedListingId ||
     !options.actor?.accountId ||
