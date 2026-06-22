@@ -175,6 +175,54 @@ function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLi
   };
 }
 
+type BuyNowListingEvidenceRow = Readonly<{
+  listing_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  status: string;
+  price_amount: string;
+  available_quantity: number;
+}>;
+
+const readyBuyNowListingEvidence: BuyNowListingEvidenceRow = {
+  listing_id: "lst_1",
+  catalog_catalog_item_id: "cat_1",
+  product_id: "cat_1::",
+  status: "active",
+  price_amount: "25.00",
+  available_quantity: 2,
+};
+
+function createBuyNowReadinessDb(
+  listingEvidenceRows: readonly BuyNowListingEvidenceRow[] = [readyBuyNowListingEvidence],
+) {
+  return {
+    query: vi.fn(async (sql: string) => {
+      if (sql.includes("checkout_session_pages")) {
+        throw new Error("checkout_session_pages should not be read by Buy Now command continuations");
+      }
+
+      if (sql.includes("checkout_catalog_items")) {
+        return {
+          rows: [
+            {
+              catalog_item_id: "cat_1",
+              status: "active",
+              product_schema: null,
+            },
+          ],
+        };
+      }
+
+      if (sql.includes("checkout_marketplace_seller_options")) {
+        return { rows: [...listingEvidenceRows] };
+      }
+
+      return { rows: [] };
+    }),
+  };
+}
+
 function createSessionPageRow(
   cartReadinessSnapshot: CheckoutSessionRow["cart_readiness_snapshot"],
   overrides: Partial<CheckoutSessionRow> = {},
@@ -433,27 +481,7 @@ describe("checkout session runtime", () => {
 
   it("can update a just-created Buy Now session before checkout_session_pages has projected it", async () => {
     const { eventStore } = createInMemoryEventStore();
-    const db = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("checkout_session_pages")) {
-          throw new Error("checkout_session_pages should not be read by Buy Now command continuations");
-        }
-
-        if (sql.includes("checkout_catalog_items")) {
-          return {
-            rows: [
-              {
-                catalog_item_id: "cat_1",
-                status: "active",
-                product_schema: null,
-              },
-            ],
-          };
-        }
-
-        return { rows: [] };
-      }),
-    };
+    const db = createBuyNowReadinessDb();
     const services = createCheckoutSessionRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -493,8 +521,9 @@ describe("checkout session runtime", () => {
     expect(result.session.shipping_option).toBe("priority");
     expect(result.session.payment_id).toBeNull();
     expect(result.session.order_ids).toEqual([]);
-    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledTimes(2);
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
+    expect(String(db.query.mock.calls[1]?.[0])).toContain("checkout_marketplace_seller_options");
   });
 
   it("rejects buy-now session creation when fulfillment is not assigned", async () => {
@@ -531,6 +560,90 @@ describe("checkout session runtime", () => {
     } satisfies Partial<CheckoutDomainError>);
 
     expect(db.query).not.toHaveBeenCalled();
+    expect(allEvents).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "missing locked listing evidence",
+      listingEvidenceRows: [],
+      input: {},
+      expected: {
+        code: "readiness_snapshot_stale",
+        message: "Selected listing changed. Review item availability before checkout.",
+      },
+    },
+    {
+      name: "mismatched product evidence",
+      listingEvidenceRows: [{ ...readyBuyNowListingEvidence, product_id: "cat_2::" }],
+      input: {},
+      expected: {
+        code: "readiness_snapshot_stale",
+        message: "Selected listing changed. Review item availability before checkout.",
+      },
+    },
+    {
+      name: "stale handoff ids",
+      listingEvidenceRows: [readyBuyNowListingEvidence],
+      input: { listingId: "lst_stale", lockedListingId: "lst_1" },
+      expected: {
+        code: "readiness_snapshot_stale",
+        message: "Selected listing changed. Review item availability before checkout.",
+      },
+    },
+    {
+      name: "unavailable listing evidence",
+      listingEvidenceRows: [{ ...readyBuyNowListingEvidence, status: "seller-unavailable" }],
+      input: {},
+      expected: {
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      },
+    },
+    {
+      name: "insufficient locked listing quantity",
+      listingEvidenceRows: [{ ...readyBuyNowListingEvidence, available_quantity: 1 }],
+      input: { quantity: 2 },
+      expected: {
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      },
+    },
+  ] as const)("fails closed before starting Buy Now when $name is not ready", async (testCase) => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = createBuyNowReadinessDb(testCase.listingEvidenceRows);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+    const input = testCase.input as Partial<{
+      listingId: string;
+      lockedListingId: string;
+      quantity: number;
+    }>;
+
+    await expect(
+      services.createBuyNow(
+        {
+          accountId: "acc_buyer" as never,
+          listingId: input.listingId ?? "lst_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: input.quantity ?? 1,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: input.lockedListingId ?? "lst_1",
+          shippingOption: "standard",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject(testCase.expected satisfies Partial<CheckoutDomainError>);
+
     expect(allEvents).toEqual([]);
   });
 
