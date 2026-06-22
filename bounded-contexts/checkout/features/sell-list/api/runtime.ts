@@ -36,6 +36,7 @@ import {
   getSellListConfirmation,
   listSellListLines,
   type CheckoutSellListConfirmationRow,
+  type CheckoutSellListLineRow,
 } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
@@ -190,7 +191,7 @@ export type CheckoutSellListServices = Readonly<{
 }>;
 
 export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps): CheckoutSellListServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<CheckoutSellListEvent>(),
     initialState: () => initialCheckoutSellListState,
@@ -255,9 +256,40 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     };
   }
 
+  function sellListStreamId(sellerAccountId: string) {
+    return `checkout.sell-list-${sellerAccountId}`;
+  }
+
+  async function pruneProjectedSellListLines(sellerAccountId: string, lineIds: readonly string[]) {
+    if (lineIds.length === 0) {
+      return;
+    }
+
+    await deps.db.query(
+      `DELETE FROM checkout_sell_list_line_pages
+       WHERE seller_account_id = $1
+         AND line_id = ANY($2::text[])`,
+      [sellerAccountId, [...lineIds]],
+    );
+  }
+
+  async function listCanonicalSellListLines(sellerAccountId: string): Promise<CheckoutSellListLineRow[]> {
+    const projectedLines = await listSellListLines(deps.db, sellerAccountId);
+    const aggregate = await repository.load(sellListStreamId(sellerAccountId));
+    const canonicalLineIds = new Set(aggregate.state.lines.map((line) => line.lineId));
+    const staleLineIds = projectedLines
+      .filter((line) => !canonicalLineIds.has(line.line_id as SellListLineId))
+      .map((line) => line.line_id);
+
+    await pruneProjectedSellListLines(sellerAccountId, staleLineIds);
+    return staleLineIds.length > 0
+      ? projectedLines.filter((line) => canonicalLineIds.has(line.line_id as SellListLineId))
+      : projectedLines;
+  }
+
   const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
     const normalized = await normalizeInput(params);
-    const existingLine = (await listSellListLines(deps.db, params.sellerAccountId)).find((line) =>
+    const existingLine = (await listCanonicalSellListLines(params.sellerAccountId)).find((line) =>
       normalized.lineType === "selected-offer" && normalized.offerId
         ? line.offer_id === normalized.offerId
         : line.line_type === "product" &&
@@ -302,8 +334,14 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     commandHandler,
     addLine,
     removeLine: async (params, context) => {
+      const aggregate = await repository.load(sellListStreamId(params.sellerAccountId));
+      if (!aggregate.state.lines.some((line) => line.lineId === params.lineId)) {
+        await pruneProjectedSellListLines(params.sellerAccountId, [params.lineId]);
+        return { lineId: params.lineId, version: aggregate.version };
+      }
+
       const result = await commandHandler({
-        streamId: `checkout.sell-list-${params.sellerAccountId}`,
+        streamId: sellListStreamId(params.sellerAccountId),
         command: {
           type: "RemoveSellListLine",
           lineId: params.lineId,
@@ -330,7 +368,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       }
 
       assertSellerEvidenceReady(params.sellerEvidence);
-      const currentLines = await listSellListLines(deps.db, params.sellerAccountId);
+      const currentLines = await listCanonicalSellListLines(params.sellerAccountId);
       const readiness = validateSellListReadinessSnapshot(currentLines, {
         snapshotId: params.readinessSnapshotId,
         sourceRevision: params.readinessSourceRevision,
@@ -395,9 +433,9 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     getConfirmation: (sellerAccountId, confirmationId) =>
       getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
     mergeSellListIntoAccount: async (params, context) => {
-      const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
+      const sourceLines = await listCanonicalSellListLines(params.sourceOwnerId);
       const existingTargetLineIds = new Set(
-        (await listSellListLines(deps.db, params.targetAccountId)).map((line) => line.line_id),
+        (await listCanonicalSellListLines(params.targetAccountId)).map((line) => line.line_id),
       );
       for (const line of sourceLines) {
         if (existingTargetLineIds.has(line.line_id)) {
@@ -457,10 +495,10 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       return { mergedLineCount: sourceLines.length };
     },
     createReadinessSnapshot: async (params) => {
-      const lines = await listSellListLines(deps.db, params.sellerAccountId);
+      const lines = await listCanonicalSellListLines(params.sellerAccountId);
       return createSellListReadinessSnapshot(lines, params.decisions);
     },
-    listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
+    listLines: (sellerAccountId) => listCanonicalSellListLines(sellerAccountId),
     projectors: [sellListProjector],
   };
 }
