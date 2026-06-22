@@ -1236,6 +1236,136 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("time-bounds a slow TCGplayer Yu-Gi-Oh source-option refresh-all with a selected product line", async () => {
+    vi.useFakeTimers();
+    try {
+      const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+      const yugiohProfile = profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "yugioh-single-card-product-sku",
+        profileVersion: "2026.06.20",
+        ingestionUnitKey: yugiohUnit,
+        displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        connectorKind: "tcgplayer-automation-client",
+        profile: {
+          providerKey: "tcgplayer",
+          supportedScopes: ["product-line/category", "set-name"],
+        },
+        supportedScopes: ["product-line/category", "set-name"],
+        languageOptions: ["en"],
+        sourceOptionKinds: [
+          {
+            queryKind: "product-lines",
+            queryKeySynonyms: ["productLineId"],
+            displayName: "Product Line",
+            scope: "product-line/category",
+            parentScope: null,
+            parentRequired: false,
+            parentValueKind: null,
+            parentDiagnosticText: null,
+          },
+          {
+            queryKind: "set-names",
+            queryKeySynonyms: ["setName"],
+            displayName: "Set Name",
+            scope: "set-name",
+            parentScope: "product-line/category",
+            parentRequired: true,
+            parentValueKind: "product-line-id",
+            parentDiagnosticText: "Select Product Line before Set Name.",
+          },
+        ],
+      });
+      const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+      const listSourceObservationIntegrationOptions = vi.fn((query: string) => {
+        const params = new URLSearchParams(query);
+        if (params.get("queryKind") === "product-lines") {
+          return Promise.resolve(
+            sourceOptionResponse("product-lines", {
+              status: "fresh",
+              source: "live",
+              parentValue: params.get("parentValue"),
+              degraded: false,
+              value: "2",
+              label: "Yu-Gi-Oh!",
+            }),
+          );
+        }
+
+        return new Promise<never>(() => undefined);
+      });
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        listSourceObservationProviderProfiles: vi
+          .fn()
+          .mockResolvedValue({ items: [yugiohProfile], total: 1, count: 1 }),
+        getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+        listSourceObservations,
+        listSourceObservationIntegrationOptions,
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      });
+
+      const routeData = await loader({
+        request: new Request(
+          "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Ayugioh%3Asingle-card%3Asource-observation-import&productLineId=2&profileVersion=&sourceOptionAction=force-refresh-all",
+        ),
+        params: {},
+        context: {},
+      } as Parameters<typeof loader>[0]);
+
+      expect(routeData.readModel.routeContext.unitKey).toBe(yugiohUnit);
+      expect(routeData.readModel.routeContext.scope).toMatchObject({
+        providerKey: "tcgplayer",
+        productLineId: "2",
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      const deferredSourceOptions = await routeData.deferredSourceOptions;
+      expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(2);
+      const optionQueries = listSourceObservationIntegrationOptions.mock.calls.map(([query]) =>
+        Object.fromEntries(new URLSearchParams(String(query))),
+      );
+      expect(optionQueries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            queryKind: "product-lines",
+            forceRefresh: "true",
+            profileKey: "yugioh-single-card-product-sku",
+            ingestionUnitKey: yugiohUnit,
+          }),
+          expect.objectContaining({
+            queryKind: "set-names",
+            forceRefresh: "true",
+            parentValue: "2",
+            profileKey: "yugioh-single-card-product-sku",
+            ingestionUnitKey: yugiohUnit,
+          }),
+        ]),
+      );
+      expect(deferredSourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
+        state: "live",
+        items: [expect.objectContaining({ label: "Yu-Gi-Oh!" })],
+      });
+      expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+        state: "unavailable",
+        degraded: true,
+        request: expect.objectContaining({ parentValue: "2" }),
+        cache: expect.objectContaining({
+          diagnostics: [
+            expect.objectContaining({
+              code: "catalog_provider_option_query_timeout",
+              severity: "error",
+            }),
+          ],
+        }),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves a TCGplayer Yu-Gi-Oh refresh-all route without a selected product line", async () => {
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
     const yugiohProfile = profileReview({

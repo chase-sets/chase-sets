@@ -52,6 +52,9 @@ import {
 } from "../../../support/shell-support/list-query-state";
 import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 
+const SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS = 2_500;
+const SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS = 20_000;
+
 // Provider profiles + the control plane overview are the shared baseline every
 // integrations surface route needs: the cross-surface metric strip, navigation,
 // and readiness summary are derived from them on all four routes. Each route adds
@@ -584,14 +587,54 @@ async function selectedProviderSourceOptionPages(
 
       try {
         const query = new URL(href, request.url).searchParams.toString();
-        const response =
-          await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query);
+        const response = await withSourceOptionPageTimeout(
+          api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
+          forceRefresh ? SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS : SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
+        );
         return { request: sourceOptionRequest, response };
       } catch (error) {
         return { request: sourceOptionRequest, error: sourceOptionPageError(error) };
       }
     }),
   );
+}
+
+class CatalogSourceOptionPageTimeoutError extends Error {
+  readonly code = "catalog_provider_option_query_timeout";
+
+  constructor(readonly timeoutMs: number) {
+    super(
+      `Provider source option query did not finish within ${Math.round(
+        timeoutMs / 1_000,
+      )} seconds, so the importer kept the page usable with degraded source options.`,
+    );
+    this.name = "CatalogSourceOptionPageTimeoutError";
+  }
+}
+
+function withSourceOptionPageTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return new Promise<T>((resolve, reject) => {
+    timeout = setTimeout(() => {
+      timeout = null;
+      reject(new CatalogSourceOptionPageTimeoutError(timeoutMs));
+    }, timeoutMs);
+
+    operation.then(
+      (value) => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        resolve(value);
+      },
+      (error) => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        reject(error);
+      },
+    );
+  });
 }
 
 function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOptionPageSnapshot["error"] {
@@ -602,6 +645,14 @@ function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOpt
       code: parsed.code,
       message: parsed.message,
       rolloutBlocked: error.status === 403 && parsed.code === "catalog_integration_rollout_control_denied",
+    };
+  }
+  if (error instanceof CatalogSourceOptionPageTimeoutError) {
+    return {
+      status: null,
+      code: error.code,
+      message: error.message,
+      rolloutBlocked: false,
     };
   }
 
