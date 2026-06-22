@@ -1130,7 +1130,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
     expect(diagnosticsStep).toContain('app_id="$(terraform output -raw app_id 2>/dev/null || true)"');
     expect(diagnosticsStep).toContain(
-      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300 || true',
+      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
     );
   });
 
@@ -1421,7 +1421,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowCanariesStep).toContain(
       "MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}",
     );
-    expect(stagingBuyNowEvidenceStep).toContain("if: always() && env.SHOULD_DEPLOY != 'false'");
+    expect(stagingBuyNowEvidenceStep).toContain(
+      "if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_canaries.conclusion != 'skipped'",
+    );
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-canaries");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
     expect(platformProductionWorkflow).toContain("buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}");

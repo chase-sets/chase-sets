@@ -279,18 +279,40 @@ describe("work signal composite", () => {
     expect(connectCount).toBe(2);
     await waiter.stop();
   });
+
+  it("keeps the listener error handler attached until stop releases the client", async () => {
+    const client = createNotificationClient({ recordErrorListenerDuringUnlisten: true });
+    const waiter = createPostgresWorkSignalWaiter(createPoolForClient(client), {
+      channel: "durable_job_events",
+    });
+    const wait = waiter.wait({ timeoutMs: 100, matches: () => true });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN durable_job_events");
+    });
+
+    await waiter.stop();
+    await expect(wait).resolves.toBe("aborted");
+    expect(client.hadErrorListenerDuringUnlisten()).toBe(true);
+    expect(client.listenerCount("error")).toBe(0);
+  });
 });
 
-function createNotificationClient(options: { failListen?: boolean } = {}) {
+function createNotificationClient(options: { failListen?: boolean; recordErrorListenerDuringUnlisten?: boolean } = {}) {
   const emitter = new EventEmitter();
   const queries: string[] = [];
   let released = false;
+  let hadErrorListenerDuringUnlisten = false;
 
   return Object.assign(emitter, {
     queries,
     isReleased: () => released,
+    hadErrorListenerDuringUnlisten: () => hadErrorListenerDuringUnlisten,
     query: async (sql: string) => {
       queries.push(sql);
+      if (options.recordErrorListenerDuringUnlisten && sql.includes("UNLISTEN")) {
+        hadErrorListenerDuringUnlisten = emitter.listenerCount("error") > 0;
+      }
       if (options.failListen && sql.includes("LISTEN")) {
         throw new Error("LISTEN is unavailable on this connection.");
       }
@@ -303,6 +325,7 @@ function createNotificationClient(options: { failListen?: boolean } = {}) {
     EventEmitter & {
       readonly queries: string[];
       isReleased: () => boolean;
+      hadErrorListenerDuringUnlisten: () => boolean;
     };
 }
 

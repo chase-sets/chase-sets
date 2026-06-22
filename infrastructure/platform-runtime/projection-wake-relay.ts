@@ -841,9 +841,7 @@ async function disconnectSourceListener(state: ProjectionWakeRelaySourceState): 
   if (state.notificationListener) {
     removePostgresListener(client, "notification", state.notificationListener);
   }
-  if (state.errorListener) {
-    removePostgresListener(client, "error", state.errorListener);
-  }
+  const errorListener = state.errorListener;
 
   state.listenerClient = null;
   state.notificationListener = null;
@@ -856,6 +854,9 @@ async function disconnectSourceListener(state: ProjectionWakeRelaySourceState): 
     disconnectError = error;
   } finally {
     client.release();
+    if (errorListener) {
+      removePostgresListener(client, "error", errorListener);
+    }
   }
 
   if (disconnectError) {
