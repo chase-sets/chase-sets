@@ -163,6 +163,15 @@
           ]
         },
         {
+          "routePath": "/guest/sell-list",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_sell_list_line_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/sell-list",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -310,6 +319,25 @@
         "readModelTables": ["checkout_cart_line_pages"],
         "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
         "transientRecovery": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff, and keeps valid empty-cart handoff states temporary while expired or malformed receipts fall back to the normal empty-cart path."
+      }
+    },
+    {
+      "id": "checkout.guest-sell-list-add-line-handoff",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Build Sell List account-gate links after guest item detail add-to-sell-list"],
+        "command": "Checkout addGuestSellListLine semantic handoff",
+        "helperUses": ["appendPostWriteHandoff"]
+      },
+      "destination": {
+        "routeId": "account-sell-list",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/guest/sell-list",
+        "readModelTables": ["checkout_sell_list_line_pages"],
+        "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
+        "transientRecovery": "Guest Sell List add-line handoffs load the shared account-sell-list route through the guest Sell List API; the loader forwards the fresh-write receipt to /guest/sell-list, waits on checkout_sell_list_line_pages before evaluating the semantic add-line handoff, and keeps valid empty-list handoff states temporary while expired or malformed receipts fall back to the normal empty-list path."
       }
     },
     {

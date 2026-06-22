@@ -250,9 +250,9 @@ describe("checkout web routes: account sell list", () => {
   it("keeps signed-in registration returns temporary while the anonymous Sell List line is still catching up", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 0 });
-    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
+    const getGuestSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getSellList,
+      getGuestSellList,
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
@@ -272,7 +272,8 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+    expect(getGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockMergeGuestSellListToAccount).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         isSignedIn: true,
@@ -295,6 +296,17 @@ describe("checkout web routes: account sell list", () => {
     mockMergeGuestSellListToAccount.mockResolvedValue(mergeResult);
     const originalApi = {
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getGuestSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "product",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       getSellList: vi.fn(async () => {
         throw new Error("original request should not read account Sell List after merge");
       }),
@@ -1175,6 +1187,19 @@ describe("checkout web routes: account sell list", () => {
       resolved_at: "2026-04-28T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            offer_price_amount: "380.00",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -1244,6 +1269,19 @@ describe("checkout web routes: account sell list", () => {
     });
     mockPreviewPublicStandardListingTerms.mockRejectedValue(new Error("standard terms unavailable"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            offer_price_amount: "380.00",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -1303,6 +1341,19 @@ describe("checkout web routes: account sell list", () => {
       resolved_at: "2026-04-28T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            offer_price_amount: "380.00",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       getSellList: vi.fn(async () => ({
         items: [
           {
@@ -1377,6 +1428,7 @@ describe("checkout web routes: account sell list", () => {
   it("routes guest seller checkout through registration after Sell List readiness passes", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
 
@@ -1396,6 +1448,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
@@ -1445,6 +1498,7 @@ describe("checkout web routes: account sell list", () => {
       },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
 
@@ -1464,6 +1518,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
     expectNoSellerCommitSideEffects();
@@ -1479,6 +1534,7 @@ describe("checkout web routes: account sell list", () => {
       },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 }),
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
     });
 
@@ -1498,6 +1554,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
     expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
