@@ -1,5 +1,5 @@
 import type { ListResponse } from "@chase-sets/http/responses";
-import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { isTransientAuthResolutionError, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
 import type {
   CatalogProviderProfileVersionReview,
@@ -54,6 +54,7 @@ import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 
 const SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS = 2_500;
 const SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS = 20_000;
+const AUTH_RESOLUTION_RETRY_DELAYS_MS = [250, 1_000, 2_500] as const;
 
 // Provider profiles + the control plane overview are the shared baseline every
 // integrations surface route needs: the cross-surface metric strip, navigation,
@@ -101,7 +102,7 @@ async function loadIntegrationsBaseline(
       () => api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
       null,
     ),
-    resolveActorFromAuthApi({ request }),
+    resolveCatalogIntegrationsActor(request),
   ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [];
   if (routeDataResult.failed) {
@@ -122,6 +123,26 @@ async function loadIntegrationsBaseline(
     },
     routeContext: parseCatalogPrimaryWorkbenchRouteContext(request.url),
   };
+}
+
+async function resolveCatalogIntegrationsActor(request: Request): ReturnType<typeof resolveActorFromAuthApi> {
+  for (let attempt = 0; attempt <= AUTH_RESOLUTION_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await resolveActorFromAuthApi({ request });
+    } catch (error) {
+      if (!isTransientAuthResolutionError(error) || attempt === AUTH_RESOLUTION_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+
+      await delay(AUTH_RESOLUTION_RETRY_DELAYS_MS[attempt] ?? 0);
+    }
+  }
+
+  return null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Finalize a surface read model: record loader telemetry and return the route
