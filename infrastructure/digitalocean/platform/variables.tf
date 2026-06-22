@@ -356,6 +356,12 @@ variable "app_instance_size_slug" {
   default = "apps-s-1vcpu-1gb"
 }
 
+variable "worker_instance_size_slug" {
+  type        = string
+  default     = ""
+  description = "Optional worker instance-size override. Empty uses the environment default: staging workers run larger than web/API for the full-context background processing footprint; other environments inherit app_instance_size_slug."
+}
+
 variable "worker_instance_count" {
   type        = number
   default     = 0

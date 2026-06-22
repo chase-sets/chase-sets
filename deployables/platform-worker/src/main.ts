@@ -941,7 +941,7 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
 function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
   return {
     leaseMissed: (event) =>
-      logger.info("Worker runner lease missed.", {
+      logger.debug("Worker runner lease missed.", {
         type: "worker.runner.lease_missed",
         workerKind,
         runnerGroup,
@@ -954,13 +954,15 @@ function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerR
         runnerGroup,
         ...event,
       }),
-    runnerCompleted: (event) =>
-      logger.info("Worker runner completed.", {
+    runnerCompleted: (event) => {
+      const log = event.processed > 0 || event.state === "degraded" ? logger.info : logger.debug;
+      log("Worker runner completed.", {
         type: "worker.runner.completed",
         workerKind,
         runnerGroup,
         ...event,
-      }),
+      });
+    },
     runnerFailed: (event) =>
       logger.error("Worker runner failed.", {
         type: "worker.runner.failed",

@@ -597,11 +597,13 @@ locals {
     }
   }
 
-  public_web_instances     = local.is_production ? 2 : 1
-  api_instances            = local.is_production ? 2 : 1
-  admin_web_instances      = 1
-  default_worker_instances = local.is_staging ? 2 : 1
-  worker_instances         = var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances
+  public_web_instances              = local.is_production ? 2 : 1
+  api_instances                     = local.is_production ? 2 : 1
+  admin_web_instances               = 1
+  worker_default_instance_size_slug = local.is_staging ? "apps-s-1vcpu-2gb" : var.app_instance_size_slug
+  worker_instance_size_slug         = trimspace(var.worker_instance_size_slug) != "" ? var.worker_instance_size_slug : local.worker_default_instance_size_slug
+  default_worker_instances          = local.is_staging ? 2 : 1
+  worker_instances                  = var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances
 
   public_uptime_check_targets = {
     for domain in local.public_domains :

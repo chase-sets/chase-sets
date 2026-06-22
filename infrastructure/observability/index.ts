@@ -31,6 +31,8 @@ export type ObservabilityConfig = Readonly<{
   tracesSamplerArg?: string;
   logFilePath?: string;
   logLevel: LogLevel;
+  logExportMaxInFlight: number;
+  logExportQueueSize: number;
   resourceAttributes: Readonly<Record<string, string>>;
 }>;
 
@@ -62,6 +64,10 @@ const LEVEL_PRIORITY = {
   warn: 30,
   error: 40,
 } satisfies Record<LogLevel, number>;
+const DEFAULT_LOG_EXPORT_MAX_IN_FLIGHT = 4;
+const DEFAULT_LOG_EXPORT_QUEUE_SIZE = 100;
+const MAX_LOG_EXPORT_MAX_IN_FLIGHT = 16;
+const MAX_LOG_EXPORT_QUEUE_SIZE = 1_000;
 
 const OBSERVABILITY_SCOPE_NAME = "@chase-sets/observability";
 const tracer = trace.getTracer(OBSERVABILITY_SCOPE_NAME);
@@ -418,6 +424,16 @@ export function loadObservabilityConfig(
     tracesSamplerArg: nonEmpty(env.OTEL_TRACES_SAMPLER_ARG) ?? (env.NODE_ENV === "production" ? "0.1" : "1.0"),
     logFilePath: nonEmpty(env.LOG_FILE_PATH),
     logLevel: parseLogLevel(env.LOG_LEVEL),
+    logExportMaxInFlight: parsePositiveInteger(
+      env.LOG_EXPORT_MAX_IN_FLIGHT,
+      DEFAULT_LOG_EXPORT_MAX_IN_FLIGHT,
+      MAX_LOG_EXPORT_MAX_IN_FLIGHT,
+    ),
+    logExportQueueSize: parseNonNegativeInteger(
+      env.LOG_EXPORT_QUEUE_SIZE,
+      DEFAULT_LOG_EXPORT_QUEUE_SIZE,
+      MAX_LOG_EXPORT_QUEUE_SIZE,
+    ),
     resourceAttributes: parseResourceAttributes(env.OTEL_RESOURCE_ATTRIBUTES),
   };
 }
@@ -511,6 +527,8 @@ export function getObservabilityRuntime(): ObservabilityRuntime {
 }
 
 export function createLogger(config = loadObservabilityConfig()): Logger {
+  const structuredLogExporter = createStructuredLogExporter(config);
+
   function write(level: LogLevel, message: string, fields: LogFields = {}) {
     if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[config.logLevel]) {
       return;
@@ -530,7 +548,7 @@ export function createLogger(config = loadObservabilityConfig()): Logger {
     const line = JSON.stringify(entry);
 
     writeLogFile(config.logFilePath, line);
-    void exportStructuredLog(config, entry);
+    structuredLogExporter(entry);
 
     if (level === "error") {
       console.error(line);
@@ -1294,6 +1312,24 @@ function parseLogLevel(value: string | undefined): LogLevel {
   return value === "debug" || value === "info" || value === "warn" || value === "error" ? value : "info";
 }
 
+function parsePositiveInteger(value: string | undefined, defaultValue: number, maxValue: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+
+  return Math.min(parsed, maxValue);
+}
+
+function parseNonNegativeInteger(value: string | undefined, defaultValue: number, maxValue: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return defaultValue;
+  }
+
+  return Math.min(parsed, maxValue);
+}
+
 function parseResourceAttributes(value: string | undefined): Readonly<Record<string, string>> {
   if (!value?.trim()) {
     return {};
@@ -1372,6 +1408,46 @@ function writeLogFile(logFilePath: string | undefined, line: string): void {
   }
 }
 
+type StructuredLogExportTask = Readonly<{
+  entry: LogFields;
+  timestamp: string;
+}>;
+
+function createStructuredLogExporter(config: ObservabilityConfig): (entry: LogFields) => void {
+  if (!config.enabled || !config.otlpEndpoint || typeof fetch !== "function") {
+    return () => undefined;
+  }
+
+  let inFlight = 0;
+  const queue: StructuredLogExportTask[] = [];
+  const run = (task: StructuredLogExportTask) => {
+    inFlight += 1;
+    void sendStructuredLog(config, task.entry, task.timestamp).finally(() => {
+      inFlight -= 1;
+      const next = queue.shift();
+      if (next) {
+        run(next);
+      }
+    });
+  };
+
+  return (entry) => {
+    const task: StructuredLogExportTask = {
+      entry,
+      timestamp: typeof entry.timestamp === "string" ? entry.timestamp : new Date().toISOString(),
+    };
+
+    if (inFlight < config.logExportMaxInFlight) {
+      run(task);
+      return;
+    }
+
+    if (queue.length < config.logExportQueueSize) {
+      queue.push(task);
+    }
+  };
+}
+
 async function warnIfCollectorUnavailable(config: ObservabilityConfig, logger: Logger): Promise<void> {
   if (!config.otlpEndpoint || typeof fetch !== "function") {
     return;
@@ -1398,12 +1474,7 @@ async function warnIfCollectorUnavailable(config: ObservabilityConfig, logger: L
   }
 }
 
-async function exportStructuredLog(config: ObservabilityConfig, entry: LogFields): Promise<void> {
-  if (!config.enabled || !config.otlpEndpoint || typeof fetch !== "function") {
-    return;
-  }
-
-  const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : new Date().toISOString();
+async function sendStructuredLog(config: ObservabilityConfig, entry: LogFields, timestamp: string): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1000);
 

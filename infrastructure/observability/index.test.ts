@@ -171,6 +171,49 @@ describe("structured logging", () => {
     log.mockRestore();
     vi.unstubAllGlobals();
   });
+
+  it("bounds concurrent structured log exports and drops overflow", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const pending: Array<() => void> = [];
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pending.push(() => resolve(new Response(null, { status: 200 })));
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const logger = createLogger(
+      loadObservabilityConfig({
+        OTEL_SERVICE_NAME: "platform-worker",
+        DEPLOYMENT_ENVIRONMENT: "staging",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.example.test",
+        LOG_EXPORT_MAX_IN_FLIGHT: "2",
+        LOG_EXPORT_QUEUE_SIZE: "1",
+      }),
+    );
+
+    logger.info("first");
+    logger.info("second");
+    logger.info("queued");
+    logger.info("dropped");
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    pending.shift()?.();
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    for (const resolve of pending.splice(0)) {
+      resolve();
+    }
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    log.mockRestore();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("request metrics", () => {
