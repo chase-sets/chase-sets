@@ -121,18 +121,64 @@ function createCheckpointStore(): ProjectionCheckpointStore {
 }
 
 function createDb(lines: readonly CheckoutSellListLineRow[]) {
-  return {
-    query: vi.fn(async (query: unknown) => {
+  let sellListLines = [...lines];
+  const db = {
+    query: vi.fn(async (query: unknown, params?: readonly unknown[]) => {
       const sql = String(query);
       if (sql.includes("checkout_sell_list_confirmation_pages")) {
         return { rows: [] };
       }
       if (sql.includes("checkout_sell_list_line_pages")) {
-        return { rows: lines };
+        if (/DELETE\s+FROM\s+checkout_sell_list_line_pages/i.test(sql)) {
+          const sellerAccountId = String(params?.[0] ?? "");
+          const lineIds = Array.isArray(params?.[1]) ? new Set(params[1].map(String)) : new Set<string>();
+          sellListLines = sellListLines.filter(
+            (line) => line.seller_account_id !== sellerAccountId || !lineIds.has(line.line_id),
+          );
+          return { rows: [] };
+        }
+
+        return { rows: sellListLines };
       }
       return { rows: [] };
     }),
   };
+
+  return db;
+}
+
+async function seedSellListAggregate(
+  services: ReturnType<typeof createCheckoutSellListRuntime>,
+  lines: readonly CheckoutSellListLineRow[],
+  allEvents: StoredEvent[],
+) {
+  for (const line of lines) {
+    await services.commandHandler({
+      streamId: `checkout.sell-list-${line.seller_account_id}`,
+      command: {
+        type: "AddSellListLine",
+        sellerAccountId: line.seller_account_id as never,
+        lineId: line.line_id as never,
+        lineType: line.line_type,
+        offerId: line.offer_id,
+        buyerAccountId: line.buyer_account_id,
+        buyerDisplayName: line.buyer_display_name,
+        offerPriceAmount: line.offer_price_amount,
+        catalogItemId: line.catalog_catalog_item_id,
+        productId: line.product_id,
+        itemTitle: line.item_title,
+        itemSubtitle: line.item_subtitle,
+        selectedOptions: line.selected_options,
+        productSummary: line.product_summary,
+        quantity: line.quantity,
+        fallbackMode: line.fallback_mode,
+        minimumListingPriceAmount: line.minimum_listing_price_amount,
+      },
+      context,
+    });
+  }
+
+  allEvents.length = 0;
 }
 
 const sellerEvidence: SellListSellerConfirmationEvidence = {
@@ -186,6 +232,7 @@ describe("sell list checkout runtime readiness boundary", () => {
       checkpointStore: createCheckpointStore(),
       db: createDb([selectedOfferLine, productLine]) as never,
     });
+    await seedSellListAggregate(services, [selectedOfferLine, productLine], allEvents);
 
     await expect(
       services.confirmSellListCheckout(
@@ -218,6 +265,7 @@ describe("sell list checkout runtime readiness boundary", () => {
       checkpointStore: createCheckpointStore(),
       db: createDb([changedLine]) as never,
     });
+    await seedSellListAggregate(services, [changedLine], allEvents);
 
     await expect(
       services.confirmSellListCheckout(
@@ -237,5 +285,36 @@ describe("sell list checkout runtime readiness boundary", () => {
     ).rejects.toThrow("Sell List readiness snapshot is stale.");
 
     expect(allEvents).toEqual([]);
+  });
+
+  it("prunes projected Sell List rows that are absent from the aggregate", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createDb([productLine]);
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(services.listLines("acc_seller")).resolves.toEqual([]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM checkout_sell_list_line_pages"), [
+      "acc_seller",
+      ["sll_product"],
+    ]);
+  });
+
+  it("treats removing an already-absent aggregate line as a projected-row repair", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createDb([productLine]);
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      services.removeLine({ sellerAccountId: "acc_seller" as never, lineId: "sll_product" as never }, context),
+    ).resolves.toEqual({ lineId: "sll_product", version: 0 });
+    await expect(services.listLines("acc_seller")).resolves.toEqual([]);
   });
 });
