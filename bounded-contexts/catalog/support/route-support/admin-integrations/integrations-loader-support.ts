@@ -138,13 +138,12 @@ async function finalizeSurfaceLoad(input: {
   // read model without the option pages, so `sourceOptions` is the structural
   // skeleton. The daily surface streams the populated slice separately (#1970);
   // the other surfaces do not render the status panel at all.
-  const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
+  const readModel = buildSurfaceReadModelFailSoft({
+    surface: input.surface,
+    baseline: input.baseline,
     requestUrl: input.request.url,
-    scopes: input.baseline.routeData.data,
-    profileReviews: input.baseline.profileReviews,
     profileAuthoringModel: input.profileAuthoringModel ?? null,
     lifecycleImpacts: input.lifecycleImpacts ?? null,
-    controlPlaneOverview: input.baseline.controlPlaneOverview,
     readModelFailures: input.readModelFailures ?? input.baseline.readModelFailures,
     reviewObservations: input.reviewObservations ?? null,
     reviewPagination: input.reviewPagination,
@@ -173,7 +172,8 @@ async function finalizeSurfaceLoad(input: {
 // or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
-  const normalizedRouteContext = normalizedDailyRouteContext(request, baseline, routeContext);
+  const normalized = normalizedDailyRouteContext(request, baseline, routeContext);
+  const normalizedRouteContext = normalized.routeContext;
   const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
   const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
@@ -183,7 +183,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
         null,
       )
     : ({ value: null, failed: false } as const);
-  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...baseline.readModelFailures];
+  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
     readModelFailures.push("source-observation-review");
   }
@@ -223,18 +223,29 @@ function normalizedDailyRouteContext(
   request: Request,
   baseline: CatalogIntegrationsBaseline,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
-): CatalogPrimaryWorkbenchRouteContext {
-  return buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+): Readonly<{
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
+}> {
+  const readModel = buildSurfaceReadModelFailSoft({
+    surface: "daily",
+    baseline,
     requestUrl: request.url,
-    scopes: baseline.routeData.data,
-    profileReviews: baseline.profileReviews,
-    controlPlaneOverview: baseline.controlPlaneOverview,
+    profileAuthoringModel: null,
+    lifecycleImpacts: null,
     readModelFailures: baseline.readModelFailures,
     reviewObservations: null,
     reviewPagination: dailyReviewPaginationFor(routeContext),
     sourceOptionPages: null,
     canManageCatalog: baseline.canManageCatalog,
-  }).routeContext;
+  });
+  return {
+    routeContext: readModel.routeContext,
+    readModelFailures:
+      readModel.readiness.freshness === "unavailable"
+        ? [...new Set([...baseline.readModelFailures, "control-plane-overview" as const])]
+        : baseline.readModelFailures,
+  };
 }
 
 // Resolve the streamed source-options slice: fetch the option fan-out (fail-soft
@@ -275,6 +286,51 @@ async function catalogApiResult<T>(
     return { value: await operation(), failed: false };
   } catch {
     return { value: fallback, failed: true };
+  }
+}
+
+function buildSurfaceReadModelFailSoft(input: {
+  surface: CatalogControlPlaneRouteSurfaceKey;
+  baseline: CatalogIntegrationsBaseline;
+  requestUrl: string;
+  profileAuthoringModel: CatalogProviderProfileAuthoringModel | null;
+  lifecycleImpacts: Partial<
+    Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
+  > | null;
+  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
+  reviewObservations: ListResponse<SourceObservationListItem> | null;
+  reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
+  sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
+  canManageCatalog: boolean;
+}): CatalogPrimaryWorkbenchReadModel {
+  const controlPlaneOverview = input.readModelFailures.includes("control-plane-overview")
+    ? null
+    : input.baseline.controlPlaneOverview;
+  const readModelInput = {
+    requestUrl: input.requestUrl,
+    scopes: input.baseline.routeData.data,
+    profileReviews: input.baseline.profileReviews,
+    profileAuthoringModel: input.profileAuthoringModel,
+    lifecycleImpacts: input.lifecycleImpacts,
+    controlPlaneOverview,
+    readModelFailures: input.readModelFailures,
+    reviewObservations: input.reviewObservations,
+    reviewPagination: input.reviewPagination,
+    sourceOptionPages: input.sourceOptionPages,
+    canManageCatalog: input.canManageCatalog,
+  };
+
+  try {
+    return buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, readModelInput);
+  } catch (error) {
+    if (!controlPlaneOverview) {
+      throw error;
+    }
+    return buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
+      ...readModelInput,
+      controlPlaneOverview: null,
+      readModelFailures: [...input.readModelFailures, "control-plane-overview"],
+    });
   }
 }
 
