@@ -238,6 +238,13 @@ function readinessStaleError(code = "readiness_snapshot_stale") {
   return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
 }
 
+function buyNowReadinessStaleError() {
+  return new CheckoutDomainError(
+    "Selected listing changed. Review item availability before checkout.",
+    "readiness_snapshot_stale",
+  );
+}
+
 function assertBuyerDeliveryAddressServiceable(address: CheckoutShippingAddress | null | undefined) {
   const issue = checkoutDeliveryServiceabilityIssue(address);
   if (issue) {
@@ -381,6 +388,15 @@ function isEventStoreConcurrencyConflict(error: unknown) {
   );
 }
 
+type BuyNowLockedListingReadinessRow = Readonly<{
+  listing_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  status: string;
+  price_amount: string;
+  available_quantity: number;
+}>;
+
 export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -442,6 +458,62 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     }
 
     return loaded.state;
+  }
+
+  async function assertBuyNowLockedListingReady(
+    params: Readonly<{
+      listingId: string;
+      lockedListingId: string;
+      catalogItemId: string;
+      productId: string;
+      quantity: number;
+    }>,
+  ) {
+    const listingId = params.listingId.trim();
+    const lockedListingId = params.lockedListingId.trim();
+    if (listingId && listingId !== lockedListingId) {
+      throw buyNowReadinessStaleError();
+    }
+
+    const result = await deps.db.query<BuyNowLockedListingReadinessRow>(
+      `SELECT
+         listing_id,
+         catalog_catalog_item_id,
+         product_id,
+         status,
+         price_amount::text AS price_amount,
+         LEAST(
+           listing_quantity_cap,
+           GREATEST(COALESCE(supply_total_quantity, 0) - COALESCE(active_held_quantity, 0), 0)
+         ) AS available_quantity
+       FROM checkout_marketplace_seller_options
+       WHERE listing_id = $1`,
+      [lockedListingId],
+    );
+
+    const listing = result.rows[0];
+    if (!listing) {
+      throw buyNowReadinessStaleError();
+    }
+
+    if (
+      listing.catalog_catalog_item_id !== params.catalogItemId.trim() ||
+      listing.product_id !== params.productId.trim()
+    ) {
+      throw buyNowReadinessStaleError();
+    }
+
+    const availableQuantity = Number(listing.available_quantity);
+    const priceAmount = Number(listing.price_amount);
+    if (
+      listing.status !== "active" ||
+      !Number.isFinite(priceAmount) ||
+      priceAmount < 0 ||
+      !Number.isFinite(availableQuantity) ||
+      availableQuantity < params.quantity
+    ) {
+      throw unresolvedFulfillmentError();
+    }
   }
 
   async function applySessionCommandForBuyer(
@@ -591,6 +663,13 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       }
 
       const descriptor = await validateCatalogSelection(params);
+      await assertBuyNowLockedListingReady({
+        listingId: params.listingId,
+        lockedListingId,
+        catalogItemId: params.catalogItemId,
+        productId: descriptor.productId,
+        quantity: params.quantity,
+      });
       const fulfillmentMode =
         params.fulfillmentMode === "locked-listing" || lockedListingId ? "locked-listing" : "optimize";
       return startSession(
