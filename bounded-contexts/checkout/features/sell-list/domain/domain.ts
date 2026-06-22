@@ -174,12 +174,12 @@ export type SellListLineAddedEvent = DomainEvent<
 
 export type SellListLineRemovedEvent = DomainEvent<
   "checkout.sell-list.line-removed",
-  Readonly<{ lineId: SellListLineId }>
+  Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId }>
 >;
 
 export type SellListLineQuantitySetEvent = DomainEvent<
   "checkout.sell-list.line-quantity-set",
-  Readonly<{ lineId: SellListLineId; quantity: number }>
+  Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId; quantity: number }>
 >;
 
 export type SellListCheckoutConfirmedEvent = DomainEvent<
@@ -292,25 +292,28 @@ export const decideCheckoutSellList: AggregateDecider<
         },
       ];
     }
-    case "SetSellListLineQuantity":
-      requireSellListLine(state, command.lineId);
+    case "SetSellListLineQuantity": {
+      const line = requireSellListLine(state, command.lineId);
       return [
         {
           type: "checkout.sell-list.line-quantity-set",
           data: {
+            sellerAccountId: line.sellerAccountId,
             lineId: command.lineId,
             quantity: ensurePositiveInteger(command.quantity, "Sell list quantity must be a positive whole number."),
           },
         },
       ];
-    case "RemoveSellListLine":
-      requireSellListLine(state, command.lineId);
+    }
+    case "RemoveSellListLine": {
+      const line = requireSellListLine(state, command.lineId);
       return [
         {
           type: "checkout.sell-list.line-removed",
-          data: { lineId: command.lineId },
+          data: { sellerAccountId: line.sellerAccountId, lineId: command.lineId },
         },
       ];
+    }
     case "ConfirmSellListCheckout":
       assert(state.sellerAccountId !== null, "Sell list has not been initialized.");
       assert(state.lines.length > 0, "Sell list must contain at least one line.");
