@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createCheckoutOrdersThroughOrdering } from "../support/request-support/checkout-confirmation";
+import { MarketplaceApiError } from "@chase-sets/marketplace/server";
+import {
+  createCheckoutOrdersThroughOrdering,
+  submitPurchaseIntentThroughMarketplace,
+} from "../support/request-support/checkout-confirmation";
 
 const mockPreviewCheckoutFulfillment = vi.fn();
 const mockCreateCheckoutOrders = vi.fn();
+const mockCreateSubmittedOffer = vi.fn();
 
 vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: () => ({
@@ -17,16 +22,25 @@ vi.mock("@chase-sets/payments/server", () => ({
 
 vi.mock("@chase-sets/marketplace/server", () => ({
   MarketplaceApiError: class MarketplaceApiError extends Error {
-    status = 400;
-    body = {};
+    status: number;
+    body: unknown;
+
+    constructor(status: number, body: unknown) {
+      super("Marketplace API request failed.");
+      this.status = status;
+      this.body = body;
+    }
   },
-  createMarketplaceRequestApiClient: () => ({}),
+  createMarketplaceRequestApiClient: () => ({
+    createSubmittedOffer: mockCreateSubmittedOffer,
+  }),
 }));
 
 describe("checkout confirmation support", () => {
   beforeEach(() => {
     mockPreviewCheckoutFulfillment.mockReset();
     mockCreateCheckoutOrders.mockReset();
+    mockCreateSubmittedOffer.mockReset();
   });
 
   const cartSession = {
@@ -53,6 +67,26 @@ describe("checkout confirmation support", () => {
         selectedOptions: [],
         productSummary: null,
         quantity: 1,
+      },
+    ],
+  } as const;
+
+  const offerIntentSession = {
+    ...cartSession,
+    session_id: "chk_offer_1",
+    source_type: "offer-intent",
+    lines: [
+      {
+        cartLineId: null,
+        listingId: null,
+        catalogItemId: "cat_offer",
+        productId: "cat_offer::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Raw",
+        offerPriceAmount: "350.00",
+        quantity: 2,
       },
     ],
   } as const;
@@ -124,6 +158,85 @@ describe("checkout confirmation support", () => {
         source_type: "offer-intent",
       } as never),
     ).rejects.toThrow("Offer intent submits a Marketplace offer and does not create orders during checkout.");
+
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrders).not.toHaveBeenCalled();
+  });
+
+  it("submits offer-intent sessions through Marketplace with the checkout source facts", async () => {
+    mockCreateSubmittedOffer.mockResolvedValue({
+      id: "off_marketplace_1",
+      commandReceipt: { commitPosition: "42" },
+    });
+
+    const result = await submitPurchaseIntentThroughMarketplace(
+      new Request("https://checkout.test/checkout/buy/session/chk_offer_1"),
+      offerIntentSession as never,
+    );
+
+    expect(result).toEqual({
+      offerId: "off_marketplace_1",
+      writeResult: {
+        id: "off_marketplace_1",
+        commandReceipt: { commitPosition: "42" },
+      },
+    });
+    expect(mockCreateSubmittedOffer).toHaveBeenCalledWith({
+      offerId: "off_offer_1",
+      catalogItemId: "cat_offer",
+      productId: "cat_offer::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      shippingDestinationSnapshot: offerIntentSession.shipping_address,
+      priceAmount: "350.00",
+      quantityRequested: 2,
+    });
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrders).not.toHaveBeenCalled();
+  });
+
+  it("requires shipping destination before submitting purchase intent", async () => {
+    await expect(
+      submitPurchaseIntentThroughMarketplace(new Request("https://checkout.test/checkout/buy/session/chk_offer_1"), {
+        ...offerIntentSession,
+        shipping_address: null,
+      } as never),
+    ).rejects.toThrow("Shipping destination is required before checkout can place purchase intent.");
+
+    expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrders).not.toHaveBeenCalled();
+  });
+
+  it("requires an offer price before submitting purchase intent", async () => {
+    await expect(
+      submitPurchaseIntentThroughMarketplace(new Request("https://checkout.test/checkout/buy/session/chk_offer_1"), {
+        ...offerIntentSession,
+        lines: [{ ...offerIntentSession.lines[0], offerPriceAmount: "   " }],
+      } as never),
+    ).rejects.toThrow("Purchase intent requires an offer price.");
+
+    expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrders).not.toHaveBeenCalled();
+  });
+
+  it("treats already-submitted Marketplace offers as idempotent", async () => {
+    mockCreateSubmittedOffer.mockRejectedValue(
+      new MarketplaceApiError(400, { error: { message: "Offer has already been submitted." } }),
+    );
+
+    await expect(
+      submitPurchaseIntentThroughMarketplace(
+        new Request("https://checkout.test/checkout/buy/session/chk_offer_1"),
+        offerIntentSession as never,
+      ),
+    ).resolves.toEqual({
+      offerId: "off_offer_1",
+      writeResult: null,
+    });
 
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     expect(mockCreateCheckoutOrders).not.toHaveBeenCalled();
