@@ -79,6 +79,9 @@
       "@chase-sets/checkout": [
         "./bounded-contexts/checkout/index.ts"
       ],
+      "@chase-sets/checkout-order-source": [
+        "./contracts/checkout-order-source/index.ts"
+      ],
       "@chase-sets/checkout/context": [
         "./bounded-contexts/checkout/context.json"
       ],

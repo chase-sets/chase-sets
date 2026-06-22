@@ -35,6 +35,10 @@ import {
   type PaymentsCheckoutStatus,
   type PaymentsSavedCheckoutInstrument,
 } from "@chase-sets/payments/server";
+import {
+  checkoutSessionSourceCreatesOrders,
+  toOrderingSourceForCheckoutOrderCreation,
+} from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
@@ -330,10 +334,6 @@ function checkoutPreviewRealtimeTopics(
   ];
 }
 
-function isOfferIntentSession(session: Readonly<{ source_type: string }>) {
-  return session.source_type === "offer-intent";
-}
-
 function parseCheckoutEditSection(value: string | null): CheckoutEditSection | null {
   return value === "contact" || value === "delivery" || value === "shipping" || value === "payment" ? value : null;
 }
@@ -342,16 +342,17 @@ async function loadFulfillmentPreview(
   request: Request,
   session: Awaited<ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>>,
 ) {
-  if (isOfferIntentSession(session)) {
+  if (!checkoutSessionSourceCreatesOrders(session.source_type)) {
     return { fulfillmentPreview: null, previewError: null };
   }
 
+  const orderingSourceType = toOrderingSourceForCheckoutOrderCreation(session.source_type);
   const orderingApi = createOrderingRequestApiClient(request);
   try {
     return {
       fulfillmentPreview: await orderingApi.previewCheckoutFulfillment({
         checkoutSessionId: session.session_id,
-        sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+        sourceType: orderingSourceType,
         shippingOption: session.shipping_option,
         shippingAddress: session.shipping_address,
         optimizationGoal: session.optimization_goal,

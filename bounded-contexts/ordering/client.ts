@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
+import type { CheckoutOrderingSourceType } from "@chase-sets/checkout-order-source";
 import type { buildOrderingApi } from "./api";
 
 export type {
@@ -40,7 +41,7 @@ export type OrderingCheckoutLineSnapshot = Readonly<{
 
 export type CreateCheckoutOrdersRequest = Readonly<{
   checkoutSessionId: string;
-  sourceType: "cart-checkout" | "buy-now";
+  sourceType: CheckoutOrderingSourceType;
   shippingOption: "standard" | "expedited" | "priority";
   shippingAddress: Readonly<{
     name: string;

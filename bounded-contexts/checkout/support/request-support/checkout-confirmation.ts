@@ -2,6 +2,10 @@ import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
 import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
+import {
+  checkoutSessionSourceCreatesOrders,
+  toOrderingSourceForCheckoutOrderCreation,
+} from "@chase-sets/checkout-order-source";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
@@ -21,10 +25,15 @@ export async function createCheckoutOrdersThroughOrdering(
     throw new Error("Shipping destination is required before checkout can create purchases.");
   }
 
+  if (!checkoutSessionSourceCreatesOrders(session.source_type)) {
+    throw new Error("Offer intent submits a Marketplace offer and does not create orders during checkout.");
+  }
+
+  const orderingSourceType = toOrderingSourceForCheckoutOrderCreation(session.source_type);
   const orderingApi = createOrderingRequestApiClient(request);
   const preview = await orderingApi.previewCheckoutFulfillment({
     checkoutSessionId: session.session_id,
-    sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+    sourceType: orderingSourceType,
     shippingOption: session.shipping_option,
     shippingAddress: session.shipping_address,
     optimizationGoal: session.optimization_goal,
@@ -32,7 +41,7 @@ export async function createCheckoutOrdersThroughOrdering(
   });
   const result = await orderingApi.createCheckoutOrders({
     checkoutSessionId: session.session_id,
-    sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
+    sourceType: orderingSourceType,
     shippingOption: session.shipping_option,
     shippingAddress: session.shipping_address,
     optimizationGoal: session.optimization_goal,
