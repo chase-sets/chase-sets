@@ -1,4 +1,11 @@
-import { readApiErrorCode, readFreshWriteTokenState, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import {
+  POST_WRITE_RECOVERY_KINDS,
+  postWriteRecoveryKindForFreshWriteReadError,
+  readApiErrorCode,
+  readFreshWriteTokenState,
+  recoverFreshWriteReadError,
+  type PostWriteRecoveryKind,
+} from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { CheckoutApiError } from "../../../support/request-support/api-client";
 
@@ -21,6 +28,7 @@ export type CheckoutRecoveryKind =
 
 export type CheckoutRecovery = Readonly<{
   kind: CheckoutRecoveryKind;
+  recoveryKind: PostWriteRecoveryKind;
   status: number;
   title: string;
   description: string;
@@ -45,9 +53,27 @@ function checkoutRecoveryAction(
   };
 }
 
+function recoveryKindForCheckoutRecoveryKind(kind: CheckoutRecoveryKind): PostWriteRecoveryKind {
+  switch (kind) {
+    case "checkout-preparing":
+      return "refreshable-catching-up";
+    case "checkout-handoff-expired":
+      return "expired-handoff";
+    case "access-required":
+    case "cart-empty":
+    case "guest-access-expired":
+    case "request-validation":
+    case "wrong-account":
+      return "action-required";
+    case "session-not-found":
+      return "terminal-failure";
+  }
+}
+
 export function checkoutRecoveryForKind(
   kind: CheckoutRecoveryKind,
   currentPath = "/checkout/buy/readiness",
+  recoveryKind: PostWriteRecoveryKind = recoveryKindForCheckoutRecoveryKind(kind),
 ): CheckoutRecovery {
   const signInPath = `/sign-in?returnTo=${encodeURIComponent(currentPath)}`;
   const browseAction = checkoutRecoveryAction(
@@ -76,6 +102,7 @@ export function checkoutRecoveryForKind(
     case "access-required":
       return {
         kind,
+        recoveryKind,
         status: 401,
         title: t("checkout.routes.checkoutSession.checkout.access.required"),
         description: t("checkout.routes.checkoutSession.checkout.access.required.description"),
@@ -86,6 +113,7 @@ export function checkoutRecoveryForKind(
     case "cart-empty":
       return {
         kind,
+        recoveryKind,
         status: 400,
         title: t("checkout.routes.checkoutRecovery.buy.cart.empty"),
         description: t("checkout.routes.checkoutRecovery.buy.cart.empty.description"),
@@ -96,6 +124,7 @@ export function checkoutRecoveryForKind(
     case "checkout-preparing":
       return {
         kind,
+        recoveryKind,
         status: 202,
         title: t("checkout.routes.checkoutRecovery.checkout.preparing"),
         description: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
@@ -106,6 +135,7 @@ export function checkoutRecoveryForKind(
     case "checkout-handoff-expired":
       return {
         kind,
+        recoveryKind,
         status: 410,
         title: t("checkout.routes.checkoutRecovery.checkout.handoff.expired"),
         description: t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description"),
@@ -116,6 +146,7 @@ export function checkoutRecoveryForKind(
     case "guest-access-expired":
       return {
         kind,
+        recoveryKind,
         status: 401,
         title: t("checkout.routes.checkoutSession.guest.checkout.access.expired"),
         description: t("checkout.routes.checkoutSession.guest.checkout.access.expired.description"),
@@ -126,6 +157,7 @@ export function checkoutRecoveryForKind(
     case "request-validation":
       return {
         kind,
+        recoveryKind,
         status: 400,
         title: t("checkout.routes.checkoutRecovery.checkout.needs.attention"),
         description: t("checkout.routes.checkoutRecovery.checkout.needs.attention.description"),
@@ -136,6 +168,7 @@ export function checkoutRecoveryForKind(
     case "session-not-found":
       return {
         kind,
+        recoveryKind,
         status: 404,
         title: t("checkout.routes.checkoutSession.checkout.session.not.found"),
         description: t("checkout.routes.checkoutSession.checkout.session.not.found.description"),
@@ -146,6 +179,7 @@ export function checkoutRecoveryForKind(
     case "wrong-account":
       return {
         kind,
+        recoveryKind,
         status: 403,
         title: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account"),
         description: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account.description"),
@@ -190,7 +224,7 @@ export function checkoutRecoveryForError(
   }
 
   if (error.status === 503 && errorBodyCode(error) === "projection_freshness_timeout") {
-    return checkoutRecoveryForKind("checkout-preparing", currentPath);
+    return checkoutRecoveryForKind("checkout-preparing", currentPath, "stale-projection");
   }
 
   if (error.status === 400) {
@@ -225,7 +259,12 @@ export function checkoutRecoveryForFreshWriteError(
   const freshWriteRecovery = recoverFreshWriteReadError({
     request,
     error,
-    recoverTransient: () => checkoutRecoveryForKind("checkout-preparing", currentPath),
+    recoverTransient: (classification) =>
+      checkoutRecoveryForKind(
+        "checkout-preparing",
+        currentPath,
+        postWriteRecoveryKindForFreshWriteReadError(classification),
+      ),
   });
   if (freshWriteRecovery) {
     return freshWriteRecovery;
@@ -247,6 +286,10 @@ function isCheckoutRecoveryAction(value: unknown): value is CheckoutRecoveryActi
   return typeof action.href === "string" && typeof action.label === "string";
 }
 
+function isPostWriteRecoveryKind(value: unknown): value is PostWriteRecoveryKind {
+  return typeof value === "string" && (POST_WRITE_RECOVERY_KINDS as readonly string[]).includes(value);
+}
+
 export function isCheckoutRecovery(value: unknown): value is CheckoutRecovery {
   if (!value || typeof value !== "object") {
     return false;
@@ -255,6 +298,7 @@ export function isCheckoutRecovery(value: unknown): value is CheckoutRecovery {
   const recovery = value as Record<string, unknown>;
   return (
     typeof recovery.kind === "string" &&
+    isPostWriteRecoveryKind(recovery.recoveryKind) &&
     typeof recovery.status === "number" &&
     typeof recovery.title === "string" &&
     typeof recovery.description === "string" &&

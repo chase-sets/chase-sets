@@ -630,7 +630,9 @@ describe("checkout web routes: checkout session loader", () => {
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
       primaryAction?: { href?: string };
+      recoveryKind?: string;
     };
+    expect(recoveryBody.recoveryKind).toBe("terminal-failure");
     expect(recoveryBody.description).toContain("We could not find this checkout session.");
     expect(recoveryBody.primaryAction?.href).toBe("/search");
   });
@@ -665,9 +667,11 @@ describe("checkout web routes: checkout session loader", () => {
       kind?: string;
       description?: string;
       primaryAction?: { href?: string; label?: string };
+      recoveryKind?: string;
       trustCue?: string;
     };
     expect(recoveryBody.kind).toBe("request-validation");
+    expect(recoveryBody.recoveryKind).toBe("action-required");
     expect(recoveryBody.description).toContain("Review your Buy Cart or browse for another item.");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
     expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
@@ -703,9 +707,11 @@ describe("checkout web routes: checkout session loader", () => {
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
       primaryAction?: { href?: string };
+      recoveryKind?: string;
       secondaryAction?: { href?: string };
       trustCue?: string;
     };
+    expect(recoveryBody.recoveryKind).toBe("expired-handoff");
     expect(recoveryBody.description).toContain("took longer than expected");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
     expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
@@ -737,7 +743,9 @@ describe("checkout web routes: checkout session loader", () => {
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
       primaryAction?: { href?: string };
+      recoveryKind?: string;
     };
+    expect(recoveryBody.recoveryKind).toBe("terminal-failure");
     expect(recoveryBody.description).toContain("We could not find this checkout session.");
     expect(recoveryBody.primaryAction?.href).toBe("/search");
   });
@@ -768,8 +776,10 @@ describe("checkout web routes: checkout session loader", () => {
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
       primaryAction?: { href?: string; label?: string };
+      recoveryKind?: string;
       trustCue?: string;
     };
+    expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
     expect(recoveryBody.description).toContain("getting your checkout ready");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
     expect(recoveryBody.primaryAction?.href).toContain("/checkout/buy/session/chk_1?afterWrite=");
@@ -802,7 +812,46 @@ describe("checkout web routes: checkout session loader", () => {
 
     expect(recoveryResponse?.status).toBe(202);
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
-    await expect(recoveryResponse?.text()).resolves.toContain("Refresh checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      recoveryKind?: string;
+      primaryAction?: { label?: string };
+    };
+    expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
+    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
+  });
+
+  it("returns stale projection recovery when checkout freshness times out without a fresh handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(503, {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(202);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      recoveryKind?: string;
+      primaryAction?: { label?: string };
+    };
+    expect(recoveryBody.recoveryKind).toBe("stale-projection");
+    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
   });
 
   it("returns temporary recovery when a fresh checkout handoff hits an opaque gateway timeout", async () => {
@@ -828,8 +877,10 @@ describe("checkout web routes: checkout session loader", () => {
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       primaryAction?: { href?: string; label?: string };
+      recoveryKind?: string;
       trustCue?: string;
     };
+    expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
     expect(recoveryBody.primaryAction?.href).toContain("/checkout/buy/session/chk_1?afterWrite=");
     expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
