@@ -22,6 +22,7 @@ The authoritative executable policy lives in `bounded-contexts/catalog/features/
 | Engine diagnostic | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 | Provider transport diagnostic | Retained redacted summary | Redacted preview only | Support redacted detail | Redacted summary only |
 | Provider credential readiness | Retained redacted summary | Redacted preview only | Support redacted detail | Redacted summary only |
+| Provider usage and credit summary | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 | Audit evidence | Retained audit summary | Redacted preview only | Support redacted detail | Reviewed evidence package only |
 | Job progress summary | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 
@@ -53,7 +54,7 @@ Representative sensitive or excluded paths include:
 - price, market price, inventory, quantity, listing, latest sales, and order/message facts unless a different bounded context owns and governs them;
 - raw provider request or response bodies.
 
-Redacted summaries may include provider key, ingestion-unit key, profile version, fixture flow, source URL, source hash, diagnostic code, path, owner, uses, retry count, HTTP status, scope, credential readiness state, credential source kind, job id, and normalized Catalog facts.
+Redacted summaries may include provider key, ingestion-unit key, profile version, fixture flow, source URL, source hash, diagnostic code, path, owner, uses, retry count, HTTP status, scope, credential readiness state, credential source kind, job id, normalized Catalog facts, estimated provider request count, actual provider request count, page count, cache hit/miss count, usage-check state, and credit/degraded diagnostics.
 
 ## Admin UI And API Rules
 
@@ -77,6 +78,7 @@ Metric labels must stay bounded and must not include provider product ids, SKU i
 - TCGplayer: cookie/session auth, seller/account data, price, inventory, listing, latest sales, and marketplace account identifiers are excluded from Catalog truth and hashes. The TCGplayer automation runbook remains the transport runbook for credential handling, throttling, and diagnostic redaction. Catalog stores only redacted credential-readiness state and source-kind metadata.
 - Scrydex/Scryfall-style and MTGJSON validation: fixture-backed validation may use redacted sample payloads only after the approval gate is satisfied for the provider and data class. Rulings, legalities, prices, seller/inventory facts, and other non-Catalog-owned fields stay outside Catalog truth unless a later owner contract changes the boundary.
 - Magic production sync: MTGJSON, Scryfall, and TCGplayer Magic production activation is governed by [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md). Scryfall is the primary card-print and image-evidence source, MTGJSON is the set/reference-data and cross-check source, and TCGplayer Magic is limited to marketplace product, SKU, sealed-product, and external-reference identity. Production activation remains blocked until the Magic signoff is complete and the interface-only staging UAT passes.
+- One Piece production sync: Scrydex is the preferred paid seed provider after source-authority approval; TCGplayer remains the marketplace identity and SKU evidence provider; Bandai official pages are validation-only unless legal/source-authority approval explicitly permits ingestion; fallback/community sources are comparison-only unless separately approved. Scrydex imports must be bulk-first and credit-aware: use list/search pagination and minimal field selection whenever possible, avoid one-call-per-record normal flows, and retain only redacted request/page/cache/usage summaries. Production activation remains blocked until [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md) is complete and the interface-only staging UAT passes.
 
 ## Release Checklist
 
@@ -87,8 +89,9 @@ Before enabling live provider sampling, retained fixtures, retained dry-run evid
 3. Confirm sampled payload, fixture body, and dry-run body retention has policy/legal approval, owner, reason, removal criteria, and deletion/rotation plan.
 4. Confirm Admin UI surfaces show normalized facts, hashes, references, diagnostic codes, or redacted previews instead of raw provider bodies.
 5. Confirm logs, metrics, traces, screenshots, CI artifacts, and launch evidence exclude provider secrets, account/seller data, and raw provider bodies.
-6. Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, and future providers are documented before live sampling.
+6. Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, Scrydex One Piece, Bandai validation, and future providers are documented before live sampling.
 7. For Magic production sync, confirm the [Magic production signoff](./catalog-integration-magic-production-signoff.md) is complete before MTGJSON, Scryfall, or TCGplayer Magic activation.
+8. For One Piece production sync, confirm the [One Piece production signoff](./catalog-integration-one-piece-production-signoff.md) is complete before Scrydex or TCGplayer One Piece activation.
 
 ## Related Policies
 
@@ -98,4 +101,5 @@ Before enabling live provider sampling, retained fixtures, retained dry-run evid
 - Canonical audit/evidence event persistence is documented in [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md).
 - Admin RBAC enforcement is documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
 - Magic production provider authority, retained-data exceptions, and UAT signoff are documented in [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md).
+- One Piece production provider authority, Scrydex credit policy, retained-data exceptions, and UAT signoff are documented in [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md).
 - Rollout modes, feature flags, and kill switches are governed outside this policy.

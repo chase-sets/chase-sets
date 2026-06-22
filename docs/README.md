@@ -84,6 +84,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Alias Equivalence Staging Proof](./runbooks/catalog-alias-equivalence-staging-proof.md): UI-driven staging walkthrough for Japanese TCGdex import -> alias review -> promotion -> English search and display, with expected stage counts, revocation, and alias backfill / Discovery reindex / display recompute rollback.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
 - [Magic Provider Sync Operations](./runbooks/magic-provider-sync-operations.md): MTGJSON, Scryfall, and TCGplayer credential posture, production defaults, rotation, and emergency disablement.
+- [One Piece Provider Sync Operations](./runbooks/one-piece-provider-sync-operations.md): Scrydex and TCGplayer One Piece credential posture, bulk-first credit-aware imports, UI-only UAT, and emergency disablement.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
@@ -122,6 +123,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Job Consistency](../bounded-contexts/catalog/docs/catalog-integration-job-consistency.md)
 - [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
 - [Catalog Integration Magic Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md)
+- [Catalog Integration One Piece Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md)
 - [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Provider Transport Budgets](../bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md)
 - [Catalog Integration Real-Provider Proof](../bounded-contexts/catalog/docs/catalog-integration-real-provider-proof.md)

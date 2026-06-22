@@ -107,6 +107,18 @@ verify dry-run-only, provider emergency stop, imports disabled, promotion
 disabled, and reapply disabled controls for each provider without using direct
 APIs, CLI commands, SQL, provider endpoints, or hidden routes.
 
+One Piece production sync has the same start-gate shape plus a paid-provider
+efficiency requirement. Scrydex and TCGplayer One Piece may be implemented
+behind disabled or dry-run-only controls, but production activation must wait
+for [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+and the interface-only staging UAT. Scrydex rollout evidence must show
+operator-visible readiness, credit/rate/cache state, preflight estimated request
+count or an `estimate-unavailable` diagnostic, and post-run actual request
+count, page count, cache hit/miss count, usage-check state, and bulk-first
+confirmation or per-record fallback reason. Because TCGplayer is shared by
+Magic and One Piece, One Piece enablement must be unit-aware and must not open
+TCGplayer One Piece imports merely because a Magic TCGplayer signoff exists.
+
 ## Rollback And Emergency Stops
 
 - Provider API/rate-limit incident: set `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=<provider>`; option queries, provider transport, and imports stop while Catalog review of existing observations can continue.

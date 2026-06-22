@@ -68,6 +68,27 @@ Provider option-query cache policy remains:
 - max page size: 200;
 - degraded fallback: serve stale cache only when still inside the stale window; otherwise block instead of retrying unbounded live calls.
 
+## Scrydex One Piece Credit Budgets
+
+Scrydex One Piece imports are paid-provider work. Every transport design and UAT
+proof must minimize provider calls and expose call/credit evidence to operators.
+The One Piece start gate is documented in
+[Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md).
+
+| Surface | Requirement | Forbidden normal path | Evidence |
+| --- | --- | --- | --- |
+| Scrydex option selectors | Serve cached fresh/stale option pages when safe; live queries use paginated minimal-field list/search calls | Repeating live Scrydex calls during normal operator navigation when a safe cached page exists | Cache state, cache hit/miss count, page count, and request count |
+| Scrydex card/variant import | Use paginated list/search or filtered bulk calls for the selected expansion/set scope | One Scrydex request per card or one request per variant | Estimated request count, actual request count, page count, selected fields, and bulk-first confirmation |
+| Scrydex sealed-product import | Use paginated list/search or filtered bulk calls for the selected expansion/set/product scope | One Scrydex request per sealed product | Estimated request count, actual request count, page count, selected fields, and bulk-first confirmation |
+| Scrydex price/freshness evidence | Use the most efficient approved provider-supported query shape for the selected evidence class | Pulling unapproved price-history bodies or broad price data as Catalog truth | Source-authority approval, selected evidence class, request count, and redacted usage diagnostic |
+| Per-record fallback | Allowed only when no bulk/list/search endpoint can supply the required field or relationship | Silent fallback to N+1 provider calls | Documented reason, preflight call impact, operator-visible diagnostic, and test coverage |
+
+The UAT proof for #2285 must show a preflight estimated request count or an
+`estimate-unavailable` diagnostic with a reason, then post-run actual request
+count, page count, cache hit/miss count, usage-check state, credit/degraded
+diagnostics, and bulk-first confirmation or the accepted per-record fallback
+reason.
+
 ## Verification Expectations
 
 The first-slice real-provider proof is not complete until it links:
