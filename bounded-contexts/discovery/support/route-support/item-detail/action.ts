@@ -4,8 +4,9 @@ import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   appendFreshWriteToken,
-  appendFreshWriteTokenFromSources,
   appendPostWriteHandoff,
+  appendPostWriteHandoffFromSources,
+  type PostWriteHandoff,
 } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
@@ -61,6 +62,18 @@ type ListingCommandResult = {
   feeQuoteFingerprint?: string;
   fee_quote_fingerprint?: string;
 };
+
+const ITEM_DETAIL_LISTING_PUBLISH_HANDOFF = {
+  kind: "marketplace.listing.publish",
+  expectation: "resource-present",
+  surface: "item-detail",
+} as const satisfies PostWriteHandoff;
+
+const ITEM_DETAIL_LISTING_UPDATE_HANDOFF = {
+  kind: "marketplace.listing.update",
+  expectation: "resource-updated",
+  surface: "item-detail",
+} as const satisfies PostWriteHandoff;
 
 function listingCommandId(result: ListingCommandResult) {
   return result.id ?? result.listingId ?? result.listing_id ?? null;
@@ -433,10 +446,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
         return redirect(
-          appendFreshWriteTokenFromSources(itemDetailSellListingPath(item, params.id!, listingId), [
-            priceResult,
-            result,
-          ]),
+          appendPostWriteHandoffFromSources(
+            itemDetailSellListingPath(item, params.id!, listingId),
+            [priceResult, result],
+            ITEM_DETAIL_LISTING_UPDATE_HANDOFF,
+          ),
         );
       }
 
@@ -499,7 +513,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       return redirect(
-        appendFreshWriteTokenFromSources(itemDetailSellListingPath(item, params.id!, createdListingId), writeResults),
+        appendPostWriteHandoffFromSources(
+          itemDetailSellListingPath(item, params.id!, createdListingId),
+          writeResults,
+          ITEM_DETAIL_LISTING_PUBLISH_HANDOFF,
+        ),
       );
     }
 

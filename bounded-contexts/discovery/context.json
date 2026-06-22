@@ -370,7 +370,19 @@
         "routeId": "item-detail",
         "actions": ["Create listing", "Update listing"],
         "command": "Marketplace listing create, publish, and update commands",
-        "helperUses": ["appendFreshWriteTokenFromSources"]
+        "helperUses": ["appendPostWriteHandoffFromSources"],
+        "postWriteHandoffs": [
+          {
+            "kind": "marketplace.listing.publish",
+            "expectation": "resource-present",
+            "surface": "item-detail"
+          },
+          {
+            "kind": "marketplace.listing.update",
+            "expectation": "resource-updated",
+            "surface": "item-detail"
+          }
+        ]
       },
       "destination": {
         "routeId": "item-detail",
@@ -382,7 +394,7 @@
           "discovery_market_listings",
           "discovery_offer_demand_matches"
         ],
-        "transientRecovery": "Item detail forwards Marketplace listing command receipts into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
+        "transientRecovery": "Item-detail listing redirects carry Marketplace command receipts and listing publish/update semantic handoffs back to the selected sell listing surface; the loader forwards the receipt into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
       }
     },
     {
