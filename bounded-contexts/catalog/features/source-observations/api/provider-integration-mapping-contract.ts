@@ -11,7 +11,7 @@ import {
 
 export type CatalogProviderProfileLifecycle = "draft" | "test" | "active" | "deprecated" | "retired";
 
-export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg" | "yugioh";
+export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg" | "yugioh" | "one-piece";
 export type CatalogProviderIngestionUnitProductForm = "single-card" | "sealed-product" | "set" | "pack";
 export type CatalogProviderIngestionPurpose = "source-observation-import" | "reference-data" | "image-evidence";
 

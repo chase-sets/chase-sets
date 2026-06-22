@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   mtgjsonMtgCardReferenceProviderProfile,
+  scrydexOnePieceConnectorProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -400,6 +401,234 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         metadata: { setId: "sv1", code: "SVI" },
       }),
     ]);
+  });
+
+  it("maps Scrydex One Piece set, card, and sealed-product selectors through injected bulk transports", async () => {
+    const seenParents: Array<string | null> = [];
+    const scrydexOnePieceProfile: CatalogProviderIntegrationProfile = {
+      ...tcgdexPokemonTcgProviderProfile,
+      providerKey: "scrydex",
+      displayName: "Scrydex One Piece",
+      status: "planned",
+      supportedScopes: ["set-name", "product/card", "product"],
+      connector: scrydexOnePieceConnectorProfile,
+      normalizedObservationMapping: {
+        ...tcgdexPokemonTcgProviderProfile.normalizedObservationMapping,
+        kind: "provider-product",
+      },
+      optionQueries: [
+        {
+          queryKind: "sets",
+          queryKeySynonyms: ["set"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          operation: "scrydex-one-piece-list-sets",
+          output: {
+            valuePath: "setId",
+            labelPath: "name",
+            description: { kind: "path", path: "releaseDate" },
+            metadataPaths: {
+              setId: "setId",
+              setCode: "setCode",
+              estimatedRequestCount: "usage.estimatedRequestCount",
+            },
+          },
+        },
+        {
+          queryKind: "cards",
+          queryKeySynonyms: ["card"],
+          displayName: "Card",
+          scope: "product/card",
+          parentScope: "set-name",
+          operation: "scrydex-one-piece-list-cards",
+          parentValue: {
+            required: true,
+            valueKind: "set-code",
+            diagnosticText: "Scrydex One Piece card option queries require a selected set.",
+          },
+          output: {
+            valuePath: "cardId",
+            labelPath: "name",
+            parentValuePath: "$parentValue",
+            metadataPaths: { setId: "$parentValue", cardNumber: "cardNumber", variantCount: "variantCount" },
+          },
+        },
+        {
+          queryKind: "sealed-products",
+          queryKeySynonyms: ["sealed-products"],
+          displayName: "Sealed Product",
+          scope: "product",
+          parentScope: "set-name",
+          operation: "scrydex-one-piece-list-sealed-products",
+          parentValue: {
+            required: true,
+            valueKind: "set-code",
+            diagnosticText: "Scrydex One Piece sealed-product option queries require a selected set.",
+          },
+          output: {
+            valuePath: "sealedProductId",
+            labelPath: "name",
+            parentValuePath: "$parentValue",
+            metadataPaths: { setId: "$parentValue", packageForm: "packageForm" },
+          },
+        },
+      ],
+    };
+
+    const transports = {
+      listScrydexOnePieceSets: async () => [
+        {
+          setId: "op-01",
+          setCode: "OP-01",
+          name: "Romance Dawn",
+          releaseDate: "2022-12-02",
+          usage: { estimatedRequestCount: 1 },
+        },
+      ],
+      listScrydexOnePieceCards: async ({ setId }: { setId: string | null }) => {
+        seenParents.push(setId);
+        return [{ cardId: "op01-001", name: "Monkey.D.Luffy", cardNumber: "OP01-001", variantCount: 2 }];
+      },
+      listScrydexOnePieceSealedProducts: async ({ setId }: { setId: string | null }) => {
+        seenParents.push(setId);
+        return [{ sealedProductId: "op01-booster-box", name: "Romance Dawn Booster Box", packageForm: "booster-box" }];
+      },
+    };
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceProfile],
+        providerKey: "scrydex",
+        queryKind: "sets",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "scrydex",
+        queryKind: "sets",
+        value: "op-01",
+        label: "Romance Dawn",
+        metadata: expect.objectContaining({ estimatedRequestCount: 1, setCode: "OP-01" }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceProfile],
+        providerKey: "scrydex",
+        queryKind: "card",
+        parentValue: "op-01",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        value: "op01-001",
+        label: "Monkey.D.Luffy",
+        parentValue: "op-01",
+        metadata: expect.objectContaining({ setId: "op-01", variantCount: 2 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [scrydexOnePieceProfile],
+        providerKey: "scrydex",
+        queryKind: "sealed-products",
+        parentValue: "op-01",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        value: "op01-booster-box",
+        label: "Romance Dawn Booster Box",
+        metadata: expect.objectContaining({ packageForm: "booster-box" }),
+      }),
+    ]);
+    expect(seenParents).toEqual(["op-01", "op-01"]);
+  });
+
+  it("resolves TCGplayer One Piece options through the existing product-line scoped operations", async () => {
+    const transports = {
+      listTcgplayerProductLines: async () => [
+        { productLineId: 68, productLineName: "One Piece Card Game", productLineUrlName: "one-piece-card-game" },
+      ],
+      listTcgplayerSetNames: async ({ productLineId }: { productLineId: number }) => [
+        {
+          setNameId: 68001,
+          categoryId: productLineId,
+          cleanSetName: "Romance Dawn",
+          name: "Romance Dawn",
+          urlName: "romance-dawn",
+          abbreviation: "OP-01",
+          releaseDate: "2022-12-02",
+          active: true,
+        },
+      ],
+      listTcgplayerProducts: async ({ setName }: { setName: string }) => [
+        { productId: 900001, productName: `Monkey.D.Luffy - ${setName}` },
+      ],
+      listTcgplayerSkus: async () => [{ sku: 90000101 }],
+    };
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "product-lines",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        value: "68",
+        label: "One Piece Card Game",
+        metadata: expect.objectContaining({ productLineId: 68 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "sets",
+        parentValue: "68",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        value: "Romance Dawn",
+        label: "Romance Dawn",
+        parentValue: "68",
+        metadata: expect.objectContaining({ productLineId: 68, setNameId: 68001 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "products",
+        parentValue: "Romance Dawn",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ value: "900001", label: "Monkey.D.Luffy - Romance Dawn" })]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "skus",
+        parentValue: "900001",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ value: "90000101", label: "90000101" })]);
   });
 
   it("maps Yu-Gi-Oh provider set and card selectors through the same option-query path", async () => {
