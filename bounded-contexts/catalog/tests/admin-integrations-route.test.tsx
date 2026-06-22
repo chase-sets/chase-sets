@@ -1049,6 +1049,53 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("drops stale legacy Pokemon scope before a TCGplayer Yu-Gi-Oh refresh-all when the option profile is unavailable", async () => {
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+    const listSourceObservationIntegrationOptions = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [stalePokemonScope], total: 1, count: 1 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Ayugioh%3Asingle-card%3Asource-observation-import&importScope=ja%3ASV%3ASV8&profileVersion=2026.06.20&filter.importScope=ja%3ASV%3ASV8&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh-all",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const reviewQuery = new URLSearchParams(listSourceObservations.mock.calls[0]?.[0] ?? "");
+    expect(reviewQuery.get("provider")).toBe("tcgplayer");
+    expect(reviewQuery.get("language")).toBeNull();
+    expect(reviewQuery.get("productLineId")).toBeNull();
+    expect(reviewQuery.get("seriesId")).toBeNull();
+    expect(reviewQuery.get("expansionId")).toBeNull();
+    expect(routeData.readModel.routeContext.importScope).toBeNull();
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    await expect(routeData.deferredSourceOptions).resolves.toMatchObject({
+      pages: [],
+      refresh: expect.objectContaining({ refreshAllHref: null }),
+    });
+    expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
+  });
+
   it("fetches the audit-trimmed daily overview from the daily loader and the full overview from the providers loader", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };

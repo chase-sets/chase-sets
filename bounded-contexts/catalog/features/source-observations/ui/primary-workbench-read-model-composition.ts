@@ -124,6 +124,7 @@ function buildCatalogPrimaryWorkbenchCore(
     importScope: parsedContext.importScope,
     scope: parsedContext.scope,
     providerKey,
+    unitKey: normalizedRouteUnitKey,
     activeProfile: sourceOptionNormalizationProfile,
     scopes: input.scopes.items,
     explicitStructuredScope,
@@ -827,6 +828,7 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
   importScope: string | null;
   scope: CatalogPrimaryWorkbenchRouteContext["scope"];
   providerKey: string | null;
+  unitKey: CatalogIntegrationUnitKey | null;
   activeProfile: CatalogProviderProfileVersionReview | null;
   scopes: readonly SourceObservationIntegrationScope[];
   explicitStructuredScope: boolean;
@@ -837,7 +839,19 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
   }
 
   const hasSourceOptionIntent = requestHasSourceOptionIntent(input.requestUrl);
-  if (!hasSourceOptionIntent || !input.activeProfile?.sourceOptionKinds.length) {
+  if (!hasSourceOptionIntent) {
+    return false;
+  }
+
+  // A source-option refresh for an explicit unit must never keep an old
+  // provider-level importScope when the matching option profile cannot be resolved.
+  // That scope is only legacy route state; preserving it leaks a previous product
+  // line into review queries before the operator can pick a fresh guided scope.
+  if (!input.activeProfile) {
+    return Boolean(input.unitKey && input.importScope);
+  }
+
+  if (input.activeProfile.sourceOptionKinds.length === 0) {
     return false;
   }
 
