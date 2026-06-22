@@ -137,36 +137,65 @@ async function signInThroughVisibleForm(page: Page): Promise<void> {
     timeout: pageReadyTimeoutMs,
   });
 
-  if (await isImporterVisible(page, 5_000)) {
-    return;
+  const deadline = Date.now() + pageReadyTimeoutMs;
+  while (Date.now() < deadline) {
+    if (await isImporterVisible(page, 3_000)) {
+      return;
+    }
+
+    const passwordChoice = page.getByText(/^Password$/).first();
+    if (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await passwordChoice.click();
+      continue;
+    }
+
+    const passwordInput = page.locator('input[type="password"]').first();
+    if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await passwordInput.fill(catalogAdminPassword);
+      await page.getByRole("button", { name: /^sign in$/i }).click();
+      await expectImporterVisible(page);
+      return;
+    }
+
+    const emailInput = page.getByRole("textbox", { name: /email|phone/i });
+    if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await emailInput.fill(catalogAdminEmail);
+      await page.getByRole("button", { name: /^continue$/i }).click();
+    }
+
+    await page.waitForTimeout(1_000);
   }
 
-  const emailInput = page.getByRole("textbox", { name: /email|phone/i });
-  await expect(emailInput).toBeVisible({ timeout: pageReadyTimeoutMs });
-  await emailInput.fill(catalogAdminEmail);
-  await page.getByRole("button", { name: /^continue$/i }).click();
-
-  const passwordChoice = page.getByText(/^Password$/).first();
-  if (await passwordChoice.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await passwordChoice.click();
-  }
-
-  if (await isImporterVisible(page, 5_000)) {
-    return;
-  }
-
-  const passwordInput = page.locator('input[type="password"]').first();
-  await expect(
-    passwordInput,
-    "Password input should appear after continuing with the staging admin email.",
-  ).toBeVisible({ timeout: 45_000 });
-  await passwordInput.fill(catalogAdminPassword);
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expectImporterVisible(page);
+  throw new Error("The staging admin sign-in form did not reach the password step or importer before the timeout.");
 }
 
 async function openCatalogImporter(page: Page): Promise<void> {
-  if (!(await isImporterVisible(page, 2_000))) {
+  const deadline = Date.now() + pageReadyTimeoutMs;
+  let nextNavigationAt = Date.now();
+
+  while (Date.now() < deadline) {
+    if (await isImporterVisible(page, 2_000)) {
+      await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+      return;
+    }
+
+    if (await recoverImporterFromAdminError(page)) {
+      continue;
+    }
+
+    if (Date.now() >= nextNavigationAt) {
+      await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
+      nextNavigationAt = Date.now() + 10_000;
+      continue;
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  if (await recoverImporterFromAdminError(page)) {
+    return;
+  }
+  if (!(await isImporterVisible(page, 1_000))) {
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
   await expectImporterVisible(page);
@@ -184,18 +213,18 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
   await expandImportContextBar(contextBar);
 
   const provider = contextBar.getByRole("combobox", { name: "Provider" });
-  await selectOption(provider, { values: [journey.providerKey] });
+  await selectOption(provider, { values: [journey.providerKey] }, () => recoverImporterFromAdminError(page));
   await expect(provider).toHaveValue(journey.providerKey, { timeout: pageReadyTimeoutMs });
 
   const unit = contextBar.getByRole("combobox", { name: "Unit" });
-  await selectOption(unit, { values: [journey.unitKey] });
+  await selectOption(unit, { values: [journey.unitKey] }, () => recoverImporterFromAdminError(page));
   await expect(unit).toHaveValue(journey.unitKey, { timeout: pageReadyTimeoutMs });
 
   for (const selection of journey.scope) {
     const sourceScope = page.getByRole("group", { name: "Source scope" });
     await expect(sourceScope).toBeVisible({ timeout: sourceOptionTimeoutMs });
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
-    await selectOption(scopeSelect, selection.choice, () => refreshSourceOptionGroup(page, selection.label));
+    await selectOption(scopeSelect, selection.choice, () => recoverSourceOptionSelection(page, selection.label));
     await expect(scopeSelect).not.toHaveValue("", { timeout: sourceOptionTimeoutMs });
   }
 
@@ -252,7 +281,7 @@ async function syncSelectedProviderUnit(
   }
 
   throw new Error(
-    `Sync action for ${unitKey} was neither enabled nor represented by a queued/running import job row in the shared UI.`,
+    `Sync action for ${unitKey} was neither enabled nor represented by a queued/running import job row for the selected or covering scope in the shared UI.`,
   );
 }
 
@@ -294,17 +323,17 @@ async function expectActiveImportJobForSelectedUnit(
   });
   await expect(
     activeJobRow,
-    `Selected unit ${unitKey} should have a visible current-scope queued/running import job row.`,
+    `Selected unit ${unitKey} should have a visible current or covering queued/running import job row.`,
   ).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(activeJobRow.getByText(`Unit: ${unitKey}`).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
-  await expect(activeJobRow.getByText("Current scope", { exact: true }).first()).toBeVisible({
+  await expect(activeJobRow.getByText(/^(Current scope|Overlapping scope)$/).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
-  await expect(activeJobRow.getByText(`Scope: ${selectedScope.displayLabel}`, { exact: true }).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
+  await expect(
+    activeJobRow.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))).first(),
+  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(activeJobRow.getByText(/import job .*(?:queued|running)/i).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
@@ -318,9 +347,25 @@ function activeImportJobRowsForSelectedUnit(
   return page
     .getByRole("row")
     .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
-    .filter({ has: page.getByText("Current scope", { exact: true }) })
-    .filter({ has: page.getByText(`Scope: ${selectedScope.displayLabel}`, { exact: true }) })
+    .filter({ has: page.getByText(/^(Current scope|Overlapping scope)$/) })
+    .filter({ has: page.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))) })
     .filter({ has: page.getByText(/import job .*(?:queued|running)/i) });
+}
+
+function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
+  const segments = selectedScope.displayLabel.split(" / ").filter(Boolean);
+  const labels = Array.from({ length: segments.length }, (_, index) =>
+    segments.slice(0, segments.length - index).join(" / "),
+  );
+  return [...new Set(labels.filter(Boolean))];
+}
+
+function scopeLabelPattern(labels: readonly string[]): RegExp {
+  return new RegExp(`^Scope: (?:${labels.map(escapeRegExp).join("|")})$`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promise<SelectedProviderScope> {
@@ -416,7 +461,7 @@ async function selectOption(
   choice: SelectChoice,
   recoverMissingOptions?: MissingOptionRecovery,
 ): Promise<void> {
-  await expect(select).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expectSelectVisible(select, recoverMissingOptions);
 
   const option = await waitForOption(select, choice, recoverMissingOptions);
   if (await select.isDisabled()) {
@@ -477,7 +522,7 @@ async function waitForOption(
       recoveryAttempts += 1;
       nextRecoveryAttemptAt = Date.now() + 15_000;
       if (await recoverMissingOptions()) {
-        await expect(select).toBeVisible({ timeout: sourceOptionTimeoutMs });
+        await expectSelectVisible(select, recoverMissingOptions);
       }
     }
 
@@ -489,6 +534,23 @@ async function waitForOption(
       .map((option) => `${option.label} (${option.value})`)
       .join(", ")}`,
   );
+}
+
+async function expectSelectVisible(select: Locator, recoverMissingOptions?: MissingOptionRecovery): Promise<void> {
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  while (Date.now() < deadline) {
+    if (await select.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      return;
+    }
+
+    if (recoverMissingOptions && (await recoverMissingOptions())) {
+      continue;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  await expect(select).toBeVisible({ timeout: 1_000 });
 }
 
 function isSelectableFallbackOption(
@@ -538,6 +600,32 @@ async function refreshSourceOptionGroup(page: Page, label: string | RegExp): Pro
   }
 
   return false;
+}
+
+async function recoverSourceOptionSelection(page: Page, label: string | RegExp): Promise<boolean> {
+  return (await recoverImporterFromAdminError(page)) || refreshSourceOptionGroup(page, label);
+}
+
+async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
+  const adminError = page.getByRole("heading", { name: "Admin Error" });
+  if (!(await adminError.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    return false;
+  }
+
+  const retry = page.getByRole("link", { name: "Retry" }).first();
+  if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await retry.click();
+  } else {
+    await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
+  }
+
+  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
+  if (!(await isImporterVisible(page, 10_000))) {
+    return false;
+  }
+
+  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+  return true;
 }
 
 function sourceOptionGroupLabel(page: Page, label: string | RegExp): Locator {

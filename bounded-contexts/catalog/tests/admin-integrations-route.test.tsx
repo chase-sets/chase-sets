@@ -19,12 +19,14 @@ import {
 
 const {
   mockCreateCatalogRequestApiClient,
+  mockIsTransientAuthResolutionError,
   mockResolveActorFromAuthApi,
   mockUseLoaderData,
   mockUseRouteLoaderData,
   mockUseActionData,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
+  mockIsTransientAuthResolutionError: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockUseLoaderData: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
@@ -51,6 +53,7 @@ vi.mock("../support/request-support/api-client", () => ({
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
+  isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
   resolveActorFromAuthApi: mockResolveActorFromAuthApi,
 }));
 
@@ -64,6 +67,7 @@ describe("Catalog integrations route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsTransientAuthResolutionError.mockReturnValue(false);
     mockResolveActorFromAuthApi.mockResolvedValue({
       permissions: ["catalog.view", "catalog.manage"],
     });
@@ -345,6 +349,34 @@ describe("Catalog integrations route", () => {
         detourOutcome: "opened",
       }),
     );
+  });
+
+  it("retries transient auth resolution before rendering the shared importer", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const transientAuthError = new Error("auth api warming");
+    mockIsTransientAuthResolutionError.mockImplementation((error) => error === transientAuthError);
+    mockResolveActorFromAuthApi
+      .mockRejectedValueOnce(transientAuthError)
+      .mockResolvedValueOnce({ permissions: ["catalog.view", "catalog.manage"] });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(mockResolveActorFromAuthApi).toHaveBeenCalledTimes(2);
+    expect(
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
+    ).not.toContain("permission-denied");
   });
 
   it("loads cache-only provider source option pages into the daily read model", async () => {
