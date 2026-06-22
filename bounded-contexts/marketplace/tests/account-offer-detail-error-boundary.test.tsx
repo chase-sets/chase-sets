@@ -8,16 +8,18 @@ afterEach(() => {
   cleanup();
 });
 
-function renderSubmittedOfferRecovery() {
+function renderSubmittedOfferRecovery(
+  response: Response = new Response("We're preparing your submitted offer details. Try again in a moment.", {
+    status: 503,
+    statusText: "Preparing submitted offer",
+  }),
+) {
   const router = createMemoryRouter(
     [
       {
         path: "/account/offers/submitted/:offerId",
         loader: () => {
-          throw new Response("We're preparing your submitted offer details. Try again in a moment.", {
-            status: 503,
-            statusText: "Preparing submitted offer",
-          });
+          throw response;
         },
         Component: () => <div>Submitted offer loaded</div>,
         ErrorBoundary: SubmittedOfferDetailErrorBoundary,
@@ -42,6 +44,18 @@ describe("Marketplace offer detail recovery boundary", () => {
     expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(
       "/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit&afterWrite=fresh",
     );
+    expect(screen.queryByText("Marketplace error")).toBeNull();
+  });
+
+  it("renders submitted-offer freshness recovery when production normalizes the response status text", async () => {
+    renderSubmittedOfferRecovery(
+      new Response("We're preparing your submitted offer details. Try again in a moment.", {
+        status: 503,
+        statusText: "Service Unavailable",
+      }),
+    );
+
+    expect(await screen.findAllByText("Preparing submitted offer")).not.toHaveLength(0);
     expect(screen.queryByText("Marketplace error")).toBeNull();
   });
 });

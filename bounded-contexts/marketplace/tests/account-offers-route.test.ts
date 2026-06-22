@@ -5,7 +5,10 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
-import { loader as submittedOfferLoader } from "../routes/account-offer-submitted";
+import {
+  loader as submittedOfferLoader,
+  SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER,
+} from "../routes/account-offer-submitted";
 import { loader as submittedOffersLoader } from "../routes/account-offers-submitted";
 import { action as offerMatchAction, loader as offerMatchLoader } from "../routes/account-offer-match";
 import { loader as offerMatchesLoader } from "../routes/account-offer-matches";
@@ -211,7 +214,160 @@ describe("marketplace offer routes", () => {
 
     expect(response?.status).toBe(503);
     expect(response?.statusText).toBe("Preparing submitted offer");
+    expect(response?.headers.get(SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER)).toBe("refreshable-catching-up");
     await expect(response?.text()).resolves.toContain("preparing your submitted offer details");
+  });
+
+  it("returns temporary recovery when a fresh submitted offer read hits an opaque gateway timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse(null, 504));
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await submittedOfferLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
+        ),
+        params: { offerId: "off_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing submitted offer");
+    expect(response?.headers.get(SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER)).toBe("refreshable-catching-up");
+    await expect(response?.text()).resolves.toContain("preparing your submitted offer details");
+  });
+
+  it("surfaces expired submitted offer fresh-write not-found reads as normal not found", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "not_found",
+                message: "Submitted offer not found.",
+              },
+            },
+            404,
+          ),
+        );
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await submittedOfferLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit(), 1)}`,
+        ),
+        params: { offerId: "off_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(404);
+    await expect(response?.text()).resolves.toContain("Submitted offer not found");
+  });
+
+  it("surfaces unclassified submitted offer fresh-write failures normally", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "provider_failed",
+                message: "Provider failed.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    await expect(
+      submittedOfferLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
+        ),
+        params: { offerId: "off_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "provider_failed",
+        },
+      },
+    });
   });
 
   it("loads offer matches through the marketplace API", async () => {
