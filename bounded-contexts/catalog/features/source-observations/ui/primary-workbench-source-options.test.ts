@@ -463,6 +463,81 @@ describe("Catalog primary workbench source options", () => {
     expect(setNameHref.searchParams.get("parentValue")).toBe("1");
   });
 
+  it("does not infer an arbitrary TCGplayer profile for provider-only multi-unit routes", () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const pokemonProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-single-card-product-sku",
+      profileVersion: "2026.06.05",
+      ingestionUnitKey: pokemonUnit,
+      displayName: "TCGplayer Pokemon single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["pokemon/single-card"],
+    });
+    const mtgProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: mtgUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["yugioh/single-card"],
+    });
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const profiles = [pokemonProfile, mtgProfile, yugiohProfile];
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgplayer";
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [stalePokemonScope], total: 1, count: 1 },
+      profileReviews: { items: profiles, total: 3, count: 3 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      routeContext: readModel.routeContext,
+      scopes: [stalePokemonScope],
+      profiles,
+      cacheOnly: true,
+    });
+
+    expect(readModel.routeContext.unitKey).toBeNull();
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    expect(readModel.sourceOptions.selectedProfile).toBeNull();
+    expect(readModel.sourceOptions.refresh.refreshAllHref).toBeNull();
+    expect(requests).toEqual([]);
+    expect(
+      readModel.providerScope.providers
+        .find((provider) => provider.providerKey === "tcgplayer")
+        ?.units.map((unit) => unit.unitKey),
+    ).toEqual([mtgUnit, pokemonUnit, yugiohUnit]);
+  });
+
   it("keeps Yu-Gi-Oh TCGplayer option queries pinned after stale legacy scope cleanup", () => {
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
