@@ -13,6 +13,7 @@ import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
+import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
@@ -3028,6 +3029,17 @@ export async function runStructureCheck(options = {}) {
     violations.push(violation);
   }
   for (const warning of readAfterWriteInventoryResult.warnings) {
+    warnings.push(warning);
+  }
+
+  const crossContextFallbackInventoryResult = validateCrossContextFallbackInventory({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of crossContextFallbackInventoryResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of crossContextFallbackInventoryResult.warnings) {
     warnings.push(warning);
   }
 
