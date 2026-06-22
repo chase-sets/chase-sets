@@ -315,7 +315,15 @@
           {
             "kind": "checkout.cart.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-cart"
+            "surface": "account-cart",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout add-line command receipt is scoped to the signed-in or anonymous cart actor that opens the cart destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/account/cart",
+              "readModelTables": ["checkout_cart_line_pages"]
+            }
           }
         ],
         "transientRecovery": {
@@ -337,7 +345,15 @@
           {
             "kind": "checkout.cart.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-cart"
+            "surface": "account-cart",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout add-line command receipt is scoped to the signed-in or anonymous cart actor that opens the cart destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/guest/cart",
+              "readModelTables": ["checkout_cart_line_pages"]
+            }
           }
         ]
       },
@@ -351,7 +367,15 @@
           {
             "kind": "checkout.cart.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-cart"
+            "surface": "account-cart",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout add-line command receipt is scoped to the signed-in or anonymous cart actor that opens the cart destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/guest/cart",
+              "readModelTables": ["checkout_cart_line_pages"]
+            }
           }
         ],
         "transientRecovery": {
@@ -373,7 +397,15 @@
           {
             "kind": "checkout.sell-list.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-sell-list"
+            "surface": "account-sell-list",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout sell-list add-line command receipt is scoped to the signed-in or anonymous selling actor that opens the Sell List destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/guest/sell-list",
+              "readModelTables": ["checkout_sell_list_line_pages"]
+            }
           }
         ]
       },
@@ -387,7 +419,15 @@
           {
             "kind": "checkout.sell-list.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-sell-list"
+            "surface": "account-sell-list",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout sell-list add-line command receipt is scoped to the signed-in or anonymous selling actor that opens the Sell List destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/guest/sell-list",
+              "readModelTables": ["checkout_sell_list_line_pages"]
+            }
           }
         ],
         "transientRecovery": {
@@ -409,7 +449,15 @@
           {
             "kind": "checkout.sell-list.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-sell-list"
+            "surface": "account-sell-list",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout sell-list add-line command receipt is scoped to the signed-in or anonymous selling actor that opens the Sell List destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/account/sell-list",
+              "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"]
+            }
           }
         ]
       },
@@ -423,7 +471,15 @@
           {
             "kind": "checkout.sell-list.add-line",
             "expectation": "collection-non-empty",
-            "surface": "account-sell-list"
+            "surface": "account-sell-list",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout sell-list add-line command receipt is scoped to the signed-in or anonymous selling actor that opens the Sell List destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/account/sell-list",
+              "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"]
+            }
           }
         ],
         "transientRecovery": {

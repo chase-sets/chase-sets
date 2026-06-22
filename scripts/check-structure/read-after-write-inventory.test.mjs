@@ -65,6 +65,23 @@ function recovery(kinds, behavior = "temporary checkout recovery") {
   return { kinds, behavior };
 }
 
+function semanticSessionHandoff(overrides = {}) {
+  return {
+    kind: "checkout.cart.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-cart",
+    sourceContextName: "checkout",
+    receiptSourceContextName: "checkout",
+    actorOwnership: "The Checkout command receipt belongs to the actor continuing to the destination route.",
+    destinationRead: {
+      apiContextName: "checkout",
+      apiRoutePath: "/account/checkout-sessions/:sessionId",
+      readModelTables: ["checkout_session_pages"],
+    },
+    ...overrides,
+  };
+}
+
 function createContextManifest(root, overrides = {}) {
   const manifest = {
     contextName: "checkout",
@@ -269,13 +286,7 @@ describe("read-after-write route inventory guard", () => {
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
-              postWriteHandoffs: [
-                {
-                  kind: "checkout.cart.add-line",
-                  expectation: "collection-non-empty",
-                  surface: "account-cart",
-                },
-              ],
+              postWriteHandoffs: [semanticSessionHandoff()],
             },
             destination: {
               routeId: "buy-checkout-session",
@@ -283,13 +294,7 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/account/checkout-sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
-              postWriteHandoffs: [
-                {
-                  kind: "checkout.cart.add-line",
-                  expectation: "collection-non-empty",
-                  surface: "account-cart",
-                },
-              ],
+              postWriteHandoffs: [semanticSessionHandoff()],
               transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
@@ -469,13 +474,7 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/account/checkout-sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
-              postWriteHandoffs: [
-                {
-                  kind: "checkout.cart.add-line",
-                  expectation: "collection-non-empty",
-                  surface: "account-cart",
-                },
-              ],
+              postWriteHandoffs: [semanticSessionHandoff()],
               transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
@@ -508,11 +507,11 @@ describe("read-after-write route inventory guard", () => {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
               postWriteHandoffs: [
-                {
+                semanticSessionHandoff({
                   kind: "checkout cart add line",
                   expectation: "cart-has-line",
                   payload: "line-id",
-                },
+                }),
               ],
             },
             destination: {
@@ -521,13 +520,7 @@ describe("read-after-write route inventory guard", () => {
               apiRoutePath: "/account/checkout-sessions/:sessionId",
               readModelTables: ["checkout_session_pages"],
               helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
-              postWriteHandoffs: [
-                {
-                  kind: "checkout.cart.add-line",
-                  expectation: "collection-non-empty",
-                  surface: "account-cart",
-                },
-              ],
+              postWriteHandoffs: [semanticSessionHandoff()],
               transientRecovery: recovery(["refreshable-catching-up", "pending-projection"]),
             },
           },
@@ -540,6 +533,59 @@ describe("read-after-write route inventory guard", () => {
         "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0] contains unsupported field(s): payload",
         "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0].kind must use portable handoff text",
         "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0].expectation must be one of collection-non-empty, resource-absent, resource-present, resource-updated",
+      ]),
+    );
+  });
+
+  it("fails when semantic handoff receipt declarations omit route-read binding evidence", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", [
+      "loadFreshlyWrittenResource",
+      "evaluatePostWriteHandoff",
+    ]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendPostWriteHandoff"],
+              postWriteHandoffs: [semanticSessionHandoff({ actorOwnership: "" })],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
+              postWriteHandoffs: [
+                semanticSessionHandoff({
+                  destinationRead: {
+                    apiContextName: "marketplace",
+                    apiRoutePath: "/account/cart",
+                    readModelTables: ["checkout_cart_line_pages"],
+                  },
+                }),
+              ],
+              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: source.postWriteHandoffs[0].actorOwnership must describe the actor/account ownership guard",
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.postWriteHandoffs[0].destinationRead.apiContextName must match destination.apiContextName",
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.postWriteHandoffs[0].destinationRead.apiRoutePath must match destination.apiRoutePath",
+        "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.postWriteHandoffs[0].destinationRead.readModelTables includes 'checkout_cart_line_pages' not declared by destination.readModelTables",
       ]),
     );
   });
