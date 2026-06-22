@@ -565,6 +565,116 @@ describe("source observation routes: integration discovery and profile administr
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 
+  it("keeps active TCGplayer jobs scoped to their selected profile unit", async () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-22T05:00:00.000Z",
+      units: [
+        {
+          unitKey: mtgUnit,
+          providerKey: "tcgplayer",
+          displayName: "TCGplayer Magic Single Cards",
+          productDomain: "mtg",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          profileVersion: "2026.06.19",
+          semanticReadiness: "ready",
+          credentialReadiness: "ready",
+          credentialReadinessState: "configured",
+          credentialRequirement: "required",
+          credentialDiagnosticCode: null,
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnosticCounts: { info: 0, warning: 0, error: 0 },
+          diagnostics: [],
+          latestDiagnosticText: null,
+          dryRunEvidence: [],
+        },
+        {
+          unitKey: yugiohUnit,
+          providerKey: "tcgplayer",
+          displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+          productDomain: "yugioh",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          profileVersion: "2026.06.20",
+          semanticReadiness: "ready",
+          credentialReadiness: "ready",
+          credentialReadinessState: "configured",
+          credentialRequirement: "required",
+          credentialDiagnosticCode: null,
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnosticCounts: { info: 0, warning: 0, error: 0 },
+          diagnostics: [],
+          latestDiagnosticText: null,
+          dryRunEvidence: [],
+        },
+      ],
+    }));
+    const listActiveIntegrationJobs = vi.fn(async () => [
+      integrationJobFixture({
+        jobId: "job_running_mtg_scope",
+        action: "import",
+        scope: {
+          provider: "tcgplayer",
+          profileKey: "mtg-single-card-product-sku",
+          ingestionUnitKey: mtgUnit,
+          language: "en",
+          productLineId: "1",
+        },
+        profileSnapshot: {
+          providerKey: "tcgplayer",
+          profileKey: "mtg-single-card-product-sku",
+          profileVersion: "2026.06.19",
+          ingestionUnitKey: mtgUnit,
+          lifecycle: "active",
+          connectorKind: "tcgplayer-automation-client",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "fingerprint",
+        },
+        operatorStatus: "running",
+        progress: { phase: "processing", completed: 331, total: 450 },
+        startedAt: "2026-06-22T05:23:46.301Z",
+      }),
+    ]);
+    const services = {
+      getCatalogIntegrationControlPlaneReadiness,
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-control-plane/overview");
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    const mtgActivity = json.unitActivity.units.find((unit: { unitKey: string }) => unit.unitKey === mtgUnit);
+    const yugiohActivity = json.unitActivity.units.find((unit: { unitKey: string }) => unit.unitKey === yugiohUnit);
+    expect(mtgActivity?.recentJobs).toMatchObject([
+      {
+        jobId: "job_running_mtg_scope",
+        unitKey: mtgUnit,
+        providerKey: "tcgplayer",
+        profileVersion: "2026.06.19",
+      },
+    ]);
+    expect(yugiohActivity?.recentJobs).toEqual([]);
+    expect(
+      json.auditLifecycle.entries.find(
+        (entry: { relatedJobId: string }) => entry.relatedJobId === "job_running_mtg_scope",
+      ),
+    ).toMatchObject({
+      unitKey: mtgUnit,
+      providerKey: "tcgplayer",
+      profileVersion: "2026.06.19",
+    });
+  });
+
   it("trims the audit-lifecycle projection from the daily-audience overview while keeping the daily slices", async () => {
     const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
       generatedAt: "2026-06-05T00:00:00.000Z",

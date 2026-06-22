@@ -359,6 +359,7 @@ describe("Catalog source-scope workset", () => {
     expect(readModel.sourceScopeWorkset.status).toBe("scope-required");
     for (const unit of readModel.sourceScopeWorkset.units) {
       expect(unit.commandContext.importScope).toBeNull();
+      expect(new URL(unit.currentWorkbenchHref, "https://admin.example").searchParams.get("importScope")).toBeNull();
       expect(unit.actions.import).toMatchObject({
         state: "disabled",
         blockers: ["import-scope-required"],

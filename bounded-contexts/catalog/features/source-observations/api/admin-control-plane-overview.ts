@@ -182,15 +182,36 @@ function buildUnitActivity(
   jobs: readonly SourceObservationIntegrationJob[],
 ): readonly CatalogIntegrationUnitActivity[] {
   const maxRecentJobsPerUnit = 10;
+  const providerUnits = new Map<string, readonly CatalogIntegrationControlPlaneUnitReadiness[]>();
+  for (const unit of units) {
+    providerUnits.set(unit.providerKey, [...(providerUnits.get(unit.providerKey) ?? []), unit]);
+  }
 
   return units.map((unit) => ({
     unitKey: unit.unitKey,
     recentJobs: jobs
-      .filter((job) => jobProviderKey(job) === unit.providerKey)
+      .filter((job) => jobMatchesUnit(job, unit, providerUnits.get(unit.providerKey) ?? []))
       .sort((left, right) => jobOccurredAt(right).localeCompare(jobOccurredAt(left)))
       .slice(0, maxRecentJobsPerUnit)
       .map((job) => jobSummary(job, unit.providerKey, unit.unitKey)),
   }));
+}
+
+function jobMatchesUnit(
+  job: SourceObservationIntegrationJob,
+  unit: CatalogIntegrationControlPlaneUnitReadiness,
+  providerUnits: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+): boolean {
+  if (jobProviderKey(job) !== unit.providerKey) {
+    return false;
+  }
+
+  const unitKey = jobIntegrationUnitKey(job);
+  if (unitKey) {
+    return unitKey === unit.unitKey;
+  }
+
+  return providerUnits.length === 1;
 }
 
 function buildProviderReadiness(
@@ -258,7 +279,7 @@ function profileAuditEntries(
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
   generatedAt: string,
 ): readonly CatalogIntegrationAuditLifecycleEntry[] {
-  const unitKey = matchingUnitKey(profile.providerKey, units);
+  const unitKey = matchingUnitKey(profile.providerKey, units, profile.ingestionUnitKey);
   const entries: CatalogIntegrationAuditLifecycleEntry[] = [];
   const createdAt = profile.authoringAudit?.createdAt ?? null;
   const updatedAt = profile.authoringAudit?.updatedAt ?? null;
@@ -336,7 +357,7 @@ function jobAuditEntry(
     eventName: job.action === "import" ? "import-job-started" : "reapply-run-executed",
     category: job.action === "import" ? "import-job" : "reapply",
     providerKey,
-    unitKey: matchingUnitKey(providerKey, units),
+    unitKey: matchingUnitKey(providerKey, units, jobIntegrationUnitKey(job)),
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
     actorUserId: null,
     relatedJobId: job.jobId,
@@ -363,7 +384,7 @@ function jobSummary(
     phase: job.progress.phase,
     completed: job.progress.completed,
     total: job.progress.total,
-    unitKey,
+    unitKey: jobIntegrationUnitKey(job) ?? unitKey,
     providerKey,
     importScope: importScopeForIntegrationJob(job.scope),
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
@@ -432,6 +453,11 @@ function jobProviderKey(job: SourceObservationIntegrationJob): string {
   return job.profileSnapshot?.providerKey ?? job.scope.provider ?? "unknown";
 }
 
+function jobIntegrationUnitKey(job: SourceObservationIntegrationJob): CatalogIntegrationUnitKey | null {
+  return ((job.profileSnapshot?.ingestionUnitKey ?? job.scope.ingestionUnitKey ?? null) ||
+    null) as CatalogIntegrationUnitKey | null;
+}
+
 function jobOccurredAt(job: SourceObservationIntegrationJob): string {
   return job.startedAt ?? job.createdAt;
 }
@@ -454,8 +480,14 @@ function lifecycleEventName(
 function matchingUnitKey(
   providerKey: string,
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+  preferredUnitKey?: CatalogIntegrationUnitKey | string | null,
 ): CatalogIntegrationUnitKey | null {
-  return units.find((unit) => unit.providerKey === providerKey)?.unitKey ?? null;
+  const providerUnits = units.filter((unit) => unit.providerKey === providerKey);
+  if (preferredUnitKey) {
+    return providerUnits.find((unit) => unit.unitKey === preferredUnitKey)?.unitKey ?? null;
+  }
+
+  return providerUnits.length === 1 ? providerUnits[0]!.unitKey : null;
 }
 
 function dedupeDiagnostics(
