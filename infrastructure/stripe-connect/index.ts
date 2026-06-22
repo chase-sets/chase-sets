@@ -509,7 +509,9 @@ export function createStripeConnectMoneyMovementGateway(
     providerReference: string,
     component: "account_onboarding" | "account_management",
     idempotencyKey: string,
+    readiness: ProviderPayoutReadiness,
   ) {
+    const disableStripeUserAuthentication = readiness.requirementsCollector === "application";
     const accountSession = await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", {
       method: "POST",
       headers: {
@@ -519,7 +521,9 @@ export function createStripeConnectMoneyMovementGateway(
         account: providerReference,
         [`components[${component}][enabled]`]: "true",
         [`components[${component}][features][external_account_collection]`]: "true",
-        [`components[${component}][features][disable_stripe_user_authentication]`]: "false",
+        [`components[${component}][features][disable_stripe_user_authentication]`]: disableStripeUserAuthentication
+          ? "true"
+          : "false",
       }),
       idempotencyKey,
     });
@@ -589,12 +593,13 @@ export function createStripeConnectMoneyMovementGateway(
         input.contactEmail,
         `${input.idempotencyKey}:contact-email`,
       );
+      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_onboarding",
         input.idempotencyKey,
+        readiness,
       );
-      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
 
       return {
         providerReference: input.providerReference,
@@ -605,10 +610,12 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createPayoutAccountManagementSession(input) {
+      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_management",
         input.idempotencyKey,
+        readiness,
       );
 
       return {
