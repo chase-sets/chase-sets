@@ -720,4 +720,25 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Your buy cart is empty");
     expect(markup).not.toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
   });
+
+  it("shows actionable empty-cart recovery for expired fresh-write handoffs", () => {
+    const markup = renderToString(
+      <CheckoutCartPage
+        cartLines={[]}
+        recoveryState={{
+          kind: "missing-after-fresh-write",
+          message:
+            "The cart change was saved, but this cart view did not catch up in time. Refresh the cart or add the item again if it is still missing.",
+          refreshHref: "/account/cart?afterWrite=expired",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Your buy cart is empty");
+    expect(markup).toContain("The cart change was saved, but this cart view did not catch up in time.");
+    expect(markup).toContain("Refresh cart");
+    expect(markup).toContain("Keep shopping");
+    expect(markup).toContain('href="/account/cart?afterWrite=expired"');
+    expect(markup).not.toContain("Your cart is catching up");
+  });
 });

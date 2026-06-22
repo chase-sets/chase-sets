@@ -5,8 +5,11 @@ import {
   appendFreshWriteTokenFromSources,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
+  postWriteRecoveryKindForFreshWriteReadError,
+  postWriteRecoveryKindForHandoffState,
   readPostWriteHandoffState,
   recoverFreshWriteReadError,
+  type PostWriteRecoveryKind,
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -139,12 +142,24 @@ function isTransientCartReadError(error: unknown) {
   );
 }
 
-function pendingCartRecovery<TCart>(cart: TCart | null, message: string) {
+function pendingCartRecovery<TCart>(cart: TCart | null, message: string, recoveryKind: PostWriteRecoveryKind) {
   return {
     cart,
     cartRecovery: {
       kind: "pending-fresh-write" as const,
+      recoveryKind,
       message,
+    },
+  };
+}
+
+function missingCartRecovery<TCart>(cart: TCart | null, recoveryKind: PostWriteRecoveryKind) {
+  return {
+    cart,
+    cartRecovery: {
+      kind: "missing-after-fresh-write" as const,
+      recoveryKind,
+      message: t("checkout.routes.accountCart.cart.missing.after.fresh.write"),
     },
   };
 }
@@ -179,9 +194,9 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
           actorMode,
           "handoff_expired",
           freshnessOutcomeForHandoffState(handoffState),
-          "pending_empty_state",
+          "action_required",
         );
-        return pendingCartRecovery(cart, t("checkout.routes.accountCart.cart.pending.fresh.write"));
+        return missingCartRecovery(cart, postWriteRecoveryKindForHandoffState(handoff.state));
       }
 
       recordNotApplicableAccountCartHandoffState(actorMode, handoff.state);
@@ -194,7 +209,11 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
         freshnessOutcomeForHandoffState(handoffState),
         "pending_empty_state",
       );
-      return pendingCartRecovery(cart, t("checkout.routes.accountCart.adding.item.description"));
+      return pendingCartRecovery(
+        cart,
+        t("checkout.routes.accountCart.adding.item.description"),
+        postWriteRecoveryKindForHandoffState(handoffState),
+      );
     } else {
       recordAccountCartSemanticHandoffOutcome(
         actorMode,
@@ -212,10 +231,11 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
       getStatus: checkoutApiErrorStatus,
       getErrorCode: checkoutApiErrorCode,
       getBody: checkoutApiErrorBody,
-      recoverTransient: () => ({
+      recoverTransient: (classification) => ({
         cart: null,
         cartRecovery: {
           kind: "pending-fresh-write" as const,
+          recoveryKind: postWriteRecoveryKindForFreshWriteReadError(classification),
           message: t("checkout.routes.accountCart.cart.pending.fresh.write"),
         },
       }),
@@ -230,9 +250,9 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
         actorMode,
         "handoff_expired",
         freshnessOutcomeForHandoffState(handoffState),
-        "pending_empty_state",
+        "action_required",
       );
-      return pendingCartRecovery<TCart>(null, t("checkout.routes.accountCart.cart.pending.fresh.write"));
+      return missingCartRecovery<TCart>(null, postWriteRecoveryKindForHandoffState(handoffState));
     }
 
     throw error;
@@ -387,11 +407,16 @@ export default function CheckoutAccountCartRoute() {
       errorMessage={actionData?.error ?? null}
       recoveryState={
         cartRecovery
-          ? {
-              ...cartRecovery,
-              refreshHref: currentPath,
-              isAutoRevalidating,
-            }
+          ? cartRecovery.kind === "pending-fresh-write"
+            ? {
+                ...cartRecovery,
+                refreshHref: currentPath,
+                isAutoRevalidating,
+              }
+            : {
+                ...cartRecovery,
+                refreshHref: currentPath,
+              }
           : null
       }
     />

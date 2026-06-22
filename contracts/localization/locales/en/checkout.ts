@@ -756,6 +756,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
   "checkout.routes.accountCart.adding.item.description":
     "Your item was added. The Buy Cart is catching up before checkout continues.",
+  "checkout.routes.accountCart.cart.missing.after.fresh.write":
+    "The cart change was saved, but this cart view did not catch up in time. Refresh the cart or add the item again if it is still missing.",
   "checkout.routes.accountCart.cart.pending.fresh.write":
     "We saved your cart change and are refreshing the cart view. Your items will appear here as soon as checkout catches up.",
   "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",

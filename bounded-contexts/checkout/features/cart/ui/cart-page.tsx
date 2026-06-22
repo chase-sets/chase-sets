@@ -45,12 +45,19 @@ type CheckoutCartLineGroup = CheckoutCartLine & {
   sourceQuantity: number;
 };
 
-type CartRecoveryState = Readonly<{
-  kind: "pending-fresh-write";
-  message: string;
-  refreshHref: string;
-  isAutoRevalidating?: boolean;
-}>;
+type CartRecoveryState = Readonly<
+  | {
+      kind: "pending-fresh-write";
+      message: string;
+      refreshHref: string;
+      isAutoRevalidating?: boolean;
+    }
+  | {
+      kind: "missing-after-fresh-write";
+      message: string;
+      refreshHref: string;
+    }
+>;
 
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
@@ -815,6 +822,19 @@ export function CheckoutCartPage({
                 </LinkButton>
               </Stack>
             </Surface>
+          ) : cartLineGroups.length === 0 && recoveryState?.kind === "missing-after-fresh-write" ? (
+            <MarketplaceEmptyState
+              title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
+              description={recoveryState.message}
+              recoveryActions={
+                <>
+                  <LinkButton href={recoveryState.refreshHref} tone="secondary">
+                    {t("checkout.features.cart.ui.cartPage.refresh.cart")}
+                  </LinkButton>
+                  <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
+                </>
+              }
+            />
           ) : cartLineGroups.length === 0 ? (
             <MarketplaceEmptyState
               title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}

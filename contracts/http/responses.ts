@@ -138,6 +138,21 @@ export type FreshWriteReadErrorClassification = Readonly<{
   errorCode: string | null;
 }>;
 
+export const POST_WRITE_RECOVERY_KINDS = [
+  "pending-projection",
+  "refreshable-catching-up",
+  "stale-projection",
+  "action-required",
+  "expired-handoff",
+  "terminal-failure",
+] as const;
+
+export type PostWriteRecoveryKind = (typeof POST_WRITE_RECOVERY_KINDS)[number];
+
+export function isBoundedTemporaryPostWriteRecoveryKind(kind: PostWriteRecoveryKind): boolean {
+  return kind === "pending-projection" || kind === "refreshable-catching-up";
+}
+
 export const POST_WRITE_HANDOFF_EXPECTATIONS = [
   "resource-present",
   "resource-updated",
@@ -707,6 +722,16 @@ export function classifyFreshWriteReadError(
   };
 }
 
+export function postWriteRecoveryKindForFreshWriteReadError(
+  classification: FreshWriteReadErrorClassification,
+): PostWriteRecoveryKind {
+  if (classification.transient) {
+    return "refreshable-catching-up";
+  }
+
+  return classification.kind === "fresh-write-unhandled" ? "action-required" : "terminal-failure";
+}
+
 export function readPostWriteHandoffState(
   requestOrUrl: Request | string | URL,
   nowMs = Date.now(),
@@ -739,6 +764,18 @@ export function readPostWriteHandoffState(
     ageMs: freshWrite.ageMs,
     freshWrite,
   };
+}
+
+export function postWriteRecoveryKindForHandoffState(state: PostWriteHandoffState): PostWriteRecoveryKind {
+  switch (state.kind) {
+    case "valid":
+      return "pending-projection";
+    case "not-fresh-write":
+      return state.freshWrite.kind === "expired" ? "expired-handoff" : "terminal-failure";
+    case "malformed":
+    case "missing":
+      return "terminal-failure";
+  }
 }
 
 export function readPostWriteHandoff(

@@ -5,8 +5,11 @@ import {
   appendPostWriteHandoff,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
+  postWriteRecoveryKindForFreshWriteReadError,
+  postWriteRecoveryKindForHandoffState,
   readPostWriteHandoffState,
   recoverFreshWriteReadError,
+  type PostWriteRecoveryKind,
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
@@ -148,9 +151,11 @@ function pendingSellListRecovery(
   actorMode: AccountSellListActorMode,
   state: PostWriteHandoffState,
   correctionSource: string,
+  recoveryKind = postWriteRecoveryKindForHandoffState(state),
 ) {
   return {
     kind: "pending-fresh-write" as const,
+    recoveryKind,
     message: t("checkout.routes.accountSellList.sell.list.pending.fresh.write"),
     actorMode,
     freshnessOutcome: freshnessOutcomeForHandoffState(state),
@@ -161,6 +166,7 @@ function pendingSellListRecovery(
 function missingAddLineRecovery(actorMode: AccountSellListActorMode, state: PostWriteHandoffState) {
   return {
     kind: "missing-after-fresh-write" as const,
+    recoveryKind: postWriteRecoveryKindForHandoffState(state),
     message: t("checkout.routes.accountSellList.sell.list.missing.after.fresh.write"),
     actorMode,
     freshnessOutcome: freshnessOutcomeForHandoffState(state),
@@ -201,6 +207,7 @@ function freshWriteOutcomeForRequest(request: Request) {
 function pendingSellerConfirmationRecovery(actorMode: AccountSellListActorMode, request: Request) {
   return {
     kind: "pending-fresh-write" as const,
+    recoveryKind: "pending-projection" satisfies PostWriteRecoveryKind,
     message: t("checkout.routes.accountSellList.seller.confirmation.pending.fresh.write"),
     actorMode,
     freshnessOutcome: freshWriteOutcomeForRequest(request),
@@ -299,10 +306,15 @@ async function loadSellListWithPostWriteRecovery(
       getStatus: checkoutApiErrorStatus,
       getErrorCode: checkoutApiErrorCode,
       getBody: checkoutApiErrorBody,
-      recoverTransient: () => ({
+      recoverTransient: (classification) => ({
         sellList: { items: [], count: 0, latestConfirmation: null },
         freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
-        sellListRecovery: pendingSellListRecovery(actorMode, readPostWriteHandoffState(request), "fresh-read"),
+        sellListRecovery: pendingSellListRecovery(
+          actorMode,
+          readPostWriteHandoffState(request),
+          "fresh-read",
+          postWriteRecoveryKindForFreshWriteReadError(classification),
+        ),
       }),
     });
     if (recovery) {
