@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recordPlatformPostWriteConsistencyEvent } from "@chase-sets/platform-runtime/post-write-consistency";
 import {
   applyFeeFormula,
   assert,
@@ -65,6 +66,19 @@ export type CommercialTermsAccountSource = Readonly<{
   getAccount: (accountId: string) => Promise<ProjectedAccount | null>;
 }>;
 
+type CommercialTermsAccountSourceOutcome = "projection_hit" | "fallback_used" | "fallback_failed";
+
+const accountSourceFallbackTelemetry = {
+  boundedContextName: "commercial-terms",
+  sourceContextName: "identity",
+  projectionName: "commercial-terms-account-projection",
+  readModelTable: "commercial_terms_account_pages",
+  fallbackId: "commercial-terms.identity-account-source-fresh-account",
+  fallbackCategory: "host-owned bridge",
+  surface: "commercial-terms-resolution",
+  strategy: "projection-fallback",
+} as const;
+
 type ActiveSchedule = Readonly<{
   schedule_id: string;
   label: string;
@@ -90,6 +104,37 @@ async function getProjectedAccount(db: PgQueryable, accountId: string) {
   );
 
   return result.rows[0] ?? null;
+}
+
+function isCommercialAccountType(value: unknown): value is CommercialAccountType {
+  return value === "personal" || value === "business" || value === "enterprise";
+}
+
+function recordAccountSourceFallbackOutcome(outcome: CommercialTermsAccountSourceOutcome): void {
+  recordPlatformPostWriteConsistencyEvent({
+    ...accountSourceFallbackTelemetry,
+    outcome,
+  });
+}
+
+async function getCommercialTermsAccount(
+  db: PgQueryable,
+  accountSource: CommercialTermsAccountSource | undefined,
+  accountId: string,
+) {
+  const projectedAccount = await getProjectedAccount(db, accountId);
+  if (projectedAccount) {
+    recordAccountSourceFallbackOutcome("projection_hit");
+    return projectedAccount;
+  }
+
+  const fallbackAccount = (await accountSource?.getAccount(accountId)) ?? null;
+  recordAccountSourceFallbackOutcome(
+    fallbackAccount?.status === "active" && isCommercialAccountType(fallbackAccount.account_type)
+      ? "fallback_used"
+      : "fallback_failed",
+  );
+  return fallbackAccount;
 }
 
 async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccountType, effectiveAt: string) {
@@ -148,10 +193,10 @@ async function resolveTerms(
     fieldName: "Commercial terms amount",
     allowZero: true,
   });
-  const account =
-    (await getProjectedAccount(db, params.accountId)) ?? (await accountSource?.getAccount(params.accountId));
+  const account = await getCommercialTermsAccount(db, accountSource, params.accountId);
   assert(account, `Account ${params.accountId} is not available for commercial terms.`);
   assert(account.status === "active", `Account ${params.accountId} is not active.`);
+  assert(isCommercialAccountType(account.account_type), `Account ${params.accountId} is missing account type.`);
 
   const [schedule, agreement] = await Promise.all([
     getActiveSchedule(db, account.account_type, effectiveAt),

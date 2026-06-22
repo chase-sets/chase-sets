@@ -320,12 +320,13 @@
         "sourceContextName": "identity"
       },
       "terminationRule": "The resolver always reads commercial_terms_account_pages first and calls the Identity account source only when that row is missing. Once the projection catches up, the fallback is bypassed; missing account, missing account type, or inactive status fails closed.",
-      "observability": "Structure follow-up should count projection-hit, fallback-used, and fallback-failed outcomes with context/projection labels only; do not log account ids or Identity payloads.",
+      "observability": "Runtime records post-write.consistency outcomes projection_hit, fallback_used, and fallback_failed from bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts with context, source context, projection, read model table, fallback id, and fallback category labels only; do not log account ids or Identity payloads.",
       "proof": {
         "tests": ["bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"],
         "testCases": [
           "uses the host account source when the commercial terms account projection has not caught up",
-          "fails when the account is not active"
+          "records projection_hit, fallback_used, and fallback_failed outcomes",
+          "fails when the account is missing, missing account type, or not active"
         ]
       }
     }

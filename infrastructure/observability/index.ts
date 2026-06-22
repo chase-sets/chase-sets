@@ -203,6 +203,9 @@ export type CheckoutObservabilityEventSignal = Readonly<{
 }>;
 
 export type PostWriteConsistencyOutcome =
+  | "projection_hit"
+  | "fallback_used"
+  | "fallback_failed"
   | "missing_strategy"
   | "optimistic_applied"
   | "freshness_timeout"
@@ -228,6 +231,11 @@ export type PostWriteConsistencyEventSignal = Readonly<{
   actorMode?: string | null;
   recoveryAction?: string | null;
   freshnessOutcome?: string | null;
+  sourceContextName?: string | null;
+  projectionName?: string | null;
+  readModelTable?: string | null;
+  fallbackId?: string | null;
+  fallbackCategory?: string | null;
 }>;
 
 export type CatalogIntegrationOptionQuerySignal = Readonly<{
@@ -915,6 +923,11 @@ export function postWriteConsistencyEventAttributes(event: PostWriteConsistencyE
     actor_mode: boundedMetricLabel(event.actorMode),
     recovery_action: boundedMetricLabel(event.recoveryAction),
     freshness_outcome: boundedMetricLabel(event.freshnessOutcome),
+    source_context: boundedMetricLabel(event.sourceContextName),
+    projection: boundedMetricLabel(event.projectionName),
+    read_model_table: boundedMetricLabel(event.readModelTable),
+    fallback_id: boundedMetricLabel(event.fallbackId),
+    fallback_category: boundedMetricLabel(event.fallbackCategory),
   };
 }
 

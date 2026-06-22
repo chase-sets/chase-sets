@@ -45,7 +45,7 @@ Current audited fallbacks:
 
 | Fallback | Category | Freshness Scope | Projection Waited On | Termination / Observability |
 | --- | --- | --- | --- | --- |
-| Commercial Terms account-source resolution | Host-owned bridge | Commercial Terms resolution for a specific account after a fresh Identity account creation or profile state change. | `commercial-terms-account-projection` into `commercial_terms_account_pages`, sourced from Identity account events. | `commercial_terms_account_pages` wins whenever present; the Identity account source is invoked only on projection miss, returns only account id/type/status, fails closed when Identity has no account/type or inactive status, and should log/metric fallback-used versus projection-hit without identifiers. See `bounded-contexts/commercial-terms/context.json` `crossContextFallbackInventory`. |
+| Commercial Terms account-source resolution | Host-owned bridge | Commercial Terms resolution for a specific account after a fresh Identity account creation or profile state change. | `commercial-terms-account-projection` into `commercial_terms_account_pages`, sourced from Identity account events. | `commercial_terms_account_pages` wins whenever present; the Identity account source is invoked only on projection miss, returns only account id/type/status, and fails closed when Identity has no account, account type, or active status. Runtime records `post-write.consistency` outcomes `projection_hit`, `fallback_used`, and `fallback_failed` with context/projection/fallback labels only. See `bounded-contexts/commercial-terms/context.json` `crossContextFallbackInventory`. |
 
 ## Concrete Flow Guidance
 
