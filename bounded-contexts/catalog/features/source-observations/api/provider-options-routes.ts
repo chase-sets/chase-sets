@@ -10,6 +10,7 @@ import {
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { CatalogProviderOptionQueryInvalidRequestError } from "./provider-option-query-resolver";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type ProviderOptionRouteServices = SourceObservationReadServices &
@@ -94,6 +95,17 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
             },
           },
           503,
+        );
+      }
+      if (error instanceof CatalogProviderOptionQueryInvalidRequestError) {
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          },
+          400,
         );
       }
       throw error;
