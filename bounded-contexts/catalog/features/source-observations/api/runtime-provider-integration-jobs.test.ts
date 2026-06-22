@@ -268,6 +268,15 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "tcgplayer",
         value: "tcgplayer",
+        label: "TCGplayer One Piece Single Cards",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
         label: "TCGplayer Yu-Gi-Oh Single Cards",
         metadata: expect.objectContaining({
           status: "active",
@@ -413,6 +422,57 @@ describe("source observation runtime: provider integration jobs", () => {
           productLineId: 3,
           setNameId: 7001,
           cleanSetName: "Prismatic Evolutions",
+        }),
+      }),
+    ]);
+  });
+
+  it("lists TCGplayer One Piece product-line and set-name options through the selected production profile unit", async () => {
+    const harness = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
+    );
+
+    const productLines = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      profileKey: "one-piece-single-card-product-sku",
+      ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+      queryKind: "product-lines",
+    });
+    const setNames = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      profileKey: "one-piece-single-card-product-sku",
+      ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+      queryKind: "set-names",
+      parentValue: "68",
+    });
+
+    expect(productLines).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "product-lines",
+        value: "68",
+        label: "One Piece Card Game",
+        metadata: expect.objectContaining({
+          productLineId: 68,
+          productLineUrlName: "one-piece-card-game",
+        }),
+      }),
+    ]);
+    expect(setNames).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "set-names",
+        value: "Romance Dawn",
+        label: "Romance Dawn",
+        parentValue: "68",
+        metadata: expect.objectContaining({
+          productLineId: 68,
+          setNameId: 12001,
+          cleanSetName: "Romance Dawn",
         }),
       }),
     ]);
@@ -588,6 +648,82 @@ describe("source observation runtime: provider integration jobs", () => {
             expect.objectContaining({
               providerKey: "tcgplayer",
               externalKey: "sku:50014240",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("imports TCGplayer One Piece single-card set scopes through the selected production profile unit", async () => {
+    const harness = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
+    );
+
+    const result = await services.importTcgplayerScope({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "one-piece-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        productLineId: "68",
+        setName: "Romance Dawn",
+      },
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      imported: 1,
+      observed: 1,
+      failed: 0,
+      outcomes: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          expansionId: "set:68:Romance Dawn",
+          status: "imported",
+          observed: 1,
+        }),
+      ],
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_987650",
+        providerKey: "tcgplayer",
+        externalKey: "product:987650",
+        sourceProfileKey: "one-piece-single-card-product-sku",
+        sourceProfileVersion: "2026.06.22",
+        normalized: expect.objectContaining({
+          kind: "provider-product",
+          tcg: "one-piece",
+          name: "Monkey.D.Luffy",
+          providerProductName: "Monkey.D.Luffy",
+          productLineName: "One Piece Card Game",
+          productCategoryName: "Cards",
+          productForm: "single",
+          mergeIdentity: expect.objectContaining({
+            tcg: "one piece card game",
+            productLineName: "One Piece Card Game",
+            setName: "Romance Dawn",
+            collectorNumber: "OP01-001",
+            productForm: "single",
+          }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987650" }],
+          skuReferences: [
+            expect.objectContaining({
+              providerKey: "tcgplayer",
+              externalKey: "sku:900987650",
               reviewEvidence: expect.objectContaining({
                 condition: "Near Mint",
                 printing: "Normal",

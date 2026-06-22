@@ -801,6 +801,94 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       },
     ),
     ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "one-piece-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        profileVersion: "2026.06.22",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: ["sourceObservation.externalKey.selector.path", "sourceObservation.externalKey"],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "987650",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Monkey.D.Luffy",
+              cardNumber: "OP01-001",
+              productForm: "single",
+              productLineName: "One Piece Card Game",
+              tcg: "one-piece",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987650" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987650",
+                selectedOptions: [
+                  { dimensionKey: "condition", optionKey: "near-mint", providerValue: "Near Mint" },
+                  { dimensionKey: "printing", optionKey: "normal", providerValue: "Normal" },
+                  { dimensionKey: "language", optionKey: "english", providerValue: "English" },
+                ],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "987660",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Romance Dawn Booster Box",
+              productForm: "sealed",
+              productLineName: "One Piece Card Game",
+              tcg: "one-piece",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987660" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987660",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "987650-unknown-option",
+            normalizedKind: "provider-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987652",
+                selectedOptions: [{ dimensionKey: "printing", optionKey: null, providerValue: "Manga Rare" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
       "scrydex",
       {
         profileKey: "one-piece-card-print-source-observation",

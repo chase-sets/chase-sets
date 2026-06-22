@@ -20,6 +20,7 @@ import {
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
+  tcgplayerOnePieceSingleCardProviderProfile,
   tcgplayerYugiohSingleCardProviderProfile,
   ygojsonYugiohSealedProductReferenceProviderProfile,
   ygojsonYugiohSetReferenceProviderProfile,
@@ -383,7 +384,7 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("keeps TCGplayer Magic, Yu-Gi-Oh, and Pokemon profile units distinct", () => {
+  it("keeps TCGplayer Magic, Yu-Gi-Oh, One Piece, and Pokemon profile units distinct", () => {
     const magic = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "mtg-single-card-product-sku",
     });
@@ -392,6 +393,9 @@ describe("catalog provider integration profiles", () => {
     });
     const yugioh = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "yugioh-single-card-product-sku",
+    });
+    const onePiece = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "one-piece-single-card-product-sku",
     });
     const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
       profileKey: "pokemon-tcg-automation-client",
@@ -426,6 +430,21 @@ describe("catalog provider integration profiles", () => {
       },
     });
     expect(yugioh?.profile).toBe(tcgplayerYugiohSingleCardProviderProfile);
+    expect(onePiece).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "one-piece-single-card-product-sku",
+      lifecycle: "active",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        productDomain: "one-piece",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "provider-product" },
+        catalogFieldMapping: { blueprintKey: "one-piece-card-print" },
+      },
+    });
+    expect(onePiece?.profile).toBe(tcgplayerOnePieceSingleCardProviderProfile);
     expect(sealed).toMatchObject({
       providerKey: "tcgplayer",
       profileKey: "mtg-sealed-product-sku",
@@ -562,6 +581,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "planned"],
       ["ygojson", "active"],
       ["ygojson", "active"],
@@ -582,6 +602,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.22", "active"],
       ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
@@ -837,20 +858,20 @@ describe("catalog provider integration profiles", () => {
     }
   });
 
-  it("gates every active One Piece Scrydex profile version on executable fixture-backed mapping coverage", () => {
+  it("gates every active One Piece provider profile version on executable fixture-backed mapping coverage", () => {
     const fixtureCases = catalogProviderProfileFixtureCases();
     const activeOnePieceVersions = catalogProviderIntegrationProfileVersions.filter(
       (version) =>
         version.active &&
         version.lifecycle === "active" &&
-        executableContractProductDomain(version.executableMappingContract) === "one-piece" &&
-        version.providerKey === "scrydex",
+        executableContractProductDomain(version.executableMappingContract) === "one-piece",
     );
 
     expect(activeOnePieceVersions.map((version) => version.profileKey)).toEqual([
       "one-piece-card-print-source-observation",
       "one-piece-set-reference-data",
       "one-piece-sealed-product-source-observation",
+      "one-piece-single-card-product-sku",
     ]);
 
     for (const version of activeOnePieceVersions) {

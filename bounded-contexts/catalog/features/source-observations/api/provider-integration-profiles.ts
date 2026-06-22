@@ -46,6 +46,8 @@ import {
   tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   tcgplayerMtgSealedProductSourceObservationMappingContract,
+  TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
+  tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
@@ -1802,6 +1804,120 @@ export const tcgplayerYugiohSingleCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerOnePieceSingleCardProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer One Piece Single Cards",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer One Piece Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "one-piece-card-print",
+    categoryKey: "one-piece-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_tcgplayer_one_piece",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "tcgplayer-product-line-id" },
+      { typeKey: "set", providerAttributeKey: "tcgplayer-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "tcgplayer-product-line-id"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A One Piece Card Game release group.",
+        attributeKeys: ["tcgplayer-set-name", "tcgplayer-set-id"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "one-piece-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "provider",
+          typeKey: "product-line",
+          providerValuePaths: ["productLineId", "productLineName"],
+        },
+        key: { kind: "static", value: "one-piece-card-game" },
+        name: { kind: "path", path: "productLineName" },
+        description: { kind: "static", value: "One Piece Card Game trading card game." },
+        requiredPaths: ["productLineName"],
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "path", path: "productLineName" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "OPCG" } },
+          { attributeKey: "tcgplayer-product-line-id", value: { kind: "path", path: "productLineId" }, optional: true },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setNameId", "setName"] },
+        key: { kind: "path", path: "setName" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} One Piece Card Game set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setName"],
+        attributes: [
+          { attributeKey: "tcgplayer-set-name", value: { kind: "path", path: "setName" } },
+          { attributeKey: "tcgplayer-set-id", value: { kind: "path", path: "setNameId" }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "one-piece-product-line" }],
+      },
+    ],
+  },
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: tcgplayerAutomationClientProviderProfile.selectedOptionMapping.dimensions.map((dimension) =>
+      dimension.dimensionKey === "printing"
+        ? {
+            ...dimension,
+            valueSynonyms: [
+              { optionKey: "normal", providerValues: ["Normal", "Standard"] },
+              { optionKey: "foil", providerValues: ["Foil", "Holofoil"] },
+              { optionKey: "parallel", providerValues: ["Parallel", "Parallel Foil"] },
+            ],
+          }
+        : dimension,
+    ),
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["scrydex", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const scrydexOnePieceConnectorProfile = {
   kind: "scrydex-one-piece-json",
   sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
@@ -2850,6 +2966,7 @@ export const catalogProviderIntegrationProfiles = [
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerYugiohSingleCardProviderProfile,
+  tcgplayerOnePieceSingleCardProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -3048,6 +3165,20 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "one-piece-single-card-product-sku",
+    profileVersion: TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
+    ingestionUnitIdentity:
+      tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerOnePieceSingleCardProviderProfile,
+    sourceContract: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",

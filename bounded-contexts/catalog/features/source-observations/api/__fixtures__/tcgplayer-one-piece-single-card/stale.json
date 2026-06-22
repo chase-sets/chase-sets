@@ -1,0 +1,70 @@
+{
+  "observationId": "tcgplayer_one_piece_product_987650_stale",
+  "externalKey": "987650-stale",
+  "sourceUrl": "https://www.tcgplayer.com/product/987650",
+  "sourceUpdatedAt": "2024-01-01T00:00:00.000Z",
+  "productId": 987650,
+  "productName": "Monkey.D.Luffy",
+  "setName": "Romance Dawn",
+  "productLineId": 68,
+  "productLineName": "One Piece Card Game",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "OP01-001"
+  },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": ["sku:900987650"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:987650"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:900987650",
+      "selectedOptions": [
+        {
+          "dimensionKey": "condition",
+          "optionKey": "near-mint",
+          "providerValue": "Near Mint"
+        },
+        {
+          "dimensionKey": "printing",
+          "optionKey": "normal",
+          "providerValue": "Normal"
+        },
+        {
+          "dimensionKey": "language",
+          "optionKey": "english",
+          "providerValue": "English"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "one-piece",
+    "productLineName": "One Piece Card Game",
+    "setName": "Romance Dawn",
+    "printedProductName": "Monkey.D.Luffy",
+    "collectorNumber": "OP01-001",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 987650,
+    "productName": "Monkey.D.Luffy",
+    "setName": "Romance Dawn",
+    "productLineName": "One Piece Card Game",
+    "productForm": "single",
+    "skuIds": [900987650]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "stale"
+  }
+}

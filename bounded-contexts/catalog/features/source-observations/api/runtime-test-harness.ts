@@ -390,7 +390,7 @@ export function sourceObservationDetailRow(overrides: Record<string, unknown> = 
 }
 
 export function createTcgplayerImportHarness(
-  input: { failProductIds?: ReadonlySet<number>; productDomain?: "pokemon" | "mtg" } = {},
+  input: { failProductIds?: ReadonlySet<number>; productDomain?: "pokemon" | "mtg" | "one-piece" } = {},
 ) {
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
   const productDomain = input.productDomain ?? "pokemon";
@@ -413,13 +413,39 @@ export function createTcgplayerImportHarness(
             }),
           ],
         ]
-      : [
-          [610001, tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 })],
-          [
-            610002,
-            tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 }),
+      : productDomain === "one-piece"
+        ? [
+            [
+              987650,
+              tcgplayerOnePieceProductDetail({
+                productId: 987650,
+                productName: "Monkey.D.Luffy",
+                number: "OP01-001",
+                sku: 900987650,
+              }),
+            ],
+            [
+              987660,
+              tcgplayerOnePieceProductDetail({
+                productId: 987660,
+                productName: "Romance Dawn Booster Box",
+                number: "BOX",
+                sku: 900987660,
+                sealed: true,
+                productTypeName: "Sealed Products",
+              }),
+            ],
+          ]
+        : [
+            [
+              610001,
+              tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 }),
+            ],
+            [
+              610002,
+              tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 }),
+            ],
           ],
-        ],
   );
   const client: TcgplayerAutomationCatalogClient = {
     listProductLines: async () => [
@@ -435,107 +461,167 @@ export function createTcgplayerImportHarness(
         productLineUrlName: "magic",
         isDirect: true,
       },
+      {
+        productLineId: 68,
+        productLineName: "One Piece Card Game",
+        productLineUrlName: "one-piece-card-game",
+        isDirect: true,
+      },
     ],
-    listCatalogSetNames: async ({ categoryId }) =>
-      categoryId === 1
-        ? {
-            errors: [],
-            results: [
-              {
-                setNameId: 1001,
-                categoryId: 1,
-                name: "Time Spiral",
-                cleanSetName: "Time Spiral",
-                urlName: "time-spiral",
-                abbreviation: "TSP",
-                releaseDate: "2006-10-06",
-                isSupplemental: false,
-                active: true,
-              },
-            ],
-          }
-        : {
-            errors: [],
-            results: [
-              {
-                setNameId: 7001,
-                categoryId: 3,
-                name: "Prismatic Evolutions",
-                cleanSetName: "Prismatic Evolutions",
-                urlName: "prismatic-evolutions",
-                abbreviation: "PRE",
-                releaseDate: "2025-01-17",
-                isSupplemental: false,
-                active: true,
-              },
-            ],
+    listCatalogSetNames: async ({ categoryId }) => {
+      if (categoryId === 1) {
+        return {
+          errors: [],
+          results: [
+            {
+              setNameId: 1001,
+              categoryId: 1,
+              name: "Time Spiral",
+              cleanSetName: "Time Spiral",
+              urlName: "time-spiral",
+              abbreviation: "TSP",
+              releaseDate: "2006-10-06",
+              isSupplemental: false,
+              active: true,
+            },
+          ],
+        };
+      }
+      if (categoryId === 68) {
+        return {
+          errors: [],
+          results: [
+            {
+              setNameId: 12001,
+              categoryId: 68,
+              name: "Romance Dawn",
+              cleanSetName: "Romance Dawn",
+              urlName: "romance-dawn",
+              abbreviation: "OP-01",
+              releaseDate: "2022-12-02",
+              isSupplemental: false,
+              active: true,
+            },
+          ],
+        };
+      }
+      return {
+        errors: [],
+        results: [
+          {
+            setNameId: 7001,
+            categoryId: 3,
+            name: "Prismatic Evolutions",
+            cleanSetName: "Prismatic Evolutions",
+            urlName: "prismatic-evolutions",
+            abbreviation: "PRE",
+            releaseDate: "2025-01-17",
+            isSupplemental: false,
+            active: true,
           },
+        ],
+      };
+    },
     searchProducts: async () => ({
       errors: [],
       results: [],
     }),
-    listAllProducts: async () =>
-      productDomain === "mtg"
-        ? [
-            {
-              productId: 14240,
-              productName: "Fury Sliver",
-              productLineId: 1,
-              productLineName: "Magic",
-              productTypeName: "Cards",
-              setId: 1001,
-              setName: "Time Spiral",
-              setUrlName: "time-spiral",
-              rarityName: "Uncommon",
-              sealed: false,
-              productStatusId: 1,
-              customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
-            },
-            {
-              productId: 96601,
-              productName: "Time Spiral Booster Pack",
-              productLineId: 1,
-              productLineName: "Magic",
-              productTypeName: "Sealed Products",
-              setId: 1001,
-              setName: "Time Spiral",
-              setUrlName: "time-spiral",
-              rarityName: "Sealed",
-              sealed: true,
-              productStatusId: 1,
-              customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
-            },
-          ]
-        : [
-            {
-              productId: 610001,
-              productName: "Eevee ex",
-              productLineId: 3,
-              productLineName: "Pokemon",
-              productTypeName: "Cards",
-              setId: 7001,
-              setName: "Prismatic Evolutions",
-              setUrlName: "prismatic-evolutions",
-              rarityName: "Special Illustration Rare",
-              sealed: false,
-              productStatusId: 1,
-              customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-            },
-            {
-              productId: 610002,
-              productName: "Umbreon ex",
-              productLineId: 3,
-              productLineName: "Pokemon",
-              productTypeName: "Cards",
-              setId: 7001,
-              setName: "Prismatic Evolutions",
-              setUrlName: "prismatic-evolutions",
-              rarityName: "Special Illustration Rare",
-              sealed: false,
-              productStatusId: 1,
-              customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-            },
-          ],
+    listAllProducts: async () => {
+      if (productDomain === "mtg") {
+        return [
+          {
+            productId: 14240,
+            productName: "Fury Sliver",
+            productLineId: 1,
+            productLineName: "Magic",
+            productTypeName: "Cards",
+            setId: 1001,
+            setName: "Time Spiral",
+            setUrlName: "time-spiral",
+            rarityName: "Uncommon",
+            sealed: false,
+            productStatusId: 1,
+            customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+          },
+          {
+            productId: 96601,
+            productName: "Time Spiral Booster Pack",
+            productLineId: 1,
+            productLineName: "Magic",
+            productTypeName: "Sealed Products",
+            setId: 1001,
+            setName: "Time Spiral",
+            setUrlName: "time-spiral",
+            rarityName: "Sealed",
+            sealed: true,
+            productStatusId: 1,
+            customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+          },
+        ];
+      }
+      if (productDomain === "one-piece") {
+        return [
+          {
+            productId: 987650,
+            productName: "Monkey.D.Luffy",
+            productLineId: 68,
+            productLineName: "One Piece Card Game",
+            productTypeName: "Cards",
+            setId: 12001,
+            setName: "Romance Dawn",
+            setUrlName: "romance-dawn",
+            rarityName: "Leader",
+            sealed: false,
+            productStatusId: 1,
+            customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
+          },
+          {
+            productId: 987660,
+            productName: "Romance Dawn Booster Box",
+            productLineId: 68,
+            productLineName: "One Piece Card Game",
+            productTypeName: "Sealed Products",
+            setId: 12001,
+            setName: "Romance Dawn",
+            setUrlName: "romance-dawn",
+            rarityName: "Sealed",
+            sealed: true,
+            productStatusId: 1,
+            customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
+          },
+        ];
+      }
+      return [
+        {
+          productId: 610001,
+          productName: "Eevee ex",
+          productLineId: 3,
+          productLineName: "Pokemon",
+          productTypeName: "Cards",
+          setId: 7001,
+          setName: "Prismatic Evolutions",
+          setUrlName: "prismatic-evolutions",
+          rarityName: "Special Illustration Rare",
+          sealed: false,
+          productStatusId: 1,
+          customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+        },
+        {
+          productId: 610002,
+          productName: "Umbreon ex",
+          productLineId: 3,
+          productLineName: "Pokemon",
+          productTypeName: "Cards",
+          setId: 7001,
+          setName: "Prismatic Evolutions",
+          setUrlName: "prismatic-evolutions",
+          rarityName: "Special Illustration Rare",
+          sealed: false,
+          productStatusId: 1,
+          customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+        },
+      ];
+    },
     getProductDetail: async ({ productId }) => {
       if (input.failProductIds?.has(productId)) {
         throw new Error(`Product ${productId} unavailable.`);
@@ -663,6 +749,51 @@ export function tcgplayerMagicProductDetail(input: {
     lowestPriceWithShipping: 1.23,
     medianPrice: 1.5,
     listings: 25,
+  };
+}
+
+export function tcgplayerOnePieceProductDetail(input: {
+  productId: number;
+  productName: string;
+  number: string;
+  sku: number;
+  sealed?: boolean;
+  productTypeName?: string;
+}): TcgplayerAutomationProductDetail {
+  const sealed = input.sealed ?? false;
+  return {
+    productTypeName: input.productTypeName ?? "Cards",
+    rarityName: sealed ? "Sealed" : "Leader",
+    sealed,
+    productName: input.productName,
+    setId: 12001,
+    setCode: "OP-01",
+    productId: input.productId,
+    setName: "Romance Dawn",
+    productLineId: 68,
+    productStatusId: 1,
+    productLineName: "One Piece Card Game",
+    customAttributes: {
+      number: input.number,
+      releaseDate: "2022-12-02",
+      cardType: sealed ? ["Sealed"] : ["Leader"],
+    },
+    formattedAttributes: {
+      Artist: "Eiichiro Oda",
+    },
+    skus: [
+      {
+        sku: input.sku,
+        condition: sealed ? "Sealed" : "Near Mint",
+        variant: sealed ? "Sealed" : "Normal",
+        language: "English",
+      },
+    ],
+    marketPrice: sealed ? 99.99 : 4.25,
+    lowestPrice: sealed ? 89.99 : 3.75,
+    lowestPriceWithShipping: sealed ? 99.99 : 4.99,
+    medianPrice: sealed ? 109.99 : 4.5,
+    listings: sealed ? 12 : 25,
   };
 }
 

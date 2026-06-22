@@ -37,6 +37,7 @@ import {
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./tcgplayer";
@@ -918,6 +919,118 @@ describe("ProviderAdapterRegistry", () => {
     ]);
   });
 
+  it("reuses the TCGplayer provider path for One Piece single-card unit constraints", async () => {
+    const onePieceAdapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerOnePieceProfileVersion()],
+      client: onePieceTcgplayerClient(),
+      now: () => new Date("2026-06-22T00:00:00.000Z"),
+    });
+
+    await expect(onePieceAdapter.listIntegrationUnits()).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        productDomain: "one-piece",
+        productForm: "single-card",
+        displayName: "TCGplayer One Piece Single Cards",
+      }),
+    ]);
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [expect.objectContaining({ value: "68", label: "One Piece Card Game" })],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "set-names",
+        parentValues: { productLineId: "68" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "Romance Dawn",
+          label: "Romance Dawn",
+          parentValue: "68",
+        }),
+      ],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "set-names",
+        parentValues: { productLineId: "1" },
+      }),
+    ).rejects.toThrow("One Piece Card Game product line");
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { productLineName: "One Piece Card Game", setName: "Romance Dawn" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "987650",
+          label: "Monkey.D.Luffy",
+          metadata: expect.objectContaining({ productLineName: "One Piece Card Game", sealed: "false" }),
+        }),
+      ],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "987650" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "900987650",
+          label: "900987650",
+          metadata: { sku: "900987650", condition: "Near Mint", variant: "Normal", language: "English" },
+        },
+      ],
+    });
+
+    const acceptedPlan = await onePieceAdapter.planImport({
+      unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "68", setName: "Romance Dawn" },
+    });
+    await expect(collectPayloads(onePieceAdapter.fetchPayloads(acceptedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "product:987650",
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({
+            productId: 987650,
+            productLineId: 68,
+            productLineName: "One Piece Card Game",
+            productTypeName: "Cards",
+          }),
+        },
+      }),
+    ]);
+
+    const rejectedPlan = await onePieceAdapter.planImport({
+      unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "product",
+      values: { productId: "14240" },
+    });
+    await expect(collectPayloads(onePieceAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "product-detail-failure",
+          reason: expect.stringContaining("only imports One Piece Card Game single-card products"),
+        }),
+      }),
+    ]);
+  });
+
   it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
@@ -1426,6 +1539,16 @@ function requireTcgplayerMtgSealedProfileVersion() {
   return version;
 }
 
+function requireTcgplayerOnePieceProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.22", {
+    profileKey: "one-piece-single-card-product-sku",
+  });
+  if (!version) {
+    throw new Error("Expected TCGplayer One Piece profile version.");
+  }
+  return version;
+}
+
 function tcgplayerYugiohProfileVersion(): CatalogProviderIntegrationProfileVersionRecord {
   const base = requireTcgplayerPokemonProfileVersion();
   return {
@@ -1786,6 +1909,171 @@ function yugiohTcgplayerClient(): TcgplayerAutomationCatalogClient {
         sealed: false,
         productStatusId: 1,
         customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+      },
+    ],
+    getProductDetail: async ({ productId }) => {
+      const detail = details.get(productId);
+      if (!detail) {
+        throw new Error(`Product ${productId} not found.`);
+      }
+      return detail;
+    },
+  };
+}
+
+function onePieceTcgplayerClient(): TcgplayerAutomationCatalogClient {
+  const details = new Map([
+    [
+      987650,
+      {
+        productTypeName: "Cards",
+        rarityName: "Leader",
+        sealed: false,
+        productName: "Monkey.D.Luffy",
+        setId: 6801,
+        setCode: "OP-01",
+        productId: 987650,
+        setName: "Romance Dawn",
+        productLineId: 68,
+        productStatusId: 1,
+        productLineName: "One Piece Card Game",
+        customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
+        formattedAttributes: {},
+        skus: [{ sku: 900987650, condition: "Near Mint", variant: "Normal", language: "English" }],
+        marketPrice: 8.5,
+        lowestPrice: 7.99,
+        lowestPriceWithShipping: 8.49,
+        medianPrice: 9,
+        listings: 42,
+      },
+    ],
+    [
+      987660,
+      {
+        productTypeName: "Sealed Products",
+        rarityName: "Sealed",
+        sealed: true,
+        productName: "Romance Dawn Booster Box",
+        setId: 6801,
+        setCode: "OP-01",
+        productId: 987660,
+        setName: "Romance Dawn",
+        productLineId: 68,
+        productStatusId: 1,
+        productLineName: "One Piece Card Game",
+        customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
+        formattedAttributes: {},
+        skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
+        marketPrice: 120,
+        lowestPrice: 110,
+        lowestPriceWithShipping: 115,
+        medianPrice: 125,
+        listings: 14,
+      },
+    ],
+    [
+      14240,
+      {
+        productTypeName: "Cards",
+        rarityName: "Uncommon",
+        sealed: false,
+        productName: "Fury Sliver",
+        setId: 1001,
+        setCode: "TSP",
+        productId: 14240,
+        setName: "Time Spiral",
+        productLineId: 1,
+        productStatusId: 1,
+        productLineName: "Magic",
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+        formattedAttributes: {},
+        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
+        marketPrice: 1.23,
+        lowestPrice: 1.01,
+        lowestPriceWithShipping: 1.23,
+        medianPrice: 1.5,
+        listings: 25,
+      },
+    ],
+  ]);
+
+  return {
+    listProductLines: async () => [
+      {
+        productLineId: 1,
+        productLineName: "Magic",
+        productLineUrlName: "magic",
+        isDirect: true,
+      },
+      {
+        productLineId: 68,
+        productLineName: "One Piece Card Game",
+        productLineUrlName: "one-piece-card-game",
+        isDirect: true,
+      },
+    ],
+    listCatalogSetNames: async () => ({
+      errors: [],
+      results: [
+        {
+          setNameId: 6801,
+          categoryId: 68,
+          name: "Romance Dawn",
+          cleanSetName: "Romance Dawn",
+          urlName: "romance-dawn",
+          abbreviation: "OP-01",
+          releaseDate: "2022-12-02",
+          isSupplemental: false,
+          active: true,
+        },
+      ],
+    }),
+    searchProducts: async () => ({
+      errors: [],
+      results: [],
+    }),
+    listAllProducts: async () => [
+      {
+        productId: 987650,
+        productName: "Monkey.D.Luffy",
+        productLineId: 68,
+        productLineName: "One Piece Card Game",
+        productTypeName: "Cards",
+        setId: 6801,
+        setName: "Romance Dawn",
+        setUrlName: "romance-dawn",
+        rarityName: "Leader",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
+      },
+      {
+        productId: 987660,
+        productName: "Romance Dawn Booster Box",
+        productLineId: 68,
+        productLineName: "One Piece Card Game",
+        productTypeName: "Sealed Products",
+        setId: 6801,
+        setName: "Romance Dawn",
+        setUrlName: "romance-dawn",
+        rarityName: "Sealed",
+        sealed: true,
+        productStatusId: 1,
+        customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
+      },
+      {
+        productId: 14240,
+        productName: "Fury Sliver",
+        productLineId: 1,
+        productLineName: "Magic",
+        productTypeName: "Cards",
+        setId: 1001,
+        setName: "Time Spiral",
+        setUrlName: "time-spiral",
+        rarityName: "Uncommon",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
       },
     ],
     getProductDetail: async ({ productId }) => {
