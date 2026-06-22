@@ -356,6 +356,29 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(screen.queryByText(/csg_seller_override/)).toBeNull();
   });
 
+  it("can route guest Accept offer through the Sell List handoff intent", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          ...baseAccountOfferMatch,
+          price_amount: "380.00",
+        }}
+        sellNowIntent="add-to-sell-list"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        matchingOfferCount={1}
+      />,
+    );
+
+    const acceptOffer = screen.getByRole("button", { name: "Accept offer" });
+
+    expect(acceptOffer.getAttribute("name")).toBe("intent");
+    expect(acceptOffer.getAttribute("value")).toBe("add-to-sell-list");
+    expect(screen.getByRole("button", { name: "Add offer to Sell List" }).getAttribute("value")).toBe(
+      "add-to-sell-list",
+    );
+  });
+
   it("labels implicit offer defaults as the best offer", () => {
     render(
       <MarketplaceOfferMatchSection
@@ -403,6 +426,36 @@ describe("item detail commerce panel purchase workflows and offers", () => {
 
     expect(selectedOfferAction.getAttribute("data-disabled")).not.toBe("true");
     expect(selectedOfferAction.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("routes signed-out sell rail Accept offer through the Sell List handoff intent", async () => {
+    renderItemDetailRoute({
+      item: createItem({
+        offer_demand_matches: [{ ...baseOffer, price_amount: "380.00" }],
+      }),
+      accountOfferMatches: [],
+      sellerInventoryItems: [],
+      sellerAccountId: null,
+      hasListingStockLocation: false,
+      viewerAccountId: null,
+      initialMarketIntent: "sell",
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: false,
+      canUseListingFeatures: false,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+      productAlertClaimError: null,
+      listingSetupLoadError: null,
+    });
+
+    const acceptOffer = await screen.findByRole("button", { name: "Accept offer" });
+
+    expect(acceptOffer.getAttribute("value")).toBe("add-to-sell-list");
   });
 
   it("does not show raw buyer ids in selected offer match fallback identity", () => {

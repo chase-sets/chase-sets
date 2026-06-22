@@ -172,6 +172,7 @@ export function buildItemDetailCommerce(
           showSummary={showSummary}
           actions={actions}
           actionMode={actionMode}
+          sellNowIntent={data.canUseSellerFeatures ? "sell-now" : "add-to-sell-list"}
           selectedOffer={selectedOfferForSellRail}
           selectedOfferSource={context.selectedOfferSource}
           productId={context.selectedProductId}

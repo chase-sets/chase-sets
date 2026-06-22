@@ -37,6 +37,7 @@ export function MarketplaceOfferMatchSection({
   actionMode = "all",
   selectedOffer,
   selectedOfferSource = "explicit",
+  sellNowIntent = "sell-now",
   productId,
   productSelectionDetails = [],
   productSummary,
@@ -64,6 +65,7 @@ export function MarketplaceOfferMatchSection({
     acceptance_terms?: MarketplaceListingTermsPreview | null;
   } | null;
   selectedOfferSource?: MarketSelectionSource;
+  sellNowIntent?: "sell-now" | "add-to-sell-list";
   productId: string | null;
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary?: string | null;
@@ -168,7 +170,7 @@ export function MarketplaceOfferMatchSection({
     });
   }
   const sellNowAction = (
-    <Button type="submit" name="intent" value="sell-now" disabled={!selectedOfferCanFulfill} block>
+    <Button type="submit" name="intent" value={sellNowIntent} disabled={!selectedOfferCanFulfill} block>
       {t("discovery.routes.itemDetail.sell.now")}
     </Button>
   );
