@@ -7,6 +7,7 @@ import type {
 } from "../api/primary-workbench-admin-contracts";
 import type {
   CatalogProviderProfileVersionReview,
+  CatalogProviderSourceOptionKind,
   SourceObservationIntegrationOptionResponse,
   SourceObservationIntegrationScope,
 } from "./contracts";
@@ -146,7 +147,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     context.requestedUnitKey,
     context.activeProfileAmbiguous,
   );
-  const sourceOptionKinds = sourceOptionKindsForProfile(profile);
+  const sourceOptionKinds = normalizedSourceOptionKindsForProfile(profile);
   if (!profile || sourceOptionKinds.length === 0 || !providerKey) {
     return [];
   }
@@ -486,7 +487,9 @@ function sourceOptionLanguageCode(
 ): string {
   const profileDefault = profile.languageOptions[0]?.trim();
   const selected = selectedLanguage?.trim();
-  const languageIsOperatorSelectable = sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "language");
+  const languageIsOperatorSelectable = normalizedSourceOptionKindsForProfile(profile).some(
+    (kind) => kind.scope === "language",
+  );
 
   if (languageIsOperatorSelectable && selected) {
     return selected;
@@ -520,7 +523,7 @@ function sourceOptionSelectedContextScopes(
     return selectedScopes;
   }
 
-  const sourceOptionKinds = sourceOptionKindsForProfile(profile);
+  const sourceOptionKinds = normalizedSourceOptionKindsForProfile(profile);
   const parentScopeByScope = new Map(sourceOptionKinds.map((kind) => [kind.scope, kind.parentScope]));
   for (const kind of sourceOptionKinds) {
     if (explicitScopeIncludesSelection(scope, kind.scope)) {
@@ -619,7 +622,9 @@ function sourceOptionKindReadModel(
   request: CatalogPrimaryWorkbenchSourceOptionRequest,
   profile: CatalogProviderProfileVersionReview | null,
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["optionKinds"][number] {
-  const kind = sourceOptionKindsForProfile(profile).find((candidate) => candidate.queryKind === request.queryKind);
+  const kind = normalizedSourceOptionKindsForProfile(profile).find(
+    (candidate) => candidate.queryKind === request.queryKind,
+  );
   const missing = Boolean(kind?.parentRequired && kind.parentScope && !request.selectedParentValue);
   return {
     queryKind: request.queryKind,
@@ -641,6 +646,47 @@ function sourceOptionKindReadModel(
       missing,
     },
   };
+}
+
+function normalizedSourceOptionKindsForProfile(
+  profile: CatalogProviderProfileVersionReview | null | undefined,
+): readonly CatalogProviderSourceOptionKind[] {
+  return sourceOptionKindsForProfile(profile).map(normalizedSourceOptionKind);
+}
+
+function normalizedSourceOptionKind(kind: CatalogProviderSourceOptionKind): CatalogProviderSourceOptionKind {
+  const parentScope = kind.parentScope ?? inferredRequiredParentScope(kind);
+  const parentRequired = Boolean(kind.parentRequired && parentScope);
+
+  return {
+    ...kind,
+    parentScope,
+    parentRequired,
+    parentValueKind: parentRequired ? (kind.parentValueKind ?? inferredParentValueKind(parentScope)) : null,
+    parentDiagnosticText:
+      parentRequired && parentScope
+        ? (kind.parentDiagnosticText ?? requiredParentDiagnosticText(parentScope, kind.displayName))
+        : null,
+  };
+}
+
+function inferredRequiredParentScope(kind: CatalogProviderSourceOptionKind): string | null {
+  if (!kind.parentRequired) {
+    return null;
+  }
+  if (kind.scope === "set-name") {
+    return "product-line/category";
+  }
+
+  return null;
+}
+
+function inferredParentValueKind(parentScope: string | null): string | null {
+  return parentScope === "product-line/category" ? "product-line-id" : null;
+}
+
+function requiredParentDiagnosticText(parentScope: string, displayName: string): string {
+  return `Select a ${parentScope} value before loading ${displayName}.`;
 }
 
 function sourceOptionPageReadModel(

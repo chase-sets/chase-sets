@@ -118,6 +118,108 @@ describe("Catalog source-scope workset", () => {
     expect(within(form!).queryByDisplayValue(/api\//i)).toBeNull();
   });
 
+  it("does not project a TCGplayer MTG scope into the Yu-Gi-Oh unit", () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const profiles = [
+      tcgplayerUnitProfile("mtg-single-card-product-sku", "TCGplayer Magic Single Cards", mtgUnit, "2026.06.19"),
+      tcgplayerUnitProfile(
+        "yugioh-single-card-product-sku",
+        "TCGplayer Yu-Gi-Oh Single Cards",
+        yugiohUnit,
+        "2026.06.20",
+      ),
+    ];
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&languageCode=en&productLineId=1&productLineName=Magic&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "tcgplayer",
+            language_code: "en",
+            product_line_id: "1",
+            product_line_name: "Magic",
+            series_id: "",
+            series_name: "",
+            expansion_id: "",
+            expansion_name: "Classic Sixth Edition",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([mtgUnit]);
+    expect(readModel.sourceScopeWorkset.units[0]?.commandContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: mtgUnit,
+      importScope: "en:1:Classic Sixth Edition",
+      productLineId: "1",
+      expansionName: "Classic Sixth Edition",
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    expect(sourceScopeCommandForm("start-provider-import", mtgUnit)).not.toBeNull();
+    expect(sourceScopeCommandForm("start-provider-import", yugiohUnit)).toBeNull();
+  });
+
+  it("keeps a selected TCGplayer Yu-Gi-Oh unit visible but blocked for a stale MTG scope", () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const profiles = [
+      tcgplayerUnitProfile("mtg-single-card-product-sku", "TCGplayer Magic Single Cards", mtgUnit, "2026.06.19"),
+      tcgplayerUnitProfile(
+        "yugioh-single-card-product-sku",
+        "TCGplayer Yu-Gi-Oh Single Cards",
+        yugiohUnit,
+        "2026.06.20",
+      ),
+    ];
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&importScope=en:1:Classic%20Sixth%20Edition&languageCode=en&productLineId=1&productLineName=Magic&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.20",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "tcgplayer",
+            language_code: "en",
+            product_line_id: "1",
+            product_line_name: "Magic",
+            series_id: "",
+            series_name: "",
+            expansion_id: "",
+            expansion_name: "Classic Sixth Edition",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const yugiohUnitRow = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === yugiohUnit);
+
+    expect(readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([mtgUnit, yugiohUnit]);
+    expect(yugiohUnitRow?.commandContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: yugiohUnit,
+      importScope: null,
+      productLineId: null,
+      expansionName: null,
+    });
+    expect(yugiohUnitRow?.actions.import).toMatchObject({
+      state: "disabled",
+      blockers: ["import-scope-required"],
+    });
+  });
+
   it("does not project a stale Pokemon scope into a selected Yu-Gi-Oh provider command", () => {
     const profile = yugiohSetNameProfile(
       "ygoprodeck",
@@ -489,6 +591,53 @@ function yugiohSetNameProfile(providerKey: string, displayName: string, ingestio
         parentRequired: false,
         parentValueKind: null,
         parentDiagnosticText: null,
+      },
+    ],
+  });
+}
+
+function tcgplayerUnitProfile(
+  profileKey: string,
+  displayName: string,
+  ingestionUnitKey: string,
+  profileVersion: string,
+): CatalogProviderProfileVersionReview {
+  return profileReview({
+    providerKey: "tcgplayer",
+    profileKey,
+    profileVersion,
+    ingestionUnitKey,
+    displayName,
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    connectorKind: "tcgplayer-automation-client",
+    profile: {
+      providerKey: "tcgplayer",
+      supportedScopes: ["product-line/category", "set-name"],
+    },
+    supportedScopes: ["product-line/category", "set-name"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "product-lines",
+        queryKeySynonyms: ["productLineId"],
+        displayName: "Product Line",
+        scope: "product-line/category",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+      {
+        queryKind: "set-names",
+        queryKeySynonyms: ["setName"],
+        displayName: "Set Name",
+        scope: "set-name",
+        parentScope: "product-line/category",
+        parentRequired: true,
+        parentValueKind: "product-line-id",
+        parentDiagnosticText: "Select Product Line before Set Name.",
       },
     ],
   });
