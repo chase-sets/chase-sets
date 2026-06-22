@@ -25,9 +25,9 @@ function checkoutApiErrorCode(error: unknown) {
   return code === null || code === undefined ? null : String(code);
 }
 
-function accountSellListPreparingPath(request: Request) {
+function accountSellListPreparingPath(request: Request, confirmationId: string) {
   const afterWrite = new URL(request.url).searchParams.get("afterWrite");
-  const search = new URLSearchParams({ confirmation: "preparing" });
+  const search = new URLSearchParams({ confirmation: "preparing", pendingConfirmationId: confirmationId });
   if (afterWrite) {
     search.set("afterWrite", afterWrite);
   }
@@ -58,7 +58,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       getStatus: checkoutApiErrorStatus,
       getErrorCode: checkoutApiErrorCode,
       getBody: checkoutApiErrorBody,
-      recoverTransient: () => redirect(accountSellListPreparingPath(request)),
+      recoverTransient: () => redirect(accountSellListPreparingPath(request, confirmationId)),
     });
     if (recovery) {
       throw recovery;

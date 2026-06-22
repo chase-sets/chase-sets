@@ -161,6 +161,7 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
     expect(redirectResponse.status).toBe(302);
     expect(url.pathname).toBe("/account/sell-list");
     expect(url.searchParams.get("confirmation")).toBe("preparing");
+    expect(url.searchParams.get("pendingConfirmationId")).toBe("slc_chk_sell_1");
     expect(url.searchParams.has("afterWrite")).toBe(true);
   });
 

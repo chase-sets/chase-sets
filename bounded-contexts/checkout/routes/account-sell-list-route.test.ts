@@ -176,6 +176,89 @@ describe("checkout web routes: account sell list", () => {
     );
   });
 
+  it("hides a stale latest seller confirmation while the current confirmation is still preparing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const staleConfirmation = {
+      seller_account_id: "acc_seller",
+      confirmation_id: "slc_old",
+      confirmed_at: "2026-06-22T13:25:57.000Z",
+      readiness_evidence: {},
+      seller_evidence: {},
+      handoff_summary: {
+        acceptedOfferCount: 2,
+        publishedListingCount: 0,
+        skippedLineCount: 0,
+        skippedReasons: [],
+        lineOutcomes: [],
+        sideEffects: {},
+      },
+    };
+    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: staleConfirmation }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/sell-list?confirmation=preparing&pendingConfirmationId=slc_new",
+          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.sellList).toEqual({ items: [], count: 0, latestConfirmation: null });
+    expect(result.sellListRecovery).toEqual(
+      expect.objectContaining({
+        kind: "pending-fresh-write",
+        correctionSource: "sell-checkout-confirmation",
+        freshnessOutcome: "valid-after-write",
+      }),
+    );
+    expect(result.sellListRecovery?.message).toContain("seller confirmation");
+  });
+
+  it("keeps the current seller confirmation visible once the preparing confirmation catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const currentConfirmation = {
+      seller_account_id: "acc_seller",
+      confirmation_id: "slc_current",
+      confirmed_at: "2026-06-22T13:44:21.000Z",
+      readiness_evidence: {},
+      seller_evidence: {},
+      handoff_summary: {
+        acceptedOfferCount: 1,
+        publishedListingCount: 0,
+        skippedLineCount: 0,
+        skippedReasons: [],
+        lineOutcomes: [],
+        sideEffects: {},
+      },
+    };
+    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: currentConfirmation }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/sell-list?confirmation=preparing&pendingConfirmationId=slc_current",
+          checkoutCommit("43", "evt_checkout_sell_list_confirmed"),
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.sellList.latestConfirmation).toBe(currentConfirmation);
+    expect(result.sellListRecovery).toBeNull();
+  });
+
   it("shows temporary Sell List recovery when a valid add-line handoff still reads an empty anonymous projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
