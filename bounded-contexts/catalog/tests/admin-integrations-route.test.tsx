@@ -1522,6 +1522,109 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.pages).toEqual([]);
   });
 
+  it("keeps the provider-only TCGplayer importer shell renderable when optional fulfilled projections are malformed", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const profiles = [
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "pokemon-single-card-product-sku",
+        profileVersion: "2026.06.05",
+        ingestionUnitKey: pokemonUnit,
+        displayName: "TCGplayer Pokemon Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["pokemon/single-card"],
+      }),
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "mtg-single-card-product-sku",
+        profileVersion: "2026.06.19",
+        ingestionUnitKey: mtgUnit,
+        displayName: "TCGplayer Magic Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["mtg/single-card"],
+      }),
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "yugioh-single-card-product-sku",
+        profileVersion: "2026.06.20",
+        ingestionUnitKey: yugiohUnit,
+        displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["yugioh/single-card"],
+      }),
+    ];
+    const malformedOverview = {
+      ...controlPlaneOverview(),
+      generatedAt: "2026-06-22T04:50:00.000Z",
+    };
+    delete (malformedOverview as unknown as Record<string, unknown>).readiness;
+    const malformedScopes = {
+      items: { provider_key: "tcgplayer" },
+      total: "bad-total",
+      count: null,
+    };
+    const malformedReviewObservations = {
+      items: [
+        sourceObservationListItem({
+          provider_key: "tcgplayer",
+          normalized: null as never,
+        }),
+      ],
+      total: 1,
+      count: 1,
+    };
+    const listSourceObservationIntegrationOptions = vi.fn().mockRejectedValue(new Error("ambiguous option query"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(malformedScopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: profiles, total: 3, count: 3 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(malformedOverview),
+      listSourceObservations: vi.fn().mockResolvedValue(malformedReviewObservations),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgplayer"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: null,
+      importScope: null,
+      sourceObservationFilters: { providerKey: "tcgplayer" },
+    });
+    expect(routeData.readModel.readiness.freshness).toBe("unavailable");
+    expect(routeData.readModel.importJobs.freshness).toBe("unavailable");
+    expect(routeData.readModel.sourceObservationReview.freshness).toBe("unavailable");
+    expect(routeData.readModel.sourceObservationReview.rows).toEqual([]);
+    expect(routeData.readModel.sourceScopeWorkset.status).toBe("scope-required");
+    expect(
+      routeData.readModel.providerScope.providers
+        .find((provider) => provider.providerKey === "tcgplayer")
+        ?.units.map((unit) => unit.unitKey),
+    ).toEqual([mtgUnit, pokemonUnit, yugiohUnit]);
+    expect(routeData.readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([
+      mtgUnit,
+      pokemonUnit,
+      yugiohUnit,
+    ]);
+
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
+    expect(deferredSourceOptions.pages).toEqual([]);
+    expect(deferredSourceOptions.refresh.refreshAllHref).toBeNull();
+  });
+
   it("keeps the TCGplayer Yu-Gi-Oh unit importer shell renderable before source scope selection", async () => {
     const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";

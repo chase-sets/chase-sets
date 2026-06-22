@@ -27,7 +27,10 @@ import {
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
-import type { CatalogPrimaryWorkbenchReadModelFailure } from "../../../features/source-observations/ui/primary-workbench-read-model-input";
+import type {
+  CatalogPrimaryWorkbenchInput,
+  CatalogPrimaryWorkbenchReadModelFailure,
+} from "../../../features/source-observations/ui/primary-workbench-read-model-input";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
 import {
   catalogPrimaryWorkbenchHref,
@@ -289,7 +292,7 @@ async function catalogApiResult<T>(
   }
 }
 
-function buildSurfaceReadModelFailSoft(input: {
+type BuildSurfaceReadModelInput = Readonly<{
   surface: CatalogControlPlaneRouteSurfaceKey;
   baseline: CatalogIntegrationsBaseline;
   requestUrl: string;
@@ -302,36 +305,98 @@ function buildSurfaceReadModelFailSoft(input: {
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   canManageCatalog: boolean;
-}): CatalogPrimaryWorkbenchReadModel {
-  const controlPlaneOverview = input.readModelFailures.includes("control-plane-overview")
-    ? null
-    : input.baseline.controlPlaneOverview;
-  const readModelInput = {
+}>;
+
+function buildSurfaceReadModelFailSoft(input: BuildSurfaceReadModelInput): CatalogPrimaryWorkbenchReadModel {
+  const initialFailures = uniqueReadModelFailures(input.readModelFailures);
+  const fallbackKeys = optionalProjectionFallbackKeys(input, initialFailures);
+  const fallbackMasks = projectionFallbackMasks(fallbackKeys.length);
+  let lastError: unknown = null;
+
+  for (const mask of fallbackMasks) {
+    const readModelFailures = uniqueReadModelFailures([
+      ...initialFailures,
+      ...fallbackKeys.filter((_, index) => (mask & (1 << index)) !== 0),
+    ]);
+
+    try {
+      return buildCatalogPrimaryWorkbenchReadModelForSurface(
+        input.surface,
+        surfaceReadModelInput(input, readModelFailures),
+      );
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function surfaceReadModelInput(
+  input: BuildSurfaceReadModelInput,
+  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
+): CatalogPrimaryWorkbenchInput {
+  const failures = new Set(readModelFailures);
+
+  return {
     requestUrl: input.requestUrl,
-    scopes: input.baseline.routeData.data,
+    scopes: failures.has("integration-scopes")
+      ? emptyListResponse<SourceObservationIntegrationScope>()
+      : input.baseline.routeData.data,
     profileReviews: input.baseline.profileReviews,
     profileAuthoringModel: input.profileAuthoringModel,
     lifecycleImpacts: input.lifecycleImpacts,
-    controlPlaneOverview,
-    readModelFailures: input.readModelFailures,
-    reviewObservations: input.reviewObservations,
+    controlPlaneOverview: failures.has("control-plane-overview") ? null : input.baseline.controlPlaneOverview,
+    readModelFailures,
+    reviewObservations: failures.has("source-observation-review") ? null : input.reviewObservations,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     canManageCatalog: input.canManageCatalog,
   };
+}
 
-  try {
-    return buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, readModelInput);
-  } catch (error) {
-    if (!controlPlaneOverview) {
-      throw error;
-    }
-    return buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
-      ...readModelInput,
-      controlPlaneOverview: null,
-      readModelFailures: [...input.readModelFailures, "control-plane-overview"],
-    });
+function uniqueReadModelFailures(
+  failures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
+): readonly CatalogPrimaryWorkbenchReadModelFailure[] {
+  return [...new Set(failures)];
+}
+
+function optionalProjectionFallbackKeys(
+  input: BuildSurfaceReadModelInput,
+  initialFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
+): readonly CatalogPrimaryWorkbenchReadModelFailure[] {
+  const failures = new Set(initialFailures);
+  const keys: CatalogPrimaryWorkbenchReadModelFailure[] = [];
+  if (input.reviewObservations && !failures.has("source-observation-review")) {
+    keys.push("source-observation-review");
   }
+  if (input.baseline.controlPlaneOverview && !failures.has("control-plane-overview")) {
+    keys.push("control-plane-overview");
+  }
+  if (!failures.has("integration-scopes")) {
+    keys.push("integration-scopes");
+  }
+
+  return keys;
+}
+
+function projectionFallbackMasks(count: number): readonly number[] {
+  return Array.from({ length: 1 << count }, (_, mask) => mask).sort(
+    (left, right) => selectedBitCount(left) - selectedBitCount(right),
+  );
+}
+
+function selectedBitCount(value: number): number {
+  let count = 0;
+  for (let remaining = value; remaining > 0; remaining >>= 1) {
+    count += remaining & 1;
+  }
+
+  return count;
+}
+
+function emptyListResponse<T>(): ListResponse<T> {
+  return { items: [], total: 0, count: 0 };
 }
 
 function emptyListRouteData<T>(request: Request): CatalogListRouteData<T> {
