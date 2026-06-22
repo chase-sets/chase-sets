@@ -764,7 +764,16 @@ function validatePostWriteHandoffDeclarations(options) {
       continue;
     }
 
-    const unsupportedKeys = Object.keys(handoff).filter((key) => !["kind", "expectation", "surface"].includes(key));
+    const supportedHandoffKeys = new Set([
+      "kind",
+      "expectation",
+      "surface",
+      "sourceContextName",
+      "receiptSourceContextName",
+      "actorOwnership",
+      "destinationRead",
+    ]);
+    const unsupportedKeys = Object.keys(handoff).filter((key) => !supportedHandoffKeys.has(key));
     if (unsupportedKeys.length > 0) {
       violations.push(`${handoffLabel} contains unsupported field(s): ${unsupportedKeys.sort().join(", ")}`);
     }
@@ -778,6 +787,70 @@ function validatePostWriteHandoffDeclarations(options) {
     }
     if (handoff.surface !== undefined && !isPortableHandoffText(handoff.surface)) {
       violations.push(`${handoffLabel}.surface must use portable handoff text when provided`);
+    }
+    if (!isNonEmptyString(handoff.sourceContextName)) {
+      violations.push(`${handoffLabel}.sourceContextName must name the command source context`);
+    }
+    if (!isNonEmptyString(handoff.receiptSourceContextName)) {
+      violations.push(`${handoffLabel}.receiptSourceContextName must name the commit receipt source context`);
+    }
+    if (!isNonEmptyString(handoff.actorOwnership)) {
+      violations.push(`${handoffLabel}.actorOwnership must describe the actor/account ownership guard`);
+    }
+
+    const destinationRead = handoff.destinationRead;
+    if (!isPlainObject(destinationRead)) {
+      violations.push(`${handoffLabel}.destinationRead must declare the intended projection-backed read`);
+      continue;
+    }
+
+    const unsupportedDestinationReadKeys = Object.keys(destinationRead).filter(
+      (key) => !["apiContextName", "apiRoutePath", "readModelTables", "projectionDependencies"].includes(key),
+    );
+    if (unsupportedDestinationReadKeys.length > 0) {
+      violations.push(
+        `${handoffLabel}.destinationRead contains unsupported field(s): ${unsupportedDestinationReadKeys
+          .sort()
+          .join(", ")}`,
+      );
+    }
+    if (!isNonEmptyString(destinationRead.apiContextName)) {
+      violations.push(`${handoffLabel}.destinationRead.apiContextName must be a non-empty string`);
+    }
+    if (!isNonEmptyString(destinationRead.apiRoutePath)) {
+      violations.push(`${handoffLabel}.destinationRead.apiRoutePath must be a non-empty string`);
+    }
+    const destinationTables = destinationRead.readModelTables ?? [];
+    const destinationProjections = destinationRead.projectionDependencies ?? [];
+    if (!isNonEmptyStringArray(destinationTables) && !isNonEmptyStringArray(destinationProjections)) {
+      violations.push(
+        `${handoffLabel}.destinationRead must declare readModelTables or projectionDependencies for the expected read`,
+      );
+    }
+
+    if (sectionName === "destination") {
+      if (destinationRead.apiContextName !== section.apiContextName) {
+        violations.push(`${handoffLabel}.destinationRead.apiContextName must match destination.apiContextName`);
+      }
+      if (destinationRead.apiRoutePath !== section.apiRoutePath) {
+        violations.push(`${handoffLabel}.destinationRead.apiRoutePath must match destination.apiRoutePath`);
+      }
+      const sectionTables = new Set(section.readModelTables ?? []);
+      for (const tableName of destinationTables) {
+        if (!sectionTables.has(tableName)) {
+          violations.push(
+            `${handoffLabel}.destinationRead.readModelTables includes '${tableName}' not declared by destination.readModelTables`,
+          );
+        }
+      }
+      const sectionProjections = new Set(section.projectionDependencies ?? []);
+      for (const projectionName of destinationProjections) {
+        if (!sectionProjections.has(projectionName)) {
+          violations.push(
+            `${handoffLabel}.destinationRead.projectionDependencies includes '${projectionName}' not declared by destination.projectionDependencies`,
+          );
+        }
+      }
     }
   }
 }

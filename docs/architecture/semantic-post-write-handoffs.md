@@ -27,6 +27,8 @@ Safe handoff metadata is intentionally tiny:
 
 Supported expectations are `resource-present`, `resource-updated`, `resource-absent`, and `collection-non-empty`. `kind` and `surface` must be stable structural labels. Do not include account ids, user ids, resource ids, cart ids, checkout session ids, emails, cookies, event ids, raw receipts, full URLs, item details, payment state, provider payloads, or arbitrary JSON.
 
+Manifest declarations add the review evidence that does not belong in the browser payload. Every `postWriteHandoffs` row in `readAfterWriteRouteInventory` must bind the portable `kind`/`expectation`/`surface` to `sourceContextName`, `receiptSourceContextName`, `actorOwnership`, and `destinationRead` with the intended API context, route path, and read model or projection dependencies.
+
 ## When To Use It
 
 Use semantic handoffs only when all of these are true:
