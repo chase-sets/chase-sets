@@ -342,6 +342,52 @@ describe("checkout web routes: account sell list", () => {
     );
   });
 
+  it("continues guest Sell List handoff when sign-in returns after the anonymous projection reads empty", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const mergeResult = {
+      mergedLineCount: 1,
+      commandReceipt: checkoutCommit("77", "evt_checkout_sell_list_merged"),
+    };
+    mockMergeGuestSellListToAccount.mockResolvedValue(mergeResult);
+    const originalApi = {
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getGuestSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      getSellList: vi.fn(async () => {
+        throw new Error("original request should not read account Sell List after merge");
+      }),
+    };
+    const freshApi = {
+      getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
+    };
+    mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {
+      const url = new URL(request.url);
+      return url.searchParams.has("afterWrite") && url.searchParams.has("postWriteHandoff") ? freshApi : originalApi;
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(originalApi.getGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+    expect(freshApi.getSellList).toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({
+        mergedLineCount: 1,
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+      }),
+    );
+  });
+
   it("shows actionable Sell List recovery when an expired add-line handoff still reads an empty account projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));

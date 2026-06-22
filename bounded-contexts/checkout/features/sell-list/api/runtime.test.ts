@@ -303,6 +303,47 @@ describe("sell list checkout runtime readiness boundary", () => {
     ]);
   });
 
+  it("merges anonymous aggregate lines even when the source projection is still empty", async () => {
+    const anonymousProductLine: CheckoutSellListLineRow = {
+      ...productLine,
+      seller_account_id: "anon_sell_1",
+      line_id: "sll_guest_product",
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([]) as never,
+    });
+    await seedSellListAggregate(services, [anonymousProductLine], allEvents);
+
+    await expect(
+      services.mergeSellListIntoAccount(
+        {
+          sourceOwnerId: "anon_sell_1",
+          targetAccountId: "acc_seller" as never,
+        },
+        context,
+      ),
+    ).resolves.toEqual({ mergedLineCount: 1 });
+
+    expect(allEvents.map((event) => ({ streamId: event.streamId, eventType: event.eventType }))).toEqual([
+      {
+        streamId: "checkout.sell-list-acc_seller",
+        eventType: "checkout.sell-list.line-added",
+      },
+      {
+        streamId: "checkout.sell-list-anon_sell_1",
+        eventType: "checkout.sell-list.line-removed",
+      },
+    ]);
+    expect(allEvents[0]?.payload).toMatchObject({
+      sellerAccountId: "acc_seller",
+      lineId: "sll_guest_product",
+      productId: "cat_2::form:raw",
+    });
+  });
+
   it("treats removing an already-absent aggregate line as a projected-row repair", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = createDb([productLine]);
