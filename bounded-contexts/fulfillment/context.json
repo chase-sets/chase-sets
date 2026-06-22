@@ -154,7 +154,10 @@
           "fulfillment_postage_label_operations",
           "fulfillment_postage_provider_events"
         ],
-        "transientRecovery": "Seller shipment redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt to the Fulfillment API freshness gate and render temporary shipment recovery copy for fresh 404 or projection_freshness_timeout responses."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Seller shipment redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt to the Fulfillment API freshness gate and render temporary shipment recovery copy for fresh 404 or projection_freshness_timeout responses."
+        }
       }
     }
   ],
@@ -212,7 +215,10 @@
           "fulfillment_postage_label_operations",
           "fulfillment_postage_provider_events"
         ],
-        "transientRecovery": "Seller shipment detail redirects carry the Fulfillment command receipt as afterWrite; the loader forwards the receipt to the Fulfillment API freshness gate and renders temporary shipment update recovery for fresh 404 or projection_freshness_timeout responses."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Seller shipment detail redirects carry the Fulfillment command receipt as afterWrite; the loader forwards the receipt to the Fulfillment API freshness gate and renders temporary shipment update recovery for fresh 404 or projection_freshness_timeout responses."
+        }
       },
       "proof": {
         "tests": [
@@ -242,7 +248,10 @@
           "fulfillment_postage_label_operations",
           "fulfillment_postage_provider_events"
         ],
-        "transientRecovery": "Packing start and complete redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt and show temporary shipment recovery while the packing projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Packing start and complete redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt and show temporary shipment recovery while the packing projection catches up."
+        }
       },
       "proof": {
         "tests": [

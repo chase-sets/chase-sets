@@ -221,7 +221,10 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout session loader converts fresh-write 404, projection_freshness_timeout, and bounded gateway/service timeouts into temporary checkout recovery UI that actively revalidates on a bounded schedule until the session is pay-ready or the fresh-write token expires, then degrades to manual recovery."
+        "transientRecovery": {
+          "kinds": ["action-required", "refreshable-catching-up"],
+          "behavior": "Checkout session loader converts fresh-write 404, projection_freshness_timeout, and bounded gateway/service timeouts into temporary checkout recovery UI that actively revalidates on a bounded schedule until the session is pay-ready or the fresh-write token expires, then degrades to manual recovery."
+        }
       }
     },
     {
@@ -240,7 +243,10 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout confirmation reads the freshly confirmed checkout session before exposing the payment continuation. Payment detail freshness remains owned by Payments when the buyer follows the preserved fresh-write payment link."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Checkout confirmation reads the freshly confirmed checkout session before exposing the payment continuation. Payment detail freshness remains owned by Payments when the buyer follows the preserved fresh-write payment link."
+        }
       }
     },
     {
@@ -259,7 +265,10 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout session self-refresh uses exact checkout-session-page freshness and Checkout temporary recovery UI with bounded active revalidation until pay-ready or fresh-write token expiry."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Checkout session self-refresh uses exact checkout-session-page freshness and Checkout temporary recovery UI with bounded active revalidation until pay-ready or fresh-write token expiry."
+        }
       }
     },
     {
@@ -274,7 +283,10 @@
       },
       "destination": {
         "routeId": "account-offer-submitted",
-        "transientRecovery": "Checkout originates the cross-context offer handoff and preserves the Checkout receipt; Marketplace submitted-offer detail owns exact offer-page freshness and bounded fresh-write not-found retry before the buyer sees the submitted offer."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Checkout originates the cross-context offer handoff and preserves the Checkout receipt; Marketplace submitted-offer detail owns exact offer-page freshness and bounded fresh-write not-found retry before the buyer sees the submitted offer."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -306,7 +318,10 @@
             "surface": "account-cart"
           }
         ],
-        "transientRecovery": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart, converts valid afterWrite projection timeouts or valid add-line empty-cart handoffs into temporary cart recovery, and converts expired add-line handoffs that still read empty into action-required empty-cart recovery while missing, malformed, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "expired-handoff", "action-required", "refreshable-catching-up"],
+          "behavior": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart, converts valid afterWrite projection timeouts or valid add-line empty-cart handoffs into temporary cart recovery, and converts expired add-line handoffs that still read empty into action-required empty-cart recovery while missing, malformed, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
+        }
       }
     },
     {
@@ -339,7 +354,10 @@
             "surface": "account-cart"
           }
         ],
-        "transientRecovery": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff, keeps valid empty-cart handoff states temporary, and converts expired empty-cart handoffs into action-required empty-cart recovery while malformed receipts fall back to the normal empty-cart path."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "expired-handoff", "action-required", "refreshable-catching-up"],
+          "behavior": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff, keeps valid empty-cart handoff states temporary, and converts expired empty-cart handoffs into action-required empty-cart recovery while malformed receipts fall back to the normal empty-cart path."
+        }
       }
     },
     {
@@ -372,7 +390,10 @@
             "surface": "account-sell-list"
           }
         ],
-        "transientRecovery": "Guest Sell List add-line handoffs load the shared account-sell-list route through the guest Sell List API; the loader forwards the fresh-write receipt to /guest/sell-list, waits on checkout_sell_list_line_pages before evaluating the semantic add-line handoff, and keeps valid empty-list handoff states temporary while expired or malformed receipts fall back to the normal empty-list path."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "expired-handoff", "refreshable-catching-up"],
+          "behavior": "Guest Sell List add-line handoffs load the shared account-sell-list route through the guest Sell List API; the loader forwards the fresh-write receipt to /guest/sell-list, waits on checkout_sell_list_line_pages before evaluating the semantic add-line handoff, and keeps valid empty-list handoff states temporary while expired or malformed receipts fall back to the normal empty-list path."
+        }
       }
     },
     {
@@ -405,7 +426,10 @@
             "surface": "account-sell-list"
           }
         ],
-        "transientRecovery": "Account Sell List self-refresh uses the fresh-read strategy for signed-in and anonymous Sell List reads: it waits on exact sell-list line and confirmation page projections, evaluates any semantic add-line post-write handoff against the loaded Sell List, and converts valid afterWrite projection timeouts or valid add-line empty-list handoffs into temporary Sell List recovery while missing, malformed, expired, or remove-to-empty receipts stay on the normal permanent/empty-list path."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "expired-handoff", "refreshable-catching-up"],
+          "behavior": "Account Sell List self-refresh uses the fresh-read strategy for signed-in and anonymous Sell List reads: it waits on exact sell-list line and confirmation page projections, evaluates any semantic add-line post-write handoff against the loaded Sell List, and converts valid afterWrite projection timeouts or valid add-line empty-list handoffs into temporary Sell List recovery while missing, malformed, expired, or remove-to-empty receipts stay on the normal permanent/empty-list path."
+        }
       }
     },
     {
@@ -420,7 +444,10 @@
       },
       "destination": {
         "routeId": "sell-checkout-session",
-        "transientRecovery": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, settlement, notification, or account-history side effects are attempted in this slice."
+        "transientRecovery": {
+          "kinds": "action-required",
+          "behavior": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, settlement, notification, or account-history side effects are attempted in this slice."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -444,7 +471,10 @@
         "apiRoutePath": "/account/sell-list/confirmations/:confirmationId",
         "readModelTables": ["checkout_sell_list_confirmation_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Sell checkout confirmation detail retries valid fresh-write confirmation 404s while checkout_sell_list_confirmation_pages catches up; duplicate no-op confirmations redirect without minting a new token, and permanent missing confirmations return to Sell List recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Sell checkout confirmation detail retries valid fresh-write confirmation 404s while checkout_sell_list_confirmation_pages catches up; duplicate no-op confirmations redirect without minting a new token, and permanent missing confirmations return to Sell List recovery."
+        }
       },
       "exception": {
         "status": "not-post-write-read",
@@ -516,7 +546,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/cart",
         "readModelTables": ["checkout_cart_line_pages"],
-        "transientRecovery": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
+        }
       },
       "proof": {
         "tests": [
@@ -565,7 +598,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/sell-list",
         "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
-        "transientRecovery": "Sell List add/remove and readiness forms submit through the account Sell List action, which redirects with a Checkout commit receipt; the account Sell List loader waits on line and confirmation projections, while seller checkout start revalidates checkout.sell-list-readiness.v1 before continuing."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Sell List add/remove and readiness forms submit through the account Sell List action, which redirects with a Checkout commit receipt; the account Sell List loader waits on line and confirmation projections, while seller checkout start revalidates checkout.sell-list-readiness.v1 before continuing."
+        }
       },
       "proof": {
         "tests": [
@@ -592,7 +628,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
-        "transientRecovery": "Checkout session start, edit, and confirmation commands return commit receipts that route actions preserve in afterWrite; session and confirmation loaders wait on checkout_session_pages and show bounded Checkout recovery for valid projection lag or service timeout."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Checkout session start, edit, and confirmation commands return commit receipts that route actions preserve in afterWrite; session and confirmation loaders wait on checkout_session_pages and show bounded Checkout recovery for valid projection lag or service timeout."
+        }
       },
       "proof": {
         "tests": [
@@ -620,7 +659,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
-        "transientRecovery": "Signed-in and guest checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Signed-in and guest checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
+        }
       },
       "proof": {
         "tests": [
@@ -645,7 +687,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
-        "transientRecovery": "Checkout review updates and confirmation submit through the session action with commit receipts; redirects back to session or confirmation preserve afterWrite, and loaders wait on checkout_session_pages before rendering payable state or handoff copy."
+        "transientRecovery": {
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Checkout review updates and confirmation submit through the session action with commit receipts; redirects back to session or confirmation preserve afterWrite, and loaders wait on checkout_session_pages before rendering payable state or handoff copy."
+        }
       },
       "proof": {
         "tests": [
@@ -671,7 +716,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/sell-list/confirmations/:confirmationId",
         "readModelTables": ["checkout_sell_list_confirmation_pages"],
-        "transientRecovery": "Signed-in seller checkout confirmation redirects to the confirmation route with a Checkout commit receipt; the confirmation loader retries valid fresh-write 404s against checkout_sell_list_confirmation_pages and redirects only permanent missing confirmations back to Sell List recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Signed-in seller checkout confirmation redirects to the confirmation route with a Checkout commit receipt; the confirmation loader retries valid fresh-write 404s against checkout_sell_list_confirmation_pages and redirects only permanent missing confirmations back to Sell List recovery."
+        }
       },
       "proof": {
         "tests": [

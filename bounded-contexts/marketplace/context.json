@@ -324,7 +324,10 @@
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
+        }
       }
     },
     {
@@ -343,7 +346,10 @@
         "apiRoutePath": "/account/listings",
         "readModelTables": ["marketplace_listing_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Account Listings self-refresh forwards the Marketplace commit receipt to the listing-page API reads and retries valid fresh-write not-found responses while the listing projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings self-refresh forwards the Marketplace commit receipt to the listing-page API reads and retries valid fresh-write not-found responses while the listing projection catches up."
+        }
       }
     },
     {
@@ -362,7 +368,10 @@
         "apiRoutePath": "/account/listings/fee-lock-report",
         "readModelTables": ["marketplace_listing_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Account Listings loads the fee-lock report inside the same fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings loads the fee-lock report inside the same fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
+        }
       }
     },
     {
@@ -381,7 +390,10 @@
         "apiRoutePath": "/account/listing-availability",
         "readModelTables": ["marketplace_seller_listing_availability_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Account Listings loads Seller Listing Availability inside the fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings loads Seller Listing Availability inside the fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
+        }
       }
     },
     {
@@ -400,7 +412,10 @@
         "apiRoutePath": "/account/offers/submitted/:id",
         "readModelTables": ["marketplace_offer_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Submitted Offer detail uses exact Marketplace offer-page freshness and treats valid fresh-write not-found and projection freshness timeout responses as temporary submitted-offer preparation while the offer projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Submitted Offer detail uses exact Marketplace offer-page freshness and treats valid fresh-write not-found and projection freshness timeout responses as temporary submitted-offer preparation while the offer projection catches up."
+        }
       }
     },
     {
@@ -419,7 +434,10 @@
         "apiRoutePath": "/account/offers/matches/:id",
         "readModelTables": ["marketplace_offer_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and treats valid fresh-write not-found and projection freshness timeout responses as temporary offer-match preparation while the offer projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and treats valid fresh-write not-found and projection freshness timeout responses as temporary offer-match preparation while the offer projection catches up."
+        }
       }
     },
     {
@@ -438,7 +456,10 @@
         "apiRoutePath": "/reviews/:id",
         "readModelTables": ["reputation_review_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and retries valid fresh-write not-found responses while the review projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and retries valid fresh-write not-found responses while the review projection catches up."
+        }
       }
     }
   ],
@@ -567,7 +588,10 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
-        "transientRecovery": "Listing detail forms redirect back to the listing detail with a Marketplace commit receipt; the loader forwards afterWrite to the listing API and treats fresh not-found or projection freshness timeout as temporary listing preparation while the listing projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Listing detail forms redirect back to the listing detail with a Marketplace commit receipt; the loader forwards afterWrite to the listing API and treats fresh not-found or projection freshness timeout as temporary listing preparation while the listing projection catches up."
+        }
       },
       "proof": {
         "tests": [
@@ -592,7 +616,10 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listing-availability",
         "readModelTables": ["marketplace_seller_listing_availability_pages"],
-        "transientRecovery": "Seller Listing Availability toggles redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Seller Listing Availability toggles redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control."
+        }
       },
       "proof": {
         "tests": [
@@ -613,7 +640,10 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
-        "transientRecovery": "The create listing form submits through Account Listings and redirects to the new listing detail with a Marketplace commit receipt; the detail loader waits on the listing projection before rendering price, quantity, photos, and status."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The create listing form submits through Account Listings and redirects to the new listing detail with a Marketplace commit receipt; the detail loader waits on the listing projection before rendering price, quantity, photos, and status."
+        }
       },
       "proof": {
         "tests": [
@@ -638,7 +668,10 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/matches/:id",
         "readModelTables": ["marketplace_offer_pages"],
-        "transientRecovery": "Accept Offer redirects back to the Offer Match detail with the AcceptOffer receipt; the detail loader forwards afterWrite to the offer read and treats fresh-write not-found or projection freshness timeout as temporary offer-match preparation while the offer projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Accept Offer redirects back to the Offer Match detail with the AcceptOffer receipt; the detail loader forwards afterWrite to the offer read and treats fresh-write not-found or projection freshness timeout as temporary offer-match preparation while the offer projection catches up."
+        }
       },
       "proof": {
         "tests": [
@@ -661,7 +694,10 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/sell-list",
         "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
-        "transientRecovery": "Marketplace Offer Match source-list forms post selected offer snapshots to the Checkout-owned Sell List action; Checkout redirects to Account Sell List with its receipt and waits on sell-list line and confirmation projections."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Marketplace Offer Match source-list forms post selected offer snapshots to the Checkout-owned Sell List action; Checkout redirects to Account Sell List with its receipt and waits on sell-list line and confirmation projections."
+        }
       },
       "proof": {
         "tests": [
@@ -685,7 +721,10 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/reviews/:id",
         "readModelTables": ["reputation_review_pages"],
-        "transientRecovery": "Purchase and sale review forms submit through Marketplace review route support and redirect to review detail with a SubmitReview receipt; the review detail loader waits on reputation_review_pages before rendering the submitted rating and feedback."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Purchase and sale review forms submit through Marketplace review route support and redirect to review detail with a SubmitReview receipt; the review detail loader waits on reputation_review_pages before rendering the submitted rating and feedback."
+        }
       },
       "proof": {
         "tests": [

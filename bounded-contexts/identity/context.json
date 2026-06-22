@@ -85,47 +85,83 @@
         {
           "routePath": "/accounts/:id",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_accounts" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_accounts"
+            }
+          ]
         },
         {
           "routePath": "/users/:id",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_users" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_users"
+            }
+          ]
         },
         {
           "routePath": "/memberships",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_memberships" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_memberships"
+            }
+          ]
         },
         {
           "routePath": "/memberships/:id",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_memberships" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_memberships"
+            }
+          ]
         },
         {
           "routePath": "/invitations",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_invitations" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_invitations"
+            }
+          ]
         },
         {
           "routePath": "/invitations/:id",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_invitations" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_invitations"
+            }
+          ]
         },
         {
           "routePath": "/api-keys",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_api_keys" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_api_keys"
+            }
+          ]
         },
         {
           "routePath": "/api-keys/:id",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_api_keys" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_api_keys"
+            }
+          ]
         },
         {
           "routePath": "/accounts/:accountId/shipping-addresses",
           "methods": ["GET", "HEAD"],
-          "dependencies": [{ "readModelTable": "identity_shipping_addresses" }]
+          "dependencies": [
+            {
+              "readModelTable": "identity_shipping_addresses"
+            }
+          ]
         }
       ]
     }
@@ -153,7 +189,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:id",
         "readModelTables": ["identity_accounts"],
-        "transientRecovery": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -174,7 +213,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:id",
         "readModelTables": ["identity_accounts"],
-        "transientRecovery": "Marketplace account profile redirects carry the Identity account command receipt so the account loader reads after the account projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Marketplace account profile redirects carry the Identity account command receipt so the account loader reads after the account projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -195,7 +237,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/users/:id",
         "readModelTables": ["identity_users"],
-        "transientRecovery": "User detail redirects carry the Identity user command receipt so the user detail loader reads after the user projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "User detail redirects carry the Identity user command receipt so the user detail loader reads after the user projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -216,7 +261,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/users/:id",
         "readModelTables": ["identity_users"],
-        "transientRecovery": "Account security profile redirects carry the Identity user command receipt so the security loader reads after the user projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account security profile redirects carry the Identity user command receipt so the security loader reads after the user projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -237,7 +285,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "API key list redirects carry the Identity API-key command receipt so the list loader reads after the API-key projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "API key list redirects carry the Identity API-key command receipt so the list loader reads after the API-key projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -258,7 +309,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys/:id",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -279,7 +333,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "Account security API-key redirects carry the Identity API-key command receipt so the security loader reads after the API-key projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account security API-key redirects carry the Identity API-key command receipt so the security loader reads after the API-key projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -300,7 +357,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Invitation list redirects carry the Identity invitation command receipt so the list loader reads after the invitation projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Invitation list redirects carry the Identity invitation command receipt so the list loader reads after the invitation projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -321,7 +381,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations/:id",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Invitation detail redirects carry the Identity invitation command receipt so the detail loader reads after the invitation projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Invitation detail redirects carry the Identity invitation command receipt so the detail loader reads after the invitation projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -342,7 +405,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Account team invitation redirects carry the Identity invitation command receipt so the team loader reads after the invitation projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account team invitation redirects carry the Identity invitation command receipt so the team loader reads after the invitation projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -363,7 +429,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/memberships/:id",
         "readModelTables": ["identity_memberships"],
-        "transientRecovery": "Membership detail redirects carry the Identity membership command receipt so the detail loader reads after the membership projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Membership detail redirects carry the Identity membership command receipt so the detail loader reads after the membership projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -384,7 +453,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/memberships",
         "readModelTables": ["identity_memberships"],
-        "transientRecovery": "Account team membership redirects carry the Identity membership command receipt so the team loader reads after the membership projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account team membership redirects carry the Identity membership command receipt so the team loader reads after the membership projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -410,7 +482,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:accountId/shipping-addresses",
         "readModelTables": ["identity_shipping_addresses"],
-        "transientRecovery": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -438,7 +513,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:id",
         "readModelTables": ["identity_accounts"],
-        "transientRecovery": "Account profile and lifecycle forms redirect with Identity command receipts and reload account pages through the account projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account profile and lifecycle forms redirect with Identity command receipts and reload account pages through the account projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -462,7 +540,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/users/:id",
         "readModelTables": ["identity_users"],
-        "transientRecovery": "User profile and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "User profile and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -482,7 +563,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "API-key create forms redirect with Identity command receipts and reload list pages through the API-key projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "API-key create forms redirect with Identity command receipts and reload list pages through the API-key projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -503,7 +587,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys/:id",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "API-key rotate and revoke forms redirect with Identity command receipts and reload detail pages through the API-key projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "API-key rotate and revoke forms redirect with Identity command receipts and reload detail pages through the API-key projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -525,7 +612,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys",
         "readModelTables": ["identity_api_keys"],
-        "transientRecovery": "Account security API-key forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account security API-key forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -545,7 +635,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Invitation create forms redirect with Identity command receipts and reload invitation list pages through the invitation projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Invitation create forms redirect with Identity command receipts and reload invitation list pages through the invitation projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -567,7 +660,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations/:id",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Invitation resend, cancel, and decline forms redirect with Identity command receipts and reload detail pages through the invitation projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Invitation resend, cancel, and decline forms redirect with Identity command receipts and reload detail pages through the invitation projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -588,7 +684,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/invitations",
         "readModelTables": ["identity_invitations"],
-        "transientRecovery": "Account team invitation forms redirect with Identity command receipts and reload team invitations through the invitation projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account team invitation forms redirect with Identity command receipts and reload team invitations through the invitation projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -610,7 +709,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/memberships/:id",
         "readModelTables": ["identity_memberships"],
-        "transientRecovery": "Membership role and lifecycle forms redirect with Identity command receipts and reload detail pages through the membership projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Membership role and lifecycle forms redirect with Identity command receipts and reload detail pages through the membership projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -631,7 +733,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/memberships",
         "readModelTables": ["identity_memberships"],
-        "transientRecovery": "Account team membership forms redirect with Identity command receipts and reload team memberships through the membership projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account team membership forms redirect with Identity command receipts and reload team memberships through the membership projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
@@ -654,7 +759,10 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:accountId/shipping-addresses",
         "readModelTables": ["identity_shipping_addresses"],
-        "transientRecovery": "Shipping address forms redirect with Identity command receipts and reload address-book pages through the shipping-address projection freshness route."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Shipping address forms redirect with Identity command receipts and reload address-book pages through the shipping-address projection freshness route."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]

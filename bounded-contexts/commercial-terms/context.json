@@ -112,7 +112,10 @@
         "apiRoutePath": "/schedules",
         "readModelTables": ["commercial_terms_schedule_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Schedule list waits on the schedule page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Schedule list waits on the schedule page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        }
       }
     },
     {
@@ -131,7 +134,10 @@
         "apiRoutePath": "/schedules/:id",
         "readModelTables": ["commercial_terms_schedule_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Schedule detail waits on the schedule page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Schedule detail waits on the schedule page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        }
       }
     },
     {
@@ -150,7 +156,10 @@
         "apiRoutePath": "/agreements",
         "readModelTables": ["commercial_terms_agreement_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Agreement list waits on the agreement page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Agreement list waits on the agreement page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        }
       }
     },
     {
@@ -169,7 +178,10 @@
         "apiRoutePath": "/agreements/:id",
         "readModelTables": ["commercial_terms_agreement_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Agreement detail waits on the agreement page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Agreement detail waits on the agreement page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+        }
       }
     }
   ],
@@ -231,7 +243,10 @@
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules",
         "readModelTables": ["commercial_terms_schedule_pages"],
-        "transientRecovery": "Schedule create redirects with afterWrite and the schedule list loader waits on the schedule page projection before showing the list."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Schedule create redirects with afterWrite and the schedule list loader waits on the schedule page projection before showing the list."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
@@ -251,7 +266,10 @@
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
         "readModelTables": ["commercial_terms_schedule_pages"],
-        "transientRecovery": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page projection before showing the edited schedule."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page projection before showing the edited schedule."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
@@ -271,7 +289,10 @@
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements",
         "readModelTables": ["commercial_terms_agreement_pages"],
-        "transientRecovery": "Agreement create redirects with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Agreement create redirects with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
@@ -291,7 +312,10 @@
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
         "readModelTables": ["commercial_terms_agreement_pages"],
-        "transientRecovery": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page projection before showing the edited agreement."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page projection before showing the edited agreement."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]

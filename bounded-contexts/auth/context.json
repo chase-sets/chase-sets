@@ -451,7 +451,10 @@
         "apiContextName": "auth",
         "apiRoutePath": "/sessions/:id",
         "readModelTables": ["identity_sessions"],
-        "transientRecovery": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for the session projection before showing switched or revoked session state."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for the session projection before showing switched or revoked session state."
+        }
       }
     }
   ],
@@ -508,7 +511,10 @@
         "apiContextName": "auth",
         "apiRoutePath": "/sessions/:id",
         "readModelTables": ["identity_sessions"],
-        "transientRecovery": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for identity_sessions before showing switched or revoked state; valid fresh-write lag stays bounded by the shared API freshness timeout instead of asking the account to repeat the session action."
+        "transientRecovery": {
+          "kinds": ["action-required", "refreshable-catching-up"],
+          "behavior": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for identity_sessions before showing switched or revoked state; valid fresh-write lag stays bounded by the shared API freshness timeout instead of asking the account to repeat the session action."
+        }
       }
     },
     {

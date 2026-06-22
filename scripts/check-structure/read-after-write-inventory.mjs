@@ -33,6 +33,14 @@ const POST_WRITE_HANDOFF_EXPECTATIONS = new Set([
   "resource-absent",
   "collection-non-empty",
 ]);
+const POST_WRITE_RECOVERY_KINDS = new Set([
+  "pending-projection",
+  "refreshable-catching-up",
+  "stale-projection",
+  "action-required",
+  "expired-handoff",
+  "terminal-failure",
+]);
 const mutatingHttpMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const supportedMutationStrategies = new Set([
   "fresh-read",
@@ -70,6 +78,31 @@ function isNonEmptyString(value) {
 
 function isNonEmptyStringArray(value) {
   return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+}
+
+function isPostWriteRecoveryKind(value) {
+  return typeof value === "string" && POST_WRITE_RECOVERY_KINDS.has(value);
+}
+
+function postWriteRecoveryKindsFromValue(value) {
+  if (isPostWriteRecoveryKind(value)) {
+    return [value];
+  }
+  if (Array.isArray(value) && value.length > 0 && value.every(isPostWriteRecoveryKind)) {
+    return value;
+  }
+  return null;
+}
+
+function postWriteRecoveryKinds(declaration) {
+  if (!isPlainObject(declaration)) {
+    return null;
+  }
+  return postWriteRecoveryKindsFromValue(declaration.kinds);
+}
+
+function postWriteRecoveryBehavior(declaration) {
+  return isPlainObject(declaration) && isNonEmptyString(declaration.behavior) ? declaration.behavior : "";
 }
 
 function isPortableHandoffText(value) {
@@ -818,7 +851,13 @@ function validateMutationFreshReadProof(options) {
     violations.push(`${entryLabel}: fresh-read visibleDestination.apiRoutePath is required`);
     return;
   }
-  if (!isNonEmptyString(destination.transientRecovery)) {
+  validateTransientRecoveryDeclaration({
+    entryLabel,
+    fieldPath: "fresh-read visibleDestination.transientRecovery",
+    value: destination.transientRecovery,
+    violations,
+  });
+  if (destination.transientRecovery === undefined) {
     violations.push(`${entryLabel}: fresh-read visibleDestination.transientRecovery is required`);
   }
 
@@ -855,6 +894,32 @@ function validateMutationFreshReadProof(options) {
         `${entryLabel}: projectionDependency '${projectionName}' is not declared on the matching readFreshnessRoutes entry`,
       );
     }
+  }
+}
+
+function validateTransientRecoveryDeclaration(options) {
+  const { entryLabel, fieldPath, value, violations } = options;
+  if (value === undefined) {
+    return;
+  }
+
+  if (!isPlainObject(value)) {
+    violations.push(
+      `${entryLabel}: ${fieldPath} must be an object with canonical post-write recovery kinds and route-owned behavior`,
+    );
+    return;
+  }
+
+  if (!postWriteRecoveryKinds(value)) {
+    violations.push(
+      `${entryLabel}: ${fieldPath}.kinds must be a canonical post-write recovery kind or non-empty array of kinds (${formatValues(
+        POST_WRITE_RECOVERY_KINDS,
+      )})`,
+    );
+  }
+
+  if (!isNonEmptyString(value.behavior)) {
+    violations.push(`${entryLabel}: ${fieldPath}.behavior must describe route-owned recovery behavior`);
   }
 }
 
@@ -1081,6 +1146,15 @@ function validateInventoryEntry(options) {
       section,
       violations,
     });
+
+    if ("transientRecovery" in section) {
+      validateTransientRecoveryDeclaration({
+        entryLabel,
+        fieldPath: `${sectionName}.transientRecovery`,
+        value: section.transientRecovery,
+        violations,
+      });
+    }
   }
 
   if (isPlainObject(entry.exception)) {
@@ -1105,7 +1179,7 @@ function validateInventoryEntry(options) {
   }
 
   const destination = isPlainObject(entry.destination) ? entry.destination : {};
-  if (!isNonEmptyString(destination.transientRecovery)) {
+  if (destination.transientRecovery === undefined) {
     violations.push(`${entryLabel}: destination.transientRecovery is required when no exception is declared`);
   }
 
@@ -1279,7 +1353,8 @@ export async function validateReadAfterWriteRouteInventory(options) {
         ...(validatedEntry.destination?.readModelTables ?? []),
         ...(validatedEntry.destination?.projectionDependencies ?? []),
       ],
-      transientRecovery: validatedEntry.destination?.transientRecovery ?? "",
+      transientRecovery: postWriteRecoveryKinds(validatedEntry.destination?.transientRecovery) ?? [],
+      transientRecoveryBehavior: postWriteRecoveryBehavior(validatedEntry.destination?.transientRecovery),
       exception: validatedEntry.exception
         ? `${validatedEntry.exception.status ?? "exception"}${validatedEntry.exception.issue ? ` ${validatedEntry.exception.issue}` : ""}`
         : "",
@@ -1372,7 +1447,7 @@ export function writeReadAfterWriteRouteInventoryReport(options) {
 
   for (const entry of entries.sort((left, right) => left.id.localeCompare(right.id))) {
     lines.push(
-      `| ${markdownCell(entry.contextName)} | ${markdownCell(entry.id)} | ${markdownCell(entry.risk)} | ${markdownCell(entry.owner)} | ${markdownCell(entry.sourceRoute)} | ${markdownCell(entry.destinationRoute)} | ${markdownCell(entry.apiRoute)} | ${markdownCell(formatValues(entry.dependencies))} | ${markdownCell(entry.exception || entry.transientRecovery || "none")} |`,
+      `| ${markdownCell(entry.contextName)} | ${markdownCell(entry.id)} | ${markdownCell(entry.risk)} | ${markdownCell(entry.owner)} | ${markdownCell(entry.sourceRoute)} | ${markdownCell(entry.destinationRoute)} | ${markdownCell(entry.apiRoute)} | ${markdownCell(formatValues(entry.dependencies))} | ${markdownCell(entry.exception || `${formatValues(entry.transientRecovery)}: ${entry.transientRecoveryBehavior}`)} |`,
     );
   }
 

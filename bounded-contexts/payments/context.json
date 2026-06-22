@@ -128,7 +128,10 @@
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
+        }
       }
     },
     {
@@ -147,7 +150,10 @@
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery."
+        }
       }
     }
   ],
@@ -187,7 +193,10 @@
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
-        "transientRecovery": "Payment creation redirects carry the Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and renders preparing-payment recovery while the receipt is fresh."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Payment creation redirects carry the Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and renders preparing-payment recovery while the receipt is fresh."
+        }
       },
       "proof": {
         "tests": [
@@ -210,7 +219,10 @@
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
-        "transientRecovery": "Guest payment retry redirects carry the recovered Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and keeps fresh 404 or projection timeout as temporary recovery."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Guest payment retry redirects carry the recovered Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and keeps fresh 404 or projection timeout as temporary recovery."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]

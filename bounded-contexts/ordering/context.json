@@ -243,7 +243,10 @@
         "apiRoutePath": "/purchases/:id",
         "projectionDependencies": ["ordering-order-projection"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Purchase detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Purchase detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+        }
       }
     },
     {
@@ -262,7 +265,10 @@
         "apiRoutePath": "/sales/:id",
         "projectionDependencies": ["ordering-order-projection"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Sale detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Sale detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+        }
       }
     },
     {
@@ -280,7 +286,10 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies",
         "readModelTables": ["ordering_postage_policy_pages"],
-        "transientRecovery": "Postage policy list forwards the create afterWrite receipt to Ordering so the new draft is present before the admin list renders."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Postage policy list forwards the create afterWrite receipt to Ordering so the new draft is present before the admin list renders."
+        }
       }
     },
     {
@@ -304,7 +313,10 @@
         "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."
+        }
       }
     }
   ],
@@ -357,7 +369,10 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/purchases/:id",
         "projectionDependencies": ["ordering-order-projection"],
-        "transientRecovery": "Purchase cancellation redirects back to purchase detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Purchase cancellation redirects back to purchase detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+        }
       },
       "proof": {
         "tests": [
@@ -377,7 +392,10 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/sales/:id",
         "projectionDependencies": ["ordering-order-projection"],
-        "transientRecovery": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/account-sale-route.test.tsx"]
@@ -428,7 +446,10 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies",
         "readModelTables": ["ordering_postage_policy_pages"],
-        "transientRecovery": "Create redirects back to the postage policy list with afterWrite, and the loader forwards that receipt so the list waits for the policy page projection."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Create redirects back to the postage policy list with afterWrite, and the loader forwards that receipt so the list waits for the policy page projection."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
@@ -451,7 +472,10 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
-        "transientRecovery": "Revise, activate, retire, and clone redirects include afterWrite; the detail loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Revise, activate, retire, and clone redirects include afterWrite; the detail loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
+        }
       },
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
