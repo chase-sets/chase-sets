@@ -7,6 +7,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
+  EmbeddedProviderSurface,
   Form,
   Badge,
   Banner,
@@ -298,7 +299,11 @@ export function StripeConnectEmbeddedComponent({
           }
         />
       ) : null}
-      <div ref={containerRef} aria-label={providerPanelTitle(mode)} data-testid="stripe-connect-embedded-component" />
+      <EmbeddedProviderSurface
+        ref={containerRef}
+        aria-label={providerPanelTitle(mode)}
+        data-testid="stripe-connect-embedded-component"
+      />
     </Stack>
   );
 }

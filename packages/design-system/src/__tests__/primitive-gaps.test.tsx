@@ -26,6 +26,7 @@ import {
   Bleed,
   Center,
   DesktopActionBar,
+  EmbeddedProviderSurface,
   Grid,
   IconRow,
   MediaFrame,
@@ -343,6 +344,24 @@ describe("MediaFrame primitive", () => {
   it("resolves the generic sm/md/lg size scale", () => {
     expect(renderToString(<MediaFrame size="sm">x</MediaFrame>)).toContain("h-16 w-14 sm:h-20 sm:w-16");
     expect(renderToString(<MediaFrame size="lg">x</MediaFrame>)).toContain("h-32 w-28 sm:h-36 sm:w-32");
+  });
+});
+
+describe("EmbeddedProviderSurface primitive", () => {
+  it("keeps provider iframes at a usable minimum height", () => {
+    const { container } = render(
+      <EmbeddedProviderSurface data-testid="provider-surface">
+        <iframe title="Provider setup" />
+      </EmbeddedProviderSurface>,
+    );
+
+    const surface = screen.getByTestId("provider-surface");
+
+    expect(surface.className).toContain("min-h-[36rem]");
+    expect(surface.className).toContain("md:min-h-[44rem]");
+    expect(surface.className).toContain("[&_iframe]:min-h-[36rem]");
+    expect(surface.className).toContain("[&_iframe]:w-full");
+    expect(container.querySelector("iframe")).toBeTruthy();
   });
 });
 

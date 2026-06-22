@@ -624,6 +624,53 @@ export function MediaFrame({ children, size = "md", ...rest }: MediaFrameProps) 
   );
 }
 
+export interface EmbeddedProviderSurfaceProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Stable minimum viewport for third-party embedded account, payment, or verification flows. */
+  minHeight?: "md" | "lg";
+}
+
+const embeddedProviderSurfaceMinHeightClasses: Record<
+  NonNullable<EmbeddedProviderSurfaceProps["minHeight"]>,
+  string
+> = {
+  md: [
+    "min-h-[36rem] md:min-h-[44rem]",
+    "[&_iframe]:min-h-[36rem] md:[&_iframe]:min-h-[44rem]",
+    "[&>stripe-connect-account-management]:min-h-[36rem] md:[&>stripe-connect-account-management]:min-h-[44rem]",
+    "[&>stripe-connect-account-onboarding]:min-h-[36rem] md:[&>stripe-connect-account-onboarding]:min-h-[44rem]",
+  ].join(" "),
+  lg: [
+    "min-h-[44rem] md:min-h-[52rem]",
+    "[&_iframe]:min-h-[44rem] md:[&_iframe]:min-h-[52rem]",
+    "[&>stripe-connect-account-management]:min-h-[44rem] md:[&>stripe-connect-account-management]:min-h-[52rem]",
+    "[&>stripe-connect-account-onboarding]:min-h-[44rem] md:[&>stripe-connect-account-onboarding]:min-h-[52rem]",
+  ].join(" "),
+};
+
+/**
+ * Full-width host for provider-managed embedded flows whose iframe dimensions
+ * are controlled by a vendor runtime. Keeps the app-side viewport stable even
+ * when the provider starts its iframe at a tiny loading height.
+ */
+export const EmbeddedProviderSurface = forwardRef(function EmbeddedProviderSurface(
+  { children, minHeight = "md", ...rest }: EmbeddedProviderSurfaceProps,
+  ref: Ref<HTMLDivElement>,
+) {
+  return (
+    <div
+      {...rest}
+      ref={ref}
+      className={cx(
+        "block w-full min-w-0 overflow-visible [&>*]:w-full [&_iframe]:block [&_iframe]:w-full",
+        "[&>stripe-connect-account-management]:block [&>stripe-connect-account-onboarding]:block",
+        embeddedProviderSurfaceMinHeightClasses[minHeight],
+      )}
+    >
+      {children}
+    </div>
+  );
+});
+
 export interface AspectRatioProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   ratio?: number;
   /** Object-fit applied to media children (`<img>`/`<video>`) that fill the frame. */
