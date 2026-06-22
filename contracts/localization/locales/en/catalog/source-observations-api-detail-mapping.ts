@@ -83,6 +83,12 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "Scryfall public API requests do not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.scryfall.public.api.transport.configured":
     "Scryfall public API transport is configured with caller identification.",
+  "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.credential.configured":
+    "Scrydex One Piece credential readiness is configured with redacted provider headers.",
+  "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.credential.missing":
+    "Scrydex One Piece credentials are missing.",
+  "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.bulk.first.transport.configured":
+    "Scrydex One Piece transport uses paginated expansion, card, and sealed-product list endpoints before any single-item scope.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured":
     "TCGplayer automation transport is configured for {connectorKind} with profile lifecycle {lifecycle}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured":
