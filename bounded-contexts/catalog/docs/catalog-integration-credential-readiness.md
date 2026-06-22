@@ -67,12 +67,16 @@ Local/dev/test flows may use explicit `local-fake` credential source metadata fo
 | Reference Cards | Fixture-backed proof adapter; credentials are `not-required`. |
 | TCGdex | Public JSON transport; credentials are `not-required`. |
 | TCGplayer | Required automation client/session owned by the TCGplayer adapter and runtime secret configuration; missing session readiness blocks live transport without changing profile semantics. |
+| Scrydex | Required API key and team identifier owned by the Scrydex adapter and runtime secret configuration; missing, invalid, expired, revoked, or unknown readiness blocks live Scrydex option queries/imports without changing profile semantics. Scrydex usage, credit, and rate-limit readiness are reported as redacted provider usage summaries, not as credential values. |
+
+Scrydex readiness may show only provider key, unit key, environment label, credential state, team readiness state, redacted secret reference label, validation timestamp, usage-check state, rate-limit state, credit state, cache state, and diagnostics. It must not show the API key, team secret value, Authorization headers, raw request URLs, raw response bodies, card/product payload bodies, price-history bodies, or account billing details.
 
 ## Related Docs
 
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
+- [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Provider Integration Profiles](./provider-integration-profiles.md)
 - [TCGplayer Automation Operations](../../../docs/runbooks/tcgplayer-automation-operations.md)

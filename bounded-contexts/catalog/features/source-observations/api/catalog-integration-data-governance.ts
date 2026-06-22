@@ -9,6 +9,7 @@ export type CatalogIntegrationGovernedDataClassKey =
   | "engine-diagnostic"
   | "provider-transport-diagnostic"
   | "provider-credential-readiness"
+  | "provider-usage-summary"
   | "audit-evidence"
   | "job-progress-summary";
 
@@ -211,6 +212,31 @@ export const catalogIntegrationDataGovernancePolicies = [
     ],
   }),
   policy({
+    key: "provider-usage-summary",
+    displayName: "Provider usage and credit summary",
+    owner: "provider-adapter",
+    retentionPolicy: "retain-redacted-summary",
+    rawBodyPolicy: "redacted-preview-only",
+    adminVisibility: "catalog-manage-summary",
+    exportPolicy: "redacted-summary-only",
+    loggingPolicy:
+      "Usage logs may include provider key, unit key, request/page/cache counts, credit state, and redacted usage-check diagnostics only.",
+    signoffTriggers: ["show-raw-provider-content", "export-provider-content"],
+    redactedPathPatterns: [...sharedSensitivePathPatterns, ...providerControlledCommercePatterns],
+    allowedEvidence: [
+      "provider key",
+      "unit key",
+      "estimated request count",
+      "actual request count",
+      "page count",
+      "cache hit count",
+      "cache miss count",
+      "usage check state",
+      "credit state",
+      "redacted usage diagnostic",
+    ],
+  }),
+  policy({
     key: "audit-evidence",
     displayName: "Audit evidence",
     owner: "catalog-source-observations",
@@ -313,6 +339,180 @@ export function catalogIntegrationProviderDataSignoffChecklist(): readonly strin
     "Confirm logs, metrics, traces, screenshots, CI artifacts, and launch evidence exclude provider secrets, account/seller data, and raw provider bodies.",
     "Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, and future providers are documented before live sampling.",
   ];
+}
+
+// ---------------------------------------------------------------------------
+// One Piece provider authority and Scrydex credit-aware import policy (#2269,
+// #2270, #2287).
+// ---------------------------------------------------------------------------
+
+export const CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV =
+  "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE";
+
+export type CatalogIntegrationOnePieceProviderAuthorityKey =
+  | "scrydex-one-piece"
+  | "tcgplayer-one-piece"
+  | "bandai-one-piece-official"
+  | "one-piece-fallback-sources";
+
+export type CatalogIntegrationOnePieceProviderAuthorityPolicy = Readonly<{
+  key: CatalogIntegrationOnePieceProviderAuthorityKey;
+  providerKey: string;
+  displayName: string;
+  productionRole: string;
+  catalogAuthority: readonly string[];
+  notCatalogTruth: readonly string[];
+  activationRequirement: string;
+}>;
+
+export const catalogIntegrationOnePieceProviderAuthorityPolicies = [
+  onePieceAuthorityPolicy({
+    key: "scrydex-one-piece",
+    providerKey: "scrydex",
+    displayName: "Scrydex One Piece",
+    productionRole:
+      "Preferred paid One Piece seed provider for cards, variants, expansions, sealed products, approved price-history evidence, and webhook freshness where source authority approves the data class.",
+    catalogAuthority: [
+      "card and variant identifiers",
+      "expansion and set identifiers",
+      "sealed product identifiers and packaging labels",
+      "image URI evidence when retention policy permits it",
+      "provider freshness and usage diagnostics",
+    ],
+    notCatalogTruth: [
+      "seller facts",
+      "inventory quantities",
+      "listings",
+      "orders",
+      "raw provider bodies",
+      "API keys or team ids",
+      "price history except as approved evidence outside Catalog truth",
+    ],
+    activationRequirement:
+      "Requires One Piece provider-data signoff, redacted credential readiness, bulk-first call-budget evidence, and interface-only staging UAT.",
+  }),
+  onePieceAuthorityPolicy({
+    key: "tcgplayer-one-piece",
+    providerKey: "tcgplayer",
+    displayName: "TCGplayer One Piece",
+    productionRole:
+      "Marketplace-aligned source for One Piece product ids, group/set identity, SKU mapping, condition/language/printing variants, and price-reference evidence.",
+    catalogAuthority: [
+      "product id external-reference candidates",
+      "SKU external-product-reference candidates after selected options validate",
+      "group and set-name matching evidence",
+      "condition, language, printing, and sealed-form evidence",
+    ],
+    notCatalogTruth: [
+      "prices as Catalog identity",
+      "market prices as Catalog truth",
+      "latest sales",
+      "seller or account facts",
+      "inventory",
+      "listings",
+      "orders",
+      "messages",
+      "session material",
+    ],
+    activationRequirement:
+      "Requires existing TCGplayer credential posture, source-authority approval, and a product-line-specific profile unit for One Piece.",
+  }),
+  onePieceAuthorityPolicy({
+    key: "bandai-one-piece-official",
+    providerKey: "bandai-official",
+    displayName: "Bandai official One Piece Card Game",
+    productionRole:
+      "Canonical validation reference for card lists and product releases, not an ingestion source unless legal/source-authority approval explicitly changes that role.",
+    catalogAuthority: [
+      "manual validation reference",
+      "source-disagreement evidence after redaction",
+      "operator checklist evidence that a Scrydex or TCGplayer record aligns with official release information",
+    ],
+    notCatalogTruth: [
+      "raw official page text",
+      "official imagery copies",
+      "scraped payload bodies",
+      "automated ingestion facts without explicit approval",
+    ],
+    activationRequirement:
+      "May be used for validation checklists before ingestion; automated ingestion requires separate approval and retained-data policy.",
+  }),
+  onePieceAuthorityPolicy({
+    key: "one-piece-fallback-sources",
+    providerKey: "comparison-only",
+    displayName: "One Piece fallback and community sources",
+    productionRole: "Comparison-only or fallback evidence for gaps in Scrydex or TCGplayer after governance approval.",
+    catalogAuthority: [
+      "source-disagreement diagnostics",
+      "coverage-gap analysis",
+      "fallback identifiers only when a separate approval names the source and data class",
+    ],
+    notCatalogTruth: [
+      "default production authority",
+      "raw community payloads",
+      "unapproved images",
+      "unreviewed price or gameplay facts",
+    ],
+    activationRequirement:
+      "Requires a named source approval before any fallback source is used for retained fixtures or production observations.",
+  }),
+] as const satisfies readonly CatalogIntegrationOnePieceProviderAuthorityPolicy[];
+
+export type CatalogIntegrationScrydexBulkImportPolicy = Readonly<{
+  providerKey: "scrydex";
+  productLineKey: "one-piece";
+  requestStrategy: "bulk-first";
+  pageSizePolicy: string;
+  fieldSelectionPolicy: string;
+  allowedRequestShapes: readonly string[];
+  forbiddenNormalPatterns: readonly string[];
+  perRecordFallbackRequirement: string;
+  requiredPreflightEvidence: readonly string[];
+  requiredPostRunEvidence: readonly string[];
+  evidenceDataClass: CatalogIntegrationGovernedDataClassKey;
+}>;
+
+export const catalogIntegrationScrydexOnePieceBulkImportPolicy = {
+  providerKey: "scrydex",
+  productLineKey: "one-piece",
+  requestStrategy: "bulk-first",
+  pageSizePolicy:
+    "Use the highest safe Scrydex-supported page size for the selected import unit unless measured response size, provider behavior, or documented rate/credit guidance requires a smaller page.",
+  fieldSelectionPolicy:
+    "Use provider field selection to request only fields needed by the selected cards, variants, expansions, sealed products, price-history, or freshness import unit.",
+  allowedRequestShapes: ["paginated-list", "paginated-search", "bulk-filtered-search", "usage-check"],
+  forbiddenNormalPatterns: [
+    "one Scrydex card request per card",
+    "one Scrydex variant request per variant",
+    "one Scrydex sealed-product request per sealed product",
+    "repeat live option queries when a safe fresh or stale cache page exists",
+  ],
+  perRecordFallbackRequirement:
+    "A per-record Scrydex call is allowed only when no bulk/list/search endpoint can supply the required field or relationship; the fallback must be documented, tested, preflighted with call impact, and surfaced to the operator before execution.",
+  requiredPreflightEvidence: [
+    "credential readiness",
+    "team readiness",
+    "credit or usage readiness",
+    "cache freshness",
+    "estimated request count or estimate-unavailable diagnostic",
+    "selected unit key and source scope",
+  ],
+  requiredPostRunEvidence: [
+    "actual request count",
+    "page count",
+    "cache hit count",
+    "cache miss count",
+    "usage-check result",
+    "credit or degraded diagnostic",
+    "bulk-first confirmation or per-record fallback reason",
+  ],
+  evidenceDataClass: "provider-usage-summary",
+} as const satisfies CatalogIntegrationScrydexBulkImportPolicy;
+
+function onePieceAuthorityPolicy(
+  policy: CatalogIntegrationOnePieceProviderAuthorityPolicy,
+): CatalogIntegrationOnePieceProviderAuthorityPolicy {
+  return policy;
 }
 
 // ---------------------------------------------------------------------------

@@ -248,6 +248,41 @@ legality facts from Catalog truth and hash material. Those facts may belong in
 other bounded contexts or later reviewed integrations, but they are not part of
 this Catalog identity proof.
 
+## Scrydex One Piece Production Shape
+
+One Piece production sync promotes Scrydex from a fixture-only proof concept
+into a paid provider path only after
+[Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+is accepted. The live adapter must be a provider transport boundary: it owns
+Scrydex auth, team id handling, endpoint paths, pagination, throttling, usage
+checks, rate limits, credit diagnostics, raw response parsing, and sanitized
+transport evidence. Provider profiles and executable mapping contracts own which
+Scrydex facts become Source Observation facts, duplicate-prevention evidence,
+Reference Records, external references, selected Options, and promotion command
+plans.
+
+Planned One Piece Scrydex profile units are narrow ingestion units, not one broad
+provider semantic profile:
+
+- `scrydex:one-piece:single-card:source-observation-import`
+- `scrydex:one-piece:set:reference-data`
+- `scrydex:one-piece:sealed-product:source-observation-import`
+- `scrydex:one-piece:price-history:reference-data` when source authority
+  approves price-history evidence outside Catalog truth
+
+Every Scrydex One Piece unit must follow the bulk-first policy in the One Piece
+signoff. Normal imports use paginated list/search or filtered bulk calls with
+minimal selected fields. One-call-per-card, one-call-per-variant, and
+one-call-per-sealed-product are forbidden normal paths. Any per-record fallback
+must be documented, tested, preflighted with call impact, and surfaced to the
+operator before execution.
+
+The existing Scrydex Scryfall-style proof profile remains fixture-backed
+validation evidence until production Scrydex units replace it. Cleanup must
+remove or rename proof-only language once live Scrydex One Piece profiles are
+accepted so Admin, tests, docs, and runbooks do not imply that production One
+Piece imports use Scryfall-shaped Magic fixture semantics.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION,
+  CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV,
   TCGDEX_INDONESIAN_LANGUAGE_CODE,
   catalogAliasAcceptanceAuditRequirements,
   catalogAliasOfficialEnglishPrecedenceOrder,
@@ -9,7 +10,9 @@ import {
   catalogAliasTranslationProviderRequirements,
   catalogIntegrationDataGovernancePolicies,
   catalogIntegrationDataGovernancePoliciesByKey,
+  catalogIntegrationOnePieceProviderAuthorityPolicies,
   catalogIntegrationProviderDataSignoffChecklist,
+  catalogIntegrationScrydexOnePieceBulkImportPolicy,
   decideCatalogAliasAcceptance,
   evaluateCatalogIntegrationProviderDataUse,
   getCatalogAliasSourceGovernancePolicy,
@@ -32,6 +35,7 @@ describe("Catalog integration data governance", () => {
       "engine-diagnostic",
       "provider-transport-diagnostic",
       "provider-credential-readiness",
+      "provider-usage-summary",
       "audit-evidence",
       "job-progress-summary",
     ];
@@ -69,6 +73,12 @@ describe("Catalog integration data governance", () => {
     expect(getCatalogIntegrationDataGovernancePolicy("dry-run-input-payload").signoffTriggers).toEqual(
       expect.arrayContaining(["retain-dry-run-body"]),
     );
+    expect(getCatalogIntegrationDataGovernancePolicy("provider-usage-summary")).toMatchObject({
+      owner: "provider-adapter",
+      retentionPolicy: "retain-redacted-summary",
+      rawBodyPolicy: "redacted-preview-only",
+      exportPolicy: "redacted-summary-only",
+    });
   });
 
   it("blocks retained real-provider fixture use without policy/legal signoff and retained-data exception", () => {
@@ -157,6 +167,94 @@ describe("Catalog integration data governance", () => {
         expect.stringContaining("Admin UI surfaces"),
         expect.stringContaining("logs, metrics, traces"),
       ]),
+    );
+  });
+});
+
+describe("One Piece provider-data governance (#2269, #2270, #2287)", () => {
+  it("records the production signoff reference environment gate", () => {
+    expect(CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV).toBe(
+      "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+    );
+  });
+
+  it("defines provider authority without making official or fallback sources default ingestion providers", () => {
+    expect(catalogIntegrationOnePieceProviderAuthorityPolicies.map((policy) => policy.key)).toEqual([
+      "scrydex-one-piece",
+      "tcgplayer-one-piece",
+      "bandai-one-piece-official",
+      "one-piece-fallback-sources",
+    ]);
+
+    const scrydex = catalogIntegrationOnePieceProviderAuthorityPolicies.find(
+      (policy) => policy.key === "scrydex-one-piece",
+    );
+    const tcgplayer = catalogIntegrationOnePieceProviderAuthorityPolicies.find(
+      (policy) => policy.key === "tcgplayer-one-piece",
+    );
+    const bandai = catalogIntegrationOnePieceProviderAuthorityPolicies.find(
+      (policy) => policy.key === "bandai-one-piece-official",
+    );
+    const fallback = catalogIntegrationOnePieceProviderAuthorityPolicies.find(
+      (policy) => policy.key === "one-piece-fallback-sources",
+    );
+
+    expect(scrydex).toMatchObject({
+      providerKey: "scrydex",
+      displayName: "Scrydex One Piece",
+    });
+    expect(scrydex?.catalogAuthority).toEqual(
+      expect.arrayContaining(["card and variant identifiers", "sealed product identifiers and packaging labels"]),
+    );
+    expect(scrydex?.notCatalogTruth).toEqual(expect.arrayContaining(["API keys or team ids", "seller facts"]));
+    expect(scrydex?.activationRequirement).toMatch(/bulk-first call-budget evidence/i);
+
+    expect(tcgplayer?.catalogAuthority).toEqual(
+      expect.arrayContaining([
+        "product id external-reference candidates",
+        "SKU external-product-reference candidates after selected options validate",
+      ]),
+    );
+    expect(tcgplayer?.notCatalogTruth).toEqual(
+      expect.arrayContaining(["market prices as Catalog truth", "session material"]),
+    );
+
+    expect(bandai?.productionRole).toMatch(/validation reference/i);
+    expect(bandai?.notCatalogTruth).toEqual(
+      expect.arrayContaining(["raw official page text", "scraped payload bodies"]),
+    );
+
+    expect(fallback?.productionRole).toMatch(/Comparison-only/i);
+    expect(fallback?.notCatalogTruth).toEqual(expect.arrayContaining(["default production authority"]));
+  });
+
+  it("requires Scrydex One Piece imports to be bulk-first and credit-aware", () => {
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy).toMatchObject({
+      providerKey: "scrydex",
+      productLineKey: "one-piece",
+      requestStrategy: "bulk-first",
+      evidenceDataClass: "provider-usage-summary",
+    });
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.allowedRequestShapes).toEqual(
+      expect.arrayContaining(["paginated-list", "paginated-search", "bulk-filtered-search", "usage-check"]),
+    );
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.forbiddenNormalPatterns).toEqual(
+      expect.arrayContaining([
+        "one Scrydex card request per card",
+        "one Scrydex sealed-product request per sealed product",
+      ]),
+    );
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.perRecordFallbackRequirement).toMatch(
+      /no bulk\/list\/search endpoint/i,
+    );
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.requiredPreflightEvidence).toEqual(
+      expect.arrayContaining([
+        "estimated request count or estimate-unavailable diagnostic",
+        "credit or usage readiness",
+      ]),
+    );
+    expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.requiredPostRunEvidence).toEqual(
+      expect.arrayContaining(["actual request count", "bulk-first confirmation or per-record fallback reason"]),
     );
   });
 });
