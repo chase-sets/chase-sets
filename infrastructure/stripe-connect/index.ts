@@ -32,6 +32,7 @@ type StripeAccountResponse = Readonly<{
     eventually_due?: readonly string[];
     past_due?: readonly string[];
     disabled_reason?: string | null;
+    entries?: readonly StripeRequirementEntry[];
   }> | null;
   configuration?: Readonly<{
     recipient?: Readonly<{
@@ -39,16 +40,43 @@ type StripeAccountResponse = Readonly<{
         stripe_balance?: Readonly<{
           stripe_transfers?: Readonly<{
             status?: string | null;
-            status_details?: Readonly<{ code?: string | null }> | null;
+            status_details?: StripeCapabilityStatusDetail | readonly StripeCapabilityStatusDetail[] | null;
           }> | null;
           payouts?: Readonly<{
             status?: string | null;
-            status_details?: Readonly<{ code?: string | null }> | null;
+            status_details?: StripeCapabilityStatusDetail | readonly StripeCapabilityStatusDetail[] | null;
           }> | null;
         }> | null;
       }> | null;
     }> | null;
   }> | null;
+}>;
+
+type StripeRequirementDeadline = Readonly<{
+  status?: string | null;
+}>;
+
+type StripeRequirementEntry = Readonly<{
+  errors?: readonly Readonly<{ code?: string | null; description?: string | null }>[];
+  impact?: Readonly<{
+    restricts_capabilities?: readonly Readonly<{
+      capability?: string | null;
+      configuration?: string | null;
+      deadline?: StripeRequirementDeadline | null;
+    }>[];
+  }> | null;
+  minimum_deadline?: StripeRequirementDeadline | null;
+  reference?: Readonly<{
+    inquiry?: string | null;
+    resource?: string | null;
+    type?: string | null;
+  }> | null;
+  requested_reasons?: readonly Readonly<{ code?: string | null }>[];
+}>;
+
+type StripeCapabilityStatusDetail = Readonly<{
+  code?: string | null;
+  resolution?: string | null;
 }>;
 
 type StripeAccountSessionResponse = Readonly<{
@@ -201,11 +229,118 @@ function collectorToPayoutAccountResponsibility(status: string | null | undefine
   }
 }
 
+function normalizedRequirementStatus(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized === "currently_due" || normalized === "past_due" || normalized === "eventually_due"
+    ? normalized
+    : null;
+}
+
+function requirementEntryStatuses(entry: StripeRequirementEntry) {
+  return [
+    normalizedRequirementStatus(entry.minimum_deadline?.status),
+    ...(entry.impact?.restricts_capabilities ?? []).map((restriction) =>
+      normalizedRequirementStatus(restriction.deadline?.status),
+    ),
+  ].filter((status): status is NonNullable<ReturnType<typeof normalizedRequirementStatus>> => Boolean(status));
+}
+
+function requirementEntryIsActionable(entry: StripeRequirementEntry) {
+  const statuses = requirementEntryStatuses(entry);
+  return statuses.length === 0 || statuses.some((status) => status === "currently_due" || status === "past_due");
+}
+
+function requirementEntryKey(entry: StripeRequirementEntry) {
+  const text = [
+    entry.reference?.type,
+    entry.reference?.resource,
+    entry.reference?.inquiry,
+    ...(entry.impact?.restricts_capabilities ?? []).flatMap((restriction) => [
+      restriction.configuration,
+      restriction.capability,
+    ]),
+    ...(entry.requested_reasons ?? []).map((reason) => reason.code),
+    ...(entry.errors ?? []).flatMap((error) => [error.code, error.description]),
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    text.includes("external_account") ||
+    text.includes("payment_method") ||
+    text.includes("bank_account") ||
+    text.includes("payout") ||
+    text.includes("stripe_balance.payouts")
+  ) {
+    return "payout_account";
+  }
+
+  if (text.includes("tos") || text.includes("terms") || text.includes("agreement")) {
+    return "account_terms";
+  }
+
+  if (
+    text.includes("individual") ||
+    text.includes("representative") ||
+    text.includes("owner") ||
+    text.includes("person") ||
+    text.includes("identity") ||
+    text.includes("business") ||
+    text.includes("company") ||
+    text.includes("profile") ||
+    text.includes("mcc") ||
+    text.includes("url")
+  ) {
+    return "identity_and_business";
+  }
+
+  return "verification_review";
+}
+
+function collectRequirementEntries(account: StripeAccountResponse) {
+  return (account.requirements?.entries ?? []).filter(requirementEntryIsActionable).map(requirementEntryKey);
+}
+
+function statusDetailsArray(
+  statusDetails: StripeCapabilityStatusDetail | readonly StripeCapabilityStatusDetail[] | null | undefined,
+) {
+  if (!statusDetails) {
+    return [];
+  }
+
+  return Array.isArray(statusDetails) ? statusDetails : [statusDetails];
+}
+
+function collectCapabilityRequirements(
+  capability: "stripe_balance.stripe_transfers" | "stripe_balance.payouts",
+  statusDetails: StripeCapabilityStatusDetail | readonly StripeCapabilityStatusDetail[] | null | undefined,
+) {
+  return statusDetailsArray(statusDetails).flatMap((detail) => {
+    const resolution = detail.resolution?.trim();
+    const code = detail.code?.trim();
+    if (resolution !== "provide_info" && code !== "requirements_past_due") {
+      return [];
+    }
+
+    return capability === "stripe_balance.payouts" ? ["payout_account"] : ["identity_and_business"];
+  });
+}
+
 function collectRequirements(account: StripeAccountResponse) {
   return [
     ...(account.requirements?.currently_due ?? []),
     ...(account.requirements?.past_due ?? []),
     ...(account.requirements?.eventually_due ?? []),
+    ...collectRequirementEntries(account),
+    ...collectCapabilityRequirements(
+      "stripe_balance.stripe_transfers",
+      account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status_details,
+    ),
+    ...collectCapabilityRequirements(
+      "stripe_balance.payouts",
+      account.configuration?.recipient?.capabilities?.stripe_balance?.payouts?.status_details,
+    ),
   ]
     .map((item) => item.trim())
     .filter(Boolean);
