@@ -7,8 +7,16 @@ export function ListingDetailErrorBoundary() {
   const location = useLocation();
   const preparingTitle = t("marketplace.routes.accountListing.listing.preparing");
   const preparingDescription = t("marketplace.routes.accountListing.listing.preparing.description");
+  const searchParams = new URLSearchParams(location.search);
+  const isFreshListingWrite =
+    searchParams.has("afterWrite") &&
+    ["listing-publish", "listing-update"].includes(searchParams.get("feedbackWorkflow") ?? "");
+  const isPreparingListingResponse =
+    isRouteErrorResponse(error) &&
+    error.status === 503 &&
+    (error.statusText === preparingTitle || error.data === preparingDescription || isFreshListingWrite);
 
-  if (!isRouteErrorResponse(error) || error.status !== 503 || error.statusText !== preparingTitle) {
+  if (!isPreparingListingResponse) {
     throw error;
   }
 

@@ -8,16 +8,18 @@ afterEach(() => {
   cleanup();
 });
 
-function renderListingRecovery() {
+function renderListingRecovery(
+  response: Response = new Response("We're preparing your listing details. Try again in a moment.", {
+    status: 503,
+    statusText: "Preparing listing",
+  }),
+) {
   const router = createMemoryRouter(
     [
       {
         path: "/account/listings/:listingId",
         loader: () => {
-          throw new Response("We're preparing your listing details. Try again in a moment.", {
-            status: 503,
-            statusText: "Preparing listing",
-          });
+          throw response;
         },
         Component: () => <div>Listing loaded</div>,
         ErrorBoundary: ListingDetailErrorBoundary,
@@ -41,6 +43,18 @@ describe("Marketplace listing detail recovery boundary", () => {
     expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toBe(
       "/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh",
     );
+    expect(screen.queryByText("Marketplace error")).toBeNull();
+  });
+
+  it("renders listing freshness recovery when production normalizes the response status text", async () => {
+    renderListingRecovery(
+      new Response("We're preparing your listing details. Try again in a moment.", {
+        status: 503,
+        statusText: "Service Unavailable",
+      }),
+    );
+
+    expect(await screen.findAllByText("Preparing listing")).not.toHaveLength(0);
     expect(screen.queryByText("Marketplace error")).toBeNull();
   });
 });
