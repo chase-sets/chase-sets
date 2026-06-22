@@ -39,7 +39,7 @@ export const SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
   ingestionPurpose: "source-observation-import",
 });
 
-export const SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION = "scrydex-one-piece-transport-2026.06.22";
+export const SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION = "2026.06.22";
 
 const scrydexOnePieceBaseUrl = "https://api.scrydex.com/onepiece/v1";
 const scrydexExpansionPageSize = 100;

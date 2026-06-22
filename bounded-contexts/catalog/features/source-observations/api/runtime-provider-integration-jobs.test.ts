@@ -221,6 +221,33 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       }),
       expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex One Piece Cards",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-one-piece-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex One Piece Set Reference",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-one-piece-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex One Piece Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-one-piece-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "scryfall",
         value: "scryfall",
         label: "Scryfall",
@@ -884,6 +911,106 @@ describe("source observation runtime: provider integration jobs", () => {
     },
   );
 
+  it("lists Scrydex One Piece set options through the shared provider option interface", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
+    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
+    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    globalThis.fetch = scrydexOnePieceFetch() as typeof globalThis.fetch;
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    try {
+      const options = await services.listIntegrationOptions({
+        providerKey: "scrydex",
+        profileKey: "one-piece-card-print-source-observation",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        queryKind: "sets",
+        languageCode: "en",
+      });
+
+      expect(options).toEqual([
+        expect.objectContaining({
+          providerKey: "scrydex",
+          queryKind: "sets",
+          value: "op-01",
+          label: "Romance Dawn",
+          metadata: expect.objectContaining({
+            expansionId: "op-01",
+            code: "OP-01",
+            total: 121,
+          }),
+        }),
+      ]);
+    } finally {
+      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("processes queued Scrydex One Piece set imports through the durable integration worker", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
+    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
+    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    globalThis.fetch = scrydexOnePieceFetch() as typeof globalThis.fetch;
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "scrydex",
+        profileKey: "one-piece-card-print-source-observation",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        language: "en",
+        setId: "op-01",
+      },
+      renewSucceeds: true,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(
+        services.processNextIntegrationJob({
+          claimOwnerId: "worker-1",
+          claimTtlMs: 120_000,
+        }),
+      ).resolves.toBe(1);
+    } finally {
+      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.result).toMatchObject({
+      requested: 1,
+      imported: 1,
+      observed: 1,
+      failed: 0,
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
+      observationId: "scrydex_one_piece_card_en_op01-001",
+      providerKey: "scrydex",
+      externalKey: "card:op01-001",
+      sourceProfileKey: "one-piece-card-print-source-observation",
+      sourceProfileVersion: "2026.06.22",
+      normalized: expect.objectContaining({
+        kind: "one-piece-card-print",
+        tcg: "one-piece",
+        name: "Monkey.D.Luffy",
+        cardNumber: "OP01-001",
+        setId: "op-01",
+        setName: "Romance Dawn",
+      }),
+    });
+  });
+
   it("processes queued imports with the snapshotted profile version after a newer version is activated", async () => {
     const harness = createIntegrationJobClaimHandoffHarness({
       profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
@@ -1132,4 +1259,68 @@ function mtgjsonFetch(): typeof globalThis.fetch {
       headers: { "content-type": "application/json" },
     });
   }) as typeof globalThis.fetch;
+}
+
+function scrydexOnePieceFetch(): typeof globalThis.fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url.includes("/onepiece/v1/expansions/op-01/cards")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "op01-001",
+            name: "Monkey.D.Luffy",
+            number: "001",
+            printed_number: "OP01-001",
+            rarity: "Leader",
+            rarity_code: "L",
+            type: "Leader",
+            language_code: "en",
+            expansion: {
+              id: "op-01",
+              name: "Romance Dawn",
+              code: "OP-01",
+              total: 121,
+              release_date: "2022-12-02",
+              language_code: "en",
+            },
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
+    if (url.includes("/onepiece/v1/expansions")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "op-01",
+            name: "Romance Dawn",
+            code: "OP-01",
+            total: 121,
+            release_date: "2022-12-02",
+            language_code: "en",
+          },
+        ],
+        total_pages: 1,
+      });
+    }
+
+    return new Response(null, { status: 404 });
+  }) as typeof globalThis.fetch;
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
 }

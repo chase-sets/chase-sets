@@ -553,6 +553,9 @@ describe("catalog provider integration profiles", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
       ["mtgjson", "active"],
       ["mtgjson", "active"],
+      ["scrydex", "active"],
+      ["scrydex", "active"],
+      ["scrydex", "active"],
       ["scryfall", "active"],
       ["scryfall", "active"],
       ["tcgdex", "active"],
@@ -573,6 +576,9 @@ describe("catalog provider integration profiles", () => {
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
       ["mtgjson", "2026.06.19", "active"],
       ["mtgjson", "2026.06.19", "active"],
+      ["scrydex", "2026.06.22", "active"],
+      ["scrydex", "2026.06.22", "active"],
+      ["scrydex", "2026.06.22", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
@@ -812,6 +818,42 @@ describe("catalog provider integration profiles", () => {
     ]);
 
     for (const version of activeYugiohVersions) {
+      expect(version.executableMappingContract, version.profileKey).toBeDefined();
+      expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
+      expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);
+      expect(validateCatalogProviderIntegrationProfileVersion(version), version.profileKey).toEqual([]);
+
+      const matchingCases = fixtureCases.filter(
+        (fixtureCase) =>
+          fixtureCase.providerKey === version.providerKey &&
+          fixtureCase.profileKey === version.profileKey &&
+          fixtureCase.profileVersion === version.profileVersion &&
+          fixtureCase.ingestionUnitKey === catalogProviderProfileVersionIngestionUnitKey(version),
+      );
+      expect(
+        matchingCases.map((fixtureCase) => fixtureCase.flow),
+        version.profileKey,
+      ).toEqual(catalogProviderRequiredFixtureFlows);
+    }
+  });
+
+  it("gates every active One Piece Scrydex profile version on executable fixture-backed mapping coverage", () => {
+    const fixtureCases = catalogProviderProfileFixtureCases();
+    const activeOnePieceVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.active &&
+        version.lifecycle === "active" &&
+        executableContractProductDomain(version.executableMappingContract) === "one-piece" &&
+        version.providerKey === "scrydex",
+    );
+
+    expect(activeOnePieceVersions.map((version) => version.profileKey)).toEqual([
+      "one-piece-card-print-source-observation",
+      "one-piece-set-reference-data",
+      "one-piece-sealed-product-source-observation",
+    ]);
+
+    for (const version of activeOnePieceVersions) {
       expect(version.executableMappingContract, version.profileKey).toBeDefined();
       expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
       expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);

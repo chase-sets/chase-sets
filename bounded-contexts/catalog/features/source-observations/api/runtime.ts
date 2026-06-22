@@ -168,6 +168,14 @@ import {
   YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
   type YgojsonProviderPayload,
 } from "./provider-adapters/ygojson";
+import {
+  createScrydexOnePieceProviderAdapter,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  type ScrydexOnePieceCredentials,
+  type ScrydexOnePieceProviderPayload,
+} from "./provider-adapters/scrydex-one-piece";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
@@ -988,6 +996,7 @@ export function createSourceObservationRuntime(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
+    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 
@@ -3345,6 +3354,7 @@ export function createSourceObservationRuntime(
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
   ): Promise<readonly ProviderAdapterIntegrationImportTarget[]> {
     const languageCode = scope.language || "en";
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
     const setCode = scope.setId || scope.setName || null;
     if (setCode) {
       return [
@@ -3355,6 +3365,7 @@ export function createSourceObservationRuntime(
           values: {
             setCode,
             setId: setCode,
+            expansionId: setCode,
             ...(scope.setName ? { setName: scope.setName } : {}),
             languageCode,
           },
@@ -3363,20 +3374,31 @@ export function createSourceObservationRuntime(
       ];
     }
 
-    const cardId = scope.productId || null;
-    if (cardId) {
+    const productId = scope.productId || null;
+    if (productId) {
+      if (unitKey === SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+        return [
+          {
+            targetId: `sealed:${productId}`,
+            name: `Sealed product ${productId}`,
+            scopeKey: "single-sealed-product",
+            values: { sealedProductId: productId, languageCode },
+            languageCode,
+          },
+        ];
+      }
+
       return [
         {
-          targetId: `card:${cardId}`,
-          name: `Card ${cardId}`,
+          targetId: `card:${productId}`,
+          name: `Card ${productId}`,
           scopeKey: "single-card",
-          values: { cardId, languageCode },
+          values: { cardId: productId, languageCode },
           languageCode,
         },
       ];
     }
 
-    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
     throw new Error(
       `Provider '${providerProfileVersion.providerKey}' integration unit '${unitKey}' import requires a set code or card id.`,
     );
@@ -4138,6 +4160,7 @@ async function listProviderIntegrationOptions(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
+    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
@@ -4190,6 +4213,11 @@ async function listProviderIntegrationOptions(
       listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listScryfallCards: ({ setCode }) =>
         listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+      listScrydexOnePieceSets: () => listScrydexOnePieceSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listScrydexOnePieceCards: ({ setId }) =>
+        listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+      listScrydexOnePieceSealedProducts: ({ setId }) =>
+        listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
       listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listYgoprodeckCards: ({ setCode }) =>
         listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4229,6 +4257,7 @@ async function queryProviderIntegrationOptions(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
+    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
   ]),
   telemetry?: SourceObservationTelemetry,
 ): Promise<CatalogProviderOptionQueryPage> {
@@ -4330,6 +4359,11 @@ async function queryProviderIntegrationOptions(
             listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScryfallCards: ({ setCode }) =>
               listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+            listScrydexOnePieceSets: () => listScrydexOnePieceSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listScrydexOnePieceCards: ({ setId }) =>
+              listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+            listScrydexOnePieceSealedProducts: ({ setId }) =>
+              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
             listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listYgoprodeckCards: ({ setCode }) =>
               listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4630,6 +4664,80 @@ function requireScryfallAdapter(
   return providerAdapterRegistry.require("scryfall") as ProviderAdapter<ScryfallProviderPayload>;
 }
 
+async function listScrydexOnePieceSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    expansionId: item.value,
+    name: item.label,
+    code: item.metadata?.code ?? null,
+    total: numberFromString(item.metadata?.total),
+    releaseDate: item.metadata?.releaseDate ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+async function listScrydexOnePieceCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setId: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setId) {
+    throw new Error("Scrydex One Piece card option queries require a selected set.");
+  }
+
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { expansionId: input.setId, setId: input.setId },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
+    number: item.metadata?.number ?? null,
+    printedNumber: item.metadata?.printedNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    rarityCode: item.metadata?.rarityCode ?? null,
+    type: item.metadata?.type ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setId: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setId) {
+    throw new Error("Scrydex One Piece sealed-product option queries require a selected set.");
+  }
+
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "sealed-products",
+    parentValues: { expansionId: input.setId, setId: input.setId },
+  });
+  return result.items.map((item) => ({
+    sealedProductId: item.value,
+    name: item.label,
+    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
+    type: item.metadata?.type ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+function requireScrydexOnePieceAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<ScrydexOnePieceProviderPayload> {
+  return providerAdapterRegistry.require("scrydex") as ProviderAdapter<ScrydexOnePieceProviderPayload>;
+}
+
 async function listYgoprodeckSetOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): Promise<readonly JsonValue[]> {
@@ -4910,6 +5018,17 @@ function booleanFromString(value: string | null | undefined): boolean | null {
     return false;
   }
   return null;
+}
+
+function scrydexOnePieceCredentialsFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ScrydexOnePieceCredentials | undefined {
+  const apiKey =
+    env.SCRYDEX_ONE_PIECE_API_KEY?.trim() || env.SCRYDEX_API_KEY?.trim() || env.SCRYDEX_X_API_KEY?.trim() || "";
+  const teamId =
+    env.SCRYDEX_ONE_PIECE_TEAM_ID?.trim() || env.SCRYDEX_TEAM_ID?.trim() || env.SCRYDEX_X_TEAM_ID?.trim() || "";
+
+  return apiKey && teamId ? { apiKey, teamId } : undefined;
 }
 
 async function buildCatalogIntegrationControlPlaneReadiness(

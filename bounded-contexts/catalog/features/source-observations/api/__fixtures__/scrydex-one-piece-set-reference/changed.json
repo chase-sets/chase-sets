@@ -1,0 +1,12 @@
+{
+  "kind": "one-piece-set-reference",
+  "expansion": {
+    "id": "op-01",
+    "name": "Romance Dawn",
+    "code": "OP-01",
+    "total": 122,
+    "release_date": "2022-12-02",
+    "language_code": "en"
+  },
+  "sourceUrl": "https://api.scrydex.com/onepiece/v1/expansions/op-01"
+}

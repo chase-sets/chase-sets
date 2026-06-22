@@ -184,6 +184,26 @@ function validateNormalizedObservationContract(
       requireNormalizedString(normalized, "packName", diagnostics);
       requireNormalizedLiteral(normalized, "tcg", "yugioh", diagnostics);
       return;
+    case "one-piece-card-print":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "cardNumber", diagnostics);
+      requireNormalizedString(normalized, "setId", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "one-piece", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+    case "one-piece-set-reference":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setId", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "one-piece", diagnostics);
+      return;
+    case "one-piece-sealed-product":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "sealedProductForm", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "one-piece", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
   }
 }
 

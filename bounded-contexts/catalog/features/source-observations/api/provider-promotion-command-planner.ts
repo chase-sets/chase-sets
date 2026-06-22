@@ -366,6 +366,9 @@ function commandsForNormalizedKind(input: {
     case "yugioh-set-reference":
     case "yugioh-sealed-product":
     case "yugioh-pack-reference":
+    case "one-piece-card-print":
+    case "one-piece-set-reference":
+    case "one-piece-sealed-product":
       return [];
   }
 }

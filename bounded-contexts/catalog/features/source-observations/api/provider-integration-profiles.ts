@@ -36,6 +36,12 @@ import {
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
 import {
+  SCRYDEX_ONE_PIECE_PROFILE_VERSION,
+  scrydexOnePieceCardPrintSourceObservationMappingContract,
+  scrydexOnePieceSealedProductSourceObservationMappingContract,
+  scrydexOnePieceSetReferenceSourceObservationMappingContract,
+} from "./scrydex-one-piece-executable-mapping-contract";
+import {
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
@@ -80,7 +86,7 @@ export type CatalogProviderOptionQuery = Readonly<{
   operation: CatalogProviderOptionQueryOperation;
   parentValue?: Readonly<{
     required: boolean;
-    valueKind: "language-code" | "series-id" | "product-line-id" | "set-code";
+    valueKind: "language-code" | "series-id" | "product-line-id" | "set-code" | "set-id";
     diagnosticText: string;
   }>;
   output: CatalogProviderOptionQueryOutputMapping;
@@ -624,7 +630,10 @@ export type CatalogProviderIntegrationProfile = Readonly<{
       | "yugioh-card-print"
       | "yugioh-set-reference"
       | "yugioh-sealed-product"
-      | "yugioh-pack-reference";
+      | "yugioh-pack-reference"
+      | "one-piece-card-print"
+      | "one-piece-set-reference"
+      | "one-piece-sealed-product";
     variantRules: readonly CatalogProviderVariantRule[];
     unknownVariantLabelPrefix: string;
     duplicateReferenceRule: "drop-repeated-across-variants";
@@ -1857,6 +1866,323 @@ export const scrydexOnePieceConnectorProfile = {
   ],
 } as const satisfies ScrydexOnePieceJsonConnectorProfile;
 
+const scrydexOnePieceOptionQueries = [
+  {
+    queryKind: "sets",
+    queryKeySynonyms: ["set"],
+    displayName: "Set",
+    scope: "set-name",
+    parentScope: null,
+    operation: "scrydex-one-piece-list-sets",
+    output: {
+      valuePath: "expansionId",
+      labelPath: "name",
+      description: { kind: "path", path: "releaseDate" },
+      metadataPaths: {
+        expansionId: "expansionId",
+        code: "code",
+        releaseDate: "releaseDate",
+        total: "total",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+  {
+    queryKind: "cards",
+    queryKeySynonyms: ["card"],
+    displayName: "Card",
+    scope: "product/card",
+    parentScope: "set-name",
+    operation: "scrydex-one-piece-list-cards",
+    parentValue: {
+      required: true,
+      valueKind: "set-id",
+      diagnosticText: "Scrydex One Piece card option queries require a selected set.",
+    },
+    output: {
+      valuePath: "cardId",
+      labelPath: "name",
+      parentValuePath: "expansionId",
+      metadataPaths: {
+        cardId: "cardId",
+        expansionId: "expansionId",
+        number: "number",
+        printedNumber: "printedNumber",
+        rarity: "rarity",
+        rarityCode: "rarityCode",
+        type: "type",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+  {
+    queryKind: "sealed-products",
+    queryKeySynonyms: ["sealed-product", "products", "product"],
+    displayName: "Sealed Product",
+    scope: "product",
+    parentScope: "set-name",
+    operation: "scrydex-one-piece-list-sealed-products",
+    parentValue: {
+      required: true,
+      valueKind: "set-id",
+      diagnosticText: "Scrydex One Piece sealed-product option queries require a selected set.",
+    },
+    output: {
+      valuePath: "sealedProductId",
+      labelPath: "name",
+      parentValuePath: "expansionId",
+      metadataPaths: {
+        sealedProductId: "sealedProductId",
+        expansionId: "expansionId",
+        type: "type",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+] as const satisfies readonly CatalogProviderOptionQuery[];
+
+export const scrydexOnePieceCardPrintProviderProfile = {
+  providerKey: "scrydex",
+  displayName: "Scrydex One Piece Cards",
+  status: "active",
+  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  supportedScopes: ["set-name", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: [scrydexOnePieceOptionQueries[0], scrydexOnePieceOptionQueries[1]],
+  connector: scrydexOnePieceConnectorProfile,
+  normalizedObservationMapping: {
+    kind: "one-piece-card-print",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified Scrydex One Piece Card Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "one-piece-card-print",
+    categoryKey: "one-piece-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: scrydexOnePieceReferenceHierarchyMapping({
+    setIdPath: "card.expansion.id",
+    setNamePath: "card.expansion.name",
+    setCodePath: "card.expansion.code",
+    setReleaseDatePath: "card.expansion.release_date",
+  }),
+  externalReferenceExtractionRules: { referenceTarget: "catalog-item-reference", rules: [] },
+  duplicatePreventionMapping: scrydexOnePieceDuplicatePreventionMapping(),
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const scrydexOnePieceSetReferenceProviderProfile = {
+  ...scrydexOnePieceCardPrintProviderProfile,
+  displayName: "Scrydex One Piece Set Reference",
+  capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+  supportedScopes: ["set-name"],
+  optionQueries: [scrydexOnePieceOptionQueries[0]],
+  normalizedObservationMapping: {
+    ...scrydexOnePieceCardPrintProviderProfile.normalizedObservationMapping,
+    kind: "one-piece-set-reference",
+    unknownVariantLabelPrefix: "Unclassified Scrydex One Piece Set Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "one-piece-set-reference",
+    categoryKey: "one-piece-sets",
+    fieldKeys: {
+      cardNumber: "set-code",
+      cardName: "set-name",
+      set: "set",
+      expansion: "set",
+      rarity: "set-type",
+      cardVariant: "set-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: scrydexOnePieceReferenceHierarchyMapping({
+    setIdPath: "expansion.id",
+    setNamePath: "expansion.name",
+    setCodePath: "expansion.code",
+    setReleaseDatePath: "expansion.release_date",
+  }),
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const scrydexOnePieceSealedProductProviderProfile = {
+  ...scrydexOnePieceCardPrintProviderProfile,
+  displayName: "Scrydex One Piece Sealed Products",
+  supportedScopes: ["set-name", "product"],
+  optionQueries: [scrydexOnePieceOptionQueries[0], scrydexOnePieceOptionQueries[2]],
+  normalizedObservationMapping: {
+    ...scrydexOnePieceCardPrintProviderProfile.normalizedObservationMapping,
+    kind: "one-piece-sealed-product",
+    unknownVariantLabelPrefix: "Unclassified Scrydex One Piece Sealed Product Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "one-piece-sealed-product",
+    categoryKey: "one-piece-sealed-products",
+    fieldKeys: {
+      cardNumber: "sealed-product-id",
+      cardName: "sealed-product-name",
+      set: "set",
+      expansion: "set",
+      rarity: "product-kind",
+      cardVariant: "sealed-product-form",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+      packCount: "pack-count",
+    },
+  },
+  referenceHierarchyMapping: scrydexOnePieceReferenceHierarchyMapping({
+    setIdPath: "sealedProduct.expansion.id",
+    setNamePath: "sealedProduct.expansion.name",
+    setCodePath: "sealedProduct.expansion.code",
+    setReleaseDatePath: "sealedProduct.expansion.release_date",
+  }),
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+function scrydexOnePieceReferenceHierarchyMapping(
+  input: Readonly<{
+    setIdPath: string;
+    setNamePath: string;
+    setCodePath: string;
+    setReleaseDatePath: string;
+  }>,
+): CatalogProviderIntegrationProfile["referenceHierarchyMapping"] {
+  return {
+    providerReferenceIdPrefix: "ref_scrydex_one_piece",
+    providerAttributes: [
+      { typeKey: "set", providerAttributeKey: "scrydex-one-piece-set-id" },
+      { typeKey: "set", providerAttributeKey: "scrydex-one-piece-set-code" },
+      { typeKey: "set", providerAttributeKey: "scrydex-one-piece-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "publisher"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A One Piece Card Game release group.",
+        attributeKeys: [
+          "scrydex-one-piece-set-id",
+          "scrydex-one-piece-set-code",
+          "scrydex-one-piece-set-name",
+          "release-date",
+        ],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "one-piece-product-line",
+        typeKey: "product-line",
+        recordId: { kind: "static", referenceRecordId: "ref_scrydex_one_piece_product_line" },
+        key: { kind: "static", value: "one-piece-card-game" },
+        name: { kind: "static", value: "One Piece Card Game" },
+        description: { kind: "static", value: "One Piece Card Game trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "One Piece Card Game" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "OPCG" } },
+          { attributeKey: "publisher", value: { kind: "static", value: "Bandai" } },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: [input.setIdPath, input.setCodePath] },
+        key: { kind: "path", path: input.setIdPath },
+        name: { kind: "path", path: input.setNamePath },
+        description: {
+          kind: "template",
+          template: "{setName} One Piece Card Game set.",
+          values: { setName: { kind: "path", path: input.setNamePath } },
+        },
+        requiredPaths: [input.setIdPath, input.setNamePath],
+        attributes: [
+          { attributeKey: "scrydex-one-piece-set-id", value: { kind: "path", path: input.setIdPath } },
+          {
+            attributeKey: "scrydex-one-piece-set-code",
+            value: { kind: "path", path: input.setCodePath },
+            optional: true,
+          },
+          { attributeKey: "scrydex-one-piece-set-name", value: { kind: "path", path: input.setNamePath } },
+          { attributeKey: "release-date", value: { kind: "path", path: input.setReleaseDatePath }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "one-piece-product-line" }],
+      },
+    ],
+  };
+}
+
+function scrydexOnePieceDuplicatePreventionMapping(): CatalogProviderIntegrationProfile["duplicatePreventionMapping"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  };
+}
+
 export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
@@ -2513,6 +2839,9 @@ export const catalogProviderIntegrationProfiles = [
   mtgjsonMtgSetReferenceProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
+  scrydexOnePieceCardPrintProviderProfile,
+  scrydexOnePieceSetReferenceProviderProfile,
+  scrydexOnePieceSealedProductProviderProfile,
   ygoprodeckYugiohCardReferenceProviderProfile,
   ygoprodeckYugiohSetReferenceProviderProfile,
   ygojsonYugiohSetReferenceProviderProfile,
@@ -2576,6 +2905,45 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: scryfallMtgImageEvidenceSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: scryfallMtgImageEvidenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "one-piece-card-print-source-observation",
+    profileVersion: SCRYDEX_ONE_PIECE_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexOnePieceCardPrintSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexOnePieceCardPrintProviderProfile,
+    sourceContract: scrydexOnePieceCardPrintSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexOnePieceCardPrintSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexOnePieceCardPrintSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "one-piece-set-reference-data",
+    profileVersion: SCRYDEX_ONE_PIECE_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexOnePieceSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexOnePieceSetReferenceProviderProfile,
+    sourceContract: scrydexOnePieceSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexOnePieceSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexOnePieceSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "one-piece-sealed-product-source-observation",
+    profileVersion: SCRYDEX_ONE_PIECE_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexOnePieceSealedProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexOnePieceSealedProductProviderProfile,
+    sourceContract: scrydexOnePieceSealedProductSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexOnePieceSealedProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexOnePieceSealedProductSourceObservationMappingContract,
   },
   {
     providerKey: "ygoprodeck",
@@ -3198,7 +3566,8 @@ function inferProductForm(
   if (
     signals.includes("set") &&
     (version.executableMappingContract?.normalizedObservation.outputKind === "magic-set-reference" ||
-      version.executableMappingContract?.normalizedObservation.outputKind === "yugioh-set-reference")
+      version.executableMappingContract?.normalizedObservation.outputKind === "yugioh-set-reference" ||
+      version.executableMappingContract?.normalizedObservation.outputKind === "one-piece-set-reference")
   ) {
     return "set";
   }
