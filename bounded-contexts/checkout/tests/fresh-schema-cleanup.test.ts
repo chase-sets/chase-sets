@@ -94,6 +94,30 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_receipt_pages (");
   });
 
+  it("declares the guest Sell List API route as a fresh read of Sell List line pages", () => {
+    const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
+      apiMounts?: Array<{
+        mountPath?: string;
+        readFreshnessRoutes?: Array<{
+          routePath?: string;
+          methods?: string[];
+          dependencies?: Array<{ readModelTable?: string }>;
+        }>;
+      }>;
+    };
+    const marketplaceApi = manifest.apiMounts?.find((mount) => mount.mountPath === "/api/marketplace");
+
+    expect(marketplaceApi?.readFreshnessRoutes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routePath: "/guest/sell-list",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "checkout_sell_list_line_pages" }],
+        }),
+      ]),
+    );
+  });
+
   it("exposes only fresh buy checkout route paths in customer route composition", () => {
     const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
       deployableContributions?: Array<{

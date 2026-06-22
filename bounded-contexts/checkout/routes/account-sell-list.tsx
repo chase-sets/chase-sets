@@ -573,6 +573,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let accountSellListApi = api;
   if (anonymousSellListId) {
     try {
+      const guestSource = await loadSellListWithPostWriteRecovery(
+        request,
+        () => api.getGuestSellList(anonymousSellListId),
+        "account",
+      );
+      if (guestSource.sellListRecovery) {
+        return {
+          isSignedIn: true,
+          registrationReturn,
+          mergedLineCount,
+          mergeError,
+          sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
+          sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
+          freshnessError: guestSource.freshnessError,
+          sellListRecovery: guestSource.sellListRecovery,
+          sellList: guestSource.sellList,
+          offerReviews: await loadSellListOfferReviews(request, guestSource.sellList.items, {
+            includeStandardComparison: registrationReturn === "seller-checkout",
+          }),
+          productOfferReviews: await loadSellListProductOfferReviews(request, guestSource.sellList.items),
+          inventoryItems: await loadSellListInventory(request, guestSource.sellList.items),
+          payoutReadiness: await loadPayoutReadiness(request),
+        };
+      }
+
       const mergeResult = await api.mergeGuestSellListToAccount(anonymousSellListId);
       const count = Number((mergeResult as { mergedLineCount?: unknown }).mergedLineCount ?? 0);
       mergedLineCount = Number.isFinite(count) ? count : 0;
@@ -946,6 +971,7 @@ export async function action({ request }: ActionFunctionArgs) {
           return redirect(SELLER_CHECKOUT_SIGN_IN_HREF);
         }
 
+        await api.getGuestSellList(anonymousSellListId);
         const readiness = await api.createGuestSellListReadiness(anonymousSellListId);
         if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
           throw new Error(t("checkout.routes.accountSellList.sell.list.readiness.must.be.resolved"));

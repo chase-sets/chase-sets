@@ -330,6 +330,38 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     ]);
   });
 
+  it("pins guest Sell List add-line handoffs to the checkout Sell List projection dependency", () => {
+    expect(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING).toContainEqual({
+      mountPath: "/api/marketplace",
+      routePath: "/guest/sell-list",
+      timeoutMs: 900,
+      pollIntervalMs: 50,
+      exactDependencyMode: "enabled",
+    });
+
+    const guestSellListLiveRoutes = findLiveFreshnessRoutes("checkout", "/guest/sell-list");
+    expect(guestSellListLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/guest/sell-list",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "checkout_sell_list_line_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = guestSellListLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("checkout", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "checkout", projectionName: "checkout.sell-list-projection" },
+    ]);
+  });
+
   it("backs settlement payout detail freshness with the payout projection dependency", () => {
     const settlementPayoutLiveRoutes = findLiveFreshnessRoutes("settlement", "/payouts/:id");
     expect(settlementPayoutLiveRoutes).toEqual([
