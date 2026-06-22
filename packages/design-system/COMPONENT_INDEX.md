@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 349
+- Runtime exports indexed: 350
 - Source modules covered: 116
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -111,6 +111,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Dialog` | `packages/design-system/src/components/feedback/dialog.tsx` | Purpose not documented; symbol name suggests: Dialog. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `DiscountValue` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Discount Value. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Divider` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Divider. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
+| `EmbeddedProviderSurface` | `packages/design-system/src/primitives/layout.tsx` | Full-width host for provider-managed embedded flows whose iframe dimensions are controlled by a vendor runtime. | `bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx` |
 | `EmptyState` | `packages/design-system/src/components/feedback/empty-state.tsx` | Purpose not documented; symbol name suggests: Empty State. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
 | `EmptyStateIllustration` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Empty State Illustration. | `No production consumer yet.` |
 | `EvidenceCodeBlock` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence Code Block. | `No production consumer yet.` |

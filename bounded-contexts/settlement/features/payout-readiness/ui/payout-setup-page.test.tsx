@@ -209,6 +209,12 @@ describe("payout setup page", () => {
       }),
     );
     expect(create).toHaveBeenCalledWith("account-onboarding");
+    const providerSurface = container!.querySelector(
+      "[data-testid='stripe-connect-embedded-component']",
+    ) as HTMLElement;
+    expect(providerSurface.className).toContain("min-h-[36rem]");
+    expect(providerSurface.className).toContain("[&_iframe]:min-h-[36rem]");
+    expect(providerSurface.className).toContain("[&>stripe-connect-account-onboarding]:block");
     expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(connectElement);
     const fetchClientSecret = mockLoadConnectAndInitialize.mock.calls[0][0].fetchClientSecret;
 
