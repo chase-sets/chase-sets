@@ -1,4 +1,4 @@
-import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useId, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Inline, Stack } from "../../primitives/layout";
@@ -128,6 +128,7 @@ export function ListingCard({
   density = "compact",
   className,
 }: ListingCardProps) {
+  const titleId = useId();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const primaryImage =
@@ -219,6 +220,7 @@ export function ListingCard({
   const contentClassName = isSearchResultLayout
     ? "gap-2.5 py-3 pl-1 pr-3 md:gap-2.5 md:py-4 md:pl-1 md:pr-4"
     : cx("gap-3", densityClasses[density]);
+  const detailLinkLabel = `View details for ${title}`;
 
   return (
     <article
@@ -236,13 +238,6 @@ export function ListingCard({
       )}
       data-card-layout={cardLayout}
     >
-      {href ? (
-        <a
-          href={href}
-          aria-label={`View details for ${title}`}
-          className="focus-ring absolute inset-0 z-10 rounded-tokenMd"
-        />
-      ) : null}
       {hasMediaFrame ? (
         <div
           className={cx(
@@ -311,12 +306,21 @@ export function ListingCard({
             </Inline>
           ) : null}
           <h3
+            aria-labelledby={titleId}
             className={cx(
-              "m-0 line-clamp-2 font-semibold text-foreground",
+              "relative m-0 line-clamp-2 font-semibold text-foreground",
+              isLinked && "transition-colors hover:text-accent",
               isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
             )}
           >
-            {title}
+            <span id={titleId}>{title}</span>
+            {href ? (
+              <a
+                href={href}
+                aria-label={detailLinkLabel}
+                className="focus-ring pointer-events-auto absolute inset-0 z-30 rounded-tokenSm"
+              />
+            ) : null}
           </h3>
           {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-foreground">{subtitle}</p> : null}
           {valueCue ? (

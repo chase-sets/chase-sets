@@ -438,6 +438,37 @@ describe("design system marketplace patterns", () => {
     expect(markup).not.toContain("absolute left-2 top-2");
   });
 
+  it("keeps linked search result detail targets separate from rail actions", () => {
+    const { container } = render(
+      <ListingCard
+        href="/items/abra"
+        cardLayout="search-result"
+        title="Abra"
+        subtitle="Base Set 43 Standard Set Common"
+        imageSrc="/assets/abra-224w.webp"
+        imageAlt="Abra card"
+        imageSlot="compact-product"
+        primaryAction={
+          <a href="/items/abra?market=buy" aria-label="Add product to Buy Cart">
+            Buy
+          </a>
+        }
+        secondaryAction={false}
+      />,
+    );
+
+    const detailLink = screen.getByRole("link", { name: "View details for Abra" });
+    const heading = screen.getByRole("heading", { name: "Abra" });
+    expect(detailLink.textContent).toBe("");
+    expect(detailLink.getAttribute("href")).toBe("/items/abra");
+    expect(detailLink.closest("h3")).toBe(heading);
+    expect(detailLink.className).toContain("pointer-events-auto");
+    expect(container.querySelector('article > a[href="/items/abra"]')).toBeNull();
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/abra?market=buy",
+    );
+  });
+
   it("keeps loading-only fallback images out of the product-back preview layer", () => {
     const markup = renderToString(
       <ListingCard
