@@ -79,6 +79,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
     context.providerKey,
     context.requestedProfileVersion,
     context.requestedUnitKey,
+    context.activeProfileAmbiguous,
   );
   const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
     requestUrl: "https://admin.example/catalog/integrations",
@@ -139,6 +140,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     providerKey,
     context.requestedProfileVersion,
     context.requestedUnitKey,
+    context.activeProfileAmbiguous,
   );
   if (!profile?.sourceOptionKinds.length || !providerKey) {
     return [];
@@ -199,6 +201,7 @@ function sourceOptionContext(input: {
   activeProfile: CatalogProviderProfileVersionReview | null;
   requestedProfileVersion: string | null;
   requestedUnitKey: string | null;
+  activeProfileAmbiguous: boolean;
   allowRepresentativeScope: boolean;
 }> {
   const parsed = input.routeContext ?? parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
@@ -220,12 +223,8 @@ function sourceOptionContext(input: {
           profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
       ) ?? null)
     : null;
-  const activeProfile =
-    requestedProfile ??
-    providerProfiles.find(
-      (profile) => profile.active && profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
-    ) ??
-    null;
+  const activeProfileSelection = activeSourceOptionProfile(providerProfiles, requestedUnitKey);
+  const activeProfile = requestedProfile ?? activeProfileSelection.profile;
   const explicitScopeSelection = scopeHasExplicitSelection(parsed.scope);
   const unitRouteWithoutExplicitScope = Boolean(parsed.unitKey && !parsed.importScope && !explicitScopeSelection);
   const allowRepresentativeScope = !unitRouteWithoutExplicitScope;
@@ -246,6 +245,7 @@ function sourceOptionContext(input: {
     activeProfile,
     requestedProfileVersion,
     requestedUnitKey,
+    activeProfileAmbiguous: requestedProfile ? false : activeProfileSelection.ambiguous,
     allowRepresentativeScope,
   };
 }
@@ -256,12 +256,16 @@ function selectedSourceOptionProfile(
   providerKey: string | null,
   requestedProfileVersion: string | null,
   requestedUnitKey: string | null,
+  activeProfileAmbiguous: boolean,
 ): CatalogProviderProfileVersionReview | null {
   if (requestedProfileVersion) {
     return contextProfile;
   }
   if (requestedUnitKey && contextProfile && (!providerKey || contextProfile.providerKey === providerKey)) {
     return contextProfile;
+  }
+  if (!requestedUnitKey && activeProfileAmbiguous) {
+    return null;
   }
   if (
     explicitProfile &&
@@ -279,6 +283,29 @@ function selectedSourceOptionProfile(
   }
 
   return null;
+}
+
+function activeSourceOptionProfile(
+  providerProfiles: readonly CatalogProviderProfileVersionReview[],
+  requestedUnitKey: string | null,
+): Readonly<{ profile: CatalogProviderProfileVersionReview | null; ambiguous: boolean }> {
+  const activeProfiles = providerProfiles.filter(
+    (profile) => profile.active && profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
+  );
+  if (requestedUnitKey) {
+    return { profile: activeProfiles[0] ?? null, ambiguous: false };
+  }
+
+  const activeProfileUnitKeys = new Set(
+    activeProfiles
+      .map((profile) => profile.ingestionUnitKey.trim().toLowerCase())
+      .filter((unitKey) => unitKey.length > 0),
+  );
+  if (activeProfileUnitKeys.size > 1) {
+    return { profile: null, ambiguous: true };
+  }
+
+  return { profile: activeProfiles[0] ?? null, ambiguous: false };
 }
 
 function profileMatchesUnit(profile: CatalogProviderProfileVersionReview, unitKey: string | null): boolean {

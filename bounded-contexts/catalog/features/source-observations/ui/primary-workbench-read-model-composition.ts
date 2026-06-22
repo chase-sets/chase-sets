@@ -119,6 +119,11 @@ function buildCatalogPrimaryWorkbenchCore(
   const explicitLanguageScope = requestHasExplicitLanguageScopeSelection(input.requestUrl);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
+  const providerUnitSelectionAmbiguous = Boolean(
+    providerKey &&
+    !normalizedRouteUnitKey &&
+    providerHasMultipleActiveProfileUnits(input.profileReviews.items, providerKey),
+  );
   const legacyImportScopeMismatch = legacyImportScopeConflictsWithSelectedProvider({
     requestUrl: input.requestUrl,
     importScope: parsedContext.importScope,
@@ -154,7 +159,10 @@ function buildCatalogPrimaryWorkbenchCore(
     parsedContext.unitKey && !parsedContext.importScope && !explicitStructuredScope,
   );
   const inferredImportScope =
-    explicitStructuredScope || legacyImportScopeMismatch || unitRouteWithoutExplicitScope
+    explicitStructuredScope ||
+    legacyImportScopeMismatch ||
+    unitRouteWithoutExplicitScope ||
+    providerUnitSelectionAmbiguous
       ? null
       : inferImportScope(input.scopes.items, providerKey);
   const importScope = unitContextMismatch ? null : (parsedImportScope ?? structuredImportScope ?? inferredImportScope);
@@ -719,11 +727,17 @@ function inferUnitKey(
     return activeProfile.ingestionUnitKey as CatalogIntegrationUnitKey;
   }
 
-  const overviewUnit = input.controlPlaneOverview?.readiness.units.find((unit) => unit.providerKey === providerKey);
-  if (overviewUnit) {
-    return overviewUnit.unitKey;
+  const overviewUnits =
+    input.controlPlaneOverview?.readiness.units.filter((unit) => unit.providerKey === providerKey) ?? [];
+  if (overviewUnits.length === 1) {
+    return overviewUnits[0]?.unitKey ?? null;
   }
   if (!providerKey) {
+    return null;
+  }
+  const providerProfiles = input.profileReviews.items.filter((profile) => profile.providerKey === providerKey);
+  const profileUnitKeys = uniqueProfileUnitKeys(providerProfiles);
+  if (profileUnitKeys.size > 1) {
     return null;
   }
   const supportedScope = activeProfile?.supportedScopes[0] ?? "catalog/source-observation";
@@ -855,9 +869,10 @@ function legacyImportScopeConflictsWithSelectedProvider(input: {
   if (
     input.importScope &&
     !input.explicitStructuredScope &&
-    legacyImportScopeIsNotKnownProviderScope({
+    legacyImportScopeConflictsWithSelectedProviderScope({
       importScope: input.importScope,
       providerKey: input.providerKey,
+      unitKey: input.unitKey,
       scopes: input.scopes,
     })
   ) {
@@ -871,14 +886,95 @@ function requestHasSourceOptionIntent(requestUrl: string | URL): boolean {
   return Boolean(new URL(requestUrl, "https://admin.example").searchParams.get("sourceOptionAction")?.trim());
 }
 
-function legacyImportScopeIsNotKnownProviderScope(input: {
+function legacyImportScopeConflictsWithSelectedProviderScope(input: {
   importScope: string;
   providerKey: string;
+  unitKey: CatalogIntegrationUnitKey | null;
   scopes: readonly SourceObservationIntegrationScope[];
 }): boolean {
-  return !input.scopes.some(
+  const matchingScopes = input.scopes.filter(
     (scope) => scope.provider_key === input.providerKey && importScopeMatchesProviderScope(input.importScope, scope),
   );
+  if (matchingScopes.length === 0) {
+    return true;
+  }
+  if (!input.unitKey) {
+    return false;
+  }
+  const unitKey = input.unitKey;
+
+  return !matchingScopes.some((scope) => !sourceObservationScopeProductLineConflictsWithUnit(scope, unitKey));
+}
+
+function sourceObservationScopeProductLineConflictsWithUnit(
+  scope: SourceObservationIntegrationScope,
+  unitKey: CatalogIntegrationUnitKey,
+): boolean {
+  const unitProductDomain = productDomainFromIntegrationUnitKey(unitKey);
+  const scopeProductDomain = productDomainFromIntegrationScope(scope);
+
+  return Boolean(unitProductDomain && scopeProductDomain && unitProductDomain !== scopeProductDomain);
+}
+
+function productDomainFromIntegrationUnitKey(unitKey: CatalogIntegrationUnitKey): string | null {
+  try {
+    return normalizeDomainSegment(parseCatalogIntegrationUnitKey(unitKey).productDomain);
+  } catch {
+    return null;
+  }
+}
+
+function productDomainFromIntegrationScope(scope: SourceObservationIntegrationScope): string | null {
+  return (
+    tcgplayerProductLineDomain(scope.product_line_id) ??
+    productDomainFromProductLineName(scope.product_line_name) ??
+    productDomainFromProductLineId(scope.product_line_id)
+  );
+}
+
+function tcgplayerProductLineDomain(productLineId: string): string | null {
+  switch (productLineId.trim()) {
+    case "1":
+      return "mtg";
+    case "2":
+      return "yugioh";
+    case "3":
+      return "pokemon";
+    default:
+      return null;
+  }
+}
+
+function productDomainFromProductLineName(productLineName: string): string | null {
+  const normalized = productLineName.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes("pokemon")) {
+    return "pokemon";
+  }
+  if (normalized.includes("magic") || normalized.includes("mtg")) {
+    return "mtg";
+  }
+  if (normalized.includes("yu-gi-oh") || normalized.includes("yugioh")) {
+    return "yugioh";
+  }
+
+  return null;
+}
+
+function productDomainFromProductLineId(productLineId: string): string | null {
+  const normalized = normalizeDomainSegment(productLineId);
+  if (!normalized || /^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  return productDomainFromProductLineName(normalized) ?? normalized;
+}
+
+function normalizeDomainSegment(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function sourceOptionProfileCannotSelectScope(
@@ -1002,10 +1098,23 @@ function findActiveProfile(
   unitKey: CatalogIntegrationUnitKey | null = null,
 ): CatalogProviderProfileVersionReview | null {
   const providerProfiles = providerKey ? profiles.filter((profile) => profile.providerKey === providerKey) : profiles;
-
-  return (
-    providerProfiles.find((profile) => profile.active && profileMatchesUnit(profile, unitKey, providerProfiles)) ?? null
+  const activeProfiles = providerProfiles.filter(
+    (profile) => profile.active && profileMatchesUnit(profile, unitKey, providerProfiles),
   );
+
+  if (!unitKey && uniqueProfileUnitKeys(activeProfiles).size > 1) {
+    return null;
+  }
+
+  return activeProfiles[0] ?? null;
+}
+
+function providerHasMultipleActiveProfileUnits(
+  profiles: readonly CatalogProviderProfileVersionReview[],
+  providerKey: string,
+): boolean {
+  const activeProfiles = profiles.filter((profile) => profile.providerKey === providerKey && profile.active);
+  return uniqueProfileUnitKeys(activeProfiles).size > 1;
 }
 
 function findSelectedProfile(
@@ -1052,6 +1161,12 @@ function profileMatchesUnit(
   );
 
   return unitIdentities.size <= 1 && unitKey.trim().toLowerCase().startsWith(`${normalizedProviderKey}:`);
+}
+
+function uniqueProfileUnitKeys(profiles: readonly CatalogProviderProfileVersionReview[]): ReadonlySet<string> {
+  return new Set(
+    profiles.map((profile) => profile.ingestionUnitKey.trim().toLowerCase()).filter((unitKey) => unitKey.length > 0),
+  );
 }
 
 function readinessBlockersFor(
