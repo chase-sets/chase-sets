@@ -572,6 +572,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/marketplace/features/listings/ui/listing-detail-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx",
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
         ]
       }
@@ -617,6 +618,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listing-detail-error-boundary.test.tsx",
           "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts",
           "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
         ]

@@ -70,6 +70,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.agreement.override": "Agreement override: ",
   "marketplace.features.listings.ui.listingDetailPage.agreement.override.2": "Agreement override: ",
   "marketplace.features.listings.ui.listingDetailPage.back.to.listings": "Back to listings",
+  "marketplace.features.listings.ui.listingDetailRecoveryPage.listing.action.saved":
+    "Your listing action is saved while these details finish updating.",
+  "marketplace.features.listings.ui.listingDetailRecoveryPage.recover.listing": "Recover listing details",
+  "marketplace.features.listings.ui.listingDetailRecoveryPage.refresh.listing": "Refresh listing",
   "marketplace.features.listings.ui.listingDetailPage.basis.amount": "Basis amount: ",
   "marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit": "Buyer shipping credit",
   "marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping":
