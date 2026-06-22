@@ -1137,6 +1137,22 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     expect(submittedParams.has("importScope")).toBe(false);
     expect(submittedParams.has("filter.importScope")).toBe(false);
     expect(submittedParams.has("forceRefresh")).toBe(false);
+
+    submitSpy.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh all" }));
+
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    const refreshAllOptions = submitSpy.mock.calls[0]![1] as { action: string; method: string };
+    const refreshAllParams = new URLSearchParams(submitSpy.mock.calls[0]![0] as URLSearchParams);
+    expect(new URL(refreshAllOptions.action, "https://admin.example").pathname).toBe("/catalog/integrations");
+    expect(refreshAllParams.get("providerKey")).toBe("tcgplayer");
+    expect(refreshAllParams.get("unitKey")).toBe("tcgplayer:yugioh:single-card:source-observation-import");
+    expect(refreshAllParams.get("profileVersion")).toBe("2026.06.20");
+    expect(refreshAllParams.get("sourceOptionAction")).toBe("force-refresh-all");
+    expect(refreshAllParams.has("sourceOptionQueryKind")).toBe(false);
+    expect(refreshAllParams.has("importScope")).toBe(false);
+    expect(refreshAllParams.has("filter.importScope")).toBe(false);
+    expect(refreshAllParams.has("forceRefresh")).toBe(false);
   });
 
   it("flags a group whose required parent scope is not selected yet", () => {
