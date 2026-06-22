@@ -132,6 +132,7 @@ describe("checkout web routes: account sell list", () => {
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "refreshable-catching-up",
           actorMode: "account",
           correctionSource: "fresh-read",
         }),
@@ -169,6 +170,7 @@ describe("checkout web routes: account sell list", () => {
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "pending-projection",
           actorMode: "account",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
@@ -214,6 +216,7 @@ describe("checkout web routes: account sell list", () => {
     expect(result.sellListRecovery).toEqual(
       expect.objectContaining({
         kind: "pending-fresh-write",
+        recoveryKind: "pending-projection",
         correctionSource: "sell-checkout-confirmation",
         freshnessOutcome: "valid-after-write",
       }),
@@ -290,6 +293,7 @@ describe("checkout web routes: account sell list", () => {
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "pending-projection",
           actorMode: "guest",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
@@ -363,6 +367,7 @@ describe("checkout web routes: account sell list", () => {
         sellList: { items: [], count: 0, latestConfirmation: null },
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "pending-projection",
           actorMode: "account",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
@@ -418,6 +423,7 @@ describe("checkout web routes: account sell list", () => {
         mergedLineCount: 1,
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "pending-projection",
           actorMode: "account",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
@@ -464,6 +470,7 @@ describe("checkout web routes: account sell list", () => {
         mergedLineCount: 1,
         sellListRecovery: expect.objectContaining({
           kind: "pending-fresh-write",
+          recoveryKind: "pending-projection",
           actorMode: "account",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
@@ -499,6 +506,7 @@ describe("checkout web routes: account sell list", () => {
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
           kind: "missing-after-fresh-write",
+          recoveryKind: "expired-handoff",
           actorMode: "account",
           freshnessOutcome: "expired-after-write",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
@@ -596,6 +604,7 @@ describe("checkout web routes: account sell list", () => {
         freshnessError: expect.any(String),
         sellListRecovery: expect.objectContaining({
           kind: "missing-after-fresh-write",
+          recoveryKind: "expired-handoff",
           actorMode: "account",
           freshnessOutcome: "expired-after-write",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",

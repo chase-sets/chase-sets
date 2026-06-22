@@ -159,6 +159,7 @@ describe("checkout web routes: account cart", () => {
       cart: null,
       cartRecovery: {
         kind: "pending-fresh-write",
+        recoveryKind: "refreshable-catching-up",
         message: expect.any(String),
       },
     });
@@ -196,6 +197,7 @@ describe("checkout web routes: account cart", () => {
       cart: null,
       cartRecovery: {
         kind: "pending-fresh-write",
+        recoveryKind: "refreshable-catching-up",
         message: expect.any(String),
       },
     });
@@ -244,6 +246,7 @@ describe("checkout web routes: account cart", () => {
       cart: { items: [], count: 0 },
       cartRecovery: {
         kind: "pending-fresh-write",
+        recoveryKind: "pending-projection",
         message: expect.any(String),
       },
     });
@@ -285,6 +288,7 @@ describe("checkout web routes: account cart", () => {
       cart: { items: [], count: 0 },
       cartRecovery: {
         kind: "pending-fresh-write",
+        recoveryKind: "pending-projection",
         message: expect.any(String),
       },
     });
@@ -411,7 +415,7 @@ describe("checkout web routes: account cart", () => {
     },
   );
 
-  it("keeps an expired add-line handoff in cart recovery when the cart projection is still empty", async () => {
+  it("shows actionable cart recovery when an expired add-line handoff still reads an empty projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
     mockGetCart.mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
@@ -432,7 +436,8 @@ describe("checkout web routes: account cart", () => {
     expect(result).toEqual({
       cart: { items: [], count: 0 },
       cartRecovery: {
-        kind: "pending-fresh-write",
+        kind: "missing-after-fresh-write",
+        recoveryKind: "expired-handoff",
         message: expect.any(String),
       },
     });
@@ -440,12 +445,12 @@ describe("checkout web routes: account cart", () => {
       expect.objectContaining({
         outcome: "handoff_expired",
         freshnessOutcome: "expired-after-write",
-        recoveryAction: "pending_empty_state",
+        recoveryAction: "action_required",
       }),
     );
   });
 
-  it("recovers an expired add-line handoff when the cart read still times out", async () => {
+  it("shows actionable cart recovery for expired add-line handoffs when the cart read still times out", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
     mockGetCart.mockRejectedValue(
       new MockCheckoutApiError(503, {
@@ -473,7 +478,8 @@ describe("checkout web routes: account cart", () => {
     expect(result).toEqual({
       cart: null,
       cartRecovery: {
-        kind: "pending-fresh-write",
+        kind: "missing-after-fresh-write",
+        recoveryKind: "expired-handoff",
         message: expect.any(String),
       },
     });
@@ -481,7 +487,7 @@ describe("checkout web routes: account cart", () => {
       expect.objectContaining({
         outcome: "handoff_expired",
         freshnessOutcome: "expired-after-write",
-        recoveryAction: "pending_empty_state",
+        recoveryAction: "action_required",
       }),
     );
   });
@@ -516,6 +522,7 @@ describe("checkout web routes: account cart", () => {
       cart: null,
       cartRecovery: {
         kind: "pending-fresh-write",
+        recoveryKind: "refreshable-catching-up",
         message: expect.any(String),
       },
     });
@@ -544,6 +551,7 @@ describe("checkout web routes: account cart", () => {
         cart: null,
         cartRecovery: {
           kind: "pending-fresh-write",
+          recoveryKind: "refreshable-catching-up",
           message: expect.any(String),
         },
       });

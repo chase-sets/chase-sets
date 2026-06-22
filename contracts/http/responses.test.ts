@@ -12,6 +12,9 @@ import {
   evaluatePostWriteHandoff,
   getMutationResultCommandReceipt,
   getResponseMetadata,
+  isBoundedTemporaryPostWriteRecoveryKind,
+  postWriteRecoveryKindForFreshWriteReadError,
+  postWriteRecoveryKindForHandoffState,
   readFreshWriteToken,
   readFreshWriteTokenState,
   readPostWriteHandoff,
@@ -547,6 +550,57 @@ describe("response consistency metadata", () => {
         errorCode: null,
       });
     }
+  });
+
+  it("maps valid fresh-write projection lag to bounded temporary recovery", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+    const projectionTimeout = classifyFreshWriteReadError({
+      request: href,
+      error: {
+        status: 503,
+        body: {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        },
+      },
+      nowMs: 1,
+    });
+
+    expect(postWriteRecoveryKindForFreshWriteReadError(projectionTimeout)).toBe("refreshable-catching-up");
+    expect(
+      isBoundedTemporaryPostWriteRecoveryKind(postWriteRecoveryKindForFreshWriteReadError(projectionTimeout)),
+    ).toBe(true);
+  });
+
+  it("maps valid semantic handoffs to bounded temporary recovery only while the receipt is valid", () => {
+    const href = appendPostWriteHandoff(
+      "/account/cart",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      },
+      1,
+    );
+
+    const validKind = postWriteRecoveryKindForHandoffState(readPostWriteHandoffState(href, 1));
+    const expiredKind = postWriteRecoveryKindForHandoffState(readPostWriteHandoffState(href, 40_000));
+    const malformedKind = postWriteRecoveryKindForHandoffState(
+      readPostWriteHandoffState("/account/cart?postWriteHandoff=%7Bnot-json", 1),
+    );
+    const missingKind = postWriteRecoveryKindForHandoffState(readPostWriteHandoffState("/account/cart", 1));
+
+    expect(validKind).toBe("pending-projection");
+    expect(isBoundedTemporaryPostWriteRecoveryKind(validKind)).toBe(true);
+    expect(expiredKind).toBe("expired-handoff");
+    expect(isBoundedTemporaryPostWriteRecoveryKind(expiredKind)).toBe(false);
+    expect(malformedKind).toBe("terminal-failure");
+    expect(isBoundedTemporaryPostWriteRecoveryKind(malformedKind)).toBe(false);
+    expect(missingKind).toBe("terminal-failure");
+    expect(isBoundedTemporaryPostWriteRecoveryKind(missingKind)).toBe(false);
   });
 
   it("classifies manual, malformed, and expired not-found reads as permanent", () => {
