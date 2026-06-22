@@ -1,0 +1,22 @@
+{
+  "kind": "one-piece-card",
+  "card": {
+    "id": "op01-001",
+    "name": "Monkey.D.Luffy",
+    "number": "001",
+    "printed_number": "OP01-001",
+    "rarity": "Leader",
+    "rarity_code": "L",
+    "type": "Leader",
+    "language_code": "en",
+    "expansion": {
+      "id": "op-01",
+      "name": "Romance Dawn",
+      "code": "OP-01",
+      "total": 121,
+      "release_date": "2022-12-02",
+      "language_code": "en"
+    }
+  },
+  "sourceUrl": "https://api.scrydex.com/onepiece/v1/expansions/op-01/cards"
+}

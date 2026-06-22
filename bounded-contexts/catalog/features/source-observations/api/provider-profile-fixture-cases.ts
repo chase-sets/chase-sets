@@ -800,6 +800,96 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "one-piece-card-print-source-observation",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        profileVersion: "2026.06.22",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "card:op01-001",
+            normalizedKind: "one-piece-card-print",
+            normalizedFields: {
+              name: "Monkey.D.Luffy",
+              cardNumber: "OP01-001",
+              setId: "op-01",
+              setName: "Romance Dawn",
+              tcg: "one-piece",
+              productLineName: "One Piece Card Game",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+      },
+    ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "one-piece-set-reference-data",
+        ingestionUnitKey: "scrydex:one-piece:set:reference-data",
+        profileVersion: "2026.06.22",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "set:op-01",
+            normalizedKind: "one-piece-set-reference",
+            normalizedFields: {
+              name: "Romance Dawn",
+              setId: "op-01",
+              setCode: "OP-01",
+              setName: "Romance Dawn",
+              cardCount: 121,
+              tcg: "one-piece",
+              productLineName: "One Piece Card Game",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+        },
+      },
+    ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "one-piece-sealed-product-source-observation",
+        ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+        profileVersion: "2026.06.22",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "sealed:op01-booster-box",
+            normalizedKind: "one-piece-sealed-product",
+            normalizedFields: {
+              name: "Romance Dawn Booster Box",
+              setId: "op-01",
+              setName: "Romance Dawn",
+              sealedProductForm: "sealed-product",
+              tcg: "one-piece",
+              productLineName: "One Piece Card Game",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+      },
+    ),
   ];
 }
 
@@ -919,27 +1009,33 @@ function providerCases(
       normalizedKind:
         providerKey === "tcgdex"
           ? "pokemon-card"
-          : identity.ingestionUnitKey === "ygoprodeck:yugioh:set:reference-data" ||
-              identity.ingestionUnitKey === "ygojson:yugioh:set:reference-data" ||
-              identity.ingestionUnitKey === "yaml-yugi:yugioh:set:reference-data"
-            ? "yugioh-set-reference"
-            : identity.ingestionUnitKey === "ygojson:yugioh:sealed-product:reference-data"
-              ? "yugioh-sealed-product"
-              : identity.ingestionUnitKey === "ygojson:yugioh:pack:reference-data"
-                ? "yugioh-pack-reference"
-                : identity.ingestionUnitKey?.startsWith("ygoprodeck:yugioh:") ||
-                    identity.ingestionUnitKey?.startsWith("ygojson:yugioh:") ||
-                    identity.ingestionUnitKey?.startsWith("yaml-yugi:yugioh:")
-                  ? "yugioh-card-print"
-                  : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
-                    ? "magic-set-reference"
-                    : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
-                      ? "magic-sealed-product"
-                      : providerKey === "mtgjson"
-                        ? "magic-card-print"
-                        : providerKey === "scryfall"
-                          ? "magic-card-print"
-                          : "provider-product",
+          : identity.ingestionUnitKey === "scrydex:one-piece:set:reference-data"
+            ? "one-piece-set-reference"
+            : identity.ingestionUnitKey === "scrydex:one-piece:sealed-product:source-observation-import"
+              ? "one-piece-sealed-product"
+              : identity.ingestionUnitKey === "scrydex:one-piece:single-card:source-observation-import"
+                ? "one-piece-card-print"
+                : identity.ingestionUnitKey === "ygoprodeck:yugioh:set:reference-data" ||
+                    identity.ingestionUnitKey === "ygojson:yugioh:set:reference-data" ||
+                    identity.ingestionUnitKey === "yaml-yugi:yugioh:set:reference-data"
+                  ? "yugioh-set-reference"
+                  : identity.ingestionUnitKey === "ygojson:yugioh:sealed-product:reference-data"
+                    ? "yugioh-sealed-product"
+                    : identity.ingestionUnitKey === "ygojson:yugioh:pack:reference-data"
+                      ? "yugioh-pack-reference"
+                      : identity.ingestionUnitKey?.startsWith("ygoprodeck:yugioh:") ||
+                          identity.ingestionUnitKey?.startsWith("ygojson:yugioh:") ||
+                          identity.ingestionUnitKey?.startsWith("yaml-yugi:yugioh:")
+                        ? "yugioh-card-print"
+                        : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
+                          ? "magic-set-reference"
+                          : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
+                            ? "magic-sealed-product"
+                            : providerKey === "mtgjson"
+                              ? "magic-card-print"
+                              : providerKey === "scryfall"
+                                ? "magic-card-print"
+                                : "provider-product",
     },
     ...expectations[flow],
   }));

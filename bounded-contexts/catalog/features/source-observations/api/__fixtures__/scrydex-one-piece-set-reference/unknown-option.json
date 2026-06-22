@@ -1,0 +1,11 @@
+{
+  "kind": "one-piece-set-reference",
+  "expansion": {
+    "id": "op-unknown",
+    "name": "Unknown One Piece Set",
+    "code": "OP-XX",
+    "total": 1,
+    "release_date": "2022-12-02"
+  },
+  "sourceUrl": "https://api.scrydex.com/onepiece/v1/expansions/op-unknown"
+}

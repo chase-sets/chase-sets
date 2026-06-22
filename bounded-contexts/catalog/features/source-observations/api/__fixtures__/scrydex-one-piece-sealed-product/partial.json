@@ -1,0 +1,14 @@
+{
+  "kind": "one-piece-sealed-product",
+  "sealedProduct": {
+    "id": "op01-booster-box",
+    "name": "Romance Dawn Booster Box",
+    "language_code": "en",
+    "expansion": {
+      "id": "op-01",
+      "name": "Romance Dawn",
+      "code": "OP-01"
+    }
+  },
+  "sourceUrl": "https://api.scrydex.com/onepiece/v1/expansions/op-01/sealed"
+}

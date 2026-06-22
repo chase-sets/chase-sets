@@ -54,7 +54,10 @@ export type SourceObservationNormalizedKind =
   | "yugioh-card-print"
   | "yugioh-set-reference"
   | "yugioh-sealed-product"
-  | "yugioh-pack-reference";
+  | "yugioh-pack-reference"
+  | "one-piece-card-print"
+  | "one-piece-set-reference"
+  | "one-piece-sealed-product";
 
 export type SourceObservationNormalizedBase = Readonly<{
   kind: SourceObservationNormalizedKind;
@@ -248,6 +251,66 @@ export type SourceObservationYugiohPackReferenceNormalized = JsonObject &
     externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
   }>;
 
+export type SourceObservationOnePieceCardPrintNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "one-piece-card-print";
+    tcg: "one-piece";
+    languageCode: string;
+    name: string;
+    cardNumber: string;
+    setId: string;
+    setCode: string | null;
+    setName: string;
+    rarity: string | null;
+    cardType: string | null;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "One Piece Card Game";
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
+export type SourceObservationOnePieceSetReferenceNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "one-piece-set-reference";
+    tcg: "one-piece";
+    languageCode: string;
+    name: string;
+    setId: string;
+    setCode: string | null;
+    setName: string;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    cardCount: number | null;
+    productLineName: "One Piece Card Game";
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationOnePieceSealedProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "one-piece-sealed-product";
+    tcg: "one-piece";
+    languageCode: string;
+    name: string;
+    setId: string | null;
+    setCode: string | null;
+    setName: string | null;
+    sealedProductForm: "booster-pack" | "booster-box" | "starter-deck" | "deck" | "sealed-product";
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "One Piece Card Game";
+    barcode: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
 export type SourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
   | SourceObservationProviderProductNormalized
@@ -257,7 +320,10 @@ export type SourceObservationNormalized =
   | SourceObservationYugiohCardPrintNormalized
   | SourceObservationYugiohSetReferenceNormalized
   | SourceObservationYugiohSealedProductNormalized
-  | SourceObservationYugiohPackReferenceNormalized;
+  | SourceObservationYugiohPackReferenceNormalized
+  | SourceObservationOnePieceCardPrintNormalized
+  | SourceObservationOnePieceSetReferenceNormalized
+  | SourceObservationOnePieceSealedProductNormalized;
 
 export function isPokemonCardSourceObservationNormalized(
   normalized: SourceObservationNormalized,
@@ -275,6 +341,18 @@ export function isMagicSetReferenceSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationMagicSetReferenceNormalized {
   return normalized.kind === "magic-set-reference";
+}
+
+export function isOnePieceCatalogItemSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationOnePieceCardPrintNormalized | SourceObservationOnePieceSealedProductNormalized {
+  return normalized.kind === "one-piece-card-print" || normalized.kind === "one-piece-sealed-product";
+}
+
+export function isOnePieceSetReferenceSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationOnePieceSetReferenceNormalized {
+  return normalized.kind === "one-piece-set-reference";
 }
 
 export type SourceObservationState = Readonly<{

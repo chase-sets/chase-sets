@@ -206,7 +206,10 @@ export type CatalogProviderNormalizedObservationContract = Readonly<{
     | "yugioh-card-print"
     | "yugioh-set-reference"
     | "yugioh-sealed-product"
-    | "yugioh-pack-reference";
+    | "yugioh-pack-reference"
+    | "one-piece-card-print"
+    | "one-piece-set-reference"
+    | "one-piece-sealed-product";
   languageCode: CatalogProviderMappingValueExpression;
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
   hashMaterial: readonly CatalogProviderMappingValueExpression[];
