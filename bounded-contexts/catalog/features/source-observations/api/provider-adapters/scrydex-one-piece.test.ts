@@ -270,6 +270,27 @@ describe("Scrydex One Piece provider adapter", () => {
         "Sanitize card payloads",
         "Attach payload provenance",
       ],
+      usageEstimate: {
+        requestStrategy: "bulk-first",
+        estimateState: "estimate-unavailable",
+        estimatedRequestCount: null,
+        estimateReason: "Card page count is available only after the first Scrydex paged response.",
+        pageSize: 250,
+        selectedFields: [
+          "id",
+          "name",
+          "number",
+          "printed_number",
+          "rarity",
+          "rarity_code",
+          "type",
+          "language",
+          "language_code",
+          "expansion",
+        ],
+        perRecordFallbackReason: null,
+        usageCheckState: "not-configured",
+      },
     });
     expect(sealedPlan).toMatchObject({
       planKey: "scrydex:one-piece:expansion:op-01:sealed",
@@ -278,6 +299,16 @@ describe("Scrydex One Piece provider adapter", () => {
         "Sanitize sealed-product payloads",
         "Attach payload provenance",
       ],
+      usageEstimate: {
+        requestStrategy: "bulk-first",
+        estimateState: "estimate-unavailable",
+        estimatedRequestCount: null,
+        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        pageSize: 100,
+        selectedFields: ["id", "name", "type", "language", "language_code", "expansion"],
+        perRecordFallbackReason: null,
+        usageCheckState: "not-configured",
+      },
     });
     expect(payloads.map((payload) => payload.externalKey)).toEqual([
       "card:op01-001",
@@ -331,6 +362,13 @@ describe("Scrydex One Piece provider adapter", () => {
         "Sanitize set reference payload",
         "Attach payload provenance",
       ],
+      usageEstimate: {
+        requestStrategy: "single-record",
+        estimateState: "estimated",
+        estimatedRequestCount: 1,
+        perRecordFallbackReason: "Selected set-reference import uses the Scrydex expansion detail endpoint.",
+        usageCheckState: "not-configured",
+      },
     });
     expect(payloads).toEqual([
       expect.objectContaining({
@@ -423,6 +461,13 @@ describe("Scrydex One Piece provider adapter", () => {
     expect(payload.provenance.contentHash).toBe(repeatPayload.provenance.contentHash);
     expect(JSON.stringify(payload)).not.toMatch(/market_price|price|seller|api-key-fixture|team-id-fixture|X-Api-Key/i);
     expect(firstFixture.calls.map((call) => endpoint(call.url))).toEqual(["/cards/op01-001"]);
+    expect(plan.usageEstimate).toMatchObject({
+      requestStrategy: "single-record",
+      estimateState: "estimated",
+      estimatedRequestCount: 1,
+      perRecordFallbackReason: "Operator selected one explicit Scrydex card id.",
+      usageCheckState: "not-configured",
+    });
   });
 });
 

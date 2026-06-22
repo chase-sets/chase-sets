@@ -182,6 +182,7 @@ import type {
   ProviderOptionAlias,
   ProviderPayloadFetchProgress,
   ProviderTransportDiagnostic,
+  ProviderUsageEstimate,
 } from "./provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import type { ProviderOptionAliasRecord } from "./provider-option-aliases";
@@ -411,6 +412,26 @@ export type SourceObservationIntegrationJobOutcome = Readonly<{
   observed: number;
   reapplied: number;
   reason: string | null;
+  providerUsageEvidence?: SourceObservationProviderUsageEvidence | null;
+}>;
+
+export type SourceObservationProviderUsageEvidence = Readonly<{
+  unitKey: string;
+  requestStrategy: ProviderUsageEstimate["requestStrategy"];
+  estimateState: ProviderUsageEstimate["estimateState"];
+  estimatedRequestCount: number | null;
+  estimateReason: string | null;
+  actualRequestCount: number | null;
+  pageCount: number | null;
+  cacheHitCount: number | null;
+  cacheMissCount: number | null;
+  usageCheckState: ProviderUsageEstimate["usageCheckState"];
+  creditDiagnostic: string | null;
+  degradedDiagnostic: string | null;
+  bulkFirstConfirmed: boolean | null;
+  perRecordFallbackReason: string | null;
+  selectedFields: readonly string[];
+  pageSize: number | null;
 }>;
 
 export type SourceObservationIntegrationJobResult = Readonly<{
@@ -3413,6 +3434,8 @@ export function createSourceObservationRuntime(
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }): Promise<SourceObservationIntegrationJobOutcome> {
+    let providerUsagePlan: ProviderImportPlan | null = null;
+    const providerUsageRequestKeys = new Set<string>();
     try {
       const adapter = providerAdapterRegistry.require(input.providerProfile.providerKey);
       const unitKey = catalogProviderProfileVersionIngestionUnitKey(input.providerProfileVersion);
@@ -3421,6 +3444,7 @@ export function createSourceObservationRuntime(
         scopeKey: input.target.scopeKey,
         values: input.target.values,
       });
+      providerUsagePlan = plan;
       const contract = requireSourceObservationMappingContract(input.providerProfileVersion);
       const observedAt = new Date().toISOString();
       const estimatedPayloads = plan.estimatedPayloads ?? 1;
@@ -3434,6 +3458,10 @@ export function createSourceObservationRuntime(
             total: progress.total,
           }),
       })) {
+        const providerRequestKey = envelope.provenance.sourceUrl?.trim();
+        if (providerRequestKey) {
+          providerUsageRequestKeys.add(providerRequestKey);
+        }
         await input.beforeRecordObservation?.();
         const observation = requireCatalogProviderSourceObservation({
           contract,
@@ -3462,6 +3490,7 @@ export function createSourceObservationRuntime(
         observed,
         reapplied: 0,
         reason: observed > 0 ? null : `No provider payloads found for ${input.target.name}.`,
+        providerUsageEvidence: providerUsageEvidenceFromImportPlan(plan, providerUsageRequestKeys),
       };
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
@@ -3476,6 +3505,9 @@ export function createSourceObservationRuntime(
         observed: 0,
         reapplied: 0,
         reason: error instanceof Error ? error.message : "Provider adapter import failed.",
+        providerUsageEvidence: providerUsagePlan
+          ? providerUsageEvidenceFromImportPlan(providerUsagePlan, providerUsageRequestKeys)
+          : null,
       };
     }
   }
@@ -7131,6 +7163,39 @@ function summarizeIntegrationJobOutcomes(
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
+  };
+}
+
+function providerUsageEvidenceFromImportPlan(
+  plan: ProviderImportPlan,
+  requestKeys: ReadonlySet<string>,
+): SourceObservationProviderUsageEvidence | null {
+  const estimate = plan.usageEstimate;
+  if (!estimate) {
+    return null;
+  }
+
+  const actualRequestCount = requestKeys.size > 0 ? requestKeys.size : null;
+  return {
+    unitKey: plan.unitKey,
+    requestStrategy: estimate.requestStrategy,
+    estimateState: estimate.estimateState,
+    estimatedRequestCount: estimate.estimatedRequestCount,
+    estimateReason: estimate.estimateReason,
+    actualRequestCount,
+    pageCount: actualRequestCount,
+    cacheHitCount: actualRequestCount === null ? null : 0,
+    cacheMissCount: actualRequestCount,
+    usageCheckState: estimate.usageCheckState,
+    creditDiagnostic: estimate.creditDiagnostic,
+    degradedDiagnostic: estimate.degradedDiagnostic,
+    bulkFirstConfirmed:
+      actualRequestCount === null
+        ? null
+        : estimate.requestStrategy === "bulk-first" && !estimate.perRecordFallbackReason,
+    perRecordFallbackReason: estimate.perRecordFallbackReason,
+    selectedFields: estimate.selectedFields,
+    pageSize: estimate.pageSize,
   };
 }
 
