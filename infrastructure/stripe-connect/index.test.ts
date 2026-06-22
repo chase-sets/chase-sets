@@ -167,7 +167,7 @@ describe("money movement adapters", () => {
         expect(body.get("account")).toBe("acct_123");
         expect(body.get("components[account_onboarding][enabled]")).toBe("true");
         expect(body.get("components[account_onboarding][features][external_account_collection]")).toBe("true");
-        expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("false");
+        expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("true");
         expect([...body.keys()].some((key) => key.startsWith("components[account_management]"))).toBe(false);
 
         return new Response(
@@ -190,7 +190,7 @@ describe("money movement adapters", () => {
             responsibilities: {
               fees_collector: "application",
               losses_collector: "application",
-              requirements_collector: "stripe",
+              requirements_collector: "application",
             },
           },
           requirements: { currently_due: ["external_account"] },
@@ -236,14 +236,89 @@ describe("money movement adapters", () => {
         payoutAccountDashboard: "express",
         lossesCollector: "application",
         feesCollector: "application",
-        requirementsCollector: "stripe",
+        requirementsCollector: "application",
         missingRequirements: ["external_account"],
       },
     });
     expect(calls.map((call) => call.input)).toEqual([
       "https://stripe.test/v2/core/accounts/acct_123",
-      "https://stripe.test/v1/account_sessions",
       "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      "https://stripe.test/v1/account_sessions",
+    ]);
+  });
+
+  it("Stripe adapter keeps embedded Stripe user authentication for Stripe-collected accounts", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input));
+
+      if (
+        String(input) ===
+        "https://stripe.test/v2/core/accounts/acct_stripe_collected?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults"
+      ) {
+        return new Response(
+          JSON.stringify({
+            id: "acct_stripe_collected",
+            dashboard: "express",
+            defaults: {
+              responsibilities: {
+                fees_collector: "stripe",
+                losses_collector: "stripe",
+                requirements_collector: "stripe",
+              },
+            },
+            requirements: { currently_due: ["external_account"] },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: { status: "active" },
+                    payouts: { status: "pending" },
+                  },
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("account")).toBe("acct_stripe_collected");
+      expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("false");
+
+      return new Response(
+        JSON.stringify({
+          client_secret: "acs_secret_stripe_collected",
+          expires_at: 1_777_000_000,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutSetupSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_stripe_collected",
+        idempotencyKey: "embedded-setup-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_stripe_collected",
+      clientSecret: "acs_secret_stripe_collected",
+      readiness: {
+        requirementsCollector: "stripe",
+      },
+    });
+    expect(calls).toEqual([
+      "https://stripe.test/v2/core/accounts/acct_stripe_collected?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      "https://stripe.test/v1/account_sessions",
     ]);
   });
 
@@ -471,7 +546,41 @@ describe("money movement adapters", () => {
   });
 
   it("Stripe adapter creates embedded payout account management sessions", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (
+        String(input) ===
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults"
+      ) {
+        return new Response(
+          JSON.stringify({
+            id: "acct_123",
+            dashboard: "none",
+            defaults: {
+              responsibilities: {
+                fees_collector: "application",
+                losses_collector: "application",
+                requirements_collector: "application",
+              },
+            },
+            requirements: { currently_due: [] },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: { status: "active" },
+                    payouts: { status: "active" },
+                  },
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
       expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
@@ -482,7 +591,7 @@ describe("money movement adapters", () => {
       expect(body.get("account")).toBe("acct_123");
       expect(body.get("components[account_management][enabled]")).toBe("true");
       expect(body.get("components[account_management][features][external_account_collection]")).toBe("true");
-      expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("false");
+      expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("true");
       expect([...body.keys()].some((key) => key.startsWith("components[account_onboarding]"))).toBe(false);
 
       return new Response(
@@ -512,6 +621,10 @@ describe("money movement adapters", () => {
       expiresAt: "2026-04-24T03:06:40.000Z",
       components: ["payout-account-management"],
     });
+    expect(calls.map((call) => call.input)).toEqual([
+      "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      "https://stripe.test/v1/account_sessions",
+    ]);
   });
 
   it("Stripe adapter surfaces provider error messages", async () => {
