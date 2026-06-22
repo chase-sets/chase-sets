@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, decodeFreshWriteReceipt } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, decodeFreshWriteReceipt, readPostWriteHandoff } from "@chase-sets/http/responses";
 
 import {
   mockAddCartLine,
@@ -1400,6 +1400,11 @@ describe("item detail buy now validation and watch intents", () => {
         eventIds: ["evt_lst_item_detail"],
       },
     ]);
+    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "marketplace.listing.publish",
+      expectation: "resource-present",
+      surface: "item-detail",
+    });
     expect(mockEnsureListingStock).toHaveBeenCalledWith({
       catalogItemId: "cat_charizard",
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
@@ -1413,6 +1418,96 @@ describe("item detail buy now validation and watch intents", () => {
     });
     expect(publishListing).toHaveBeenCalledWith("lst_item_detail", {
       feeQuoteFingerprint: "quote_1",
+    });
+  });
+
+  it("updates an authenticated item-detail listing and redirects with a semantic update handoff", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+    });
+    const previewListingTerms = vi.fn().mockResolvedValue({
+      fee_quote_fingerprint: "quote_2",
+    });
+    const updateListingPrice = vi.fn().mockResolvedValue(
+      commandResult(
+        {
+          id: "lst_item_detail_price",
+          version: 3,
+          status: "active",
+        },
+        "marketplace",
+      ),
+    );
+    const updateListingQuantityCap = vi.fn().mockResolvedValue(
+      commandResult(
+        {
+          id: "lst_item_detail_quantity",
+          version: 4,
+          status: "active",
+        },
+        "marketplace",
+      ),
+    );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewListingTerms,
+      updateListingPrice,
+      updateListingQuantityCap,
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "list-at-price");
+    form.set("listingId", "lst_item_detail");
+    form.set("priceAmount", "26.75");
+    form.set("quantityCap", "2");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=sell&listing=lst_item_detail", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = result.headers.get("Location") ?? "";
+    const redirectUrl = new URL(location, "http://localhost");
+    const receipt = decodeFreshWriteReceipt(redirectUrl.searchParams.get("afterWrite"));
+
+    expect(result.status).toBe(302);
+    expect(redirectUrl.pathname).toBe("/items/charizard-base-set");
+    expect(redirectUrl.searchParams.get("market")).toBe("sell");
+    expect(redirectUrl.searchParams.get("listing")).toBe("lst_item_detail");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_lst_item_detail_price", "evt_lst_item_detail_quantity"],
+      },
+    ]);
+    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "marketplace.listing.update",
+      expectation: "resource-updated",
+      surface: "item-detail",
+    });
+    expect(previewListingTerms).toHaveBeenCalledWith({ priceAmount: "26.75" });
+    expect(updateListingPrice).toHaveBeenCalledWith("lst_item_detail", {
+      priceAmount: "26.75",
+      feeQuoteFingerprint: "quote_2",
+    });
+    expect(updateListingQuantityCap).toHaveBeenCalledWith("lst_item_detail", {
+      quantityCap: 2,
+      feeQuoteFingerprint: "quote_2",
     });
   });
 
