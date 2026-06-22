@@ -546,6 +546,20 @@ describe("checkout sell list page", () => {
     ).toBeTruthy();
   });
 
+  it("preserves Sell List handoff receipts in guest account-gate auth links", () => {
+    const { container } = render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        isSignedIn={false}
+        sellerCheckoutRegisterHref="/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout%26afterWrite%3Dfresh%26postWriteHandoff%3Dhandoff"
+        sellerCheckoutSignInHref="/sign-in?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout%26afterWrite%3Dfresh%26postWriteHandoff%3Dhandoff"
+      />,
+    );
+
+    expect(container.querySelector('a[href*="afterWrite%3Dfresh"]')).not.toBeNull();
+    expect(container.querySelector('a[href*="postWriteHandoff%3Dhandoff"]')).not.toBeNull();
+  });
+
   it("keeps registered term deltas in Reference Info with minimal row copy", () => {
     render(
       <CheckoutSellListPage

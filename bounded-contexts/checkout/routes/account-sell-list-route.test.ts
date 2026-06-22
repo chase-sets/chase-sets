@@ -214,6 +214,122 @@ describe("checkout web routes: account sell list", () => {
     );
   });
 
+  it("preserves guest Sell List add-line handoffs in account-gate auth links", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list",
+          checkoutCommit("42", "evt_guest_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        )}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.sellerCheckoutSignInHref).toContain("returnTo=");
+    const signInUrl = new URL(result.sellerCheckoutSignInHref, "http://localhost");
+    const returnTo = signInUrl.searchParams.get("returnTo") ?? "";
+    expect(returnTo).toContain("/account/sell-list?registrationReturn=seller-checkout");
+    expect(returnTo).toContain("afterWrite=");
+    expect(returnTo).toContain("postWriteHandoff=");
+    expect(result.sellerCheckoutRegisterHref).toContain("afterWrite");
+    expect(result.sellerCheckoutRegisterHref).toContain("postWriteHandoff");
+  });
+
+  it("keeps signed-in registration returns temporary while the anonymous Sell List line is still catching up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 0 });
+    const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list?registrationReturn=seller-checkout",
+          checkoutCommit("42", "evt_guest_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        )}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+      }),
+    );
+  });
+
+  it("loads the account Sell List through the merge receipt after registration returns", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const mergeResult = {
+      mergedLineCount: 1,
+      commandReceipt: checkoutCommit("77", "evt_checkout_sell_list_merged"),
+    };
+    mockMergeGuestSellListToAccount.mockResolvedValue(mergeResult);
+    const originalApi = {
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+      getSellList: vi.fn(async () => {
+        throw new Error("original request should not read account Sell List after merge");
+      }),
+    };
+    const freshApi = {
+      getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
+    };
+    mockCreateCheckoutRequestApiClient.mockImplementation((request: Request) => {
+      const url = new URL(request.url);
+      return url.searchParams.has("afterWrite") && url.searchParams.has("postWriteHandoff") ? freshApi : originalApi;
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(originalApi.getSellList).not.toHaveBeenCalled();
+    expect(freshApi.getSellList).toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({
+        mergedLineCount: 1,
+        sellListRecovery: expect.objectContaining({
+          kind: "pending-fresh-write",
+          actorMode: "account",
+          correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        }),
+      }),
+    );
+  });
+
   it("shows actionable Sell List recovery when an expired add-line handoff still reads an empty account projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const getSellList = vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null }));

@@ -1051,6 +1051,8 @@ export function CheckoutSellListPage({
   registrationReturn = null,
   mergedLineCount = 0,
   mergeError = null,
+  sellerCheckoutRegisterHref = SELLER_CHECKOUT_REGISTER_HREF,
+  sellerCheckoutSignInHref = SELLER_CHECKOUT_SIGN_IN_HREF,
   errorMessage = null,
   recoveryMessage = null,
   recoveryState = null,
@@ -1065,6 +1067,8 @@ export function CheckoutSellListPage({
   registrationReturn?: "seller-checkout" | null;
   mergedLineCount?: number;
   mergeError?: string | null;
+  sellerCheckoutRegisterHref?: string;
+  sellerCheckoutSignInHref?: string;
   errorMessage?: string | null;
   recoveryMessage?: string | null;
   recoveryState?: SellListRecoveryState | null;
@@ -1226,10 +1230,10 @@ export function CheckoutSellListPage({
             tone="info"
             actions={
               <Inline gap={2}>
-                <LinkButton href={SELLER_CHECKOUT_REGISTER_HREF}>
+                <LinkButton href={sellerCheckoutRegisterHref}>
                   {t("checkout.features.sellList.ui.sellListPage.create.account")}
                 </LinkButton>
-                <LinkButton href={SELLER_CHECKOUT_SIGN_IN_HREF} tone="secondary">
+                <LinkButton href={sellerCheckoutSignInHref} tone="secondary">
                   {t("checkout.features.sellList.ui.sellListPage.sign.in")}
                 </LinkButton>
               </Inline>

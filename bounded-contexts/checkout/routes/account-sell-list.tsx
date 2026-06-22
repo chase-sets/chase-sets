@@ -43,6 +43,8 @@ import {
 import {
   SELLER_CHECKOUT_REGISTER_HREF,
   SELLER_CHECKOUT_SIGN_IN_HREF,
+  sellerCheckoutRegisterHref,
+  sellerCheckoutSignInHref,
 } from "../features/sell-list/ui/registration-return";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
 import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
@@ -164,6 +166,36 @@ function missingAddLineRecovery(actorMode: AccountSellListActorMode, state: Post
     freshnessOutcome: freshnessOutcomeForHandoffState(state),
     correctionSource: `semantic-handoff:${ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF_KIND}`,
   };
+}
+
+function currentPathWithSearch(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
+function requestForPath(request: Request, path: string) {
+  return new Request(new URL(path, request.url), request);
+}
+
+function sellerCheckoutReturnToFromSellListRequest(requestUrl: URL) {
+  const params = new URLSearchParams({ registrationReturn: "seller-checkout" });
+  for (const key of ["afterWrite", "postWriteHandoff"]) {
+    const value = requestUrl.searchParams.get(key);
+    if (value) {
+      params.set(key, value);
+    }
+  }
+  return `/account/sell-list?${params.toString()}`;
+}
+
+function requestWithMergeFreshness(request: Request, mergeResult: unknown, mergedLineCount: number) {
+  if (mergedLineCount <= 0) {
+    return request;
+  }
+
+  const currentPath = currentPathWithSearch(request);
+  const freshPath = appendPostWriteHandoff(currentPath, mergeResult, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF);
+  return freshPath === currentPath ? request : requestForPath(request, freshPath);
 }
 
 async function loadSellListWithPostWriteRecovery(
@@ -512,6 +544,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
   const registrationReturn: "seller-checkout" | null =
     requestUrl.searchParams.get("registrationReturn") === "seller-checkout" ? "seller-checkout" : null;
+  const sellerCheckoutReturnTo = sellerCheckoutReturnToFromSellListRequest(requestUrl);
 
   if (!canUseAccountSellList(actor)) {
     const { sellList, freshnessError, sellListRecovery } = await loadSellListWithPostWriteRecovery(
@@ -525,6 +558,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
       registrationReturn: null,
       mergedLineCount: 0,
       mergeError: null,
+      sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
+      sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
       freshnessError,
       sellListRecovery,
       sellList,
@@ -534,19 +569,25 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   let mergedLineCount = 0;
   let mergeError: string | null = null;
+  let accountSellListRequest = request;
+  let accountSellListApi = api;
   if (anonymousSellListId) {
     try {
       const mergeResult = await api.mergeGuestSellListToAccount(anonymousSellListId);
       const count = Number((mergeResult as { mergedLineCount?: unknown }).mergedLineCount ?? 0);
       mergedLineCount = Number.isFinite(count) ? count : 0;
+      accountSellListRequest = requestWithMergeFreshness(request, mergeResult, mergedLineCount);
+      if (accountSellListRequest !== request) {
+        accountSellListApi = createCheckoutRequestApiClient(accountSellListRequest);
+      }
     } catch {
       mergeError = t("checkout.routes.accountSellList.sell.list.request.failed");
     }
   }
 
   const { sellList, freshnessError, sellListRecovery } = await loadSellListWithPostWriteRecovery(
-    request,
-    () => api.getSellList(),
+    accountSellListRequest,
+    () => accountSellListApi.getSellList(),
     "account",
   );
 
@@ -555,6 +596,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     registrationReturn,
     mergedLineCount,
     mergeError,
+    sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
+    sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
     freshnessError,
     sellListRecovery,
     sellList,
@@ -958,6 +1001,8 @@ export default function CheckoutAccountSellListRoute() {
       registrationReturn={data.registrationReturn}
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}
+      sellerCheckoutRegisterHref={data.sellerCheckoutRegisterHref}
+      sellerCheckoutSignInHref={data.sellerCheckoutSignInHref}
       errorMessage={actionData?.error ?? ("freshnessError" in data && !sellListRecovery ? data.freshnessError : null)}
       recoveryMessage={sellListRecovery?.message ?? null}
       recoveryState={
