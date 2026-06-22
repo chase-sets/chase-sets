@@ -225,7 +225,7 @@ const handoffSummary: SellListConfirmationSummary = {
 
 describe("sell list checkout runtime readiness boundary", () => {
   it("rejects unresolved sale-action readiness before seller checkout can confirm", async () => {
-    const readiness = createSellListReadinessSnapshot([selectedOfferLine, productLine]);
+    const readiness = createSellListReadinessSnapshot([selectedOfferLine, productLine], null, sellerEvidence);
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSellListRuntime({
       eventStore,
@@ -252,9 +252,13 @@ describe("sell list checkout runtime readiness boundary", () => {
   });
 
   it("rejects stale sale-action readiness before emitting seller confirmation events", async () => {
-    const readiness = createSellListReadinessSnapshot([productLine], {
-      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
-    });
+    const readiness = createSellListReadinessSnapshot(
+      [productLine],
+      {
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+      },
+      sellerEvidence,
+    );
     const changedLine: CheckoutSellListLineRow = {
       ...productLine,
       updated_at: "2026-06-09T00:01:00.000Z",
@@ -278,6 +282,102 @@ describe("sell list checkout runtime readiness boundary", () => {
             lineActions: [{ lineId: "sll_product", action: "smart-match" }],
           },
           sellerEvidence,
+          handoffSummary,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Sell List readiness snapshot is stale.");
+
+    expect(allEvents).toEqual([]);
+  });
+
+  it("rejects selected-offer confirmation when seller evidence was missing from readiness", async () => {
+    const readiness = createSellListReadinessSnapshot([selectedOfferLine]);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([selectedOfferLine]) as never,
+    });
+    await seedSellListAggregate(services, [selectedOfferLine], allEvents);
+
+    await expect(
+      services.confirmSellListCheckout(
+        {
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_missing_seller_evidence",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sellerEvidence,
+          handoffSummary,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Sell List readiness snapshot is stale.");
+
+    expect(allEvents).toEqual([]);
+  });
+
+  it("rejects selected-offer confirmation when payout evidence is not ready", async () => {
+    const restrictedPayoutEvidence: SellListSellerConfirmationEvidence = {
+      ...sellerEvidence,
+      payout: {
+        ...sellerEvidence.payout,
+        readinessStatus: "restricted",
+      },
+    };
+    const readiness = createSellListReadinessSnapshot([selectedOfferLine], null, restrictedPayoutEvidence);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([selectedOfferLine]) as never,
+    });
+    await seedSellListAggregate(services, [selectedOfferLine], allEvents);
+
+    await expect(
+      services.confirmSellListCheckout(
+        {
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_restricted_payout",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sellerEvidence: restrictedPayoutEvidence,
+          handoffSummary,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Seller confirmation evidence must include payout readiness facts.");
+
+    expect(allEvents).toEqual([]);
+  });
+
+  it("rejects product-line confirmation when seller evidence changed after readiness", async () => {
+    const decisions = {
+      lineActions: [{ lineId: "sll_product", action: "smart-match" as const }],
+    };
+    const readiness = createSellListReadinessSnapshot([productLine], decisions, sellerEvidence);
+    const changedEvidence: SellListSellerConfirmationEvidence = {
+      ...sellerEvidence,
+      label: { status: "ready", preference: "seller-label-later" },
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([productLine]) as never,
+    });
+    await seedSellListAggregate(services, [productLine], allEvents);
+
+    await expect(
+      services.confirmSellListCheckout(
+        {
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_stale_seller_evidence",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          readinessDecisions: decisions,
+          sellerEvidence: changedEvidence,
           handoffSummary,
         },
         context,

@@ -113,13 +113,21 @@ export async function action({
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       await assertMarketplaceOfferTermsFresh(marketplaceApi, reviewedLines);
-      const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
       const confirmedAt = new Date().toISOString();
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
+      const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, sellerEvidence });
+      if (
+        sellerReadiness.readiness.status !== "ready" ||
+        sellerReadiness.readiness.unresolvedLineIds.length > 0 ||
+        sellerReadiness.readiness.sellerReadiness.status !== "ready"
+      ) {
+        throw new Error(t("checkout.routes.sellCheckoutSession.validation.readiness.recovery"));
+      }
+      const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
       const result = await api.confirmSellListCheckout({
         confirmationId,
-        readinessSnapshotId: state.readiness.snapshotId,
-        readinessSourceRevision: state.readiness.sourceRevision,
+        readinessSnapshotId: sellerReadiness.readiness.snapshotId,
+        readinessSourceRevision: sellerReadiness.readiness.sourceRevision,
         readinessDecisions,
         completedLineIds: marketplaceHandoff.completedLineIds,
         remainingLineQuantities: marketplaceHandoff.remainingLineQuantities,

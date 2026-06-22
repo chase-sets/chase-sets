@@ -6,6 +6,7 @@ import {
   validateSellListReadinessSnapshot,
   type SellListReadinessLine,
 } from "./readiness";
+import type { SellListSellerConfirmationEvidence } from "./domain";
 
 const selectedOfferLine: SellListReadinessLine = {
   seller_account_id: "acc_seller",
@@ -35,14 +36,47 @@ const productLine: SellListReadinessLine = {
   updated_at: "2026-06-09T00:00:00.000Z",
 };
 
+const sellerEvidence: SellListSellerConfirmationEvidence = {
+  shipFrom: {
+    status: "ready",
+    addressId: "adr_seller",
+    country: "US",
+    region: "KS",
+    postalCode: "67202",
+  },
+  payout: {
+    status: "ready",
+    method: "saved-payout",
+    readinessStatus: "ready",
+    lastCheckedAt: "2026-06-09T00:00:00.000Z",
+  },
+  label: {
+    status: "ready",
+    preference: "prepaid-label",
+  },
+  conditionReview: {
+    status: "accepted",
+    acceptedAt: "2026-06-09T00:00:00.000Z",
+  },
+  risk: { status: "clear" },
+  provider: { status: "ready" },
+  freshness: { status: "current" },
+};
+
 describe("sell list readiness snapshots", () => {
   it("marks selected offers with accepted offer facts ready for seller checkout", () => {
-    const snapshot = createSellListReadinessSnapshot([selectedOfferLine]);
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine], null, sellerEvidence);
 
     expect(snapshot).toMatchObject({
       schemaVersion: "checkout.sell-list-readiness.v1",
       source: "sell-list",
       status: "ready",
+      sellerReadiness: {
+        status: "ready",
+        payout: "ready",
+        shipFrom: "ready",
+        label: "ready",
+      },
       includedLineIds: ["sll_offer"],
       unresolvedLineIds: [],
       lineOutcomes: [
@@ -55,10 +89,11 @@ describe("sell list readiness snapshots", () => {
       ],
     });
     expect(snapshot.snapshotId).toMatch(/^slr_/);
+    expect(snapshot.sellerReadiness.evidenceRevision).toMatch(/^slr_/);
   });
 
   it("keeps product lines unresolved until the pre-checkout review chooses a sale action", () => {
-    const snapshot = createSellListReadinessSnapshot([selectedOfferLine, productLine]);
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine, productLine], null, sellerEvidence);
 
     expect(snapshot.status).toBe("needs-resolution");
     expect(snapshot.includedLineIds).toEqual(["sll_offer"]);
@@ -78,9 +113,13 @@ describe("sell list readiness snapshots", () => {
       fallback_mode: "create-listing",
       minimum_listing_price_amount: "19.99",
     };
-    const snapshot = createSellListReadinessSnapshot([productLine, fallbackLine], {
-      lineActions: [{ lineId: "sll_product", action: "smart-match" }],
-    });
+    const snapshot = createSellListReadinessSnapshot(
+      [productLine, fallbackLine],
+      {
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+      },
+      sellerEvidence,
+    );
 
     expect(snapshot.status).toBe("ready");
     expect(snapshot.includedLineIds).toEqual(["sll_fallback", "sll_product"]);
@@ -100,12 +139,16 @@ describe("sell list readiness snapshots", () => {
 
   it("keeps unresolved or intentionally skipped lines outside seller checkout", () => {
     const removedLine: SellListReadinessLine = { ...productLine, line_id: "sll_removed" };
-    const snapshot = createSellListReadinessSnapshot([selectedOfferLine, productLine, removedLine], {
-      lineOutcomes: [
-        { lineId: "sll_product", outcome: "keep-in-list" },
-        { lineId: "sll_removed", outcome: "removed" },
-      ],
-    });
+    const snapshot = createSellListReadinessSnapshot(
+      [selectedOfferLine, productLine, removedLine],
+      {
+        lineOutcomes: [
+          { lineId: "sll_product", outcome: "keep-in-list" },
+          { lineId: "sll_removed", outcome: "removed" },
+        ],
+      },
+      sellerEvidence,
+    );
 
     expect(snapshot.status).toBe("ready");
     expect(snapshot.includedLineIds).toEqual(["sll_offer"]);
@@ -113,6 +156,48 @@ describe("sell list readiness snapshots", () => {
     expect(applySellListReadinessToLines([selectedOfferLine, productLine, removedLine], snapshot)).toEqual([
       selectedOfferLine,
     ]);
+  });
+
+  it("records missing seller evidence as explicit blocked readiness", () => {
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.sellerReadiness).toMatchObject({
+      status: "blocked",
+      evidenceRevision: null,
+      payout: "blocked",
+      shipFrom: "blocked",
+      label: "blocked",
+    });
+    expect(snapshot.sellerReadiness.outcomes).toContainEqual({
+      dimension: "payout",
+      status: "blocked",
+      reason: "missing-seller-evidence",
+    });
+  });
+
+  it("blocks seller readiness when payout evidence is present but not ready", () => {
+    const restrictedPayoutEvidence: SellListSellerConfirmationEvidence = {
+      ...sellerEvidence,
+      payout: {
+        ...sellerEvidence.payout,
+        readinessStatus: "restricted",
+      },
+    };
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine], null, restrictedPayoutEvidence);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.sellerReadiness).toMatchObject({
+      status: "blocked",
+      payout: "blocked",
+      shipFrom: "ready",
+      label: "ready",
+    });
+    expect(snapshot.sellerReadiness.outcomes).toContainEqual({
+      dimension: "payout",
+      status: "blocked",
+      reason: "payout-not-ready",
+    });
   });
 
   it("parses sell-list readiness decisions without promoting malformed values", () => {
@@ -142,17 +227,37 @@ describe("sell list readiness snapshots", () => {
   });
 
   it("rejects stale sell-list readiness tokens when line facts change", () => {
-    const snapshot = createSellListReadinessSnapshot([selectedOfferLine]);
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine], null, sellerEvidence);
     const changedLine = { ...selectedOfferLine, quantity: 2 };
 
     expect(
       validateSellListReadinessSnapshot([changedLine], {
         snapshotId: snapshot.snapshotId,
         sourceRevision: snapshot.sourceRevision,
+        sellerEvidence,
       }),
     ).toMatchObject({
       valid: false,
       current: { status: "ready" },
+    });
+  });
+
+  it("rejects stale seller evidence tokens when seller evidence changes", () => {
+    const snapshot = createSellListReadinessSnapshot([selectedOfferLine], null, sellerEvidence);
+    const changedEvidence: SellListSellerConfirmationEvidence = {
+      ...sellerEvidence,
+      payout: { ...sellerEvidence.payout, lastCheckedAt: "2026-06-09T00:01:00.000Z" },
+    };
+
+    expect(
+      validateSellListReadinessSnapshot([selectedOfferLine], {
+        snapshotId: snapshot.snapshotId,
+        sourceRevision: snapshot.sourceRevision,
+        sellerEvidence: changedEvidence,
+      }),
+    ).toMatchObject({
+      valid: false,
+      current: { sellerReadiness: { status: "ready" } },
     });
   });
 });
