@@ -42,6 +42,20 @@ export type CatalogProviderOptionQueryTransports = Readonly<{
   listYamlYugiCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
 }>;
 
+export type CatalogProviderOptionQueryInvalidRequestCode =
+  | "catalog_provider_option_query_parent_required"
+  | "catalog_provider_option_query_invalid_parent_value";
+
+export class CatalogProviderOptionQueryInvalidRequestError extends Error {
+  readonly code: CatalogProviderOptionQueryInvalidRequestCode;
+
+  constructor(code: CatalogProviderOptionQueryInvalidRequestCode, message: string) {
+    super(message);
+    this.name = "CatalogProviderOptionQueryInvalidRequestError";
+    this.code = code;
+  }
+}
+
 export async function listCatalogProviderIntegrationOptionsFromProfiles(input: {
   profiles: readonly CatalogProviderIntegrationProfile[];
   providerKey: string;
@@ -81,7 +95,10 @@ export async function listCatalogProviderIntegrationOptionsFromProfiles(input: {
   }
 
   if (query.parentValue?.required && !parentValue) {
-    throw new Error(query.parentValue.diagnosticText);
+    throw new CatalogProviderOptionQueryInvalidRequestError(
+      "catalog_provider_option_query_parent_required",
+      query.parentValue.diagnosticText,
+    );
   }
 
   const records = await executeOptionQueryOperation({
@@ -121,20 +138,29 @@ async function executeOptionQueryOperation(input: {
   if (input.operation === "tcgplayer-list-set-names" && input.transports.listTcgplayerSetNames) {
     const productLineId = parsePositiveInteger(input.parentValue);
     if (productLineId === null) {
-      throw new Error("TCGplayer set-name option queries require a productLineId/categoryId parent value.");
+      throw new CatalogProviderOptionQueryInvalidRequestError(
+        "catalog_provider_option_query_invalid_parent_value",
+        "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+      );
     }
     return input.transports.listTcgplayerSetNames({ productLineId });
   }
   if (input.operation === "tcgplayer-list-products" && input.transports.listTcgplayerProducts) {
     if (!input.parentValue) {
-      throw new Error("TCGplayer product option queries require a set-name parent value.");
+      throw new CatalogProviderOptionQueryInvalidRequestError(
+        "catalog_provider_option_query_parent_required",
+        "TCGplayer product option queries require a set-name parent value.",
+      );
     }
     return input.transports.listTcgplayerProducts({ setName: input.parentValue });
   }
   if (input.operation === "tcgplayer-list-skus" && input.transports.listTcgplayerSkus) {
     const productId = parsePositiveInteger(input.parentValue);
     if (productId === null) {
-      throw new Error("TCGplayer SKU option queries require a Product parent value.");
+      throw new CatalogProviderOptionQueryInvalidRequestError(
+        "catalog_provider_option_query_invalid_parent_value",
+        "TCGplayer SKU option queries require a Product parent value.",
+      );
     }
     return input.transports.listTcgplayerSkus({ productId });
   }

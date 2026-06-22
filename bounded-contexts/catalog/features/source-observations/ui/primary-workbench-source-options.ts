@@ -909,7 +909,7 @@ function sourceOptionRefreshBlockers(
   }
   const pageBlocker = pages
     .flatMap((page) => page.blockers)
-    .find((blocker) => blocker !== "selection-empty" && blocker !== "provider-transport-stale-cache");
+    .find((blocker) => blocker !== "provider-transport-stale-cache");
   return pageBlocker ? [pageBlocker] : [];
 }
 

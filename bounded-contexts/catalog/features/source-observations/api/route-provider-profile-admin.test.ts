@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "./route";
 import { catalogProviderIntegrationProfileVersions } from "./provider-integration-profiles";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { CatalogProviderOptionQueryInvalidRequestError } from "./provider-option-query-resolver";
 import {
   buildApp,
   bulkJobFixture,
@@ -261,6 +262,43 @@ describe("source observation routes: integration discovery and profile administr
       queryKind: "set-names",
       languageCode: undefined,
       parentValue: "1",
+      cursor: undefined,
+      limit: null,
+      forceRefresh: false,
+      cacheOnly: true,
+    });
+  });
+
+  it("returns a client error when provider option queries require a missing parent value", async () => {
+    const queryIntegrationOptions = vi.fn(async () => {
+      throw new CatalogProviderOptionQueryInvalidRequestError(
+        "catalog_provider_option_query_parent_required",
+        "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+      );
+    });
+    const services = {
+      queryIntegrationOptions,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request(
+      "/source-observations/integration-options?provider=tcgplayer&kind=set-names&profileKey=yugioh-single-card-product-sku&ingestionUnitKey=tcgplayer:yugioh:single-card:source-observation-import&cacheOnly=true",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_provider_option_query_parent_required",
+        message: "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+      },
+    });
+    expect(queryIntegrationOptions).toHaveBeenCalledWith({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+      queryKind: "set-names",
+      languageCode: undefined,
+      parentValue: undefined,
       cursor: undefined,
       limit: null,
       forceRefresh: false,

@@ -5,7 +5,10 @@ import {
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
-import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
+import {
+  CatalogProviderOptionQueryInvalidRequestError,
+  listCatalogProviderIntegrationOptionsFromProfiles,
+} from "./provider-option-query-resolver";
 
 describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
   it("maps provider list options from profile config", async () => {
@@ -336,15 +339,24 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
       "Unsupported Catalog integration query 'unknown' for provider 'tcgplayer'. Supported queries: product-lines, set-names, products, skus.",
     );
 
-    await expect(
-      listCatalogProviderIntegrationOptionsFromProfiles({
+    let parentValidationError: unknown;
+    try {
+      await listCatalogProviderIntegrationOptionsFromProfiles({
         profiles: [tcgplayerAutomationClientProviderProfile],
         providerKey: "tcgplayer",
         queryKind: "set-names",
         defaultProviderKey: "tcgdex",
         transports: {},
-      }),
-    ).rejects.toThrow("TCGplayer set-name option queries require a productLineId/categoryId parent value.");
+      });
+    } catch (error) {
+      parentValidationError = error;
+    }
+    expect(parentValidationError).toBeInstanceOf(CatalogProviderOptionQueryInvalidRequestError);
+    expect(parentValidationError).toMatchObject({
+      name: "CatalogProviderOptionQueryInvalidRequestError",
+      code: "catalog_provider_option_query_parent_required",
+      message: "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+    });
   });
 
   it("can add a Scrydex-style option query without runtime provider branching", async () => {

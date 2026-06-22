@@ -603,6 +603,85 @@ describe("Catalog primary workbench source options", () => {
     expect(setNamesHref.searchParams.has("parentValue")).toBe(false);
   });
 
+  it("blocks global option refresh while a required TCGplayer parent scope is missing", () => {
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const mtgProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: mtgUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["yugioh/single-card"],
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:yugioh:single-card:source-observation-import&profileVersion=2026.06.20&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh-all";
+    const shellReadModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [mtgProfile, yugiohProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      routeContext: shellReadModel.routeContext,
+      scopes: [],
+      profiles: [mtgProfile, yugiohProfile],
+      cacheOnly: true,
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [mtgProfile, yugiohProfile], total: 2, count: 2 },
+      sourceOptionPages: requests.map((request) =>
+        request.queryKind === "product-lines"
+          ? {
+              request,
+              response: optionResponse(request, "fresh", "live", [
+                {
+                  value: "2",
+                  label: "Yu-Gi-Oh!",
+                  parentValue: null,
+                  metadata: { productLineId: "2" },
+                },
+              ]),
+            }
+          : { request },
+      ),
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
+      state: "live",
+      items: [expect.objectContaining({ value: "2", label: "Yu-Gi-Oh!" })],
+    });
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+      state: "not-requested",
+      blockers: ["selection-empty"],
+      request: expect.objectContaining({ parentValue: null }),
+    });
+    expect(readModel.sourceOptions.refresh).toMatchObject({
+      state: "disabled",
+      blockers: ["selection-empty"],
+      refreshAllHref: null,
+    });
+  });
+
   it("does not infer stale provider scope into clean TCGplayer unit source-option routes", () => {
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";

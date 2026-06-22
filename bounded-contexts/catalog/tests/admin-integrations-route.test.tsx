@@ -729,6 +729,9 @@ describe("Catalog integrations route", () => {
     const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
     const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
       const params = new URLSearchParams(query);
+      if (params.get("queryKind") !== "product-lines") {
+        throw new Error(`Unexpected source option query ${params.get("queryKind") ?? "unknown"}.`);
+      }
       return sourceOptionResponse(params.get("queryKind") ?? "product-lines", {
         status: "fresh",
         source: "live",
@@ -1116,7 +1119,7 @@ describe("Catalog integrations route", () => {
     expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
   });
 
-  it("drops stale legacy Pokemon scope before a TCGplayer Yu-Gi-Oh refresh-all with live option controls", async () => {
+  it("drops stale legacy Pokemon scope before a TCGplayer Yu-Gi-Oh refresh-all with missing parent controls", async () => {
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
     const yugiohProfile = profileReview({
       providerKey: "tcgplayer",
@@ -1170,6 +1173,9 @@ describe("Catalog integrations route", () => {
     const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
     const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
       const params = new URLSearchParams(query);
+      if (params.get("queryKind") !== "product-lines") {
+        throw new Error(`Unexpected source option query ${params.get("queryKind") ?? "unknown"}.`);
+      }
       return sourceOptionResponse(params.get("queryKind") ?? "product-lines", {
         status: "fresh",
         source: "live",
@@ -1218,11 +1224,87 @@ describe("Catalog integrations route", () => {
       state: "live",
       items: [expect.objectContaining({ label: "Yu-Gi-Oh!" })],
     });
-    const refreshAllHref = new URL(deferredSourceOptions.refresh.refreshAllHref ?? "", "https://admin.example");
-    expect(refreshAllHref.searchParams.get("profileKey")).toBe("yugioh-single-card-product-sku");
-    expect(refreshAllHref.searchParams.get("ingestionUnitKey")).toBe(yugiohUnit);
-    expect(refreshAllHref.searchParams.has("importScope")).toBe(false);
-    expect(refreshAllHref.searchParams.has("filter.importScope")).toBe(false);
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+      state: "not-requested",
+      blockers: ["selection-empty"],
+      request: expect.objectContaining({ parentValue: null }),
+    });
+    expect(deferredSourceOptions.refresh).toMatchObject({
+      state: "disabled",
+      blockers: ["selection-empty"],
+      refreshAllHref: null,
+    });
+  });
+
+  it("resolves a TCGplayer Yu-Gi-Oh refresh-all route without a selected product line", async () => {
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const yugiohProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: yugiohUnit,
+      displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+      lifecycle: "active",
+      active: true,
+      status: "active",
+      supportedScopes: ["yugioh/single-card"],
+    });
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      if (params.get("queryKind") !== "product-lines") {
+        throw new Error(`Unexpected source option query ${params.get("queryKind") ?? "unknown"}.`);
+      }
+      return sourceOptionResponse(params.get("queryKind") ?? "product-lines", {
+        status: "fresh",
+        source: "live",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+        value: "2",
+        label: "Yu-Gi-Oh!",
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [yugiohProfile], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Ayugioh%3Asingle-card%3Asource-observation-import&profileVersion=2026.06.20&filter.providerKey=tcgplayer&sourceOptionAction=force-refresh-all",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.unitKey).toBe(yugiohUnit);
+    expect(routeData.readModel.routeContext.importScope).toBeNull();
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "tcgplayer" });
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(1);
+    const optionQuery = new URLSearchParams(listSourceObservationIntegrationOptions.mock.calls[0]?.[0] ?? "");
+    expect(optionQuery.get("queryKind")).toBe("product-lines");
+    expect(optionQuery.get("forceRefresh")).toBe("true");
+    expect(optionQuery.get("profileKey")).toBe("yugioh-single-card-product-sku");
+    expect(optionQuery.get("ingestionUnitKey")).toBe(yugiohUnit);
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "product-lines")).toMatchObject({
+      state: "live",
+      items: [expect.objectContaining({ label: "Yu-Gi-Oh!" })],
+    });
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "set-names")).toMatchObject({
+      state: "not-requested",
+      blockers: ["selection-empty"],
+      request: expect.objectContaining({ parentValue: null }),
+    });
+    expect(deferredSourceOptions.refresh).toMatchObject({
+      state: "disabled",
+      blockers: ["selection-empty"],
+      refreshAllHref: null,
+    });
   });
 
   it("loads provider-only TCGplayer retries without ambiguous option queries", async () => {
