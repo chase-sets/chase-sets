@@ -143,18 +143,21 @@ async function signInThroughVisibleForm(page: Page): Promise<void> {
       return;
     }
 
-    const passwordChoice = page.getByText(/^Password$/).first();
-    if (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await passwordChoice.click();
-      continue;
-    }
-
-    const passwordInput = page.locator('input[type="password"]').first();
+    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
     if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await passwordInput.fill(catalogAdminPassword);
       await page.getByRole("button", { name: /^sign in$/i }).click();
       await expectImporterVisible(page);
       return;
+    }
+
+    const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
+    if (
+      (await passwordChoice.isVisible({ timeout: 1_000 }).catch(() => false)) &&
+      !(await passwordChoice.isChecked().catch(() => false))
+    ) {
+      await passwordChoice.click();
+      continue;
     }
 
     const emailInput = page.getByRole("textbox", { name: /email|phone/i });
