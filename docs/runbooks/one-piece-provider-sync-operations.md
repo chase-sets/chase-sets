@@ -139,6 +139,27 @@ The #2285 staging UAT must include:
   imports-disabled, promotion-disabled, reapply-disabled, and cache-only option
   query states.
 
+Record the proof as an interface-only packet with these sections:
+
+- One Piece scope: provider key, unit key, profile version, source scope summary
+  with source-specific identifiers redacted, readiness states, import job id,
+  Source Observation counts, promotion preview/result counts, and read-model
+  visibility.
+- Scrydex usage summary: data class `provider-usage-summary`, estimated request
+  count or `estimate-unavailable`, actual request count, page count, cache hit
+  count, cache miss count, usage-check state, credit state, bulk-first
+  confirmation or redacted per-record fallback reason, and redacted diagnostics.
+- Regression scopes: one Pokemon scope and one MTG scope exercised through the
+  same Admin interface controls, with provider key, unit key, profile version,
+  import state, Source Observation counts, and promotion preview/result counts.
+- Rollout controls: operator-visible proof that only the intended One Piece
+  provider/unit is blocked or opened, including the shared TCGplayer regression
+  that Pokemon and MTG units remain governed independently.
+
+The packet must not include Scrydex API keys, team ids, account identifiers,
+raw usage responses, full provider URLs, provider-controlled labels, raw
+provider payloads, provider imagery, or screenshots that expose those values.
+
 ## Related Docs
 
 - [Catalog Integration One Piece Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md)

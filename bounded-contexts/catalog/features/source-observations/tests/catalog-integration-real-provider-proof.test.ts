@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertCatalogRedactedProviderUsageProofSummaryIsSafe,
   assertCatalogRealProviderProofPacketIsRedactionSafe,
   catalogRealProviderProofSchemaVersion,
   runCatalogTcgdexRealProviderProof,
+  type CatalogRedactedProviderUsageProofSummary,
   type CatalogRealProviderProofPacket,
 } from "./catalog-integration-real-provider-proof";
 import { getActiveCatalogProviderIntegrationProfileVersion } from "../api/provider-integration-profiles";
@@ -184,6 +186,77 @@ describe("Catalog real-provider proof", () => {
         },
       } as unknown as CatalogRealProviderProofPacket),
     ).toThrow("Real-provider proof evidence must not retain retired control-plane surfaces.");
+  });
+
+  it("accepts Scrydex request counts only as a redacted provider usage summary", () => {
+    const summary: CatalogRedactedProviderUsageProofSummary = {
+      dataClass: "provider-usage-summary",
+      providerKey: "scrydex",
+      unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      sourceScopeRedacted: true,
+      estimatedRequestCount: 3,
+      actualRequestCount: 2,
+      pageCount: 2,
+      cacheHitCount: 1,
+      cacheMissCount: 1,
+      usageCheckState: "passed",
+      creditState: "available",
+      bulkFirstConfirmed: true,
+      perRecordFallbackReasonRedacted: null,
+      diagnosticsRedacted: true,
+      rawProviderUsageRetained: false,
+      accountOrTeamIdentifiersRetained: false,
+      fullProviderUrlsRetained: false,
+    };
+
+    expect(() => assertCatalogRedactedProviderUsageProofSummaryIsSafe(summary)).not.toThrow();
+  });
+
+  it("fails closed when Scrydex usage evidence retains unsafe provider details", () => {
+    const summary: CatalogRedactedProviderUsageProofSummary = {
+      dataClass: "provider-usage-summary",
+      providerKey: "scrydex",
+      unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      sourceScopeRedacted: true,
+      estimatedRequestCount: "estimate-unavailable",
+      actualRequestCount: 2,
+      pageCount: 2,
+      cacheHitCount: 0,
+      cacheMissCount: 2,
+      usageCheckState: "degraded",
+      creditState: "unknown",
+      bulkFirstConfirmed: false,
+      perRecordFallbackReasonRedacted: "fallback reason retained as redacted operator summary",
+      diagnosticsRedacted: true,
+      rawProviderUsageRetained: false,
+      accountOrTeamIdentifiersRetained: false,
+      fullProviderUrlsRetained: false,
+    };
+
+    expect(() =>
+      assertCatalogRedactedProviderUsageProofSummaryIsSafe({
+        ...summary,
+        accountOrTeamIdentifiersRetained: true,
+      } as unknown as CatalogRedactedProviderUsageProofSummary),
+    ).toThrow("Provider usage proof must not retain account or team identifiers.");
+    expect(() =>
+      assertCatalogRedactedProviderUsageProofSummaryIsSafe({
+        ...summary,
+        rawProviderUsageRetained: true,
+      } as unknown as CatalogRedactedProviderUsageProofSummary),
+    ).toThrow("Provider usage proof must not retain raw provider usage responses.");
+    expect(() =>
+      assertCatalogRedactedProviderUsageProofSummaryIsSafe({
+        ...summary,
+        estimatedRequestCount: -1,
+      }),
+    ).toThrow("Provider usage proof estimated request count must be a non-negative integer or unavailable.");
+    expect(() =>
+      assertCatalogRedactedProviderUsageProofSummaryIsSafe({
+        ...summary,
+        cacheMissCount: -1,
+      }),
+    ).toThrow("Provider usage proof cache miss count must be a non-negative integer.");
   });
 });
 

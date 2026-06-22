@@ -1,4 +1,5 @@
 import type { CatalogProviderProfileLifecycle } from "./provider-integration-mapping-contract";
+import { CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV } from "./catalog-integration-data-governance";
 
 export type CatalogIntegrationRolloutControlId =
   | "control-plane-read-only"
@@ -12,6 +13,7 @@ export type CatalogIntegrationRolloutControlId =
   | "activation-disabled"
   | "activation-test-profiles-only"
   | "magic-production-signoff-required"
+  | "one-piece-production-signoff-required"
   | "rollback-ready-release-mode"
   | "worker-processing-disabled"
   | "worker-lane-limited"
@@ -74,6 +76,7 @@ export type CatalogIntegrationRolloutControlConfig = Readonly<{
   disabledReapply?: readonly string[] | "all" | null;
   activationMode?: "open" | "disabled" | "test-profiles-only" | null;
   magicProductionSignoffReference?: string | null;
+  onePieceProductionSignoffReference?: string | null;
   workerMode?: "open" | "disabled" | "lane-limited" | null;
 }>;
 
@@ -106,10 +109,19 @@ const ACTIVATION_TEST_PROFILES_ONLY_MESSAGE = "Catalog provider profile activati
 const ACTIVATION_OPEN_MESSAGE = "Catalog provider profile activation is open.";
 const MAGIC_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
   "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.";
+const ONE_PIECE_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
+  "One Piece production sync requires recorded provider-data signoff, redacted provider usage evidence, and interface-only staging UAT evidence.";
 const WORKER_PROCESSING_DISABLED_MESSAGE = "Catalog integration worker job processing is disabled.";
 const WORKER_LANE_LIMITED_MESSAGE = "Catalog integration worker job processing is lane-limited.";
 const WORKER_PROCESSING_OPEN_MESSAGE = "Catalog integration worker job processing is open.";
 const MAGIC_PRODUCTION_PROVIDER_KEYS = ["mtgjson", "scryfall", "tcgplayer"] as const;
+const ONE_PIECE_PRODUCTION_PROVIDER_KEYS = ["scrydex", "tcgplayer"] as const;
+const ONE_PIECE_PRODUCTION_UNIT_KEYS = [
+  "scrydex:one-piece:single-card:source-observation-import",
+  "scrydex:one-piece:sealed-product:source-observation-import",
+  "tcgplayer:one-piece:single-card:source-observation-import",
+  "tcgplayer:one-piece:sealed-product:source-observation-import",
+] as const;
 
 export function createCatalogIntegrationRolloutControlPolicy(
   config: CatalogIntegrationRolloutControlConfig = {},
@@ -152,8 +164,11 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
     activationMode: defaultWhenEnvUnset(activationMode, productionLike ? "test-profiles-only" : null),
     ...(productionLike
       ? {
-          magicProductionSignoffReference: normalizeMagicProductionSignoffReference(
+          magicProductionSignoffReference: normalizeProductionSignoffReference(
             env.CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE,
+          ),
+          onePieceProductionSignoffReference: normalizeProductionSignoffReference(
+            env[CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV],
           ),
         }
       : {}),
@@ -221,6 +236,7 @@ function buildCatalogIntegrationRolloutControlSnapshot(
     ),
     activationControl(config.activationMode ?? "open"),
     magicProductionSignoffControl(config),
+    onePieceProductionSignoffControl(config),
     workerControl(config.workerMode ?? "open"),
   ].filter((item): item is CatalogIntegrationRolloutControl => Boolean(item));
 
@@ -401,7 +417,7 @@ function magicProductionSignoffControl(config: CatalogIntegrationRolloutControlC
     return null;
   }
 
-  const reference = normalizeMagicProductionSignoffReference(config.magicProductionSignoffReference);
+  const reference = normalizeProductionSignoffReference(config.magicProductionSignoffReference);
   return control({
     controlId: "magic-production-signoff-required",
     status: reference ? "open" : "blocked",
@@ -411,6 +427,25 @@ function magicProductionSignoffControl(config: CatalogIntegrationRolloutControlC
     message: reference
       ? `Magic production signoff reference recorded: ${reference}.`
       : MAGIC_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+  });
+}
+
+function onePieceProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
+  if (!Object.prototype.hasOwnProperty.call(config, "onePieceProductionSignoffReference")) {
+    return null;
+  }
+
+  const reference = normalizeProductionSignoffReference(config.onePieceProductionSignoffReference);
+  return control({
+    controlId: "one-piece-production-signoff-required",
+    status: reference ? "open" : "blocked",
+    severity: reference ? "info" : "error",
+    capabilities: ["import", "promotion", "reapply", "activation"],
+    providerKeys: ONE_PIECE_PRODUCTION_PROVIDER_KEYS,
+    unitKeys: ONE_PIECE_PRODUCTION_UNIT_KEYS,
+    message: reference
+      ? `One Piece production signoff reference recorded: ${reference}.`
+      : ONE_PIECE_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
   });
 }
 
@@ -568,7 +603,7 @@ function isProductionLikeCatalogIntegrationEnvironment(env: NodeJS.ProcessEnv): 
   return env.NODE_ENV?.trim().toLowerCase() === "production";
 }
 
-function normalizeMagicProductionSignoffReference(value: string | null | undefined): string | null {
+function normalizeProductionSignoffReference(value: string | null | undefined): string | null {
   const reference = value?.trim();
   if (!reference) {
     return null;
