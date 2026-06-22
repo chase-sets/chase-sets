@@ -1049,7 +1049,25 @@ describe("Catalog integrations route", () => {
     });
   });
 
-  it("drops stale legacy Pokemon scope before a TCGplayer Yu-Gi-Oh refresh-all when the option profile is unavailable", async () => {
+  it("drops stale legacy Pokemon scope before a TCGplayer Yu-Gi-Oh refresh-all when the option profile has no option kinds", async () => {
+    const yugiohProfileWithoutOptionKinds = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "yugioh-single-card-product-sku",
+      profileVersion: "2026.06.20",
+      ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+      displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+      lifecycle: "active",
+      active: true,
+      status: "active",
+      connectorKind: "tcgplayer-automation-client",
+      profile: {
+        providerKey: "tcgplayer",
+        supportedScopes: ["product-line/category", "set-name"],
+      },
+      supportedScopes: ["product-line/category", "set-name"],
+      languageOptions: ["en"],
+      sourceOptionKinds: [],
+    });
     const stalePokemonScope = sourceObservationScope({
       provider_key: "tcgplayer",
       language_code: "ja",
@@ -1066,7 +1084,9 @@ describe("Catalog integrations route", () => {
       listSourceObservationIntegrationScopes: vi
         .fn()
         .mockResolvedValue({ items: [stalePokemonScope], total: 1, count: 1 }),
-      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [yugiohProfileWithoutOptionKinds], total: 1, count: 1 }),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations,
       listSourceObservationIntegrationOptions,
