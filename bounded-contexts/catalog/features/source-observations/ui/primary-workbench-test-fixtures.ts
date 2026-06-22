@@ -376,6 +376,7 @@ export function controlPlaneOverview(
             diagnosticCodes: [],
             message: null,
           },
+          usageBudget: null,
           diagnostics: [],
         },
       ],

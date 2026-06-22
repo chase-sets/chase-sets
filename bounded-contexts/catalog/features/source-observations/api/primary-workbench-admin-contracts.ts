@@ -647,6 +647,14 @@ export type CatalogPrimaryWorkbenchHealthTriageProvider = Readonly<{
   optionQueryHealth: string;
   rateLimitStatus: string;
   payloadAcquisition: string;
+  usageBudget: Readonly<{
+    creditBalance: number | null;
+    creditUnit: string | null;
+    readiness: "ready" | "degraded" | "blocked" | "unknown";
+    estimatedCalls: number | null;
+    estimatedScope: string | null;
+    refreshedAt: string | null;
+  }> | null;
   diagnosticCodes: readonly string[];
   latestDiagnosticText: string | null;
   ownerMetricKey: string;

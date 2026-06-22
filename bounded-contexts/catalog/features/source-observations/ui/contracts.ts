@@ -286,7 +286,17 @@ export interface CatalogIntegrationProviderReadiness {
   optionQueryHealth: CatalogIntegrationProviderCapabilityStatus;
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
+  usageBudget: CatalogIntegrationProviderUsageBudget | null;
   diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
+}
+
+export interface CatalogIntegrationProviderUsageBudget {
+  creditBalance: number | null;
+  creditUnit: string | null;
+  readiness: "ready" | "degraded" | "blocked" | "unknown";
+  estimatedCalls: number | null;
+  estimatedScope: string | null;
+  refreshedAt: string | null;
 }
 
 export interface CatalogIntegrationProviderCapabilityStatus {
