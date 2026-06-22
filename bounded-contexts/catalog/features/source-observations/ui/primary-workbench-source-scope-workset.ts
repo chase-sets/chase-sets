@@ -235,12 +235,24 @@ function candidateIsRelevantToSelection(
   if (!selectedScope.hasConcreteScope) {
     return routeContext.providerKey ? candidate.providerKey === routeContext.providerKey : true;
   }
-  if (routeContext.providerKey === candidate.providerKey || routeContext.unitKey === candidate.unitKey) {
+  if (routeContext.unitKey === candidate.unitKey) {
     return true;
   }
-  const providerScopes = scopes.filter((scope) => scope.provider_key === candidate.providerKey);
+  const selectedScopeMatchesCandidate =
+    selectedScopeMatchesCandidateProfile(candidate, selectedScope.scope) &&
+    sourceScopeMatchesCandidateProductDomain(candidate, selectedScope.scope);
+  if (routeContext.providerKey === candidate.providerKey && selectedScopeMatchesCandidate) {
+    return true;
+  }
+  const providerScopes = scopes.filter(
+    (scope) =>
+      scope.provider_key === candidate.providerKey && providerScopeMatchesCandidateProductDomain(candidate, scope),
+  );
   if (providerScopes.some((scope) => providerScopeMatchesSelectedScope(selectedScope.scope, scope))) {
     return true;
+  }
+  if (!sourceScopeMatchesCandidateProductDomain(candidate, selectedScope.scope)) {
+    return false;
   }
 
   return candidateProfileMatchesSelectedScope(candidate, selectedScope.scope);
@@ -253,7 +265,9 @@ function sourceScopeUnitRow(
 ): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["units"][number] {
   const matchingScopes = input.scopes.filter(
     (scope) =>
-      scope.provider_key === candidate.providerKey && providerScopeMatchesSelectedScope(selectedScope.scope, scope),
+      scope.provider_key === candidate.providerKey &&
+      providerScopeMatchesCandidateProductDomain(candidate, scope) &&
+      providerScopeMatchesSelectedScope(selectedScope.scope, scope),
   );
   const routeScope = providerCommandScope(candidate, selectedScope.scope, matchingScopes[0] ?? null);
   const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
@@ -369,7 +383,9 @@ function providerCommandScope(
     ? scopeContextFromProviderScope(matchingScope)
     : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
   const selectedScopeMatchesCandidate =
-    selectedScope.providerKey === candidate.providerKey && profileCanSelectScope(candidate.profile, selectedScope);
+    selectedScope.providerKey === candidate.providerKey &&
+    selectedScopeMatchesCandidateProfile(candidate, selectedScope) &&
+    sourceScopeMatchesCandidateProductDomain(candidate, selectedScope);
   const canProjectSelectedScope = selectedScopeMatchesCandidate || Boolean(matchingScope);
   const preferProviderScope = Boolean(matchingScope) && !selectedScopeMatchesCandidate;
 
@@ -410,6 +426,86 @@ function providerCommandScope(
     ),
     status: canProjectSelectedScope ? (selectedScope.status ?? null) : null,
   };
+}
+
+function selectedScopeMatchesCandidateProfile(
+  candidate: SourceScopeCandidate,
+  selectedScope: CatalogPrimaryWorkbenchScopeContext,
+): boolean {
+  return profileCanSelectScope(candidate.profile, selectedScope);
+}
+
+function providerScopeMatchesCandidateProductDomain(
+  candidate: SourceScopeCandidate,
+  scope: SourceObservationIntegrationScope,
+): boolean {
+  return sourceScopeMatchesCandidateProductDomain(candidate, scopeContextFromProviderScope(scope));
+}
+
+function sourceScopeMatchesCandidateProductDomain(
+  candidate: SourceScopeCandidate,
+  scope: CatalogPrimaryWorkbenchScopeContext,
+): boolean {
+  const selectedDomain = productDomainFromScope(scope);
+  const candidateDomain = normalizeProductDomain(candidate.productDomain);
+  if (!selectedDomain || !candidateDomain) {
+    return true;
+  }
+
+  return selectedDomain === candidateDomain;
+}
+
+function productDomainFromScope(scope: CatalogPrimaryWorkbenchScopeContext): string | null {
+  return (
+    tcgplayerProductLineDomain(scope.productLineId) ??
+    productDomainFromProductLineName(scope.productLineName) ??
+    productDomainFromProductLineId(scope.productLineId)
+  );
+}
+
+function tcgplayerProductLineDomain(productLineId: string | null): string | null {
+  switch (productLineId?.trim()) {
+    case "1":
+      return "mtg";
+    case "2":
+      return "yugioh";
+    case "3":
+      return "pokemon";
+    default:
+      return null;
+  }
+}
+
+function productDomainFromProductLineName(productLineName: string | null): string | null {
+  const normalized = normalizeProductDomain(productLineName);
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes("pokemon")) {
+    return "pokemon";
+  }
+  if (normalized.includes("magic") || normalized.includes("mtg")) {
+    return "mtg";
+  }
+  if (normalized.includes("yugioh")) {
+    return "yugioh";
+  }
+
+  return null;
+}
+
+function productDomainFromProductLineId(productLineId: string | null): string | null {
+  const normalized = normalizeProductDomain(productLineId);
+  if (!normalized || /^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  return productDomainFromProductLineName(normalized) ?? normalized;
+}
+
+function normalizeProductDomain(value: string | null | undefined): string | null {
+  const normalized = value?.toLowerCase().replace(/[^a-z0-9]+/g, "") ?? "";
+  return normalized || null;
 }
 
 function scopedValue(selected: string | null, provider: string | null, preferProviderScope: boolean): string | null {
