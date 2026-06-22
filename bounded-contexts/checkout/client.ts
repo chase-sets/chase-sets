@@ -407,13 +407,13 @@ export function createCheckoutApiClient({
       );
     },
     async createSellListReadiness(
-      body: SellListReadinessDecisionInput = {},
+      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
     },
     async createGuestSellListReadiness(
       anonymousSellListId: string,
-      body: SellListReadinessDecisionInput = {},
+      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest["sell-list"].readiness.$post({

@@ -2,10 +2,32 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
+import type { SellListReadinessSnapshot } from "../domain/readiness";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
+
+const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
+  status: "ready",
+  evidenceRevision: "slr_seller_evidence",
+  payout: "ready",
+  shipFrom: "ready",
+  label: "ready",
+  conditionReview: "ready",
+  risk: "ready",
+  provider: "ready",
+  freshness: "ready",
+  outcomes: [
+    { dimension: "ship-from", status: "ready", reason: "ready" },
+    { dimension: "payout", status: "ready", reason: "ready" },
+    { dimension: "label", status: "ready", reason: "ready" },
+    { dimension: "condition-review", status: "ready", reason: "ready" },
+    { dimension: "risk", status: "ready", reason: "ready" },
+    { dimension: "provider", status: "ready", reason: "ready" },
+    { dimension: "freshness", status: "ready", reason: "ready" },
+  ],
+};
 
 function buildApp(
   options: Readonly<{
@@ -63,11 +85,7 @@ function createServices(): CheckoutSellListServices {
       includedLineIds: ["sll_1"],
       unresolvedLineIds: [],
       lineOutcomes: [{ lineId: "sll_1", outcome: "checkout", reason: "ready", action: "selected-offer" }],
-      sellerReadiness: {
-        payout: "not-evaluated",
-        shipFrom: "not-evaluated",
-        label: "not-evaluated",
-      },
+      sellerReadiness: readySellerReadiness,
       customerSafeFacts: ["Ready for seller checkout."],
     })),
     listLines: vi.fn(async () => []),
@@ -325,6 +343,7 @@ describe("checkout sell list routes", () => {
         lineActions: [{ lineId: "sll_1", action: "smart-match" }],
         lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
       },
+      sellerEvidence: null,
     });
   });
 
@@ -731,6 +750,7 @@ describe("checkout sell list routes", () => {
         lineActions: [],
         lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
       },
+      sellerEvidence: null,
     });
   });
 

@@ -199,7 +199,7 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
   const shipFromPostalCode = stringValue(shipFrom.postalCode);
   const payoutReadinessStatus = stringValue(payout.readinessStatus);
   const acceptedAt = stringValue(conditionReview.acceptedAt);
-  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || !payoutReadinessStatus || !acceptedAt) {
+  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || payoutReadinessStatus !== "ready" || !acceptedAt) {
     return null;
   }
 
@@ -346,6 +346,7 @@ export function createAccountSellListRoutes(
     const snapshot = await services.createReadinessSnapshot({
       sellerAccountId: access.actor.accountId,
       decisions: parseSellListReadinessDecisionInput(body),
+      sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
     });
 
     return c.json({ readiness: snapshot });
@@ -565,6 +566,7 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
     const snapshot = await services.createReadinessSnapshot({
       sellerAccountId: ownerId,
       decisions: parseSellListReadinessDecisionInput(body),
+      sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
     });
 
     return c.json({ readiness: snapshot });

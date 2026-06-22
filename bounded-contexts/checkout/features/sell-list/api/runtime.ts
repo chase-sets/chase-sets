@@ -76,7 +76,7 @@ function assertSellerEvidenceReady(evidence: SellListSellerConfirmationEvidence)
   if (!evidence.shipFrom.country || !evidence.shipFrom.region || !evidence.shipFrom.postalCode) {
     throw new CheckoutDomainError("Seller confirmation evidence must include ship-from serviceability facts.");
   }
-  if (!evidence.payout.readinessStatus) {
+  if (evidence.payout.readinessStatus !== "ready") {
     throw new CheckoutDomainError("Seller confirmation evidence must include payout readiness facts.");
   }
   if (!evidence.conditionReview.acceptedAt) {
@@ -183,6 +183,7 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{
       sellerAccountId: string;
       decisions?: SellListReadinessDecisionInput | null;
+      sellerEvidence?: SellListSellerConfirmationEvidence | null;
     }>,
   ) => Promise<SellListReadinessSnapshot>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
@@ -379,9 +380,15 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         snapshotId: params.readinessSnapshotId,
         sourceRevision: params.readinessSourceRevision,
         decisions: params.readinessDecisions,
+        sellerEvidence: params.sellerEvidence,
       });
       if (!readiness.valid) {
         throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+      }
+      if (readiness.current.sellerReadiness.status !== "ready") {
+        throw new CheckoutDomainError(
+          "Seller confirmation evidence must be ready before Sell List checkout can confirm.",
+        );
       }
       if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
         throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
@@ -502,7 +509,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     },
     createReadinessSnapshot: async (params) => {
       const lines = await listCanonicalSellListLines(params.sellerAccountId);
-      return createSellListReadinessSnapshot(lines, params.decisions);
+      return createSellListReadinessSnapshot(lines, params.decisions, params.sellerEvidence);
     },
     listLines: (sellerAccountId) => listCanonicalSellListLines(sellerAccountId),
     projectors: [sellListProjector],

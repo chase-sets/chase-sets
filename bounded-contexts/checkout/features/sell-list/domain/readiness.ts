@@ -1,4 +1,5 @@
 import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
+import type { SellListSellerConfirmationEvidence } from "./domain";
 
 export type SellListReadinessLine = Readonly<{
   seller_account_id: string;
@@ -16,6 +17,24 @@ export type SellListReadinessLine = Readonly<{
 
 export type SellListReadinessLineOutcome = "checkout" | "keep-in-list" | "removed";
 export type SellListReadinessLineAction = "selected-offer" | "smart-match" | "fallback-listing";
+export type SellListSellerReadinessDimension =
+  | "ship-from"
+  | "payout"
+  | "label"
+  | "condition-review"
+  | "risk"
+  | "provider"
+  | "freshness";
+export type SellListSellerReadinessReason =
+  | "ready"
+  | "missing-seller-evidence"
+  | "ship-from-not-ready"
+  | "payout-not-ready"
+  | "label-not-ready"
+  | "condition-review-not-accepted"
+  | "risk-not-clear"
+  | "provider-not-ready"
+  | "seller-evidence-stale";
 
 export type SellListReadinessDecisionInput = Readonly<{
   lineOutcomes?: readonly Readonly<{
@@ -44,9 +63,20 @@ export type SellListReadinessSnapshot = Readonly<{
     action: SellListReadinessLineAction | null;
   }>[];
   sellerReadiness: Readonly<{
-    payout: "not-evaluated" | "ready" | "blocked";
-    shipFrom: "not-evaluated" | "ready" | "blocked";
-    label: "not-evaluated" | "ready" | "blocked";
+    status: "ready" | "blocked";
+    evidenceRevision: string | null;
+    payout: "ready" | "blocked";
+    shipFrom: "ready" | "blocked";
+    label: "ready" | "blocked";
+    conditionReview: "ready" | "blocked";
+    risk: "ready" | "blocked";
+    provider: "ready" | "blocked";
+    freshness: "ready" | "blocked";
+    outcomes: readonly Readonly<{
+      dimension: SellListSellerReadinessDimension;
+      status: "ready" | "blocked";
+      reason: SellListSellerReadinessReason;
+    }>[];
   }>;
   customerSafeFacts: readonly string[];
 }>;
@@ -83,6 +113,107 @@ function stableHash(value: unknown) {
     hash = Math.imul(hash, 16777619);
   }
   return `slr_${(hash >>> 0).toString(36)}`;
+}
+
+function sellerEvidenceRevisionFor(evidence: SellListSellerConfirmationEvidence) {
+  return stableHash({
+    shipFrom: evidence.shipFrom,
+    payout: evidence.payout,
+    label: evidence.label,
+    conditionReview: evidence.conditionReview,
+    risk: evidence.risk,
+    provider: evidence.provider,
+    freshness: evidence.freshness,
+  });
+}
+
+function sellerOutcome(
+  dimension: SellListSellerReadinessDimension,
+  ready: boolean,
+  blockedReason: SellListSellerReadinessReason,
+) {
+  return {
+    dimension,
+    status: ready ? "ready" : "blocked",
+    reason: ready ? "ready" : blockedReason,
+  } as const;
+}
+
+function createMissingSellerReadiness() {
+  const dimensions: readonly SellListSellerReadinessDimension[] = [
+    "ship-from",
+    "payout",
+    "label",
+    "condition-review",
+    "risk",
+    "provider",
+    "freshness",
+  ];
+  const outcomes = dimensions.map((dimension) => ({
+    dimension,
+    status: "blocked" as const,
+    reason: "missing-seller-evidence" as const,
+  }));
+
+  return {
+    status: "blocked" as const,
+    evidenceRevision: null,
+    payout: "blocked" as const,
+    shipFrom: "blocked" as const,
+    label: "blocked" as const,
+    conditionReview: "blocked" as const,
+    risk: "blocked" as const,
+    provider: "blocked" as const,
+    freshness: "blocked" as const,
+    outcomes,
+  };
+}
+
+function createSellerReadiness(evidence: SellListSellerConfirmationEvidence | null | undefined) {
+  if (!evidence) {
+    return createMissingSellerReadiness();
+  }
+
+  const shipFromReady =
+    evidence.shipFrom.status === "ready" &&
+    Boolean(evidence.shipFrom.country) &&
+    Boolean(evidence.shipFrom.region) &&
+    Boolean(evidence.shipFrom.postalCode);
+  const payoutReady =
+    evidence.payout.status === "ready" &&
+    evidence.payout.method === "saved-payout" &&
+    evidence.payout.readinessStatus === "ready";
+  const labelReady =
+    evidence.label.status === "ready" &&
+    (evidence.label.preference === "prepaid-label" || evidence.label.preference === "seller-label-later");
+  const conditionReviewReady =
+    evidence.conditionReview.status === "accepted" && Boolean(evidence.conditionReview.acceptedAt);
+  const riskReady = evidence.risk.status === "clear";
+  const providerReady = evidence.provider.status === "ready";
+  const freshnessReady = evidence.freshness.status === "current";
+  const outcomes = [
+    sellerOutcome("ship-from", shipFromReady, "ship-from-not-ready"),
+    sellerOutcome("payout", payoutReady, "payout-not-ready"),
+    sellerOutcome("label", labelReady, "label-not-ready"),
+    sellerOutcome("condition-review", conditionReviewReady, "condition-review-not-accepted"),
+    sellerOutcome("risk", riskReady, "risk-not-clear"),
+    sellerOutcome("provider", providerReady, "provider-not-ready"),
+    sellerOutcome("freshness", freshnessReady, "seller-evidence-stale"),
+  ];
+  const ready = outcomes.every((outcome) => outcome.status === "ready");
+
+  return {
+    status: ready ? ("ready" as const) : ("blocked" as const),
+    evidenceRevision: sellerEvidenceRevisionFor(evidence),
+    payout: payoutReady ? ("ready" as const) : ("blocked" as const),
+    shipFrom: shipFromReady ? ("ready" as const) : ("blocked" as const),
+    label: labelReady ? ("ready" as const) : ("blocked" as const),
+    conditionReview: conditionReviewReady ? ("ready" as const) : ("blocked" as const),
+    risk: riskReady ? ("ready" as const) : ("blocked" as const),
+    provider: providerReady ? ("ready" as const) : ("blocked" as const),
+    freshness: freshnessReady ? ("ready" as const) : ("blocked" as const),
+    outcomes,
+  };
 }
 
 function moneyValue(amount: string | null | undefined) {
@@ -166,6 +297,7 @@ function sourceRevisionFor(lines: readonly SellListReadinessLine[]) {
 export function createSellListReadinessSnapshot(
   lines: readonly SellListReadinessLine[],
   decisions?: SellListReadinessDecisionInput | null,
+  sellerEvidence?: SellListSellerConfirmationEvidence | null,
 ): SellListReadinessSnapshot {
   const sortedLines = [...lines].sort((left, right) => left.line_id.localeCompare(right.line_id));
   const normalized = normalizeDecisions(decisions);
@@ -193,10 +325,12 @@ export function createSellListReadinessSnapshot(
   const status =
     includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
   const sourceRevision = sourceRevisionFor(sortedLines);
+  const sellerReadiness = createSellerReadiness(sellerEvidence);
   const snapshotSeed = {
     sourceRevision,
     includedLineIds,
     lineOutcomes,
+    sellerEvidenceRevision: sellerReadiness.evidenceRevision,
   };
 
   return {
@@ -209,17 +343,15 @@ export function createSellListReadinessSnapshot(
     includedLineIds,
     unresolvedLineIds,
     lineOutcomes,
-    sellerReadiness: {
-      payout: "not-evaluated",
-      shipFrom: "not-evaluated",
-      label: "not-evaluated",
-    },
+    sellerReadiness,
     customerSafeFacts: [
-      status === "ready"
+      status === "ready" && sellerReadiness.status === "ready"
         ? "Ready for seller checkout."
         : status === "blocked"
           ? "No Sell List items are ready for seller checkout."
-          : "Some Sell List items need attention before seller checkout.",
+          : sellerReadiness.status === "blocked"
+            ? "Seller evidence must be ready before seller checkout can confirm."
+            : "Some Sell List items need attention before seller checkout.",
     ],
   };
 }
@@ -236,9 +368,10 @@ export function validateSellListReadinessSnapshot(
   lines: readonly SellListReadinessLine[],
   provided: Pick<SellListReadinessSnapshot, "snapshotId" | "sourceRevision"> & {
     decisions?: SellListReadinessDecisionInput | null;
+    sellerEvidence?: SellListSellerConfirmationEvidence | null;
   },
 ) {
-  const current = createSellListReadinessSnapshot(lines, provided.decisions);
+  const current = createSellListReadinessSnapshot(lines, provided.decisions, provided.sellerEvidence);
   return {
     current,
     valid: current.snapshotId === provided.snapshotId && current.sourceRevision === provided.sourceRevision,
