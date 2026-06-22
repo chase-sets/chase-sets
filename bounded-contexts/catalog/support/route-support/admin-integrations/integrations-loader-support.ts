@@ -27,6 +27,7 @@ import {
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
+import type { CatalogPrimaryWorkbenchReadModelFailure } from "../../../features/source-observations/ui/primary-workbench-read-model-input";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
 import {
   catalogPrimaryWorkbenchHref,
@@ -41,7 +42,11 @@ import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/s
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
-import { loadCatalogListRouteData } from "../../../support/shell-support/list-query-state";
+import {
+  loadCatalogListRouteData,
+  readCatalogListQuery,
+  type CatalogListRouteData,
+} from "../../../support/shell-support/list-query-state";
 import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 
 // Provider profiles + the control plane overview are the shared baseline every
@@ -54,6 +59,7 @@ type CatalogIntegrationsBaseline = Readonly<{
   routeData: Awaited<ReturnType<typeof loadCatalogListRouteData<SourceObservationIntegrationScope>>>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   canManageCatalog: boolean;
 }>;
 
@@ -76,21 +82,35 @@ async function loadIntegrationsBaseline(
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }> {
   const api = createCatalogRequestApiClient(request);
-  const [routeData, profileReviews, controlPlaneOverview, actor] = await Promise.all([
-    loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
-      api.listSourceObservationIntegrationScopes(query),
+  const [routeDataResult, profileReviews, controlPlaneOverviewResult, actor] = await Promise.all([
+    catalogApiResult(
+      loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
+        api.listSourceObservationIntegrationScopes(query),
+      ),
+      emptyListRouteData<SourceObservationIntegrationScope>(request),
     ),
     api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
-    api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
+    catalogApiResult(
+      api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
+      null,
+    ),
     resolveActorFromAuthApi({ request }),
   ]);
+  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [];
+  if (routeDataResult.failed) {
+    readModelFailures.push("integration-scopes");
+  }
+  if (controlPlaneOverviewResult.failed) {
+    readModelFailures.push("control-plane-overview");
+  }
 
   return {
     api,
     baseline: {
-      routeData,
+      routeData: routeDataResult.value,
       profileReviews,
-      controlPlaneOverview,
+      controlPlaneOverview: controlPlaneOverviewResult.value,
+      readModelFailures,
       canManageCatalog: actor?.permissions.includes("catalog.manage") ?? false,
     },
     routeContext: parseCatalogPrimaryWorkbenchRouteContext(request.url),
@@ -111,6 +131,7 @@ async function finalizeSurfaceLoad(input: {
   > | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
+  readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
   // The source-option fan-out is no longer fetched here: every surface builds its
   // read model without the option pages, so `sourceOptions` is the structural
@@ -123,6 +144,7 @@ async function finalizeSurfaceLoad(input: {
     profileAuthoringModel: input.profileAuthoringModel ?? null,
     lifecycleImpacts: input.lifecycleImpacts ?? null,
     controlPlaneOverview: input.baseline.controlPlaneOverview,
+    readModelFailures: input.readModelFailures ?? input.baseline.readModelFailures,
     reviewObservations: input.reviewObservations ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
@@ -154,17 +176,22 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
   const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
-  const reviewObservations = reviewQuery
-    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
-    : null;
+  const reviewObservationResult = reviewQuery
+    ? await catalogApiResult(api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
+    : ({ value: null, failed: false } as const);
+  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...baseline.readModelFailures];
+  if (reviewObservationResult.failed) {
+    readModelFailures.push("source-observation-review");
+  }
 
   const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
     api,
     request,
     surface: "daily",
     baseline,
-    reviewObservations,
+    reviewObservations: reviewObservationResult.value,
     reviewPagination,
+    readModelFailures,
   });
 
   return {
@@ -198,6 +225,7 @@ function normalizedDailyRouteContext(
     scopes: baseline.routeData.data,
     profileReviews: baseline.profileReviews,
     controlPlaneOverview: baseline.controlPlaneOverview,
+    readModelFailures: baseline.readModelFailures,
     reviewObservations: null,
     reviewPagination: dailyReviewPaginationFor(routeContext),
     sourceOptionPages: null,
@@ -233,6 +261,27 @@ async function deferredSourceOptionsSlice(
   } catch {
     return fallbackSourceOptions;
   }
+}
+
+async function catalogApiResult<T>(
+  operation: Promise<T>,
+  fallback: T,
+): Promise<Readonly<{ value: T; failed: boolean }>> {
+  try {
+    return { value: await operation, failed: false };
+  } catch (error) {
+    if (error instanceof CatalogApiError) {
+      return { value: fallback, failed: true };
+    }
+    throw error;
+  }
+}
+
+function emptyListRouteData<T>(request: Request): CatalogListRouteData<T> {
+  return {
+    data: { items: [], total: 0, count: 0 },
+    query: readCatalogListQuery(request),
+  };
 }
 
 // Resolve the Source Observation review page window from the durable, URL-backed
