@@ -29,8 +29,14 @@ type ProviderSyncJourney = Readonly<{
 
 type SelectedProviderScope = Readonly<{
   providerKey: string;
-  importScope: string;
+  importScope: string | null;
   displayLabel: string;
+  fields: readonly SelectedProviderScopeField[];
+}>;
+
+type SelectedProviderScopeField = Readonly<{
+  name: string;
+  value: string;
 }>;
 
 type MissingOptionRecovery = () => Promise<boolean>;
@@ -319,12 +325,17 @@ function activeImportJobRowsForSelectedUnit(
 
 async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promise<SelectedProviderScope> {
   const providerKey = await hiddenInputValue(commandForm, "providerKey");
-  const importScope = await hiddenInputValue(commandForm, "importScope");
-  expect(importScope, "The shared importer command form should carry the selected source scope.").not.toBe("");
+  const importScope = emptyToNull(await hiddenInputValue(commandForm, "importScope"));
+  const fields = await selectedProviderScopeFieldsFromCommandForm(commandForm);
+  expect(
+    fields.length,
+    "The shared importer command form should carry the selected source scope fields.",
+  ).toBeGreaterThan(0);
   return {
     providerKey,
     importScope,
-    displayLabel: scopeDisplayLabelFromImportScope(providerKey, importScope),
+    fields,
+    displayLabel: selectedProviderScopeDisplayLabel(providerKey, importScope, fields),
   };
 }
 
@@ -332,8 +343,55 @@ async function hiddenInputValue(form: Locator, name: string): Promise<string> {
   return form.locator(`input[name="${name}"]`).first().inputValue();
 }
 
+async function selectedProviderScopeFieldsFromCommandForm(
+  commandForm: Locator,
+): Promise<readonly SelectedProviderScopeField[]> {
+  const fieldNames = [
+    "languageCode",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+  ];
+  const fields = await Promise.all(
+    fieldNames.map(async (name) => ({
+      name,
+      value: (await hiddenInputValue(commandForm, name)).trim(),
+    })),
+  );
+  return fields.filter((field) => field.value.length > 0);
+}
+
+function selectedProviderScopeDisplayLabel(
+  providerKey: string,
+  importScope: string | null,
+  fields: readonly SelectedProviderScopeField[],
+): string {
+  if (importScope) {
+    return scopeDisplayLabelFromImportScope(providerKey, importScope);
+  }
+
+  const value = (name: string) => fields.find((field) => field.name === name)?.value;
+  const segments = [
+    providerKey,
+    value("languageCode"),
+    value("productLineName") ?? value("productLineId"),
+    value("seriesName") ?? value("seriesId"),
+    value("expansionName") ?? value("expansionId"),
+  ].filter((segment): segment is string => Boolean(segment));
+
+  return segments.join(" / ");
+}
+
 function scopeDisplayLabelFromImportScope(providerKey: string, importScope: string): string {
   return [providerKey, ...importScope.split(":").filter(Boolean)].filter(Boolean).join(" / ");
+}
+
+function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 async function expectImporterVisible(page: Page): Promise<void> {
