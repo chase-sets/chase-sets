@@ -168,6 +168,53 @@ function missingAddLineRecovery(actorMode: AccountSellListActorMode, state: Post
   };
 }
 
+type PendingSellerConfirmation =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "legacy" }>
+  | Readonly<{ kind: "specific"; confirmationId: string }>;
+
+function pendingSellerConfirmationFromUrl(requestUrl: URL): PendingSellerConfirmation {
+  if (requestUrl.searchParams.get("confirmation") !== "preparing") {
+    return { kind: "none" };
+  }
+
+  const confirmationId = requestUrl.searchParams.get("pendingConfirmationId")?.trim();
+  return confirmationId ? { kind: "specific", confirmationId: confirmationId.slice(0, 200) } : { kind: "legacy" };
+}
+
+function freshWriteOutcomeForRequest(request: Request) {
+  const state = readPostWriteHandoffState(request);
+  switch (state.freshWrite.kind) {
+    case "valid":
+      return "valid-after-write";
+    case "expired":
+      return "expired-after-write";
+    case "future":
+      return "future-after-write";
+    case "malformed":
+      return "malformed-after-write";
+    case "missing":
+      return "missing-after-write";
+  }
+}
+
+function pendingSellerConfirmationRecovery(actorMode: AccountSellListActorMode, request: Request) {
+  return {
+    kind: "pending-fresh-write" as const,
+    message: t("checkout.routes.accountSellList.seller.confirmation.pending.fresh.write"),
+    actorMode,
+    freshnessOutcome: freshWriteOutcomeForRequest(request),
+    correctionSource: "sell-checkout-confirmation",
+  };
+}
+
+function pendingSellerConfirmationMatches(pendingConfirmation: PendingSellerConfirmation, sellList: AccountSellList) {
+  return (
+    pendingConfirmation.kind === "specific" &&
+    sellList.latestConfirmation?.confirmation_id === pendingConfirmation.confirmationId
+  );
+}
+
 function currentPathWithSearch(request: Request) {
   const url = new URL(request.url);
   return `${url.pathname}${url.search}`;
@@ -615,6 +662,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     () => accountSellListApi.getSellList(),
     "account",
   );
+  const pendingConfirmation = pendingSellerConfirmationFromUrl(new URL(accountSellListRequest.url));
+  const confirmationStillPreparing =
+    pendingConfirmation.kind !== "none" && !pendingSellerConfirmationMatches(pendingConfirmation, sellList);
+  const accountSellList = confirmationStillPreparing ? { ...sellList, latestConfirmation: null } : sellList;
 
   return {
     isSignedIn: true,
@@ -624,13 +675,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
     sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
     freshnessError,
-    sellListRecovery,
-    sellList,
-    offerReviews: await loadSellListOfferReviews(request, sellList.items, {
+    sellListRecovery: confirmationStillPreparing
+      ? (sellListRecovery ?? pendingSellerConfirmationRecovery("account", accountSellListRequest))
+      : sellListRecovery,
+    sellList: accountSellList,
+    offerReviews: await loadSellListOfferReviews(request, accountSellList.items, {
       includeStandardComparison: registrationReturn === "seller-checkout",
     }),
-    productOfferReviews: await loadSellListProductOfferReviews(request, sellList.items),
-    inventoryItems: await loadSellListInventory(request, sellList.items),
+    productOfferReviews: await loadSellListProductOfferReviews(request, accountSellList.items),
+    inventoryItems: await loadSellListInventory(request, accountSellList.items),
     payoutReadiness: await loadPayoutReadiness(request),
   };
 }

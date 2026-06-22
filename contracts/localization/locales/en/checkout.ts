@@ -767,6 +767,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountSellList.sell.list.chase.sets": "Sell List | Chase Sets",
   "checkout.routes.accountSellList.sell.list.pending.fresh.write":
     "Your Sell List is updating. Refresh in a moment if the new line is not visible yet.",
+  "checkout.routes.accountSellList.seller.confirmation.pending.fresh.write":
+    "Your seller confirmation is still being saved. Refresh while Chase Sets finishes saving the current sale review.",
   "checkout.routes.accountSellList.sell.list.missing.after.fresh.write":
     "We saved the Sell List request, but the new line is still not visible. Refresh the Sell List or add the offer or product again from the marketplace.",
   "checkout.routes.accountSellList.sell.list.request.failed": "Sell List request failed.",
