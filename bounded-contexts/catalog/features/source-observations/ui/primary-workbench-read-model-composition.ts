@@ -209,6 +209,12 @@ function buildCatalogPrimaryWorkbenchCore(
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
   const canManage = input.canManageCatalog;
   const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
+  const reviewUnavailable = input.readModelFailures?.includes("source-observation-review") ?? false;
+  const controlPlaneFreshness = input.readModelFailures?.includes("control-plane-overview")
+    ? "unavailable"
+    : input.controlPlaneOverview
+      ? "fresh"
+      : "partial";
   const { review: sourceObservationReview, evidenceByObservationId: reviewEvidenceByObservationId } =
     sourceObservationReviewCompositionFor({
       canManage,
@@ -219,6 +225,7 @@ function buildCatalogPrimaryWorkbenchCore(
       readinessBlockers,
       rejected,
       reviewObservations: input.reviewObservations ?? null,
+      reviewUnavailable,
       reviewPagination: input.reviewPagination,
       routeContext,
       scopeRows,
@@ -254,7 +261,7 @@ function buildCatalogPrimaryWorkbenchCore(
     controlPlaneOverview: input.controlPlaneOverview,
     generatedAt,
     importJobs: {
-      freshness: input.controlPlaneOverview ? "fresh" : "partial",
+      freshness: controlPlaneFreshness,
       activeJobCount,
       failedJobCount,
       selectedScope: null,
@@ -276,7 +283,7 @@ function buildCatalogPrimaryWorkbenchCore(
       sourceOptions,
       sourceScopeWorkset,
       readiness: {
-        freshness: input.controlPlaneOverview ? "fresh" : "partial",
+        freshness: controlPlaneFreshness,
         blockers: readinessBlockers,
         providerTransport,
         rolloutEnabled,
@@ -284,7 +291,7 @@ function buildCatalogPrimaryWorkbenchCore(
         auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(routeContext, "audit-evidence"),
       },
       importJobs: {
-        freshness: input.controlPlaneOverview ? "fresh" : "partial",
+        freshness: controlPlaneFreshness,
         activeJobCount,
         failedJobCount,
         selectedScope: selectedImportScopeFor({
@@ -700,6 +707,7 @@ function buildSurfaceActions(
     activeProfileReady: Boolean(derived.activeProfile),
     eligible: core.promotionPreview.outcomeCounts.eligible,
     reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
+    reviewFreshness: core.sourceObservationReview.freshness,
     activeJobCount: derived.activeJobCount,
     blockers: derived.readinessBlockers,
     activationBlockers: slices.validationReadiness.activationDecision.blockers,
@@ -1217,6 +1225,7 @@ function buildActions(input: {
   activeProfileReady: boolean;
   eligible: number;
   reviewable: number;
+  reviewFreshness: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["freshness"];
   activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   activationBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
@@ -1226,14 +1235,22 @@ function buildActions(input: {
 }): readonly CatalogPrimaryWorkbenchActionReadModel[] {
   const manageState = input.canManage ? "available" : "denied";
   const importBlockers = importBlockersForSelectedScope(input);
+  const reviewReadModelBlockers = reviewReadModelBlockersFor(input.reviewFreshness);
   const previewBlockers =
-    input.eligible > 0
-      ? []
-      : (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+    reviewReadModelBlockers.length > 0
+      ? reviewReadModelBlockers
+      : input.eligible > 0
+        ? []
+        : (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+  const previewState = actionStateForBlockers(previewBlockers, manageState);
   const promotionBlockers = input.promotionBlockers;
   const promotionState = actionStateForBlockers(promotionBlockers, manageState);
   const reviewDecisionBlockers =
-    input.reviewable > 0 ? [] : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+    reviewReadModelBlockers.length > 0
+      ? reviewReadModelBlockers
+      : input.reviewable > 0
+        ? []
+        : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
   const reviewDecisionState = actionStateForBlockers(reviewDecisionBlockers, manageState);
   const reapplyBlockers = input.activeProfileReady
     ? []
@@ -1295,9 +1312,14 @@ function buildActions(input: {
     lifecycleAction("retire-provider-profile", lifecycleOperationByCommand, manageState),
     {
       key: "preview-promotion",
-      state: previewBlockers.length > 0 ? "disabled" : manageState,
+      state: previewState,
       blockers: previewBlockers,
-      copyKey: previewBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+      copyKey:
+        previewBlockers.length > 0
+          ? previewBlockers.some(isReviewReadModelBlocker)
+            ? "catalog.primary.review.blocked"
+            : "catalog.primary.review.empty"
+          : null,
     },
     {
       key: "execute-promotion",
@@ -1309,13 +1331,23 @@ function buildActions(input: {
       key: "reject-source-observations",
       state: reviewDecisionState,
       blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+      copyKey:
+        reviewDecisionBlockers.length > 0
+          ? reviewDecisionBlockers.some(isReviewReadModelBlocker)
+            ? "catalog.primary.review.blocked"
+            : "catalog.primary.review.empty"
+          : null,
     },
     {
       key: "defer-source-observations",
       state: reviewDecisionState,
       blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+      copyKey:
+        reviewDecisionBlockers.length > 0
+          ? reviewDecisionBlockers.some(isReviewReadModelBlocker)
+            ? "catalog.primary.review.blocked"
+            : "catalog.primary.review.empty"
+          : null,
     },
     {
       key: "start-reapply",
@@ -1412,6 +1444,9 @@ function actionStateForBlockers(
   if (blockers.includes("permission-denied") || blockers.includes("authorization-denied")) {
     return "denied";
   }
+  if (blockers.includes("read-model-unavailable")) {
+    return "unavailable";
+  }
   if (blockers.every((blocker) => blocker === "selection-empty" || blocker === "no-promotion-eligible-observations")) {
     return "disabled";
   }
@@ -1420,6 +1455,26 @@ function actionStateForBlockers(
   }
 
   return "blocked";
+}
+
+function reviewReadModelBlockersFor(
+  freshness: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["freshness"],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  switch (freshness) {
+    case "unavailable":
+      return ["read-model-unavailable"];
+    case "fresh":
+    case "stale":
+    case "lagging":
+    case "partial":
+      return [];
+  }
+}
+
+function isReviewReadModelBlocker(blocker: CatalogPrimaryWorkbenchBlockerCategory): boolean {
+  return (
+    blocker === "read-model-unavailable" || blocker === "read-model-partial" || blocker === "source-projection-stale"
+  );
 }
 
 function providerScopeProviders(

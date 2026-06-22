@@ -72,6 +72,7 @@ export function sourceObservationReviewCompositionFor(input: {
   readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   rejected: number;
   reviewObservations: ListResponse<SourceObservationListItem> | null;
+  reviewUnavailable?: boolean;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   scopeRows: readonly SourceObservationIntegrationScope[];
@@ -94,13 +95,17 @@ export function sourceObservationReviewCompositionFor(input: {
   );
   const duplicateConflictCount = rows.filter((row) => row.duplicateCount > 0).length;
   const promotionReadyRowCount = rows.filter((row) => row.promotionReadiness.state === "eligible").length;
-  const promotionReadyCount = input.reviewObservations ? promotionReadyRowCount : input.eligible;
+  const promotionReadyCount = input.reviewUnavailable
+    ? 0
+    : input.reviewObservations
+      ? promotionReadyRowCount
+      : input.eligible;
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedRows = rows.filter((row) => selectedObservationIds.includes(row.observationId));
 
   return {
     review: {
-      freshness: input.scopeRows.length > 0 ? "fresh" : "partial",
+      freshness: input.reviewUnavailable ? "unavailable" : input.scopeRows.length > 0 ? "fresh" : "partial",
       counts: {
         observed: input.observed,
         changed: input.changed,

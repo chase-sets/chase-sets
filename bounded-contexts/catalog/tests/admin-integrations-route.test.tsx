@@ -1315,6 +1315,123 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.refresh.refreshAllHref).toBeNull();
   });
 
+  it("keeps the provider-only TCGplayer importer shell renderable when optional read projections fail", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const profiles = [
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "pokemon-single-card-product-sku",
+        profileVersion: "2026.06.05",
+        ingestionUnitKey: pokemonUnit,
+        displayName: "TCGplayer Pokemon Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["pokemon/single-card"],
+      }),
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "mtg-single-card-product-sku",
+        profileVersion: "2026.06.19",
+        ingestionUnitKey: mtgUnit,
+        displayName: "TCGplayer Magic Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["mtg/single-card"],
+      }),
+      profileReview({
+        providerKey: "tcgplayer",
+        profileKey: "yugioh-single-card-product-sku",
+        profileVersion: "2026.06.20",
+        ingestionUnitKey: yugiohUnit,
+        displayName: "TCGplayer Yu-Gi-Oh Single Cards",
+        lifecycle: "active",
+        active: true,
+        status: "active",
+        supportedScopes: ["yugioh/single-card"],
+      }),
+    ];
+    const stalePokemonScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "ja",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const listSourceObservationIntegrationScopes = vi
+      .fn()
+      .mockResolvedValue({ items: [stalePokemonScope], total: 1, count: 1 });
+    const listSourceObservations = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(500, { error: { code: "review_projection_failed" } }));
+    const getCatalogIntegrationControlPlaneOverview = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(500, { error: { code: "overview_projection_failed" } }));
+    const listSourceObservationIntegrationOptions = vi.fn().mockRejectedValue(new Error("ambiguous option query"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes,
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({ items: profiles, total: 3, count: 3 }),
+      getCatalogIntegrationControlPlaneOverview,
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgplayer"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(listSourceObservationIntegrationScopes).toHaveBeenCalled();
+    expect(getCatalogIntegrationControlPlaneOverview).toHaveBeenCalledWith("daily");
+    const reviewQuery = new URLSearchParams(listSourceObservations.mock.calls[0]?.[0] ?? "");
+    expect(reviewQuery.get("provider")).toBe("tcgplayer");
+    expect(routeData.readModel.routeContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: null,
+      importScope: null,
+      sourceObservationFilters: { providerKey: "tcgplayer" },
+    });
+    expect(routeData.readModel.readiness.freshness).toBe("unavailable");
+    expect(routeData.readModel.sourceObservationReview.freshness).toBe("unavailable");
+    expect(routeData.readModel.sourceScopeWorkset.status).toBe("scope-required");
+    expect(routeData.readModel.actions.find((actionEntry) => actionEntry.key === "preview-promotion")).toMatchObject({
+      state: "unavailable",
+      blockers: ["read-model-unavailable"],
+      copyKey: "catalog.primary.review.blocked",
+    });
+    expect(
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "reject-source-observations"),
+    ).toMatchObject({
+      state: "unavailable",
+      blockers: ["read-model-unavailable"],
+      copyKey: "catalog.primary.review.blocked",
+    });
+    expect(
+      routeData.readModel.providerScope.providers
+        .find((provider) => provider.providerKey === "tcgplayer")
+        ?.units.map((unit) => unit.unitKey),
+    ).toEqual([mtgUnit, pokemonUnit, yugiohUnit]);
+    expect(routeData.readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([
+      mtgUnit,
+      pokemonUnit,
+      yugiohUnit,
+    ]);
+
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
+    expect(deferredSourceOptions.selectedProfile).toBeNull();
+    expect(deferredSourceOptions.pages).toEqual([]);
+    expect(deferredSourceOptions.refresh.refreshAllHref).toBeNull();
+  });
+
   it("fetches the audit-trimmed daily overview from the daily loader and the full overview from the providers loader", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };

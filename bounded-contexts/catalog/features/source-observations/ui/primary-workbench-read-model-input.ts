@@ -10,12 +10,18 @@ import type {
 } from "./contracts";
 import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-workbench-source-options";
 
+export type CatalogPrimaryWorkbenchReadModelFailure =
+  | "control-plane-overview"
+  | "integration-scopes"
+  | "source-observation-review";
+
 export type CatalogPrimaryWorkbenchInput = Readonly<{
   requestUrl: string | URL;
   scopes: ListResponse<SourceObservationIntegrationScope>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
   profileAuthoringModel?: CatalogProviderProfileAuthoringModel | null;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   lifecycleImpacts?: Partial<
     Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
   > | null;
