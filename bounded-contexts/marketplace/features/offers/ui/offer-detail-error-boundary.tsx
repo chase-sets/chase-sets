@@ -37,8 +37,19 @@ export function MarketplaceOfferDetailErrorBoundary({ kind }: Readonly<{ kind: O
   const error = useRouteError();
   const location = useLocation();
   const copy = recoveryCopy(kind);
+  const searchParams = new URLSearchParams(location.search);
+  const isFreshSubmittedOfferWrite =
+    kind === "submitted-offer" &&
+    searchParams.has("afterWrite") &&
+    searchParams.get("feedbackWorkflow") === "offer-submit";
+  const isPreparingOfferResponse =
+    isRouteErrorResponse(error) &&
+    error.status === 503 &&
+    (error.statusText === copy.preparingTitle ||
+      error.data === copy.preparingDescription ||
+      isFreshSubmittedOfferWrite);
 
-  if (!isRouteErrorResponse(error) || error.status !== 503 || error.statusText !== copy.preparingTitle) {
+  if (!isPreparingOfferResponse) {
     throw error;
   }
 

@@ -1,7 +1,13 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useSearchParams } from "react-router";
-import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import {
+  loadFreshlyWrittenResource,
+  postWriteRecoveryKindForFreshWriteReadError,
+  readApiErrorCode,
+  recoverFreshWriteReadError,
+  type FreshWriteReadErrorClassification,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -13,11 +19,27 @@ import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submi
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
+export const SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER = "Chase-Sets-Post-Write-Recovery-Kind";
 
-function submittedOfferPreparingResponse() {
+function marketplaceApiErrorStatus(error: unknown) {
+  return error instanceof MarketplaceApiError ? error.status : null;
+}
+
+function marketplaceApiErrorBody(error: unknown) {
+  return error instanceof MarketplaceApiError ? error.body : null;
+}
+
+function marketplaceApiErrorCode(error: unknown) {
+  return readApiErrorCode(marketplaceApiErrorBody(error));
+}
+
+function submittedOfferPreparingResponse(classification: FreshWriteReadErrorClassification) {
   return new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing.description"), {
     status: 503,
     statusText: t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing"),
+    headers: {
+      [SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER]: postWriteRecoveryKindForFreshWriteReadError(classification),
+    },
   });
 }
 
@@ -37,6 +59,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const freshWriteRecovery = recoverFreshWriteReadError({
       request,
       error,
+      getStatus: marketplaceApiErrorStatus,
+      getErrorCode: marketplaceApiErrorCode,
+      getBody: marketplaceApiErrorBody,
       recoverTransient: submittedOfferPreparingResponse,
     });
     if (freshWriteRecovery) {
