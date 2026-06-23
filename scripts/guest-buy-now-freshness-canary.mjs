@@ -56,6 +56,8 @@ const PERMANENT_NOT_FOUND_PATTERN = /Checkout session not found|We could not fin
 const PERMANENT_RECOVERY_PATTERN =
   /Checkout session not found|We could not find this checkout session|Checkout access required/i;
 const TEMPORARY_RECOVERY_PATTERN = /Preparing checkout|Refresh checkout/i;
+const CHECKOUT_START_RECOVERY_PATTERN =
+  /Checkout needs attention|We could not start checkout from the current cart or item/i;
 const CHECKOUT_REVIEW_PATTERN = /Continue to payment|Checkout Summary|Payable total/i;
 const BUY_READINESS_URL_PATTERN = /\/checkout\/buy\/readiness(?:[/?#]|$)/;
 const BUY_SESSION_URL_PATTERN = /\/checkout\/buy\/session\/chk_[^/?#]+(?:[/?#]|$)/;
@@ -189,6 +191,9 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
   if (observation.permanentNotFoundVisible || PERMANENT_NOT_FOUND_PATTERN.test(pageText)) {
     return abort("fail", "permanent-checkout-session-not-found");
   }
+  if (observation.checkoutStartRecoveryVisible || CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
+    return abort("fail", "checkout-start-recovery-visible");
+  }
   if (!observation.afterWritePresent) {
     return abort("fail", "missing-after-write");
   }
@@ -294,6 +299,7 @@ export function buildGuestBuyNowCanaryEvidence(input) {
     guestCookiePresent: Boolean(observation.guestCookiePresent),
     sessionCookiePresent: Boolean(observation.sessionCookiePresent),
     permanentNotFoundVisible: Boolean(observation.permanentNotFoundVisible),
+    checkoutStartRecoveryVisible: Boolean(observation.checkoutStartRecoveryVisible),
     temporaryRecoveryVisible: Boolean(observation.temporaryRecoveryVisible),
     temporaryRecoveryObserved: Boolean(observation.temporaryRecoveryObserved || observation.temporaryRecoveryVisible),
     checkoutReviewVisible: Boolean(observation.checkoutReviewVisible),
@@ -436,6 +442,7 @@ function runtimeFailureObservation(error) {
     guestCookiePresent: false,
     sessionCookiePresent: false,
     permanentNotFoundVisible: false,
+    checkoutStartRecoveryVisible: false,
     temporaryRecoveryVisible: false,
     temporaryRecoveryObserved: false,
     checkoutReviewVisible: false,
@@ -511,8 +518,37 @@ async function observeBuyNowCheckout(options) {
     }
 
     stage = "wait-buy-checkout-session";
-    await page.waitForURL(BUY_SESSION_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
-    const redirectedAt = Date.now();
+    const sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs);
+    if (sessionStart.kind === "checkout-start-recovery") {
+      const cookies = await context.cookies(baseUrl);
+      const finalUrl = new URL(page.url());
+      const pageText = sessionStart.pageText;
+      return {
+        latencyMs: sessionStart.observedAt - startedAt,
+        readyLatencyMs: null,
+        segments: {
+          writeToRedirectMs: null,
+          redirectToDocumentMs: null,
+          documentToReadyMs: null,
+          writeToCheckoutReadyMs: null,
+        },
+        afterWritePresent: finalUrl.searchParams.has("afterWrite"),
+        guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
+        sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
+        permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
+        checkoutStartRecoveryVisible: CHECKOUT_START_RECOVERY_PATTERN.test(pageText),
+        temporaryRecoveryVisible: TEMPORARY_RECOVERY_PATTERN.test(pageText),
+        temporaryRecoveryObserved: TEMPORARY_RECOVERY_PATTERN.test(pageText),
+        checkoutReviewVisible: CHECKOUT_REVIEW_PATTERN.test(pageText),
+        platformErrorVisible: PLATFORM_ERROR_PATTERN.test(pageText),
+        checkoutDocumentStatus: checkoutDocumentStatuses.at(-1) ?? null,
+        stateWaitOutcome: "matched",
+        waitMode: detectWaitMode(pageText),
+        pageText,
+        negativeProbe: { attempted: false },
+      };
+    }
+    const redirectedAt = sessionStart.observedAt;
     stage = "load-checkout-session-document";
     await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
     const documentAt = Date.now();
@@ -536,6 +572,7 @@ async function observeBuyNowCheckout(options) {
       guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
       sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
       permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
+      checkoutStartRecoveryVisible: CHECKOUT_START_RECOVERY_PATTERN.test(pageText),
       temporaryRecoveryVisible: TEMPORARY_RECOVERY_PATTERN.test(pageText),
       temporaryRecoveryObserved: readiness.temporaryRecoveryObserved,
       checkoutReviewVisible: CHECKOUT_REVIEW_PATTERN.test(pageText),
@@ -626,6 +663,29 @@ function createPageRequestFetch(page) {
       json: () => response.json(),
     };
   };
+}
+
+async function waitForBuyCheckoutSessionStart(page, startedAt, timeoutMs) {
+  const deadline = Date.now() + normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS);
+  let pageText = "";
+
+  while (Date.now() <= deadline) {
+    if (BUY_SESSION_URL_PATTERN.test(page.url())) {
+      return { kind: "checkout-session", observedAt: Date.now() };
+    }
+
+    pageText = await page
+      .locator("body")
+      .innerText({ timeout: READY_POLL_INTERVAL_MS * 4 })
+      .catch(() => pageText);
+    if (CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
+      return { kind: "checkout-start-recovery", observedAt: Date.now(), pageText };
+    }
+
+    await page.waitForTimeout(READY_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(`Timed out waiting for Buy Now checkout session after ${Date.now() - startedAt}ms at ${page.url()}.`);
 }
 
 async function watchCheckoutReadiness(page, startedAt, readySloMs) {
