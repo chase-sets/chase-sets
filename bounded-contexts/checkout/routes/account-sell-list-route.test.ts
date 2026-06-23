@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/responses";
+import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } from "../support/request-support/account-sell-list-handoffs";
 import {
   applyCheckoutRouteMockDefaults,
@@ -91,12 +92,18 @@ vi.mock("@chase-sets/settlement/server", () => ({
 
 import { action as accountSellListAction, loader as accountSellListLoader } from "./account-sell-list";
 
+const mockPostWriteConsistencyRecorder = vi.fn();
+let unregisterPostWriteConsistencyRecorder: (() => void) | null = null;
+
 describe("checkout web routes: account sell list", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
+    unregisterPostWriteConsistencyRecorder = registerPostWriteConsistencyRecorder(mockPostWriteConsistencyRecorder);
   });
 
   afterEach(() => {
+    unregisterPostWriteConsistencyRecorder?.();
+    unregisterPostWriteConsistencyRecorder = null;
     vi.resetAllMocks();
     vi.unstubAllEnvs();
   });
@@ -142,6 +149,20 @@ describe("checkout web routes: account sell list", () => {
         inventoryItems: [],
       }),
     );
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "checkout",
+        surface: "account-sell-list",
+        strategy: "fresh-read",
+        outcome: "freshness_timeout",
+        routeId: "account-sell-list",
+        routeTemplate: "/account/sell-list",
+        correctionSource: "fresh-read",
+        actorMode: "account",
+        recoveryAction: "reload_prompt",
+        freshnessOutcome: "valid-after-write",
+      }),
+    );
   });
 
   it("shows temporary Sell List recovery when a valid add-line handoff still reads an empty account projection", async () => {
@@ -175,6 +196,19 @@ describe("checkout web routes: account sell list", () => {
           actorMode: "account",
           correctionSource: "semantic-handoff:checkout.sell-list.add-line",
         }),
+      }),
+    );
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "checkout",
+        surface: "account-sell-list",
+        outcome: "handoff_pending",
+        routeId: "account-sell-list",
+        routeTemplate: "/account/sell-list",
+        correctionSource: "semantic-handoff:checkout.sell-list.add-line",
+        actorMode: "account",
+        recoveryAction: "pending_empty_state",
+        freshnessOutcome: "valid-after-write",
       }),
     );
   });
@@ -295,6 +329,71 @@ describe("checkout web routes: account sell list", () => {
       }),
     );
     expect(result.sellListRecovery?.message).toContain("seller confirmation");
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "checkout",
+        surface: "account-sell-list",
+        outcome: "handoff_pending",
+        correctionSource: "sell-checkout-confirmation",
+        actorMode: "account",
+        recoveryAction: "pending_empty_state",
+        freshnessOutcome: "valid-after-write",
+      }),
+    );
+  });
+
+  it("records payout-readiness handoff telemetry when a Settlement receipt returns to Sell List", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetPayoutReadiness.mockResolvedValue({
+      account_id: "acc_seller",
+      status: "ready",
+      missing_requirements: [],
+      provider_reference: "acct_stripe",
+      onboarding_status: "complete",
+      transfer_capability_status: "active",
+      payout_capability_status: "active",
+      payout_destination_status: "present",
+      updated_at: "2026-05-30T00:00:00.000Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sell-list", {
+          commandReceipt: {
+            mode: "eventual",
+            commitPositions: [
+              { sourceContextName: "settlement", maxGlobalPosition: "66", eventIds: ["evt_payout_ready"] },
+            ],
+            commitEventIds: [],
+          },
+        })}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.payoutReadiness).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "settlement",
+        surface: "payout-readiness",
+        strategy: "fresh-read",
+        outcome: "projection_hit",
+        routeId: "account-sell-list",
+        routeTemplate: "/account/sell-list",
+        correctionSource: "settlement-payout-readiness",
+        actorMode: "account",
+        recoveryAction: "none",
+        freshnessOutcome: "valid-after-write",
+        sourceContextName: "settlement",
+        projectionName: "settlement-payout-readiness-projection",
+        readModelTable: "settlement_payout_readiness_pages",
+      }),
+    );
   });
 
   it("keeps the current seller confirmation visible once the preparing confirmation catches up", async () => {

@@ -231,6 +231,11 @@
       "id": "checkout.session-start-to-detail",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "buy-checkout-readiness",
         "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
@@ -253,6 +258,11 @@
       "id": "checkout.session-payment-handoff",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "buy-checkout-session",
         "actions": ["Confirm checkout", "Continue to payment"],
@@ -275,6 +285,11 @@
       "id": "checkout.session-self-refresh",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "buy-checkout-session",
         "actions": ["Refresh checkout preview", "Update checkout review state"],
@@ -321,6 +336,11 @@
       "id": "checkout.cart-self-refresh",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-cart",
         "actions": ["Update Buy Cart"],
@@ -358,6 +378,11 @@
       "id": "checkout.guest-cart-add-line-handoff",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "item-detail",
         "actions": ["Build View cart link after guest item detail add-to-cart"],
@@ -410,6 +435,11 @@
       "id": "checkout.guest-sell-list-add-line-handoff",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "item-detail",
         "actions": ["Build Sell List account-gate links after guest item detail add-to-sell-list"],
@@ -462,6 +492,11 @@
       "id": "checkout.sell-list-self-refresh",
       "owner": "checkout",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-sell-list",
         "actions": ["Update account sell list"],
@@ -538,6 +573,11 @@
       "id": "checkout.sell-checkout-confirmation-detail",
       "owner": "checkout",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "sell-checkout-session",
         "actions": ["Confirm signed-in seller checkout"],

@@ -116,6 +116,11 @@
       "id": "payments.create-to-detail",
       "owner": "payments",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "account-payment-new",
         "actions": ["Create account payment"],
@@ -138,6 +143,11 @@
       "id": "payments.detail-self-refresh",
       "owner": "payments",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-payment",
         "actions": ["Refresh or continue payment detail after payment command"],

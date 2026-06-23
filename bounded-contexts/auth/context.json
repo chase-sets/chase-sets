@@ -455,6 +455,11 @@
       "id": "auth.current-session-fresh-read",
       "owner": "auth",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["register", "sign-in"],
         "actions": [
@@ -483,6 +488,11 @@
       "id": "auth.session-detail-self-refresh",
       "owner": "auth",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["sessions-detail", "account-sessions-detail"],
         "actions": ["Switch session account", "Revoke session"],

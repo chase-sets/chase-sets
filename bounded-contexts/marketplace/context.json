@@ -366,6 +366,11 @@
       "id": "marketplace.listing-create-to-detail",
       "owner": "marketplace",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-listing",
         "actions": ["Update listing", "Publish listing"],
@@ -388,6 +393,11 @@
       "id": "marketplace.listing-create-from-list-to-detail",
       "owner": "marketplace",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-listings",
         "actions": ["Create listing", "Create and publish listing"],
@@ -410,6 +420,11 @@
       "id": "marketplace.listing-list-self-refresh",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
@@ -432,6 +447,11 @@
       "id": "marketplace.listing-fee-lock-self-refresh",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
@@ -454,6 +474,11 @@
       "id": "marketplace.listing-inventory-self-refresh",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["account-inventory", "account-inventory-item"],
         "actions": ["Create inventory item and return to listing setup", "Create listing from inventory item detail"],
@@ -481,6 +506,11 @@
       "id": "marketplace.import-listing-inventory-handoff",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["account-inventory-imports", "account-inventory-import"],
         "actions": ["Create listing from committed import row"],
@@ -507,6 +537,11 @@
       "id": "marketplace.listing-stock-location-self-refresh",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["account-inventory", "account-inventory-locations"],
         "actions": ["Create inventory item", "Create inventory storage location"],
@@ -529,6 +564,11 @@
       "id": "marketplace.listing-availability-self-refresh",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
@@ -551,6 +591,11 @@
       "id": "marketplace.submitted-offer-detail",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-offer-submitted",
         "actions": ["Load newly submitted offer"],
@@ -573,6 +618,11 @@
       "id": "marketplace.offer-match-accept-to-detail",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-offer-match",
         "actions": ["Accept offer match"],
@@ -595,6 +645,11 @@
       "id": "reputation.review-submit-to-detail",
       "owner": "marketplace",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["account-purchase-review", "account-sale-review"],
         "actions": ["Submit purchase review", "Submit sale review"],

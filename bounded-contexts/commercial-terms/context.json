@@ -100,6 +100,11 @@
       "id": "commercial-terms.schedule-create-to-list",
       "owner": "commercial-terms",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "commercial-terms-schedules",
         "actions": ["Create commercial-terms schedule"],
@@ -122,6 +127,11 @@
       "id": "commercial-terms.schedule-update-to-detail",
       "owner": "commercial-terms",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "commercial-terms-schedules-detail",
         "actions": ["Update commercial-terms schedule"],
@@ -144,6 +154,11 @@
       "id": "commercial-terms.agreement-create-to-list",
       "owner": "commercial-terms",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "commercial-terms-agreements",
         "actions": ["Create commercial agreement"],
@@ -166,6 +181,11 @@
       "id": "commercial-terms.agreement-update-to-detail",
       "owner": "commercial-terms",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "commercial-terms-agreements-detail",
         "actions": ["Update commercial agreement"],

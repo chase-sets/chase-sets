@@ -16,7 +16,15 @@ Since the push-first projection runtime (ADR 0010, Milestone #19), the waits the
 | Important self-refresh | Account cart, sell list, listing list after mutations | User sees updated state quickly or bounded temporary refresh guidance. | Measured p95/p99 with route-owned recovery. |
 | Operator/background read | Admin diagnostics, bulk job views, reports | User may see lag with explicit status or refresh controls. | SLO may be looser and owned by the operator workflow. |
 
-New route inventory entries must classify the flow. Critical entries cannot close with an accepted exception unless a dated owner-approved migration issue exists.
+New route inventory entries must classify the flow in `readAfterWriteRouteInventory[].freshnessSlo`. Normal migrated entries require `flowClass`, `p95Ms`, and `p99Ms`; exceptions remain temporary records with owner, reason, and review date. Critical entries cannot close with an accepted exception unless a dated owner-approved migration issue exists.
+
+| Manifest flow class | p95 target | p99 target | Applies to migrated routes such as |
+| --- | ---: | ---: | --- |
+| `critical-customer-handoff` | <= 1,000 ms | <= 2,250 ms | Buy Now checkout session, payment create-to-detail, payout request detail, seller accept-to-sales handoff. |
+| `important-self-refresh` | <= 2,500 ms | <= 5,000 ms | Account cart, Sell List, listing list/detail, payout setup/readiness, purchase detail, sale detail, seller shipment detail. |
+| `operator-background-read` | Context-owned | Context-owned | Operator diagnostics and job/status reads that explicitly expose lag or refresh controls. |
+
+Important self-refresh routes must also name route-owned recovery in the inventory. The target is measured from freshness audit and post-write consistency telemetry; a route can use temporary recovery while within the bounded receipt/retry budget, but generic 5xx/error pages are still route-wiring failures, not acceptable recovery.
 
 ## Checkout Session SLO
 
@@ -105,6 +113,18 @@ Use these decisions for critical freshness changes:
 | Missing receipt or target context in canary | Treat as platform contract regression; block release evidence until fixed. |
 | SLO passes without fast-path catch-up | #1085 may reject #1072 and close fast-path catch-up as not planned. |
 | SLO fails after exact dependency, worker capacity, and Checkout projection optimization | #1085 may approve #1072 with rate limits, fencing, rollout controls, and rollback path. |
+
+## Migrated Critical Canary Signals
+
+Release canary query config distinguishes three gate classes:
+
+| Gate class | Meaning |
+| --- | --- |
+| `platform-required` | Platform canary prerequisites such as observability transport and deployment phase. |
+| `required-critical-migrated` | Critical migrated post-write signals that must gate promotion once telemetry is live. A temporary `needs-instrumentation` exception must include owner, review date, removal issue, and reason. |
+| `observation-only` | Useful evidence that cannot close a milestone gate by itself, such as account-cart-style observation while a critical migrated handoff remains excepted. |
+
+The first required-critical migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. They may remain `required: false` only while their explicit `needs-instrumentation` exception is active in `infrastructure/observability/release-canary-prometheus-queries.json`; removing the exception means the signal must be `required: true`.
 
 ## Alert And Dashboard Requirements
 

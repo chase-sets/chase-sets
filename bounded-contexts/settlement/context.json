@@ -168,6 +168,11 @@
       "id": "settlement.payout-request-to-detail",
       "owner": "settlement",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "account-payouts",
         "actions": ["Request payout"],
@@ -190,6 +195,11 @@
       "id": "settlement.payout-readiness-self-refresh",
       "owner": "settlement",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-payout-setup",
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
