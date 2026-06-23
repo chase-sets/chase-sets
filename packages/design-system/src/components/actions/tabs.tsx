@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useRef, useState, useId } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { LayoutGroup, motion } from "motion/react";
 import { renderActivePill } from "./shared";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
@@ -137,20 +137,17 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
         className="[overflow-anchor:none]"
         style={reservedPanelHeight === null ? undefined : { minHeight: `${reservedPanelHeight}px` }}
       >
-        <AnimatePresence initial={false} mode="wait">
-          <motion.div
-            key={currentValue}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18 }}
-            onAnimationComplete={releaseReservedPanelHeight}
-          >
-            <TabsPrimitive.Panel value={currentValue} keepMounted className="focus-visible:outline-none">
-              {items.find((item) => item.value === currentValue)?.content}
-            </TabsPrimitive.Panel>
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={currentValue}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          onAnimationComplete={releaseReservedPanelHeight}
+        >
+          <TabsPrimitive.Panel value={currentValue} keepMounted className="focus-visible:outline-none">
+            {items.find((item) => item.value === currentValue)?.content}
+          </TabsPrimitive.Panel>
+        </motion.div>
       </div>
     </TabsPrimitive.Root>
   );

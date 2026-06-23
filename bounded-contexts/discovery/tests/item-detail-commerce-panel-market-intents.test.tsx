@@ -59,6 +59,35 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.queryByText("submitted")).toBeNull();
   });
 
+  it("keeps the Market book selected tab and tabpanel content in sync when returning to Listings", () => {
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        initialMarketIntent="sell"
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Accept offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Offers" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tabpanel", { name: "Offers" })).getByText("Ash Ketchum")).toBeTruthy();
+
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Buy",
+      }),
+    );
+
+    const listingsPanel = screen.getByRole("tabpanel", { name: "Listings" });
+    expect(screen.getByRole("tab", { name: "Listings" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(listingsPanel).getByText("Chase Sets")).toBeTruthy();
+    expect(within(listingsPanel).queryByText("Ash Ketchum")).toBeNull();
+    expect(screen.queryByRole("tabpanel", { name: "Offers" })).toBeNull();
+  });
+
   it("tracks desktop rail intent selection with implicit workflow context", async () => {
     const analytics = captureItemDetailRailAnalytics();
 

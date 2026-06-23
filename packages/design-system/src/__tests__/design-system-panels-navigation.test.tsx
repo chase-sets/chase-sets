@@ -1,5 +1,5 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import { type MouseEvent } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { type MouseEvent, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -785,6 +785,39 @@ describe("design system panels, navigation, and shells", () => {
 
     expect(screen.getByRole("tab", { name: "Summary" })).toBeTruthy();
     expect(screen.getByText("Summary content")).toBeTruthy();
+  });
+
+  it("keeps the selected action tab and exposed panel synchronized", () => {
+    function ControlledTabs() {
+      const [value, setValue] = useState("offers");
+
+      return (
+        <>
+          <button type="button" onClick={() => setValue("listings")}>
+            Show listings
+          </button>
+          <Tabs
+            value={value}
+            onValueChange={setValue}
+            items={[
+              { value: "listings", label: "Listings", content: <div>Listings content</div> },
+              { value: "offers", label: "Offers", content: <div>Offers content</div> },
+            ]}
+          />
+        </>
+      );
+    }
+
+    render(<ControlledTabs />);
+
+    expect(screen.getByRole("tab", { name: "Offers" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tabpanel", { name: "Offers" })).getByText("Offers content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show listings" }));
+
+    expect(screen.getByRole("tab", { name: "Listings" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tabpanel", { name: "Listings" })).getByText("Listings content")).toBeTruthy();
+    expect(screen.queryByRole("tabpanel", { name: "Offers" })).toBeNull();
   });
 
   it("renders action tabs with a scroll-stable panel frame", () => {
