@@ -11,6 +11,7 @@ import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider
 import {
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
 } from "../tcgplayer-executable-mapping-contract";
 import type {
@@ -59,6 +60,13 @@ export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY 
   providerKey: "tcgplayer",
   productDomain: "one-piece",
   productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "one-piece",
+  productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
 
@@ -348,6 +356,15 @@ export async function runTcgplayerYugiohSingleCardSourceObservationImportProofDr
   });
 }
 
+export async function runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
+    detail: tcgplayerOnePieceSealedProductProofDetail,
+    fetchedAt: "2026-06-23T00:00:00.000Z",
+  });
+}
+
 async function listTcgplayerAdapterOptions(
   input: ProviderOptionQueryInput,
   options: TcgplayerProviderAdapterOptions,
@@ -622,6 +639,10 @@ function normalizeTcgplayerMtgProofPayload(
       cardNumber: detail.customAttributes.number,
       releaseDate: detail.customAttributes.releaseDate,
       skuCount: String(detail.skus.length),
+      firstSkuId: detail.skus[0] ? String(detail.skus[0].sku) : undefined,
+      firstSkuCondition: detail.skus[0]?.condition,
+      firstSkuVariant: detail.skus[0]?.variant,
+      firstSkuLanguage: detail.skus[0]?.language,
     }),
     sourceUrl: envelope.provenance.sourceUrl,
     sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
@@ -715,6 +736,24 @@ const tcgplayerYugiohSingleCardProofDetail: TcgplayerAutomationProductDetail = {
   listings: 25,
 };
 
+const tcgplayerOnePieceSealedProductProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Sealed Products",
+  rarityName: "Sealed",
+  sealed: true,
+  productName: "Romance Dawn Booster Box",
+  setId: 6801,
+  setCode: "OP-01",
+  productId: 987660,
+  setName: "Romance Dawn",
+  productLineId: 68,
+  productStatusId: 1,
+  productLineName: "One Piece Card Game",
+  customAttributes: { number: "BOX", releaseDate: "2022-12-02", cardType: ["Sealed"] },
+  barcode: "811039041234",
+  formattedAttributes: {},
+  skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
+};
+
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
   if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
     return {
@@ -741,6 +780,15 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
       defaultProductLineName: "One Piece Card Game",
       productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["one piece card game", "one piece", "onepiece", "opcg"],
+      productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
+      defaultProductLineName: "One Piece Card Game",
+      productForm: "sealed-product",
     };
   }
   if (unitKey === TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {

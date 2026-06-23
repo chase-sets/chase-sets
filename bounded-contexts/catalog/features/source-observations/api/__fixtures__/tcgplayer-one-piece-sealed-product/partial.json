@@ -1,0 +1,47 @@
+{
+  "observationId": "tcgplayer_one_piece_product_987651_partial",
+  "sourceUrl": "https://www.tcgplayer.com/product/987651",
+  "sourceUpdatedAt": null,
+  "productId": 987651,
+  "productName": "Roronoa Zoro",
+  "setName": "Romance Dawn",
+  "productLineId": 68,
+  "productLineName": "One Piece Card Game",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "OP01-025"
+  },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": [],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:987651"
+    }
+  ],
+  "externalProductReferences": [],
+  "mergeIdentity": {
+    "tcg": "one-piece",
+    "productLineName": "One Piece Card Game",
+    "setName": "Romance Dawn",
+    "printedProductName": "Roronoa Zoro",
+    "collectorNumber": "OP01-025",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 987651,
+    "productName": "Roronoa Zoro",
+    "setName": "Romance Dawn",
+    "productLineName": "One Piece Card Game",
+    "productForm": "single",
+    "skuIds": []
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "partial"
+  }
+}

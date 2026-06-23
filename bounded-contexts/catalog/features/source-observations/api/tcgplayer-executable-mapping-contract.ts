@@ -11,6 +11,7 @@ export const TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION = "2026.06.20";
 export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION = "2026.06.22";
+export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -43,6 +44,13 @@ export const tcgplayerOnePieceSingleCardIngestionUnitIdentity = defineCatalogPro
 export const tcgplayerMtgSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "mtg",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerOnePieceSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "one-piece",
   productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
@@ -448,6 +456,35 @@ export const tcgplayerMtgSealedProductSourceObservationMappingContract = {
           }
         : rule,
     ),
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "one-piece-sealed-product-sku",
+  displayName: "TCGplayer One Piece Sealed Product and SKU",
+  profileVersion: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerOnePieceSealedProductIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-one-piece-sealed-product-production-v1",
+  },
+  fixtures: {
+    fixtureRoot:
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-one-piece-sealed-product",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      tcg: constantExpression("one-piece", "catalog-truth", ["normalized-observation", "hash-material"]),
+      ...providerProductFields,
+    },
   },
 } as const satisfies CatalogProviderExecutableMappingContract;
 

@@ -35,8 +35,10 @@ import {
   createTcgplayerProviderAdapter,
   runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
+  runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1031,6 +1033,131 @@ describe("ProviderAdapterRegistry", () => {
     ]);
   });
 
+  it("serves TCGplayer One Piece sealed-product transport through the active profile unit", async () => {
+    const progress: unknown[] = [];
+    const onePieceAdapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [
+        requireTcgplayerOnePieceProfileVersion(),
+        requireTcgplayerOnePieceSealedProfileVersion(),
+      ],
+      client: onePieceTcgplayerClient(),
+      now: () => new Date("2026-06-23T00:00:00.000Z"),
+    });
+
+    await expect(onePieceAdapter.listIntegrationUnits()).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        productDomain: "one-piece",
+        productForm: "single-card",
+      }),
+      expect.objectContaining({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        productDomain: "one-piece",
+        productForm: "sealed-product",
+        displayName: "TCGplayer One Piece Sealed Products",
+      }),
+    ]);
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [expect.objectContaining({ value: "68", label: "One Piece Card Game" })],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { productLineName: "One Piece Card Game", setName: "Romance Dawn" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "987660",
+          label: "Romance Dawn Booster Box",
+          metadata: expect.objectContaining({ productLineName: "One Piece Card Game", sealed: "true" }),
+        }),
+      ],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "987660" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "900987660",
+          label: "900987660",
+          metadata: { sku: "900987660", condition: "Sealed", variant: "Sealed", language: "English" },
+        },
+      ],
+    });
+    await expect(
+      onePieceAdapter.listOptions({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "987650" },
+      }),
+    ).resolves.toEqual({ items: [] });
+
+    const acceptedPlan = await onePieceAdapter.planImport({
+      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "68", setName: "Romance Dawn" },
+    });
+    await expect(
+      collectPayloads(
+        onePieceAdapter.fetchPayloads(acceptedPlan, {
+          onProgress: (event) => {
+            progress.push(event);
+          },
+        }),
+      ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        externalKey: "product:987660",
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({
+            productId: 987660,
+            productLineId: 68,
+            productLineName: "One Piece Card Game",
+            productTypeName: "Sealed Products",
+            sealed: true,
+            skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
+          }),
+        },
+      }),
+    ]);
+    expect(acceptedPlan).toMatchObject({
+      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      planKey: "tcgplayer:set:68:Romance Dawn",
+    });
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Romance Dawn" },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Romance Dawn Booster Box" },
+    ]);
+
+    const rejectedPlan = await onePieceAdapter.planImport({
+      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "product",
+      values: { productId: "987650" },
+    });
+    await expect(collectPayloads(onePieceAdapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "product-detail-failure",
+          reason: expect.stringContaining("only imports One Piece Card Game sealed products"),
+        }),
+      }),
+    ]);
+  });
+
   it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
@@ -1300,6 +1427,7 @@ describe("ProviderAdapterRegistry", () => {
   it("validates TCGplayer Magic source-observation imports through fixture-backed proof dry runs", async () => {
     const singleCard = await runTcgplayerMtgSingleCardSourceObservationImportProofDryRun();
     const sealedProduct = await runTcgplayerMtgSealedProductSourceObservationImportProofDryRun();
+    const onePieceSealedProduct = await runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun();
 
     expect(singleCard).toMatchObject({
       unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1347,6 +1475,34 @@ describe("ProviderAdapterRegistry", () => {
       ],
       diagnostics: [],
     });
+    expect(onePieceSealedProduct).toMatchObject({
+      unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.23",
+      observations: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:987660",
+          normalizedFacts: {
+            productId: "987660",
+            name: "Romance Dawn Booster Box",
+            setCode: "OP-01",
+            setName: "Romance Dawn",
+            productLineName: "One Piece Card Game",
+            productTypeName: "Sealed Products",
+            productForm: "sealed",
+            cardNumber: "BOX",
+            releaseDate: "2022-12-02",
+            skuCount: "1",
+            firstSkuId: "900987660",
+            firstSkuCondition: "Sealed",
+            firstSkuVariant: "Sealed",
+            firstSkuLanguage: "English",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+    expect(JSON.stringify(onePieceSealedProduct)).not.toMatch(/marketPrice|lowestPrice|medianPrice|listings|seller/i);
   });
 
   it("records MTGJSON/Scryfall source conflict evidence without adapter-side precedence", async () => {
@@ -1545,6 +1701,16 @@ function requireTcgplayerOnePieceProfileVersion() {
   });
   if (!version) {
     throw new Error("Expected TCGplayer One Piece profile version.");
+  }
+  return version;
+}
+
+function requireTcgplayerOnePieceSealedProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
+    profileKey: "one-piece-sealed-product-sku",
+  });
+  if (!version) {
+    throw new Error("Expected TCGplayer One Piece sealed profile version.");
   }
   return version;
 }

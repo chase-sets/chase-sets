@@ -47,7 +47,9 @@ import {
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   tcgplayerMtgSealedProductSourceObservationMappingContract,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
   tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
+  tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerYugiohSingleCardProviderProductSourceObservationMappingContract,
@@ -1918,6 +1920,64 @@ export const tcgplayerOnePieceSingleCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerOnePieceSealedProductProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer One Piece Sealed Products",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer One Piece Sealed Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "one-piece-sealed-product",
+    categoryKey: "one-piece-sealed-products",
+    fieldKeys: {
+      cardNumber: "sealed-product-number",
+      cardName: "sealed-product-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "sealed-product-form",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: tcgplayerOnePieceSingleCardProviderProfile.referenceHierarchyMapping,
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: [
+      {
+        dimensionKey: "product-form",
+        providerValue: { source: "payload", path: "sealed" },
+        required: true,
+        unknownPolicy: "review-evidence",
+        valueMappings: [{ from: true, value: "unopened" }],
+        valueSynonyms: [{ optionKey: "unopened", providerValues: ["unopened", "sealed", "Sealed"] }],
+      },
+      {
+        dimensionKey: "language",
+        providerValue: { source: "record", path: "language" },
+        required: false,
+        unknownPolicy: "review-evidence",
+        valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["scrydex", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const scrydexOnePieceConnectorProfile = {
   kind: "scrydex-one-piece-json",
   sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
@@ -2972,6 +3032,7 @@ export const catalogProviderIntegrationProfiles = [
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerYugiohSingleCardProviderProfile,
   tcgplayerOnePieceSingleCardProviderProfile,
+  tcgplayerOnePieceSealedProductProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -3184,6 +3245,20 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "one-piece-sealed-product-sku",
+    profileVersion: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
+    ingestionUnitIdentity:
+      tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerOnePieceSealedProductProviderProfile,
+    sourceContract: tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",
