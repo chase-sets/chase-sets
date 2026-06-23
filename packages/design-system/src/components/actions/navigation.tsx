@@ -1,11 +1,15 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { LayoutGroup } from "motion/react";
 import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { Cluster, Container, Inline, layoutWidthClasses, Show, type LayoutWidth } from "../../primitives/layout";
+import { useChaseMotion, usePortalRoots } from "../../theme/provider";
+import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
+import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { controlSquareSizeClasses } from "../control-sizing";
 import { renderActivePill } from "./shared";
 
@@ -126,55 +130,42 @@ function NavigationItemGroup({
   onSelect?: (key: string) => void;
   activeKey?: string;
 }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const { overlayNode } = usePortalRoots();
+  const motionSettings = useChaseMotion();
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const closeWhenPointerStartsOutside = (event: PointerEvent) => {
-      const details = detailsRef.current;
-
-      if (!details || !(event.target instanceof Node) || details.contains(event.target)) {
-        return;
-      }
-
-      setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", closeWhenPointerStartsOutside, true);
-
-    return () => document.removeEventListener("pointerdown", closeWhenPointerStartsOutside, true);
-  }, [open]);
+  const motionProps = resolveOverlayMotion(
+    motionSettings,
+    open,
+    { opacity: 1, y: 0, scale: 1 },
+    { opacity: 0, y: 10, scale: 0.98 },
+  );
 
   return (
-    <details
-      ref={detailsRef}
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      className="group relative"
-    >
-      <summary
-        className={cx(
-          className,
-          "list-none [&::-webkit-details-marker]:hidden",
-          active && "bg-surface-2 text-accent shadow-tokenSm",
-        )}
-      >
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger className={cx(className, active && "bg-surface-2 text-accent shadow-tokenSm")}>
         {active && groupId ? renderActivePill(groupId) : null}
         <NavItemContent>{content}</NavItemContent>
-        <NavItemContent>
+        <NavItemContent className={cx("transition-transform duration-200", open && "rotate-180")}>
           <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
         </NavItemContent>
-      </summary>
-      <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
-        {item.children?.map((child) =>
-          renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey),
-        )}
-      </div>
-    </details>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal container={overlayNode ?? undefined}>
+        <PopoverPrimitive.Positioner sideOffset={8} className="z-dropdown">
+          <PopoverPrimitive.Popup
+            render={renderMotionDiv({
+              initial: motionProps.initial,
+              animate: motionProps.animate,
+              transition: motionProps.transition,
+              className: "modern-surface min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay",
+            })}
+          >
+            {item.children?.map((child) =>
+              renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey),
+            )}
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }
 

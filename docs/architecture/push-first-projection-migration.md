@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-21.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-23.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (74)
+## Projection Groups (75)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -109,12 +109,13 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-account-risk-source-projection` | Settlement | identity, **marketplace** | push-eligible | 1/2 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
-| `settlement:settlement-payout-projection` | Settlement | settlement | push-eligible | 0/1 |
+| `settlement:settlement-payout-projection` | Settlement | **settlement** | push-enabled | 1/1 |
+| `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
 
-Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 33 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (56)
+## Read-After-Write Route Inventory (57)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -175,7 +176,8 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `reputation.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
-| `settlement.payout-request-to-detail` | settlement | critical | exact wait | poll-bounded until wave 3 |
+| `settlement.payout-readiness-self-refresh` | settlement | critical | exact wait | push-accelerated |
+| `settlement.payout-request-to-detail` | settlement | critical | exact wait | push-accelerated |
 
 ## Rollout Waves: Staging First, Production Gated
 
@@ -184,7 +186,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The wave-1 listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` already cover all four contexts in both staging and the production worst case, so these flips change no Terraform.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
 - **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `fulfillment`, `identity`, and `inventory` remain eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
-- **Wave 3 (`discovery`, `public-presence`, `settlement`, `support`)** — eligible, follows wave 2 with owner approval.
+- **Wave 3 (`discovery`, `public-presence`, `settlement`, `support`)** — `settlement` is staging-enabled for seller payout-readiness freshness; the remaining wave-3 contexts are eligible and follow wave 2 with owner approval.
 - **Wave 4 (`auth`, `commercial-terms`, `experience`, `insights`, `notifications`, `platform-operations`, `pricing`, `tax`)** — deferred or not currently source-enabled. Newly inventoried Auth and Commercial Terms self-owned projections/routes are classified here but remain relay-disabled until owner approval and the production-gate evidence path is ready.
 
 ## Documented Polling Exceptions

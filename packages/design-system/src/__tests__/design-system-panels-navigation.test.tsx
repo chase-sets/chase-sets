@@ -52,6 +52,7 @@ import {
   ReferenceInfoTrigger,
   ReviewCard,
   AccountProfileHeader,
+  ChaseRoot,
   Table,
 } from "../index";
 
@@ -708,7 +709,7 @@ describe("design system panels, navigation, and shells", () => {
     expect(screen.getByRole("link", { name: "Sign In" }).getAttribute("href")).toBe("/sign-in");
   });
 
-  it("closes top navigation child menus when clicking outside", async () => {
+  it("closes top navigation child menus with Escape", async () => {
     const user = userEvent.setup();
 
     render(
@@ -729,18 +730,52 @@ describe("design system panels, navigation, and shells", () => {
       </div>,
     );
 
-    const summary = screen.getByText("Sell").closest("summary");
-    expect(summary).toBeTruthy();
+    const sellTrigger = screen.getByRole("button", { name: "Sell" });
+    expect(screen.queryByRole("link", { name: "Listings" })).toBeNull();
 
-    const details = summary?.closest("details");
-    expect(details?.open).toBe(false);
+    await user.click(sellTrigger);
+    expect(await screen.findByRole("link", { name: "Listings" })).toBeTruthy();
+    await user.keyboard("{Escape}");
 
-    await user.click(summary!);
-    expect(details?.open).toBe(true);
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Listings" })).toBeNull());
+  });
 
-    await user.click(screen.getByRole("button", { name: "Outside" }));
+  it("keeps top navigation child links as reachable portal menu links", async () => {
+    const user = userEvent.setup();
 
-    await waitFor(() => expect(details?.open).toBe(false));
+    render(
+      <ChaseRoot>
+        <TopNav
+          items={[
+            {
+              key: "selling-workspace",
+              label: "Sell",
+              children: [
+                { key: "inventory", label: "Inventory", href: "/account/inventory" },
+                { key: "inventory-imports", label: "Import", href: "/account/inventory/imports" },
+                { key: "listings", label: "Listings", href: "/account/listings" },
+              ],
+            },
+          ]}
+        />
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sell" }));
+
+    const importLink = await screen.findByRole("link", { name: "Import" });
+    const click = vi.fn((event: globalThis.MouseEvent) => {
+      expect(event.defaultPrevented).toBe(false);
+      event.preventDefault();
+    });
+
+    expect(importLink.closest("[data-chase-overlay-root]")).toBeTruthy();
+    expect(importLink.getAttribute("href")).toBe("/account/inventory/imports");
+
+    importLink.addEventListener("click", click);
+    await user.click(importLink);
+
+    expect(click).toHaveBeenCalledTimes(1);
   });
 
   it("syncs theme toggle choices to the document theme", async () => {

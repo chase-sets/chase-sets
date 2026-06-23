@@ -1,13 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+  type ListResponse,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
   requireActorFromIdentityApi,
 } from "../../support/route-support/identity-request";
-import type { ShippingAddress } from "../../support/request-support/api-client";
+import { IdentityApiError, type ShippingAddress } from "../../support/request-support/api-client";
 import { ShippingAddressPage } from "../../features/shipping-addresses/ui/shipping-address-page";
 
 type ActionData = Readonly<{ error?: string }>;
@@ -38,14 +43,56 @@ function addressBody(formData: FormData) {
   };
 }
 
+function emptyAddressList(): ListResponse<ShippingAddress> {
+  return { items: [], total: 0, count: 0 };
+}
+
+function identityApiErrorStatus(error: unknown) {
+  return error instanceof IdentityApiError ? error.status : null;
+}
+
+function identityApiErrorBody(error: unknown) {
+  return error instanceof IdentityApiError ? error.body : null;
+}
+
+function identityApiErrorCode(error: unknown) {
+  const body = identityApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
     request,
     permission: "accounts.view",
   });
   const api = createIdentityRequestApiClient(request);
-  const response = await api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId);
-  return { addresses: response.items };
+  try {
+    const response = await loadFreshlyWrittenResource({
+      request,
+      load: () => api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId),
+      isNotFound: (error) => identityApiErrorStatus(error) === 404,
+    });
+    return { addresses: response.items, loadError: null };
+  } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: identityApiErrorStatus,
+      getErrorCode: identityApiErrorCode,
+      getBody: identityApiErrorBody,
+      recoverTransient: () => ({
+        addresses: emptyAddressList().items,
+        loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
+    throw error;
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -110,5 +157,5 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as ActionData | undefined;
-  return <ShippingAddressPage addresses={data.addresses} errorMessage={actionData?.error ?? null} />;
+  return <ShippingAddressPage addresses={data.addresses} errorMessage={actionData?.error ?? data.loadError ?? null} />;
 }

@@ -42,4 +42,13 @@ describe("AccountProfilePage", () => {
     expect(html).toContain("Founding Account");
     expect(html.indexOf("Signed-In Identity")).toBeLessThan(html.indexOf("Marketplace Readiness"));
   });
+
+  it("keeps buyer shipping addresses separate from seller ship-from setup", () => {
+    const html = renderToString(<AccountProfilePage account={account} actorDisplay={actorDisplay} />);
+
+    expect(html).toContain('href="/account/shipping-addresses"');
+    expect(html).toContain("Manage shipping addresses");
+    expect(html).toContain('href="/account/inventory/locations"');
+    expect(html).toContain("Manage ship-from locations");
+  });
 });

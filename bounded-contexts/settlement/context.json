@@ -109,6 +109,13 @@
       "ownedTables": ["settlement_payout_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "settlement-payout-readiness-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": ["settlement_payout_readiness_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -136,6 +143,15 @@
           "dependencies": [
             {
               "readModelTable": "settlement_payout_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/payout-readiness",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "settlement_payout_readiness_pages"
             }
           ]
         }
@@ -168,6 +184,32 @@
           "kinds": "refreshable-catching-up",
           "behavior": "Payout detail redirects carry the Settlement payout request receipt; the API waits on settlement_payout_pages and the loader treats fresh 404 or projection freshness timeout as temporary payout preparation."
         }
+      }
+    },
+    {
+      "id": "settlement.payout-readiness-self-refresh",
+      "owner": "settlement",
+      "risk": "critical",
+      "source": {
+        "routeId": "account-payout-setup",
+        "actions": ["Refresh payout setup status", "Complete provider payout setup"],
+        "command": "RecordPayoutReadiness"
+      },
+      "destination": {
+        "routeId": "account-payout-setup",
+        "apiContextName": "settlement",
+        "apiRoutePath": "/payout-readiness",
+        "readModelTables": ["settlement_payout_readiness_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Payout setup refresh renders the command-owned readiness snapshot immediately, while follow-on account surfaces such as Sell List read the Settlement payout-readiness API backed by the exact settlement_payout_readiness_pages projection."
+        }
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "settlement",
+        "reviewBy": "2026-09-30",
+        "reason": "Payout setup refresh is a Settlement snapshot-return mutation, not a browser route that carries afterWrite into a same-page read. The /payout-readiness freshness route exists for cross-surface readiness readers such as Sell List, and settlement.account-payout-setup-route-snapshot-correction owns the immediate provider-exit status."
       }
     }
   ],

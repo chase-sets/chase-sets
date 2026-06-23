@@ -575,7 +575,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         sourceType !== "offer-intent" &&
         !marketplaceCheckoutFeeQuoteFingerprint &&
         !session?.payment_id;
-      if (visibleReviewChanged || needsPaymentQuote) {
+      const shouldRefreshReviewBeforeConfirm = sourceType !== "offer-intent" && visibleReviewChanged;
+      if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
         const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
