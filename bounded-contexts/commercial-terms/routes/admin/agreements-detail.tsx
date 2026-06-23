@@ -2,11 +2,7 @@ import { Banner, LinkButton, Page, PageHeader } from "@chase-sets/design-system"
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
 import { AgreementDetailPage } from "../../features/agreements/ui/agreement-detail-page";
 import {
   CommercialTermsApiError,
@@ -22,30 +18,27 @@ import {
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
   try {
-    return {
-      agreement: await loadFreshlyWrittenResource({
-        request,
-        load: () => api.getAgreement(params.id!),
-        isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      }),
-      loadError: null,
-    };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
+    const agreementRead = await loadAfterWrite({
       request,
-      error,
+      load: () => api.getAgreement(params.id!),
+      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
       getStatus: commercialTermsApiErrorStatus,
       getErrorCode: commercialTermsApiErrorCode,
       getBody: commercialTermsApiErrorBody,
-      recoverTransient: () => ({
-        agreement: null,
-        loadError: formatCommercialTermsAdminLoadError(error),
-      }),
     });
-    if (recovery) {
-      return recovery;
+
+    if (agreementRead.kind !== "data") {
+      return {
+        agreement: null,
+        loadError: formatCommercialTermsAdminLoadError("error" in agreementRead ? agreementRead.error : undefined),
+      };
     }
 
+    return {
+      agreement: agreementRead.data,
+      loadError: null,
+    };
+  } catch (error) {
     return {
       agreement: null,
       loadError: formatCommercialTermsAdminLoadError(error),
@@ -67,7 +60,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(appendFreshWriteToken(`/commerce/terms/agreements/${params.id}`, result));
+    return redirect(navigateAfterWrite(result, `/commerce/terms/agreements/${params.id}`));
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };

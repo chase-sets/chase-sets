@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite, readFreshWriteToken } from "@chase-sets/http/responses";
 
 const {
   MockCommercialTermsApiError,
@@ -87,7 +87,13 @@ function formRequest(path: string, values: Record<string, string>) {
 }
 
 function freshnessRequest(path: string, position = "42") {
-  return new Request(`https://admin.chasesets.com${appendFreshWriteToken(path, commercialTermsCommit(position))}`);
+  return new Request(`https://admin.chasesets.com${navigateAfterWrite(commercialTermsCommit(position), path)}`);
+}
+
+function expiredFreshnessRequest(path: string, position = "42") {
+  return new Request(
+    `https://admin.chasesets.com${navigateAfterWrite(commercialTermsCommit(position), path, { nowMs: 0 })}`,
+  );
 }
 
 function scheduleForm() {
@@ -205,6 +211,21 @@ describe("commercial terms admin routes", () => {
 
     const result = await agreementDetailLoader({
       request: freshnessRequest("/commerce/terms/agreements/cag_preferred", "56"),
+      params: { id: "cag_preferred" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      agreement: null,
+      loadError: "Commercial Terms projection is catching up.",
+    });
+  });
+
+  it("keeps expired agreement detail receipts inside the route-owned unavailable state", async () => {
+    mockApi.getAgreement.mockRejectedValue(projectionFreshnessTimeout());
+
+    const result = await agreementDetailLoader({
+      request: expiredFreshnessRequest("/commerce/terms/agreements/cag_preferred", "57"),
       params: { id: "cag_preferred" },
       context: undefined,
     } as never);

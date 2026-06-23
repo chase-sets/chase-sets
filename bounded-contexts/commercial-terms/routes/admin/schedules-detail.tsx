@@ -2,11 +2,7 @@ import { Banner, LinkButton, Page, PageHeader } from "@chase-sets/design-system"
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
 import { ScheduleDetailPage } from "../../features/schedules/ui/schedule-detail-page";
 import {
   CommercialTermsApiError,
@@ -22,30 +18,27 @@ import {
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
   try {
-    return {
-      schedule: await loadFreshlyWrittenResource({
-        request,
-        load: () => api.getSchedule(params.id!),
-        isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-      }),
-      loadError: null,
-    };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
+    const scheduleRead = await loadAfterWrite({
       request,
-      error,
+      load: () => api.getSchedule(params.id!),
+      isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
       getStatus: commercialTermsApiErrorStatus,
       getErrorCode: commercialTermsApiErrorCode,
       getBody: commercialTermsApiErrorBody,
-      recoverTransient: () => ({
-        schedule: null,
-        loadError: formatCommercialTermsAdminLoadError(error),
-      }),
     });
-    if (recovery) {
-      return recovery;
+
+    if (scheduleRead.kind !== "data") {
+      return {
+        schedule: null,
+        loadError: formatCommercialTermsAdminLoadError("error" in scheduleRead ? scheduleRead.error : undefined),
+      };
     }
 
+    return {
+      schedule: scheduleRead.data,
+      loadError: null,
+    };
+  } catch (error) {
     return {
       schedule: null,
       loadError: formatCommercialTermsAdminLoadError(error),
@@ -67,7 +60,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(appendFreshWriteToken(`/commerce/terms/schedules/${params.id}`, result));
+    return redirect(navigateAfterWrite(result, `/commerce/terms/schedules/${params.id}`));
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };
