@@ -104,7 +104,7 @@ locals {
   }
 
   api_database_pool_max               = "6"
-  worker_default_database_pool_max    = local.is_staging ? 10 : (local.is_non_production ? 8 : 7)
+  worker_default_database_pool_max    = local.is_staging ? 11 : 8
   worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
@@ -113,6 +113,7 @@ locals {
   worker_projection_concurrency       = "2"
   worker_default_job_concurrency      = local.is_staging ? 4 : 1
   worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
+  worker_inventory_import_concurrency = "1"
   worker_dispatch_concurrency         = "1"
   worker_scheduled_concurrency        = "1"
   # Hot-lane reserved capacity (#1223): the wakes loop reserves
@@ -121,8 +122,8 @@ locals {
   # reservation to be real while standard/bulk keep a slot. Production runs 2
   # like staging so the reservation is provisioned before production proof
   # mode (#1237) enables the relay; the worker_runner_capacity check sums
-  # production runner concurrency to 7 = worker_database_pool_max and staging
-  # to 10 = worker_database_pool_max.
+  # production runner concurrency to 8 = worker_database_pool_max and staging
+  # to 11 = worker_database_pool_max.
   worker_wake_concurrency           = "2"
   worker_wake_hot_lane_runners      = "1"
   worker_wake_standard_lane_runners = "1"

@@ -48,6 +48,7 @@ export type PlatformWorkerConfig = Readonly<{
   sourceObservationIntegrationJobWorkflowMaxActiveClaims: number;
   sourceObservationIntegrationJobMaxActiveClaimsPerJob: number;
   inventoryImportBatchJobLaneCount: number;
+  inventoryImportBatchJobMaxConcurrentRunners: number;
   inventoryImportBatchJobWorkflowMaxActiveClaims: number;
   inventoryImportBatchJobMaxActiveClaimsPerJob: number;
   pricingRecommendationJobLaneCount: number;
@@ -281,6 +282,10 @@ export function loadConfig(): PlatformWorkerConfig {
       1,
     ),
     inventoryImportBatchJobLaneCount: getPositiveNumberEnv("INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT", 1),
+    inventoryImportBatchJobMaxConcurrentRunners: getPositiveNumberEnv(
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
+      1,
+    ),
     inventoryImportBatchJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
       "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
       1,
