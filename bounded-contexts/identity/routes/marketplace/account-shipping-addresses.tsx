@@ -1,12 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import type { ListResponse } from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
@@ -68,31 +64,30 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "accounts.view",
   });
   const api = createIdentityRequestApiClient(request);
-  try {
-    const response = await loadFreshlyWrittenResource({
-      request,
-      load: () => api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId),
-      isNotFound: (error) => identityApiErrorStatus(error) === 404,
-    });
-    return { addresses: response.items, loadError: null };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
-      getStatus: identityApiErrorStatus,
-      getErrorCode: identityApiErrorCode,
-      getBody: identityApiErrorBody,
-      recoverTransient: () => ({
-        addresses: emptyAddressList().items,
-        loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
-      }),
-    });
-    if (recovery) {
-      return recovery;
-    }
+  const response = await loadAfterWrite({
+    request,
+    load: () => api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId),
+    isNotFound: (error) => identityApiErrorStatus(error) === 404,
+    getStatus: identityApiErrorStatus,
+    getErrorCode: identityApiErrorCode,
+    getBody: identityApiErrorBody,
+  });
 
-    throw error;
+  if (response.kind === "pending") {
+    return {
+      addresses: emptyAddressList().items,
+      loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
+    };
   }
+
+  if (response.kind === "permanent-failure") {
+    if ("error" in response) {
+      throw response.error;
+    }
+    throw new Response("Shipping addresses are unavailable.", { status: 404 });
+  }
+
+  return { addresses: response.data.items, loadError: null };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -108,33 +103,33 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "create") {
       return redirect(
-        appendFreshWriteToken(
-          "/account/shipping-addresses",
+        navigateAfterWrite(
           await api.createShippingAddress(actor.accountId, addressBody(formData)),
+          "/account/shipping-addresses",
         ),
       );
     }
     if (intent === "update" && shippingAddressId) {
       return redirect(
-        appendFreshWriteToken(
-          "/account/shipping-addresses",
+        navigateAfterWrite(
           await api.updateShippingAddress(actor.accountId, shippingAddressId, addressBody(formData)),
+          "/account/shipping-addresses",
         ),
       );
     }
     if (intent === "default" && shippingAddressId) {
       return redirect(
-        appendFreshWriteToken(
-          "/account/shipping-addresses",
+        navigateAfterWrite(
           await api.setDefaultShippingAddress(actor.accountId, shippingAddressId),
+          "/account/shipping-addresses",
         ),
       );
     }
     if (intent === "archive" && shippingAddressId) {
       return redirect(
-        appendFreshWriteToken(
-          "/account/shipping-addresses",
+        navigateAfterWrite(
           await api.archiveShippingAddress(actor.accountId, shippingAddressId),
+          "/account/shipping-addresses",
         ),
       );
     }

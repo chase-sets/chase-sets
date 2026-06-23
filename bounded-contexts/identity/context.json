@@ -202,7 +202,7 @@
           "Remove account badge"
         ],
         "command": "Identity account commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "accounts-detail",
@@ -231,7 +231,7 @@
         "routeId": "account",
         "actions": ["Update account profile"],
         "command": "UpdateAccountProfile",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account",
@@ -299,7 +299,7 @@
         "routeId": "users-detail",
         "actions": ["Update user profile", "Suspend user", "Reactivate user"],
         "command": "Identity user commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "users-detail",
@@ -328,7 +328,7 @@
         "routeId": "account-security",
         "actions": ["Update user profile"],
         "command": "UpdateUserProfile",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-security",
@@ -357,7 +357,7 @@
         "routeId": "api-keys",
         "actions": ["Create API key"],
         "command": "CreateApiKey",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "api-keys",
@@ -386,7 +386,7 @@
         "routeId": "api-keys-detail",
         "actions": ["Rotate API key", "Revoke API key"],
         "command": "Identity API-key commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "api-keys-detail",
@@ -415,7 +415,7 @@
         "routeId": "account-security",
         "actions": ["Create API key", "Rotate API key", "Revoke API key"],
         "command": "Identity API-key commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-security",
@@ -444,7 +444,7 @@
         "routeId": "invitations",
         "actions": ["Create invitation"],
         "command": "CreateInvitation",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "invitations",
@@ -473,7 +473,7 @@
         "routeId": "invitations-detail",
         "actions": ["Resend invitation", "Cancel invitation", "Decline invitation"],
         "command": "Identity invitation commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "invitations-detail",
@@ -502,7 +502,7 @@
         "routeId": "account-team",
         "actions": ["Create invitation", "Cancel invitation"],
         "command": "Identity invitation commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-team",
@@ -531,7 +531,7 @@
         "routeId": "memberships-detail",
         "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
         "command": "Identity membership commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "memberships-detail",
@@ -560,7 +560,7 @@
         "routeId": "account-team",
         "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
         "command": "Identity membership commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-team",
@@ -594,14 +594,14 @@
           "Set default shipping address"
         ],
         "command": "Identity shipping-address commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-shipping-addresses",
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:accountId/shipping-addresses",
         "readModelTables": ["identity_shipping_addresses"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."

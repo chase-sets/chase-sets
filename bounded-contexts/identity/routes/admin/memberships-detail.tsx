@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Membership } from "../../support/request-support/api-client";
 import { MembershipDetailPage } from "../../features/memberships/ui/membership-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -33,7 +33,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     result = await api.reinstateMembership(membershipId);
   }
 
-  return redirect(appendFreshWriteToken(`/access/memberships/${membershipId}`, result));
+  return redirect(navigateAfterWrite(result, `/access/memberships/${membershipId}`));
 }
 
 export const meta: MetaFunction = () => [

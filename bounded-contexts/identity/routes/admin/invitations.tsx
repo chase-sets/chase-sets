@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Invitation } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -29,7 +29,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect(appendFreshWriteToken("/access/invitations", result));
+  return redirect(navigateAfterWrite(result, "/access/invitations"));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];

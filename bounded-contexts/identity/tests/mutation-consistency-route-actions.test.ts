@@ -334,4 +334,46 @@ describe("Identity mutation consistency route actions", () => {
       loadError: "Shipping addresses are still updating. Reload this page in a moment.",
     });
   });
+
+  it("preserves expired shipping-address post-write failures as permanent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/accounts/acc_identity/shipping-addresses")) {
+          return jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Projection read model did not catch up before the freshness timeout.",
+              },
+            },
+            503,
+          );
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const expiredPath = appendFreshWriteToken("/account/shipping-addresses", identityCommit("91"), 1);
+
+    await expect(
+      accountShippingAddressesLoader({
+        request: new Request(`https://chasesets.test${expiredPath}`, {
+          headers: { cookie: "session=identity" },
+        }),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+        },
+      },
+    });
+  });
 });

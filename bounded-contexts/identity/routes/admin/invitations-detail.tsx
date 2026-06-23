@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Invitation } from "../../support/request-support/api-client";
 import { InvitationDetailPage } from "../../features/invitations/ui/invitation-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -33,7 +33,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     result = await api.declineInvitation(invitationId);
   }
 
-  return redirect(appendFreshWriteToken(`/access/invitations/${invitationId}`, result));
+  return redirect(navigateAfterWrite(result, `/access/invitations/${invitationId}`));
 }
 
 export const meta: MetaFunction = () => [

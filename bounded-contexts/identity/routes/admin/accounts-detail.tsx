@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Account } from "../../support/request-support/api-client";
 import { AccountDetailPage } from "../../features/accounts/ui/account-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -48,7 +48,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     result = await api.removeAccountBadge(accountId, "founding-account");
   }
 
-  return redirect(appendFreshWriteToken(`/access/accounts/${accountId}`, result));
+  return redirect(navigateAfterWrite(result, `/access/accounts/${accountId}`));
 }
 
 export const meta: MetaFunction = () => [

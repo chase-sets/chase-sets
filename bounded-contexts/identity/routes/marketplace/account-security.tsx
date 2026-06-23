@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
+import type { ListResponse } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ApiKey, User } from "../../support/request-support/api-client";
 import { SecurityPage } from "../../features/api-keys/ui/account-security-page";
@@ -60,7 +61,7 @@ export async function action({ request }: ActionFunctionArgs) {
     result = await api.revokeApiKey(String(formData.get("apiKeyId") ?? ""));
   }
 
-  return redirect(appendFreshWriteToken("/account/security", result));
+  return redirect(navigateAfterWrite(result, "/account/security"));
 }
 
 export const meta: MetaFunction = () =>
