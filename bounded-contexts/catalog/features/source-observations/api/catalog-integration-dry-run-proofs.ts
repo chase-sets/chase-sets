@@ -36,10 +36,12 @@ import {
   runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
   runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun,
+  runTcgplayerOnePieceSingleCardSourceObservationImportProofDryRun,
   runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
 import {
@@ -84,6 +86,10 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [
       TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
+    ],
+    [
+      TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runTcgplayerOnePieceSingleCardSourceObservationImportProofDryRun,
     ],
     [
       TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,

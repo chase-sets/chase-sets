@@ -11,6 +11,7 @@ import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider
 import {
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
 } from "../tcgplayer-executable-mapping-contract";
@@ -353,6 +354,15 @@ export async function runTcgplayerYugiohSingleCardSourceObservationImportProofDr
     profileVersion: TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
     detail: tcgplayerYugiohSingleCardProofDetail,
     fetchedAt: "2026-06-21T00:00:00.000Z",
+  });
+}
+
+export async function runTcgplayerOnePieceSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
+    detail: tcgplayerOnePieceSingleCardProofDetail,
+    fetchedAt: "2026-06-22T00:00:00.000Z",
   });
 }
 
@@ -729,6 +739,28 @@ const tcgplayerYugiohSingleCardProofDetail: TcgplayerAutomationProductDetail = {
   customAttributes: { number: "SDY-006", releaseDate: "2002-03-29", cardType: ["Normal Monster"] },
   formattedAttributes: {},
   skus: [{ sku: 60017851, condition: "Near Mint", variant: "Unlimited", language: "English" }],
+  marketPrice: 2.34,
+  lowestPrice: 2.01,
+  lowestPriceWithShipping: 2.89,
+  medianPrice: 3.5,
+  listings: 25,
+};
+
+const tcgplayerOnePieceSingleCardProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Cards",
+  rarityName: "Leader",
+  sealed: false,
+  productName: "Monkey.D.Luffy",
+  setId: 6801,
+  setCode: "OP-01",
+  productId: 987650,
+  setName: "Romance Dawn",
+  productLineId: 68,
+  productStatusId: 1,
+  productLineName: "One Piece Card Game",
+  customAttributes: { number: "OP01-001", releaseDate: "2022-12-02", cardType: ["Leader"] },
+  formattedAttributes: {},
+  skus: [{ sku: 900987650, condition: "Near Mint", variant: "Normal", language: "English" }],
   marketPrice: 2.34,
   lowestPrice: 2.01,
   lowestPriceWithShipping: 2.89,
