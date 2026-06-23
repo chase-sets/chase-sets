@@ -211,7 +211,8 @@ export type ScrydexScryfallJsonConnectorProfile = Readonly<{
 export type ScrydexOnePieceJsonConnectorProfile = Readonly<{
   kind: "scrydex-one-piece-json";
   sourceContractDocument: string;
-  fixtureBackedOnly: true;
+  transportMode: "live-credentialed";
+  fixtureEvidence: "required-for-active-profile-validation";
   authentication: Readonly<{
     scheme: "scrydex-api-key";
     credentialsRequired: true;
@@ -1994,7 +1995,8 @@ export const tcgplayerOnePieceSealedProductProviderProfile = {
 export const scrydexOnePieceConnectorProfile = {
   kind: "scrydex-one-piece-json",
   sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
-  fixtureBackedOnly: true,
+  transportMode: "live-credentialed",
+  fixtureEvidence: "required-for-active-profile-validation",
   authentication: {
     scheme: "scrydex-api-key",
     credentialsRequired: true,

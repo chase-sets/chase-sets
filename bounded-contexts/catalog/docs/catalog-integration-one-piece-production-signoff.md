@@ -60,6 +60,14 @@ bulk-first and credit-aware:
   tested, preflighted with call impact, and visible to the operator before
   execution.
 
+Scrydex One Piece price-history sync is not active for this milestone. The
+current provider shape exposes price history as per-card evidence, and One
+Piece source authority excludes unapproved price-history bodies from Catalog
+truth. The adapter may surface a redacted source-authority-gated diagnostic, but
+no price-history ingestion unit may run until a later approval names the data
+class and adds the most efficient supported query shape, call-budget proof, and
+operator-visible fallback policy.
+
 ## Governed Data Classes
 
 One Piece production sync follows the base provider-data policy in
