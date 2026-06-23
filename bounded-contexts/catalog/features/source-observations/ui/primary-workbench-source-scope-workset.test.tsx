@@ -283,8 +283,11 @@ describe("Catalog source-scope workset", () => {
     });
     const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.providerKey === "ygojson");
 
-    expect(readModel.routeContext.importScope).toBeNull();
-    expect(readModel.routeContext.sourceObservationFilters).toEqual({ providerKey: "ygojson" });
+    expect(readModel.routeContext.importScope).toBe(`en:${selectedSetId}`);
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({
+      providerKey: "ygojson",
+      importScope: `en:${selectedSetId}`,
+    });
     expect(unit?.commandContext).toMatchObject({
       providerKey: "ygojson",
       importScope: `en:${selectedSetId}`,
@@ -302,6 +305,53 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(form, "seriesId")).toBe("");
     expect(hiddenValue(form, "expansionId")).toBe("");
     expect(hiddenValue(form, "expansionName")).toBe(selectedSetId);
+  });
+
+  it("uses a Scrydex One Piece set-name selection as the primary import context", () => {
+    const profile = scrydexOnePieceSetNameProfile();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:single-card:source-observation-import&expansionName=OP16&profileVersion=2026.06.22&sourceOptionAction=force-refresh-all",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: overviewForProfiles([profile], "one-piece"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.providerKey === "scrydex");
+
+    expect(readModel.routeContext.importScope).toBe("en:OP16");
+    expect(readModel.routeContext.sourceObservationFilters).toEqual({
+      providerKey: "scrydex",
+      importScope: "en:OP16",
+    });
+    expect(readModel.importJobs.selectedScope).toMatchObject({
+      providerKey: "scrydex",
+      unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      importScope: "en:OP16",
+    });
+    expect(
+      readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
+    ).not.toContain("import-scope-required");
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "scrydex",
+      importScope: "en:OP16",
+      languageCode: "en",
+      seriesId: null,
+      expansionId: null,
+      expansionName: "OP16",
+    });
+    expect(unit?.actions.import.state).toBe("available");
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm(
+      "start-provider-import",
+      "scrydex:one-piece:single-card:source-observation-import",
+    );
+    expect(hiddenValue(form, "importScope")).toBe("en:OP16");
+    expect(hiddenValue(form, "seriesId")).toBe("");
+    expect(hiddenValue(form, "expansionId")).toBe("");
+    expect(hiddenValue(form, "expansionName")).toBe("OP16");
   });
 
   it("round-trips Pokemon workset links whose provider labels contain ampersands", () => {
@@ -585,6 +635,35 @@ function yugiohSetNameProfile(providerKey: string, displayName: string, ingestio
       {
         queryKind: "sets",
         queryKeySynonyms: ["setName"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
+  });
+}
+
+function scrydexOnePieceSetNameProfile(): CatalogProviderProfileVersionReview {
+  return profileReview({
+    providerKey: "scrydex",
+    profileKey: "scrydex-one-piece-card",
+    profileVersion: "2026.06.22",
+    ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+    displayName: "Scrydex One Piece Cards",
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    connectorKind: "scrydex-one-piece-json",
+    profile: { providerKey: "scrydex", supportedScopes: ["set-name", "product/card"] },
+    supportedScopes: ["set-name", "product/card"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
         displayName: "Set",
         scope: "set-name",
         parentScope: null,

@@ -832,9 +832,7 @@ function structuredScopeWithProfileLanguage(
   activeProfile: CatalogProviderProfileVersionReview | null,
   explicitStructuredScope: boolean,
 ): CatalogPrimaryWorkbenchRouteContext["scope"] {
-  const nameBasedSetScope = Boolean(
-    scope?.productLineId && !scope.seriesId && !scope.expansionId && scope.expansionName,
-  );
+  const nameBasedSetScope = Boolean(!scope?.seriesId && !scope?.expansionId && scope?.expansionName);
   if (!explicitStructuredScope || !scope || scope.languageCode || !nameBasedSetScope) {
     return scope;
   }

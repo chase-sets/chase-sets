@@ -712,6 +712,66 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("previews a Scrydex One Piece set-name selection from the shared importer route", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
+    const previewSourceObservationIntegrationImport = vi.fn().mockResolvedValue(scrydexOnePieceImportPreview(unitKey));
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      return sourceOptionResponse(params.get("queryKind") ?? "sets", {
+        status: "fresh",
+        source: "live",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+        value: "OP16",
+        label: "The Time Of Battle",
+        metadata: { expansionId: "OP16", languageCode: "en" },
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      previewSourceObservationIntegrationImport,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(unitKey)}&expansionName=OP16&profileVersion=2026.06.22&sourceOptionAction=force-refresh-all`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.importScope).toBe("en:OP16");
+    expect(routeData.readModel.importJobs.selectedScope).toMatchObject({
+      providerKey: "scrydex",
+      unitKey,
+      importScope: "en:OP16",
+    });
+    expect(
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.blockers,
+    ).not.toContain("import-scope-required");
+    await expect(routeData.deferredImportPreview).resolves.toMatchObject({
+      providerKey: "scrydex",
+      targetCount: 1,
+      targets: [
+        expect.objectContaining({
+          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+        }),
+      ],
+    });
+    expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
+      provider: "scrydex",
+      ingestionUnitKey: unitKey,
+      language: "en",
+      setName: "OP16",
+    });
+  });
+
   it("drops stale legacy Pokemon scope before TCGplayer Yu-Gi-Oh product-line refresh", async () => {
     const profileReviews = {
       items: [
@@ -4188,6 +4248,76 @@ function aliasReviewReadModel() {
       cards: [],
       referenceScopes: [],
     },
+  };
+}
+
+function scrydexOnePieceProfileReview(unitKey: string) {
+  return profileReview({
+    providerKey: "scrydex",
+    profileKey: "scrydex-one-piece-card",
+    profileVersion: "2026.06.22",
+    ingestionUnitKey: unitKey,
+    displayName: "Scrydex One Piece Cards",
+    lifecycle: "active",
+    active: true,
+    status: "active",
+    connectorKind: "scrydex-one-piece-json",
+    profile: {
+      providerKey: "scrydex",
+      supportedScopes: ["set-name", "product/card"],
+    },
+    supportedScopes: ["set-name", "product/card"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
+  });
+}
+
+function scrydexOnePieceImportPreview(unitKey: string) {
+  return {
+    action: "import" as const,
+    providerKey: "scrydex",
+    scope: {
+      provider: "scrydex",
+      ingestionUnitKey: unitKey,
+      language: "en",
+      setName: "OP16",
+    },
+    profileSnapshot: null,
+    targetCount: 1,
+    targets: [
+      {
+        targetId: "set:OP16",
+        name: "OP16",
+        languageCode: "en",
+        scopeKey: "expansion-cards",
+        planKey: "scrydex:one-piece:expansion:op16:cards",
+        estimatedPayloads: null,
+        transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+        usageEstimate: {
+          requestStrategy: "bulk-first" as const,
+          estimateState: "estimate-unavailable" as const,
+          estimatedRequestCount: null,
+          estimateReason: "Card page count is available only after the first Scrydex paged response.",
+          pageSize: 250,
+          selectedFields: ["id", "name", "number", "expansion"],
+          perRecordFallbackReason: null,
+          usageCheckState: "not-configured" as const,
+          creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+          degradedDiagnostic: null,
+        },
+      },
+    ],
   };
 }
 
