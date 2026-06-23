@@ -217,6 +217,44 @@ describe("auth host", () => {
     });
   });
 
+  it("carries identity freshness through account-selection cookie continuations", () => {
+    const response = host.completeAuthentication(
+      new Request("https://marketplace.test/register", {
+        method: "POST",
+      }),
+      {
+        type: "account-selection-required",
+        userId: "usr_1",
+        selectionToken: "selection_token",
+        selectionExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        memberships: [
+          {
+            membershipId: "mem_1",
+            accountId: "acc_1",
+            roleKey: "owner",
+            status: "active",
+            rolePermissions: ["accounts.view"],
+          },
+        ],
+      },
+      {
+        freshWriteSource: {
+          commitPositions: [identitySource],
+          commitEventIds: ["evt_identity_51"],
+        },
+      },
+    );
+    const location = redirectLocation(response);
+    const returnTo = location.searchParams.get("returnTo");
+
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_account_selection=selection_token");
+    expect(location.pathname).toBe("/account/select");
+    expect(readFreshWriteToken(String(returnTo))).toMatchObject({
+      sources: [identitySource],
+    });
+  });
+
   it("does not use Auth-only receipts as account freshness evidence during registration redirects", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

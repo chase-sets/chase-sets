@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  COOKIE_BACKED_CONTINUATION_RELOAD_HEADER,
   appendFreshWriteToken,
   decodeFreshWriteReceipt,
   encodeFreshWriteReceipt,
@@ -12,6 +13,7 @@ import {
   createForwardedAuthHeaders,
   loadAfterWrite,
   navigateAfterWrite,
+  redirectAfterWrite,
   resolveInternalApiOrigin,
   resolveRequestApiBaseUrl,
 } from "./http";
@@ -234,6 +236,53 @@ describe("default-safe post-write navigation runtime", () => {
         outcome: "navigation_encoded",
         routeId: "account-listing",
         routeTemplate: "/account/listings/:listingId",
+      }),
+    );
+  });
+
+  it("creates telemetry-aware cookie-backed continuation redirects", () => {
+    const recorder = vi.fn();
+    unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
+
+    const response = redirectAfterWrite(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "identity",
+            maxGlobalPosition: "51",
+            eventIds: ["evt_identity_51"],
+          },
+        ],
+        commitEventIds: ["evt_identity_51"],
+      },
+      "/account",
+      {
+        continuation: "cookie-backed",
+        headers: {
+          "Set-Cookie": "chase_sets_session=session_token; Path=/; HttpOnly; SameSite=Lax",
+        },
+        nowMs: 1234,
+        telemetry: {
+          boundedContextName: "auth",
+          surface: "registration",
+          routeId: "register",
+          routeTemplate: "/register",
+        },
+      },
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account?afterWrite=");
+    expect(response.headers.get(COOKIE_BACKED_CONTINUATION_RELOAD_HEADER)).toBe("true");
+    expect(response.headers.get("Set-Cookie")).toContain("chase_sets_session=session_token");
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "auth",
+        surface: "registration",
+        strategy: "fresh-read",
+        outcome: "navigation_encoded",
+        routeId: "register",
+        routeTemplate: "/register",
       }),
     );
   });
