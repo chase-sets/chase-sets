@@ -73,6 +73,22 @@ function writeRoute(root, relativeFile, helpers) {
   );
 }
 
+function writeBareRedirectAction(root, relativeFile, destination = "/checkout/buy/session/chk_123") {
+  const absolute = path.join(root, relativeFile);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(
+    absolute,
+    [
+      'import { redirect } from "react-router";',
+      "export async function action() {",
+      `  return redirect("${destination}");`,
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 function writeMutationBaseline(root, surfaces) {
   const absolute = path.join(root, "scripts", "check-structure", "mutation-consistency-baseline.json");
   mkdirSync(path.dirname(absolute), { recursive: true });
@@ -910,6 +926,100 @@ describe("read-after-write route inventory guard", () => {
     expect(result.violations).toContain(
       "bounded-contexts/checkout/routes/unclassified.tsx: mutating route-action is unclassified; add mutationConsistencyInventory with strategy proof",
     );
+  });
+
+  it("fails when a fresh-read route action lacks a declared afterWrite receipt source", async () => {
+    const root = createTempRepo();
+    writeBareRedirectAction(root, "bounded-contexts/checkout/routes/checkout-start.tsx");
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource"],
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-read route action 'buy-checkout-readiness' redirects to projection-backed destination 'checkout./account/checkout-sessions/:sessionId' without a declared afterWrite receipt source; use navigateAfterWrite or appendFreshWriteToken on the redirect/redirectDocument and cover it in readAfterWriteRouteInventory, or classify the mutation with a non-fresh-read mutationConsistencyInventory strategy and proof. See docs/architecture/read-after-write-route-author-checklist.md",
+    );
+  });
+
+  it("accepts a fresh-read route action with a declared default-safe receipt source", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["navigateAfterWrite"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["navigateAfterWrite"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource"],
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it("does not require afterWrite receipt sources for non-fresh-read route action strategies", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeBareRedirectAction(root, "bounded-contexts/checkout/routes/snapshot.tsx");
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.mutationConsistencyInventory.push({
+      id: "checkout.snapshot-route",
+      owner: "checkout",
+      risk: "important",
+      strategy: "snapshot-return",
+      surfaces: ["route-action:bounded-contexts/checkout/routes/snapshot.tsx"],
+      visibleDestination: {
+        description: "The action response carries the committed checkout snapshot without a projection read.",
+      },
+      proof: {
+        authoritativeResponse: "The action returns the command result snapshot and does not navigate to a read model.",
+        tests: ["bounded-contexts/checkout/routes/checkout-session-loader.test.ts"],
+      },
+    });
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toEqual([]);
   });
 
   it("fails when a new discovered mutation surface is added to the frozen baseline", async () => {

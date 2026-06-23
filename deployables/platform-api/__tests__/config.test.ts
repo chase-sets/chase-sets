@@ -153,6 +153,13 @@ describe("platform api config", () => {
         },
         {
           mountPath: "/api/marketplace",
+          routePath: "/account/sell-list/confirmations/:confirmationId",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+        {
+          mountPath: "/api/marketplace",
           routePath: "/guest/sell-list",
           timeoutMs: 900,
           pollIntervalMs: 50,
@@ -755,6 +762,13 @@ describe("platform api config", () => {
         },
         {
           mountPath: "/api/marketplace",
+          routePath: "/account/sell-list/confirmations/:confirmationId",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+        {
+          mountPath: "/api/marketplace",
           routePath: "/guest/sell-list",
           timeoutMs: 900,
           pollIntervalMs: 50,
@@ -816,6 +830,13 @@ describe("platform api config", () => {
       {
         mountPath: "/api/marketplace",
         routePath: "/account/sell-list",
+        timeoutMs: 900,
+        pollIntervalMs: 50,
+        exactDependencyMode: "enabled",
+      },
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/sell-list/confirmations/:confirmationId",
         timeoutMs: 900,
         pollIntervalMs: 50,
         exactDependencyMode: "enabled",

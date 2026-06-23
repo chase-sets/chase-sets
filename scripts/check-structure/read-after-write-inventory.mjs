@@ -25,6 +25,14 @@ const semanticPostWriteHandoffHelperNames = new Set([
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
+const receiptProducingFreshWriteHelperNames = new Set([
+  "appendFreshWriteToken",
+  "appendFreshWriteTokenFromSources",
+  "appendPostWriteHandoff",
+  "appendPostWriteHandoffFromSources",
+  "navigateAfterWrite",
+  "navigateAfterWriteFromSources",
+]);
 const helperImportPattern = /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http)["']/;
 const rawPostWriteHandoffMetadataPattern =
   /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
@@ -747,6 +755,61 @@ function routeInventoryEntries(contextManifests) {
   return entries;
 }
 
+function sectionRouteIds(section) {
+  return [section?.routeId, ...(section?.routeIds ?? [])].filter(isNonEmptyString);
+}
+
+function routeSetIntersects(left, right) {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasProjectionBackedMutationDestination(destination) {
+  if (!isPlainObject(destination)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(destination.apiContextName) &&
+    isNonEmptyString(destination.apiRoutePath) &&
+    (isNonEmptyStringArray(destination.readModelTables) || isNonEmptyStringArray(destination.projectionDependencies))
+  );
+}
+
+function destinationMatchesMutationFreshRead(destination, visibleDestination) {
+  return (
+    isPlainObject(destination) &&
+    destination.apiContextName === visibleDestination.apiContextName &&
+    destination.apiRoutePath === visibleDestination.apiRoutePath
+  );
+}
+
+function sectionUsesReceiptProducingHelper(section) {
+  const helperUses = Array.isArray(section?.helperUses) ? section.helperUses : [];
+  return helperUses.some((helperName) => receiptProducingFreshWriteHelperNames.has(helperName));
+}
+
+function hasDeclaredFreshReadReceiptSource(options) {
+  const { entries, sourceRouteIds, visibleDestination } = options;
+  const sourceRoutes = new Set(sourceRouteIds);
+
+  return entries.some(({ entry }) => {
+    if (!isPlainObject(entry) || !isPlainObject(entry.source) || !isPlainObject(entry.destination)) {
+      return false;
+    }
+
+    return (
+      routeSetIntersects(sectionRouteIds(entry.source), sourceRoutes) &&
+      destinationMatchesMutationFreshRead(entry.destination, visibleDestination) &&
+      sectionUsesReceiptProducingHelper(entry.source)
+    );
+  });
+}
+
 function helperCoverageForEntry(entry) {
   const routeCoverage = new Map();
   const fileCoverage = new Map();
@@ -1172,6 +1235,7 @@ function validateMutationBaselineFreeze(options) {
 function validateMutationConsistencyInventory(options) {
   const { repoRoot, contextManifests, mutationSurfaces, indexes, violations, frozenBaselineSurfaces } = options;
   const declarations = collectMutationConsistencyDeclarations(contextManifests);
+  const readAfterWriteEntries = routeInventoryEntries(contextManifests);
   const baseline = collectBaselineMutationSurfaces(repoRoot);
   const declaredSurfaceIds = new Set();
   const declarationBySurfaceId = new Map();
@@ -1224,6 +1288,23 @@ function validateMutationConsistencyInventory(options) {
     if (!declaration && !baselineEntry) {
       violations.push(
         `${surface.location}: mutating ${surface.kind} is unclassified; add mutationConsistencyInventory with strategy proof`,
+      );
+    }
+
+    const visibleDestination = declaration?.visibleDestination;
+    if (
+      declaration?.strategy === "fresh-read" &&
+      surface.kind === "route-action" &&
+      hasProjectionBackedMutationDestination(visibleDestination) &&
+      !hasDeclaredFreshReadReceiptSource({
+        entries: readAfterWriteEntries,
+        sourceRouteIds: surface.routeIds,
+        visibleDestination,
+      })
+    ) {
+      const sourceRouteLabel = surface.routeIds.join(", ") || "unmapped-route";
+      violations.push(
+        `${surface.location}: fresh-read route action '${sourceRouteLabel}' redirects to projection-backed destination '${visibleDestination.apiContextName}.${visibleDestination.apiRoutePath}' without a declared afterWrite receipt source; use navigateAfterWrite or appendFreshWriteToken on the redirect/redirectDocument and cover it in readAfterWriteRouteInventory, or classify the mutation with a non-fresh-read mutationConsistencyInventory strategy and proof. See docs/architecture/read-after-write-route-author-checklist.md`,
       );
     }
 

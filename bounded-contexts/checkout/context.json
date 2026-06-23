@@ -541,7 +541,8 @@
       "source": {
         "routeId": "sell-checkout-session",
         "actions": ["Confirm signed-in seller checkout"],
-        "command": "ConfirmSellListCheckout"
+        "command": "ConfirmSellListCheckout",
+        "helperUses": ["appendFreshWriteTokenFromSources"]
       },
       "destination": {
         "routeId": "sell-checkout-confirmation",
@@ -553,14 +554,6 @@
           "kinds": "refreshable-catching-up",
           "behavior": "Sell checkout confirmation detail retries valid fresh-write confirmation 404s while checkout_sell_list_confirmation_pages catches up; duplicate no-op confirmations redirect without minting a new token, and permanent missing confirmations return to Sell List recovery."
         }
-      },
-      "exception": {
-        "status": "not-post-write-read",
-        "owner": "checkout",
-        "reviewBy": "2026-07-31",
-        "reason": "The route-support action file carries the Checkout commit receipt for the sell-checkout-session route; the post-write read itself is covered by the sell-checkout-confirmation destination above.",
-        "helperUses": ["appendFreshWriteTokenFromSources"],
-        "files": ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"]
       }
     }
   ],
