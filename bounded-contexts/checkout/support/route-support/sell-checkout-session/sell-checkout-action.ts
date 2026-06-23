@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
-import { appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type ActionFunctionArgs } from "react-router";
@@ -136,10 +136,10 @@ export async function action({
       });
 
       return redirect(
-        appendFreshWriteTokenFromSources(confirmationPathForSession(state.sessionId), [
-          result,
-          ...marketplaceHandoff.writeResults,
-        ]),
+        navigateAfterWriteFromSources(
+          [result, ...marketplaceHandoff.writeResults],
+          confirmationPathForSession(state.sessionId),
+        ),
       );
     } catch (error) {
       if (error instanceof SellListReviewPlanStaleError) {
