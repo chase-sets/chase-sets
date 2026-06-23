@@ -80,6 +80,24 @@ type StripeWindow = Window &
     Stripe?: StripeMock;
   };
 
+type StripeAppearanceMock = Readonly<{
+  theme: string;
+  variables: Readonly<Record<string, string>>;
+  rules?: Readonly<Record<string, unknown>>;
+}>;
+
+type StripeElementsOptionsMock = Readonly<{
+  clientSecret: string;
+  appearance: StripeAppearanceMock;
+}>;
+
+type StripeCheckoutOptionsMock = Readonly<{
+  clientSecret: string;
+  elementsOptions: {
+    appearance: StripeAppearanceMock;
+  };
+}>;
+
 const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(() => ({
   mockUseActionData: vi.fn(),
   mockUseLoaderData: vi.fn(),
@@ -308,6 +326,10 @@ describe("marketplace account payment route", () => {
       mount: vi.fn(),
       destroy: vi.fn(),
     };
+    const elementsCreate = vi.fn(() => paymentElement);
+    const elements = vi.fn((_options: StripeElementsOptionsMock) => ({
+      create: elementsCreate,
+    }));
     const confirmPayment = vi.fn().mockResolvedValue({});
     const revalidate = vi.fn();
 
@@ -321,9 +343,7 @@ describe("marketplace account payment route", () => {
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
-      elements: vi.fn(() => ({
-        create: vi.fn(() => paymentElement),
-      })),
+      elements,
       confirmPayment,
     }));
 
@@ -346,6 +366,22 @@ describe("marketplace account payment route", () => {
     await waitFor(() => expect(revalidate).toHaveBeenCalled(), {
       timeout: 1000,
     });
+    expect(elements).toHaveBeenCalledWith({
+      clientSecret: "pi_secret_123",
+      appearance: expect.objectContaining({
+        theme: "flat",
+        variables: expect.objectContaining({
+          colorPrimary: "#1d5fd6",
+          colorText: "#0f172a",
+        }),
+        rules: expect.objectContaining({
+          ".Input": expect.objectContaining({
+            color: "#0f172a",
+          }),
+        }),
+      }),
+    });
+    expect(elementsCreate).toHaveBeenCalledWith("payment");
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 
@@ -355,6 +391,13 @@ describe("marketplace account payment route", () => {
       destroy: vi.fn(),
     };
     const confirm = vi.fn().mockResolvedValue({});
+    const initCheckout = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+      createPaymentElement: vi.fn(() => paymentElement),
+      loadActions: vi.fn().mockResolvedValue({
+        type: "success",
+        actions: { confirm },
+      }),
+    }));
     const revalidate = vi.fn();
 
     mockUseRevalidator.mockReturnValue({ revalidate });
@@ -369,13 +412,7 @@ describe("marketplace account payment route", () => {
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
-      initCheckout: vi.fn(() => ({
-        createPaymentElement: vi.fn(() => paymentElement),
-        loadActions: vi.fn().mockResolvedValue({
-          type: "success",
-          actions: { confirm },
-        }),
-      })),
+      initCheckout,
       elements: vi.fn(),
       confirmPayment: vi.fn(),
     }));
@@ -399,7 +436,69 @@ describe("marketplace account payment route", () => {
     await waitFor(() => expect(revalidate).toHaveBeenCalled(), {
       timeout: 1000,
     });
+    const initCheckoutOptions = initCheckout.mock.calls[0]?.[0];
+    expect(initCheckoutOptions).toMatchObject({
+      clientSecret: "cs_live_123_secret_456",
+      elementsOptions: {
+        appearance: {
+          theme: "flat",
+          variables: expect.objectContaining({
+            colorPrimary: "#1d5fd6",
+            colorText: "#0f172a",
+          }),
+        },
+      },
+    });
+    expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
     expect(paymentElement.mount).toHaveBeenCalled();
+  });
+
+  it("remounts the Payment Element when the scoped theme appearance changes", async () => {
+    const firstPaymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const secondPaymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const create = vi.fn().mockReturnValueOnce(firstPaymentElement).mockReturnValueOnce(secondPaymentElement);
+    const elements = vi.fn((_options: StripeElementsOptionsMock) => ({
+      create,
+    }));
+
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      elements,
+      confirmPayment: vi.fn(),
+    }));
+
+    const { rerender } = render(
+      <ChaseRoot theme={{ colors: { foreground: "#111111" } }}>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(firstPaymentElement.mount).toHaveBeenCalled());
+
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "#eeeeee" } }}>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(secondPaymentElement.mount).toHaveBeenCalled());
+
+    expect(firstPaymentElement.destroy).toHaveBeenCalledTimes(1);
+    expect(elements.mock.calls[0]?.[0].appearance.variables.colorText).toBe("#111111");
+    expect(elements.mock.calls[1]?.[0].appearance.variables.colorText).toBe("#eeeeee");
   });
 
   it("polls only the payment while Stripe confirmation is pending", async () => {

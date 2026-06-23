@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 350
-- Source modules covered: 116
+- Runtime exports indexed: 354
+- Source modules covered: 117
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -94,6 +94,8 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ConditionBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Condition Badge. | `No production consumer yet.` |
 | `Container` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Container. | `bounded-contexts/auth/routes/access-admin/sign-in.tsx` |
 | `CopyButton` | `packages/design-system/src/components/actions/copy-button.tsx` | Purpose not documented; symbol name suggests: Copy Button. | `No production consumer yet.` |
+| `createStripeConnectAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Connect Appearance. | `bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx` |
+| `createStripeElementsAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Elements Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `CurrencyInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Currency Input. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `cx` | `packages/design-system/src/utils/cx.ts` | Purpose not documented; symbol name only: cx. | `No production consumer yet.` |
 | `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
@@ -201,6 +203,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `bounded-contexts/notifications/features/notification-center/ui/notification-center-shell.tsx` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `No production consumer yet.` |
 | `NumberInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Number Input. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
+| `observeStripeAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: observe Stripe Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
 | `OperationalLockBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-lock-banner.tsx` | Lock notice: a warning-toned surface with a padlock glyph that signals a workstation task is frozen against edits while it is in progress. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `OperationalStatusBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-status-banner.tsx` | Operational status notice: a tone-tinted surface pairing a status glyph, heading, and supporting copy with an optional trailing action, used to flag the live state of a workstation task. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
@@ -296,6 +299,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `StickyBar` | `packages/design-system/src/primitives/layout.tsx` | Position-agnostic sticky action bar pinned to the top or bottom edge. | `No production consumer yet.` |
 | `StickyCtaBar` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Sticky Cta Bar. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `StickyTaskFooter` | `packages/design-system/src/components/data-display/operational-workflow/sticky-task-footer.tsx` | Sticky task footer: an in-flow action bar that pins to the bottom of a workstation flow, carrying a running summary plus the primary action, with mobile offsets that clear the app shell's bottom navigation. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
+| `stripeAppearanceSnapshot` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: stripe Appearance Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `Subheading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Subheading. | `No production consumer yet.` |
 | `Surface` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Surface. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |

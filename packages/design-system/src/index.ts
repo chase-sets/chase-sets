@@ -16,6 +16,7 @@ export * from "./primitives/layout";
 export * from "./primitives/tone-icon";
 export * from "./primitives/typography";
 export * from "./theme/provider";
+export * from "./theme/stripe-appearance";
 export { ThemeToggle, type ThemePreference } from "./theme/theme-toggle";
 export * from "./theme/tokens";
 export * from "./utils/cx";
