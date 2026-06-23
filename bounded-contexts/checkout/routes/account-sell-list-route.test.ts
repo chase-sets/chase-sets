@@ -179,6 +179,78 @@ describe("checkout web routes: account sell list", () => {
     );
   });
 
+  it("keeps a freshly added product Sell List line visible after the add-line handoff catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const productId =
+      "cat_air_balloon::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_damaged|dim_seed_grading_company:-|dim_seed_grade:-";
+    const sellListLine = {
+      seller_account_id: "acc_seller",
+      line_id: "sll_air_balloon",
+      line_type: "product",
+      offer_id: null,
+      buyer_account_id: null,
+      buyer_display_name: null,
+      offer_price_amount: null,
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: productId,
+      item_title: "Air Balloon",
+      item_subtitle: "Scarlet & Violet 167/198",
+      selected_options: [
+        { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+        { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_damaged" },
+      ],
+      product_summary: "Raw / Damaged",
+      quantity: 1,
+      fallback_mode: "none",
+      minimum_listing_price_amount: null,
+      created_at: "2026-06-23T00:00:00.000Z",
+      updated_at: "2026-06-23T00:00:00.000Z",
+    };
+    const getSellList = vi.fn(async () => ({ items: [sellListLine], count: 1, latestConfirmation: null }));
+    const listOfferMatches = vi.fn(async (_query: string) => ({ items: [] }));
+    const listSellerListingInventory = vi.fn(async () => ({ items: [] }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listOfferMatches,
+      listSellerListingInventory,
+    });
+
+    const result = await accountSellListLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/sell-list",
+          checkoutCommit("42", "evt_sell_list_line"),
+          ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [sellListLine], count: 1, latestConfirmation: null },
+        freshnessError: null,
+        sellListRecovery: null,
+        productOfferReviews: [
+          {
+            lineId: "sll_air_balloon",
+            status: "unavailable",
+            offers: [],
+            message: "No matching offers are currently ready for this product.",
+          },
+        ],
+        inventoryItems: [],
+      }),
+    );
+    const matchQuery = new URLSearchParams(listOfferMatches.mock.calls[0]?.[0]);
+    expect(matchQuery.get("productIds")).toBe(productId);
+    expect(listSellerListingInventory).toHaveBeenCalled();
+  });
+
   it("hides a stale latest seller confirmation while the current confirmation is still preparing", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const staleConfirmation = {

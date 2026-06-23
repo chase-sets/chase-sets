@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type {
   AppendToStreamInput,
   GlobalPosition,
@@ -64,6 +65,54 @@ const productLine: CheckoutSellListLineRow = {
   updated_at: "2026-06-09T00:00:00.000Z",
 };
 
+type CatalogItemRow = Readonly<{
+  catalog_item_id: string;
+  status: string;
+  product_schema: unknown;
+}>;
+
+const airBalloonProductId =
+  "cat_air_balloon::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_damaged|dim_seed_grading_company:-|dim_seed_grade:-";
+
+const airBalloonProductSchema = {
+  canonicalDimensionOrder: [
+    { dimensionId: "dim_seed_form", dimensionName: "Form" },
+    { dimensionId: "dim_seed_condition", dimensionName: "Condition" },
+    { dimensionId: "dim_seed_grading_company", dimensionName: "Grading Company" },
+    { dimensionId: "dim_seed_grade", dimensionName: "Grade" },
+  ],
+  dimensions: [
+    {
+      dimensionId: "dim_seed_form",
+      dimensionName: "Form",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [{ optionId: "chc_seed_form_raw", code: "raw", label: "Raw" }],
+    },
+    {
+      dimensionId: "dim_seed_condition",
+      dimensionName: "Condition",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [{ optionId: "chc_seed_condition_damaged", code: "damaged", label: "Damaged" }],
+    },
+    {
+      dimensionId: "dim_seed_grading_company",
+      dimensionName: "Grading Company",
+      required: false,
+      appliesWhen: [],
+      allowedOptions: [],
+    },
+    {
+      dimensionId: "dim_seed_grade",
+      dimensionName: "Grade",
+      required: false,
+      appliesWhen: [],
+      allowedOptions: [],
+    },
+  ],
+};
+
 function createInMemoryEventStore() {
   let globalPosition = 0;
   const streams = new Map<string, StoredEvent[]>();
@@ -120,15 +169,84 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-function createDb(lines: readonly CheckoutSellListLineRow[]) {
+function projectedSelectedOptions(value: unknown): CheckoutSellListLineRow["selected_options"] {
+  if (Array.isArray(value)) {
+    return value as CheckoutSellListLineRow["selected_options"];
+  }
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as CheckoutSellListLineRow["selected_options"]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createDb(lines: readonly CheckoutSellListLineRow[], catalogItems: readonly CatalogItemRow[] = []) {
   let sellListLines = [...lines];
+  const catalogItemsById = new Map(catalogItems.map((item) => [item.catalog_item_id, item]));
   const db = {
     query: vi.fn(async (query: unknown, params?: readonly unknown[]) => {
       const sql = String(query);
+      if (sql.includes("FROM checkout_catalog_items")) {
+        const catalogItemId = String(params?.[0] ?? "");
+        const item = catalogItemsById.get(catalogItemId);
+        return { rows: item ? [item] : [] };
+      }
       if (sql.includes("checkout_sell_list_confirmation_pages")) {
         return { rows: [] };
       }
       if (sql.includes("checkout_sell_list_line_pages")) {
+        if (/INSERT\s+INTO\s+checkout_sell_list_line_pages/i.test(sql)) {
+          const row: CheckoutSellListLineRow = {
+            seller_account_id: String(params?.[0] ?? ""),
+            line_id: String(params?.[1] ?? ""),
+            line_type: params?.[2] === "selected-offer" ? "selected-offer" : "product",
+            offer_id: params?.[3] === null || params?.[3] === undefined ? null : String(params[3]),
+            buyer_account_id: params?.[4] === null || params?.[4] === undefined ? null : String(params[4]),
+            buyer_display_name: params?.[5] === null || params?.[5] === undefined ? null : String(params[5]),
+            offer_price_amount: params?.[6] === null || params?.[6] === undefined ? null : String(params[6]),
+            catalog_catalog_item_id: String(params?.[7] ?? ""),
+            product_id: String(params?.[8] ?? ""),
+            item_title: String(params?.[9] ?? ""),
+            item_subtitle: params?.[10] === null || params?.[10] === undefined ? null : String(params[10]),
+            selected_options: projectedSelectedOptions(params?.[11]),
+            product_summary: params?.[12] === null || params?.[12] === undefined ? null : String(params[12]),
+            quantity: Number(params?.[13] ?? 0),
+            fallback_mode: params?.[14] === "create-listing" ? "create-listing" : "none",
+            minimum_listing_price_amount:
+              params?.[15] === null || params?.[15] === undefined ? null : String(params[15]),
+            created_at: String(params?.[16] ?? ""),
+            updated_at: String(params?.[16] ?? ""),
+          };
+          const existingIndex = sellListLines.findIndex(
+            (line) => line.seller_account_id === row.seller_account_id && line.line_id === row.line_id,
+          );
+          sellListLines =
+            existingIndex >= 0
+              ? sellListLines.map((line, index) => (index === existingIndex ? row : line))
+              : [...sellListLines, row];
+          return { rows: [] };
+        }
+
+        if (sql.includes("UPDATE checkout_sell_list_line_pages") && sql.includes("SET quantity")) {
+          const sellerAccountId = String(params?.[0] ?? "");
+          const lineId = String(params?.[1] ?? "");
+          sellListLines = sellListLines.map((line) =>
+            line.seller_account_id === sellerAccountId && line.line_id === lineId
+              ? {
+                  ...line,
+                  quantity: Number(params?.[2] ?? line.quantity),
+                  updated_at: String(params?.[3] ?? line.updated_at),
+                }
+              : line,
+          );
+          return { rows: [] };
+        }
+
         if (/DELETE\s+FROM\s+checkout_sell_list_line_pages/i.test(sql)) {
           const sellerAccountId = String(params?.[0] ?? "");
           const lineIds = Array.isArray(params?.[1]) ? new Set(params[1].map(String)) : new Set<string>();
@@ -400,6 +518,78 @@ describe("sell list checkout runtime readiness boundary", () => {
     expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining("DELETE FROM checkout_sell_list_line_pages"), [
       "acc_seller",
       ["sll_product"],
+    ]);
+  });
+
+  it("projects product add-line commands into the account Sell List read model", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = createDb(
+      [],
+      [
+        {
+          catalog_item_id: "cat_air_balloon",
+          status: "active",
+          product_schema: airBalloonProductSchema,
+        },
+      ],
+    );
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const result = await services.addLine(
+      {
+        sellerAccountId: "acc_seller" as never,
+        lineType: "product",
+        offerId: null,
+        buyerAccountId: null,
+        buyerDisplayName: null,
+        offerPriceAmount: null,
+        catalogItemId: "cat_air_balloon",
+        productId: airBalloonProductId,
+        itemTitle: "Air Balloon",
+        itemSubtitle: "Scarlet & Violet 167/198",
+        selectedOptions: [
+          { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+          { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_damaged" },
+        ],
+        productSummary: "Raw / Damaged",
+        quantity: 1,
+        fallbackMode: "none",
+        minimumListingPriceAmount: null,
+      },
+      context,
+    );
+    const lineAddedEvent = allEvents.find((event) => event.eventType === "checkout.sell-list.line-added");
+
+    expect(result).toEqual({
+      lineId: expect.stringMatching(/^sll_/),
+      version: 1,
+      status: "added",
+    });
+    expect(lineAddedEvent?.payload).toMatchObject({
+      sellerAccountId: "acc_seller",
+      lineType: "product",
+      productId: airBalloonProductId,
+      productSummary: "Raw / Damaged",
+      quantity: 1,
+    });
+
+    await services.projectors[0]?.handlers["checkout.sell-list.line-added"]?.(toTransportEvent(lineAddedEvent!));
+
+    await expect(services.listLines("acc_seller")).resolves.toEqual([
+      expect.objectContaining({
+        seller_account_id: "acc_seller",
+        line_id: result.lineId,
+        line_type: "product",
+        product_id: airBalloonProductId,
+        item_title: "Air Balloon",
+        product_summary: "Raw / Damaged",
+        quantity: 1,
+        fallback_mode: "none",
+      }),
     ]);
   });
 

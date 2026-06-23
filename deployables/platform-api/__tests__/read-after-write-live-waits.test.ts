@@ -338,6 +338,47 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     ]);
   });
 
+  it("pins account Sell List add-line handoffs to the checkout Sell List projection dependency", () => {
+    expect(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING).toContainEqual({
+      mountPath: "/api/marketplace",
+      routePath: "/account/sell-list",
+      timeoutMs: 900,
+      pollIntervalMs: 50,
+      exactDependencyMode: "enabled",
+    });
+
+    const accountSellListLiveRoutes = findLiveFreshnessRoutes("checkout", "/account/sell-list");
+    expect(accountSellListLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/account/sell-list",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            { readModelTable: "checkout_sell_list_line_pages" },
+            { readModelTable: "checkout_sell_list_confirmation_pages" },
+          ],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = [
+      ...new Map(
+        accountSellListLiveRoutes
+          .flatMap(({ route }) =>
+            route.dependencies.flatMap((dependency) =>
+              resolveReadConsistencyDependency("checkout", dependency, mountedProjectionGroups),
+            ),
+          )
+          .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
+      ).values(),
+    ];
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "checkout", projectionName: "checkout.sell-list-projection" },
+    ]);
+  });
+
   it("pins guest Sell List add-line handoffs to the checkout Sell List projection dependency", () => {
     expect(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING).toContainEqual({
       mountPath: "/api/marketplace",
