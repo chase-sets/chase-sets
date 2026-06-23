@@ -555,17 +555,17 @@
         "routeId": "account-offer-submitted",
         "actions": ["Load newly submitted offer"],
         "command": "SubmitOffer",
-        "helperUses": ["loadFreshlyWrittenResource"]
+        "helperUses": ["loadAfterWrite"]
       },
       "destination": {
         "routeId": "account-offer-submitted",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/submitted/:id",
         "readModelTables": ["marketplace_offer_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Submitted Offer detail uses exact Marketplace offer-page freshness and treats valid fresh-write not-found and projection freshness timeout responses as temporary submitted-offer preparation while the offer projection catches up."
+          "behavior": "Submitted Offer detail uses exact Marketplace offer-page freshness and treats valid fresh-write not-found, projection freshness timeout, and opaque gateway timeout responses as temporary submitted-offer preparation while the offer projection catches up."
         }
       }
     },

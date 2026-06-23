@@ -214,6 +214,28 @@ export type FreshWriteReadRecoveryOptions<T> = Readonly<{
   getBody?: (error: unknown) => unknown;
 }>;
 
+export type PostWriteRouteRecoveryClassification =
+  | Readonly<{
+      kind: "recover";
+      reason: "fresh-write-read-transient";
+      recoveryKind: PostWriteRecoveryKind;
+      readError: FreshWriteReadErrorClassification;
+    }>
+  | Readonly<{
+      kind: "pass-through";
+      reason: "not-post-write-transient";
+      recoveryKind: PostWriteRecoveryKind;
+      readError: FreshWriteReadErrorClassification;
+    }>;
+
+export type PostWriteRouteRecoveryOptions = Readonly<{
+  request: Request | string | URL;
+  status: number | null;
+  body?: unknown;
+  nowMs?: number;
+  maxAgeMs?: number;
+}>;
+
 export type LoadAfterWriteOptions<T> = Readonly<{
   request: Request;
   load: () => Promise<T>;
@@ -262,6 +284,26 @@ export type LoadAfterWriteResult<T> =
       reason: "semantic-handoff-expired" | "semantic-handoff-malformed" | "semantic-handoff-invalid";
       recoveryKind: PostWriteRecoveryKind;
       state: Exclude<PostWriteHandoffState, { kind: "valid" | "missing" }>;
+    }>;
+
+export type PostWriteDestinationResultClassification<T> =
+  | Readonly<{
+      kind: "data";
+      data: T;
+      result: Extract<LoadAfterWriteResult<T>, { kind: "data" }>;
+    }>
+  | Readonly<{
+      kind: "recover";
+      reason: Extract<LoadAfterWriteResult<T>, { kind: "pending" }>["reason"];
+      recoveryKind: PostWriteRecoveryKind;
+      data: T | null;
+      result: Extract<LoadAfterWriteResult<T>, { kind: "pending" }>;
+    }>
+  | Readonly<{
+      kind: "pass-through";
+      reason: Extract<LoadAfterWriteResult<T>, { kind: "permanent-failure" }>["reason"];
+      recoveryKind: PostWriteRecoveryKind;
+      result: Extract<LoadAfterWriteResult<T>, { kind: "permanent-failure" }>;
     }>;
 
 type MetadataCarrier = {
@@ -805,6 +847,35 @@ export function postWriteRecoveryKindForFreshWriteReadError(
   return classification.kind === "fresh-write-unhandled" ? "action-required" : "terminal-failure";
 }
 
+export function classifyPostWriteRouteRecovery(
+  options: PostWriteRouteRecoveryOptions,
+): PostWriteRouteRecoveryClassification {
+  const readError = classifyFreshWriteReadError({
+    request: options.request,
+    error: {
+      status: options.status,
+      body: options.body,
+    },
+    nowMs: options.nowMs,
+    maxAgeMs: options.maxAgeMs,
+  });
+  const recoveryKind = postWriteRecoveryKindForFreshWriteReadError(readError);
+
+  return readError.transient
+    ? {
+        kind: "recover",
+        reason: "fresh-write-read-transient",
+        recoveryKind,
+        readError,
+      }
+    : {
+        kind: "pass-through",
+        reason: "not-post-write-transient",
+        recoveryKind,
+        readError,
+      };
+}
+
 export function readPostWriteHandoffState(
   requestOrUrl: Request | string | URL,
   nowMs = Date.now(),
@@ -988,6 +1059,34 @@ export async function loadAfterWrite<T>(options: LoadAfterWriteOptions<T>): Prom
     recoveryKind: "pending-projection",
     handoff,
   };
+}
+
+export function classifyPostWriteDestinationResult<T>(
+  result: LoadAfterWriteResult<T>,
+): PostWriteDestinationResultClassification<T> {
+  switch (result.kind) {
+    case "data":
+      return {
+        kind: "data",
+        data: result.data,
+        result,
+      };
+    case "pending":
+      return {
+        kind: "recover",
+        reason: result.reason,
+        recoveryKind: result.recoveryKind,
+        data: result.data,
+        result,
+      };
+    case "permanent-failure":
+      return {
+        kind: "pass-through",
+        reason: result.reason,
+        recoveryKind: result.recoveryKind,
+        result,
+      };
+  }
 }
 
 function delay(ms: number): Promise<void> {
