@@ -9,7 +9,9 @@ import {
   SEGMENT_METRIC_REFERENCES,
   assertRedactedEvidence,
   buildGuestBuyNowCanaryEvidence,
+  buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
+  isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
   parseGuestBuyNowCanaryArgs,
@@ -474,6 +476,28 @@ describe("guest Buy Now freshness canary", () => {
     expect(isBuySessionUrl("https://marketplace.staging.chasesets.com/checkout/chk_123")).toBe(false);
   });
 
+  it("waits only for route commit before separately measuring checkout document readiness", () => {
+    expect(buyNowRouteTransitionWaitOptions(12_345)).toEqual({
+      waitUntil: "commit",
+      timeout: 12_345,
+    });
+    expect(buyNowRouteTransitionWaitOptions(0)).toEqual({
+      waitUntil: "commit",
+      timeout: 45_000,
+    });
+  });
+
+  it("captures checkout document statuses for the current buy checkout session route", () => {
+    expect(
+      isCheckoutSessionDocumentResponseUrl(
+        "https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123?afterWrite=redacted",
+      ),
+    ).toBe(true);
+    expect(isCheckoutSessionDocumentResponseUrl("https://marketplace.staging.chasesets.com/checkout/chk_123")).toBe(
+      false,
+    );
+  });
+
   it("discovers the first active buyable item from marketplace search", async () => {
     const requestedUrls = [];
     const responses = [
@@ -690,6 +714,58 @@ describe("guest Buy Now freshness canary", () => {
     expect(JSON.stringify(evidence)).not.toContain("raw-token");
     expect(JSON.stringify(evidence)).not.toContain("guest-buy-now-canary@example.test");
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("retries transient platform setup failures up to the attempt budget", async () => {
+    const attempts = [];
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      flow: "account",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 3,
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        if (attempt === 1) {
+          const error = new Error("Buy Now canary synthetic account registration failed with HTTP 504.");
+          error.stage = "start-account-session";
+          error.reason = "platform-temporary-unavailable";
+          throw error;
+        }
+
+        return {
+          latencyMs: 1500,
+          readyLatencyMs: 1500,
+          afterWritePresent: true,
+          sessionCookiePresent: true,
+          checkoutReviewVisible: true,
+          negativeProbe: healthyProbe,
+        };
+      },
+    });
+
+    expect(attempts).toEqual([1, 2]);
+    expect(evidence.promotionDecision).toBe("promote");
+    expect(evidence.attemptSummaries).toEqual([
+      {
+        attempt: 1,
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: "platform-temporary-unavailable",
+        readyLatencyMs: null,
+      },
+      {
+        attempt: 2,
+        finalState: "pass",
+        promotionDecision: "promote",
+        failureReason: null,
+        readyLatencyMs: 1500,
+      },
+    ]);
   });
 
   it("writes runtime timeout evidence when every attempt fails before observation", async () => {

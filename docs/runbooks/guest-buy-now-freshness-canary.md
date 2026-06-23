@@ -20,7 +20,7 @@ Until the #1237 numeric SLO/load proof ratifies the budget, `checkout-ready-slo-
 
 - `--ready-slo-ms` (`GUEST_BUY_NOW_CANARY_READY_SLO_MS`, default `10000`): per-attempt write-to-checkout-ready budget, the ratified #1237 single-write SLO; see [Projection Freshness SLOs](../architecture/projection-freshness-slos.md).
 - `--slo-mode` (`GUEST_BUY_NOW_CANARY_SLO_MODE`, default `warn`): `warn` records SLO breaches with user-safe states as release-health warnings without blocking; `gate` aborts the release on any SLO breach.
-- `--attempts` (`GUEST_BUY_NOW_CANARY_ATTEMPTS`, default `1`; the workflow passes `3`): only `checkout-ready-slo-exceeded` outcomes are retried, matching the SLO doc's "hold after 3 consecutive attempts without pay-ready" rollout decision. Hard failures (permanent not-found, missing receipt/cookie, platform error page, negative-probe failures) abort immediately without retry.
+- `--attempts` (`GUEST_BUY_NOW_CANARY_ATTEMPTS`, default `1`; the workflow passes `3`): `checkout-ready-slo-exceeded`, controlled `browser-navigation-timeout`, and transient 5xx setup outcomes are retried, matching the rollout decision to hold after repeated live-readiness misses instead of a single flaky browser or platform edge sample. Hard failures (permanent not-found, missing receipt/cookie, platform error page, non-5xx auth/setup failures, negative-probe failures) abort immediately without retry.
 
 The workflow discovers the first active buyable item from `/api/marketplace/items?q=<query>&includeTotal=true`. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session so it also works on hosts that gate the marketplace API behind sign-in.
 
@@ -31,7 +31,7 @@ The workflow discovers the first active buyable item from `/api/marketplace/item
 | `guest` | Guest contact form on `/checkout/buy/readiness`; canary-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
 | `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-canary+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
-The browser canary follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`.
+The browser canary follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`. Route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
 
 ## States And Gate Decisions
 
@@ -45,7 +45,7 @@ The canary uses the shared Checkout state model with the tightened #1227 gate:
 | `fail` | Abort | Permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
 | any non-abort state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. Probe failures override SLO warnings. |
 
-Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration error or unexpected script failure before the canary can build evidence. Controlled browser navigation/load timeouts are canary failures, not blind runtime exits: they record `failureReason: "browser-navigation-timeout"`, include a redacted `runtimeFailure` stage/message, skip the negative probe, and retry within the configured attempt budget before failing closed.
+Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration error or unexpected script failure before the canary can build evidence. Controlled browser navigation/load timeouts are canary failures, not blind runtime exits: they record `failureReason: "browser-navigation-timeout"`, include a redacted `runtimeFailure` stage/message, skip the negative probe, and retry within the configured attempt budget before failing closed. Transient 5xx account setup failures record `platform-temporary-unavailable` and use the same bounded retry policy.
 
 ## Negative Invalid-Session Probe
 
