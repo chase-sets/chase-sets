@@ -11,6 +11,8 @@ export const catalogScenarioItems = {
   prismaticEvolutionsBoosterPack: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
   surgingSparksBoosterBox: catalogSeedIds.items.surgingSparksBoosterBox,
   twilightMasqueradeEliteTrainerBox: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+  onePieceLuffyRomanceDawn: catalogSeedIds.items.onePieceLuffyRomanceDawn,
+  onePieceRomanceDawnBoosterBox: catalogSeedIds.items.onePieceRomanceDawnBoosterBox,
 } as const;
 
 export type CatalogScenarioItemAlias = keyof typeof catalogScenarioItems;

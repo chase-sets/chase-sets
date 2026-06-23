@@ -84,10 +84,12 @@ export const catalogSeedIds = {
     manufacturers: {
       thePokemonCompanyInternational: "ref_seed_the_pokemon_company_international" as SeedReferenceRecordId,
       wizardsOfTheCoast: "ref_seed_wizards_of_the_coast" as SeedReferenceRecordId,
+      bandai: "ref_seed_bandai" as SeedReferenceRecordId,
     },
     productLines: {
       pokemonTradingCardGame: "ref_seed_pokemon_trading_card_game" as SeedReferenceRecordId,
       magicTheGathering: "ref_seed_magic_the_gathering" as SeedReferenceRecordId,
+      onePieceCardGame: "ref_seed_one_piece_card_game" as SeedReferenceRecordId,
     },
     series: {
       base: "ref_seed_series_base" as SeedReferenceRecordId,
@@ -106,6 +108,7 @@ export const catalogSeedIds = {
     },
     sets: {
       timeSpiral: "ref_seed_set_time_spiral" as SeedReferenceRecordId,
+      romanceDawn: "ref_seed_set_one_piece_romance_dawn" as SeedReferenceRecordId,
     },
   },
   displayTemplates: {
@@ -114,6 +117,8 @@ export const catalogSeedIds = {
     pokemonSealedProduct: "dtp_seed_pokemon_sealed_product" as SeedDisplayTemplateId,
     magicCardPrintDefault: "dtp_seed_magic_card_print_default" as SeedDisplayTemplateId,
     magicSealedProduct: "dtp_seed_magic_sealed_product" as SeedDisplayTemplateId,
+    onePieceCardPrintDefault: "dtp_seed_one_piece_card_print_default" as SeedDisplayTemplateId,
+    onePieceSealedProduct: "dtp_seed_one_piece_sealed_product" as SeedDisplayTemplateId,
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
@@ -122,12 +127,17 @@ export const catalogSeedIds = {
     magicCardPrintIdentity: "cmp_seed_magic_card_print_identity" as SeedComponentId,
     magicCardProductResolution: "cmp_seed_magic_card_product_resolution" as SeedComponentId,
     magicSealedProductIdentity: "cmp_seed_magic_sealed_product_identity" as SeedComponentId,
+    onePieceCardPrintIdentity: "cmp_seed_one_piece_card_print_identity" as SeedComponentId,
+    onePieceCardProductResolution: "cmp_seed_one_piece_card_product_resolution" as SeedComponentId,
+    onePieceSealedProductIdentity: "cmp_seed_one_piece_sealed_product_identity" as SeedComponentId,
   },
   blueprints: {
     pokemonCardSingle: "bpr_seed_pokemon_card_single" as SeedBlueprintId,
     pokemonSealedProduct: "bpr_seed_pokemon_sealed_product" as SeedBlueprintId,
     magicCardPrint: "bpr_seed_magic_card_print" as SeedBlueprintId,
     magicSealedProduct: "bpr_seed_magic_sealed_product" as SeedBlueprintId,
+    onePieceCardPrint: "bpr_seed_one_piece_card_print" as SeedBlueprintId,
+    onePieceSealedProduct: "bpr_seed_one_piece_sealed_product" as SeedBlueprintId,
   },
   categories: {
     pokemonTcg: "ctg_seed_pokemon_tcg" as SeedCategoryId,
@@ -166,6 +176,12 @@ export const catalogSeedIds = {
     magicSealedProducts: "ctg_seed_magic_sealed_products" as SeedCategoryId,
     magicBoosterPacks: "ctg_seed_magic_booster_packs" as SeedCategoryId,
     magicBoosterBoxes: "ctg_seed_magic_booster_boxes" as SeedCategoryId,
+    onePieceCardGame: "ctg_seed_one_piece_card_game" as SeedCategoryId,
+    onePieceCardPrints: "ctg_seed_one_piece_card_prints" as SeedCategoryId,
+    onePieceSealedProducts: "ctg_seed_one_piece_sealed_products" as SeedCategoryId,
+    onePieceBoosterPacks: "ctg_seed_one_piece_booster_packs" as SeedCategoryId,
+    onePieceBoosterBoxes: "ctg_seed_one_piece_booster_boxes" as SeedCategoryId,
+    onePieceStarterDecks: "ctg_seed_one_piece_starter_decks" as SeedCategoryId,
   },
   items: {
     charizardBaseSet: "cat_seed_charizard_base_set" as SeedCatalogItemId,
@@ -178,5 +194,7 @@ export const catalogSeedIds = {
     prismaticEvolutionsBoosterPack: "cat_seed_prismatic_evolutions_booster_pack" as SeedCatalogItemId,
     surgingSparksBoosterBox: "cat_seed_surging_sparks_booster_box" as SeedCatalogItemId,
     twilightMasqueradeEliteTrainerBox: "cat_seed_twilight_masquerade_elite_trainer_box" as SeedCatalogItemId,
+    onePieceLuffyRomanceDawn: "cat_seed_one_piece_luffy_romance_dawn" as SeedCatalogItemId,
+    onePieceRomanceDawnBoosterBox: "cat_seed_one_piece_romance_dawn_booster_box" as SeedCatalogItemId,
   },
 } as const;
