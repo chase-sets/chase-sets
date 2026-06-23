@@ -545,12 +545,15 @@ describe("fulfillment shipment routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const body = await response.json();
+    expect(body).toEqual({
       id: "shp_1",
       version: 3,
       status: "label-attached",
       trackingIdentifier: "940000000000000000",
     });
+    expect(body).not.toHaveProperty("jobId");
+    expect(body).not.toHaveProperty("pollUrl");
     expect(services.purchaseUspsLabel).toHaveBeenCalledWith(
       {
         shipmentId: "shp_1",

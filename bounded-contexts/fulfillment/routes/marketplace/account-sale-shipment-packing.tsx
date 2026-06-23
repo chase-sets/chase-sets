@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken, readApiErrorMessage, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { navigateAfterWrite, readApiErrorMessage, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { LinkButton, MarketplaceNotice, Page, PageHeader } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -66,14 +66,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     if (intent === "start-packing") {
       const result = await api.startPackingShipment(shipmentId);
-      return redirect(appendFreshWriteToken(`/account/sales/shipments/${shipmentId}/packing`, result));
+      return redirect(navigateAfterWrite(result, `/account/sales/shipments/${shipmentId}/packing`));
     }
 
     if (intent === "complete-packing") {
       const result = await api.packShipment(shipmentId, {
         packageCount: Number(formValue(formData, "packageCount") || 1),
       });
-      return redirect(appendFreshWriteToken(`/account/sales/shipments/${shipmentId}`, result));
+      return redirect(navigateAfterWrite(result, `/account/sales/shipments/${shipmentId}`));
     }
 
     if (intent === "set-line-confirmed") {

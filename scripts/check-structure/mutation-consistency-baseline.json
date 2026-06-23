@@ -3,15 +3,5 @@
   "owner": "bounded-context owners",
   "reviewBy": "2026-07-31",
   "reason": "Current product-wide mutation consistency audit baseline. #1809 splits these rows into bounded remediation issues; new unclassified surfaces fail structure checks.",
-  "surfaces": [
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#1",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#2",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#3",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#4",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:H2df726441e2a#1",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1"
-  ]
+  "surfaces": []
 }

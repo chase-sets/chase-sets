@@ -70,6 +70,12 @@ function freshRequest(path: string, position = "42") {
   return new Request(`https://marketplace.chasesets.test${appendFreshWriteToken(path, fulfillmentCommit(position))}`);
 }
 
+function expiredFreshRequest(path: string, position = "42") {
+  return new Request(
+    `https://marketplace.chasesets.test${appendFreshWriteToken(path, fulfillmentCommit(position), 1_000)}`,
+  );
+}
+
 describe("fulfillment seller shipment packing route", () => {
   beforeEach(() => {
     mockRequireActor.mockResolvedValue({ accountId: "acc_seller", permissions: ["fulfillment.manage"] });
@@ -161,5 +167,47 @@ describe("fulfillment seller shipment packing route", () => {
       shipment: null,
       freshnessError: "Fulfillment packing projection is catching up.",
     });
+  });
+
+  it("returns temporary recovery when a fresh packing read is not found yet", async () => {
+    mockApi.getSellerShipment.mockRejectedValue(
+      new MockFulfillmentApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Packing has not projected yet.",
+        },
+      }),
+    );
+    const request = freshRequest("/account/sales/shipments/shp_1/packing", "65");
+
+    const result = await loader({
+      request,
+      params: { shipmentId: "shp_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      shipment: null,
+      freshnessError: "Packing has not projected yet.",
+    });
+  });
+
+  it("treats expired packing handoffs as permanent not found", async () => {
+    mockApi.getSellerShipment.mockRejectedValue(
+      new MockFulfillmentApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Shipment not found.",
+        },
+      }),
+    );
+
+    await expect(
+      loader({
+        request: expiredFreshRequest("/account/sales/shipments/shp_1/packing", "66"),
+        params: { shipmentId: "shp_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });
