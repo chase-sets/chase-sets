@@ -5,6 +5,7 @@ export type {
   OfferMatchListItem,
   MarketplaceApiClientOptions,
   MarketplaceOffer,
+  PublicOfferDetail,
   MarketplaceItemListing,
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,

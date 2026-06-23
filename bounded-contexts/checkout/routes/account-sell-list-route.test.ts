@@ -21,6 +21,7 @@ import {
   mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
   mockGetOfferMatch,
+  mockGetPublicOffer,
   mockGetPayoutReadiness,
   MockMarketplaceApiError,
   mockMergeGuestSellListToAccount,
@@ -1531,6 +1532,76 @@ describe("checkout web routes: account sell list", () => {
         standardPreview: expect.objectContaining({ seller_net_unit_amount: "345.65" }),
         changedFields: [],
       },
+    });
+  });
+
+  it("resolves marketplace-wide submitted selected offers before classifying missing seller terms", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockPreviewOfferAcceptanceTerms.mockRejectedValue(new Error("Offer not found."));
+    mockGetPublicOffer.mockResolvedValue({
+      offer_id: "off_air_balloon",
+      buyer_account_id: "acc_buyer",
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: "cat_air_balloon::condition:damaged|form:raw",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [
+        { dimensionId: "condition", optionId: "damaged" },
+        { dimensionId: "form", optionId: "raw" },
+      ],
+      product_summary: "Raw / Damaged",
+      price_amount: "24.96",
+      quantity_requested: 1,
+      status: "submitted",
+      accepted_seller_account_id: null,
+      accepted_at: null,
+      created_at: "2026-06-23T06:08:00.000Z",
+      updated_at: "2026-06-23T06:08:00.000Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_air_balloon",
+            line_type: "selected-offer",
+            offer_id: "off_air_balloon",
+            buyer_account_id: "acc_buyer",
+            buyer_display_name: "QA M47 Buyer 20260623 0608",
+            offer_price_amount: "24.96",
+            catalog_catalog_item_id: "cat_air_balloon",
+            product_id: "cat_air_balloon::condition:damaged|form:raw",
+            item_title: "Air Balloon",
+            item_subtitle: null,
+            selected_options: [
+              { dimensionId: "condition", optionId: "damaged" },
+              { dimensionId: "form", optionId: "raw" },
+            ],
+            product_summary: "Raw / Damaged",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getPublicOffer: mockGetPublicOffer,
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+    });
+
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockGetPublicOffer).toHaveBeenCalledWith("off_air_balloon");
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_air_balloon");
+    expect(result.offerReviews[0]).toEqual({
+      lineId: "sll_air_balloon",
+      status: "unavailable",
+      terms: null,
+      comparison: null,
+      message: "Create a matching listing before accepting this offer.",
     });
   });
 

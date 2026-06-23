@@ -20,6 +20,7 @@ export type {
   OfferMatchDetail,
   OfferMatchListItem,
   MarketplaceOffer,
+  PublicOfferDetail,
   SubmittedOfferDetail,
   SubmittedOfferListItem,
 } from "./features/offers/api/contracts";
@@ -40,6 +41,7 @@ import type {
 import type {
   OfferMatchDetail,
   OfferMatchListItem,
+  PublicOfferDetail,
   SubmittedOfferDetail,
   SubmittedOfferListItem,
 } from "./features/offers/api/contracts";
@@ -421,6 +423,14 @@ export function createMarketplaceApiClient({
     async getOfferMatch(id: string): Promise<OfferMatchDetail> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"].$get({
+          param: { id },
+          header: headers,
+        }),
+      );
+    },
+    async getPublicOffer(id: string): Promise<PublicOfferDetail> {
+      return parseJsonResponse(
+        await client.account.offers.public[":id"].$get({
           param: { id },
           header: headers,
         }),

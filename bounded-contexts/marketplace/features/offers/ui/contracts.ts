@@ -20,6 +20,7 @@ export interface MarketplaceOffer {
 
 export interface SubmittedOfferListItem extends MarketplaceOffer {}
 export interface SubmittedOfferDetail extends MarketplaceOffer {}
+export interface PublicOfferDetail extends MarketplaceOffer {}
 
 export interface OfferMatchListItem extends MarketplaceOffer {
   listing_id: string;

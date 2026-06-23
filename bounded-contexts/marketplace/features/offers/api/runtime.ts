@@ -18,7 +18,13 @@ import {
   type MarketplaceOfferState,
 } from "../domain/domain";
 import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projection";
-import { getSubmittedOffer, getOfferMatch, listSubmittedOffers, listOfferMatches } from "../read-model/queries";
+import {
+  getPublicOffer,
+  getSubmittedOffer,
+  getOfferMatch,
+  listSubmittedOffers,
+  listOfferMatches,
+} from "../read-model/queries";
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
@@ -63,6 +69,7 @@ export type MarketplaceOfferServices = Readonly<{
   ) => Promise<MarketplaceListingTermsPreview>;
   listSubmittedOffers: (params: Parameters<typeof listSubmittedOffers>[1]) => ReturnType<typeof listSubmittedOffers>;
   getSubmittedOffer: (offerId: string, buyerAccountId: string) => ReturnType<typeof getSubmittedOffer>;
+  getPublicOffer: (offerId: string) => ReturnType<typeof getPublicOffer>;
   listOfferMatches: (params: Parameters<typeof listOfferMatches>[1]) => ReturnType<typeof listOfferMatches>;
   getOfferMatch: (offerId: string, sellerAccountId: string) => ReturnType<typeof getOfferMatch>;
   projectors: readonly ProjectionHandlerSet[];
@@ -209,6 +216,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     },
     listSubmittedOffers: (params) => listSubmittedOffers(deps.db, params),
     getSubmittedOffer: (offerId, buyerAccountId) => getSubmittedOffer(deps.db, offerId, buyerAccountId),
+    getPublicOffer: (offerId) => getPublicOffer(deps.db, offerId),
     listOfferMatches: (params) => listOfferMatches(deps.db, params),
     getOfferMatch: (offerId, sellerAccountId) => getOfferMatch(deps.db, offerId, sellerAccountId),
     projectors: [

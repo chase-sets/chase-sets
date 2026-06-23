@@ -23,6 +23,7 @@ import type {
   MarketplaceListingInventoryItemOption,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
+  PublicOfferDetail,
 } from "@chase-sets/marketplace/server";
 import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
 import {
@@ -385,6 +386,36 @@ function compareRegisteredTermsWithStandard(
   };
 }
 
+function selectedOfferProductMatchesLine(offer: PublicOfferDetail, line: CheckoutSellListLineRow) {
+  return (
+    offer.catalog_catalog_item_id === line.catalog_catalog_item_id &&
+    (!line.product_id || offer.product_id === line.product_id)
+  );
+}
+
+function selectedOfferUnavailableMessage(offer: PublicOfferDetail | null | undefined, error: unknown) {
+  if (offer === null) {
+    return error instanceof Error ? error.message : "Offer not found.";
+  }
+
+  if (offer === undefined) {
+    return error instanceof Error ? error.message : "Offer terms are unavailable.";
+  }
+
+  if (offer.status !== "submitted") {
+    return offer.status === "accepted"
+      ? "Offer has already been accepted."
+      : `Offer is no longer submitted (${offer.status}).`;
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Offer not found.") {
+    return "Create a matching listing before accepting this offer.";
+  }
+
+  return message || "Offer terms are unavailable.";
+}
+
 async function loadSellListOfferReviews(
   request: Request,
   lines: readonly CheckoutSellListLineRow[],
@@ -392,6 +423,7 @@ async function loadSellListOfferReviews(
 ): Promise<readonly SellListOfferReview[]> {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
+  const getPublicOffer = marketplaceApi.getPublicOffer?.bind(marketplaceApi);
   const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_id);
   const includeStandardComparison =
     options.includeStandardComparison && typeof previewPublicStandardListingTerms === "function";
@@ -415,7 +447,22 @@ async function loadSellListOfferReviews(
   return Promise.all(
     selectedOfferLines.map(async (line) => {
       const standardPreviewPromise = previewForPrice(line.offer_price_amount);
+      const publicOfferPromise =
+        typeof getPublicOffer === "function"
+          ? getPublicOffer(line.offer_id!).catch(() => null)
+          : Promise.resolve(undefined);
       try {
+        const publicOffer = await publicOfferPromise;
+        if (publicOffer === null) {
+          throw new Error("Offer not found.");
+        }
+        if (publicOffer && !selectedOfferProductMatchesLine(publicOffer, line)) {
+          throw new Error("Selected offer no longer matches this Sell List line.");
+        }
+        if (publicOffer && publicOffer.status !== "submitted") {
+          throw new Error("Offer is no longer submitted.");
+        }
+
         const [terms, standardPreview] = await Promise.all([
           marketplaceApi.previewOfferAcceptanceTerms(line.offer_id!),
           standardPreviewPromise,
@@ -430,7 +477,7 @@ async function loadSellListOfferReviews(
           message: null,
         };
       } catch (error) {
-        const standardPreview = await standardPreviewPromise;
+        const [standardPreview, publicOffer] = await Promise.all([standardPreviewPromise, publicOfferPromise]);
         return {
           lineId: line.line_id,
           status: "unavailable" as const,
@@ -438,7 +485,7 @@ async function loadSellListOfferReviews(
           comparison: options.includeStandardComparison
             ? { status: "final-unavailable" as const, standardPreview, changedFields: [] }
             : null,
-          message: error instanceof Error ? error.message : "Offer terms are unavailable.",
+          message: selectedOfferUnavailableMessage(publicOffer, error),
         };
       }
     }),

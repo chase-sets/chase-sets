@@ -465,6 +465,88 @@ describe("item detail buy now validation and watch intents", () => {
     expect(response.headers.get("Location")).toContain("afterWrite=");
   });
 
+  it("routes signed-in Accept offer handoff from public item demand through Sell List readiness", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["offers.manage", "offers.view", "listings.view"],
+    });
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["offers.manage", "offers.view", "listings.view"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_air_balloon",
+        title: "Air Balloon",
+        subtitle: null,
+        offer_demand_matches: [
+          {
+            offer_id: "off_air_balloon",
+            buyer_account_id: "acc_buyer",
+            buyer_display_name: "QA M47 Buyer 20260623 0608",
+            catalog_catalog_item_id: "cat_air_balloon",
+            product_id: "cat_air_balloon::condition:damaged|form:raw",
+            item_title: "Air Balloon",
+            item_subtitle: null,
+            selected_options: [
+              { dimensionId: "condition", optionId: "damaged" },
+              { dimensionId: "form", optionId: "raw" },
+            ],
+            product_summary: "Raw / Damaged",
+            price_amount: "24.96",
+            quantity_requested: 1,
+            status: "submitted",
+            accepted_seller_account_id: null,
+            accepted_at: null,
+          },
+        ],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addSellListLine: mockAddSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_air_balloon", version: 1, status: "active" }, "checkout"),
+      ),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "sell-now");
+    form.set("offerId", "off_air_balloon");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/air-balloon", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "air-balloon" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAddSellListLine).toHaveBeenCalledWith({
+      lineType: "selected-offer",
+      offerId: "off_air_balloon",
+      buyerAccountId: null,
+      buyerDisplayName: "QA M47 Buyer 20260623 0608",
+      offerPriceAmount: "24.96",
+      catalogItemId: "cat_air_balloon",
+      productId: "cat_air_balloon::condition:damaged|form:raw",
+      itemTitle: "Air Balloon",
+      itemSubtitle: null,
+      selectedOptions: [
+        { dimensionId: "condition", optionId: "damaged" },
+        { dimensionId: "form", optionId: "raw" },
+      ],
+      productSummary: "Raw / Damaged",
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+      quantity: 1,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account/sell-list");
+    expect(response.headers.get("Location")).toContain("afterWrite=");
+  });
+
   it("rejects invalid watch thresholds before creating product alerts", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",

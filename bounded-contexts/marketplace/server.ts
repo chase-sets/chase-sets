@@ -6,6 +6,7 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   OfferMatchListItem,
+  PublicOfferDetail,
 } from "./support/request-support/api-client";
 export {
   appendAnonymousListingDraftCookie,
