@@ -5,6 +5,8 @@ import {
 } from "../request-support/cookies";
 import { AUTH_ACCOUNT_SELECTION_TTL_MS, AUTH_SESSION_TTL_MS } from "../../features/sessions/domain/auth-flow";
 
+const DOCUMENT_REDIRECT_HEADER = "X-Remix-Reload-Document";
+
 export function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
     return new Map<string, string>();
@@ -56,6 +58,7 @@ export function serializeCookie(
 export function createRedirectResponse(location: string, headers?: HeadersInit) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Location", location);
+  responseHeaders.set(DOCUMENT_REDIRECT_HEADER, "true");
   return new Response(null, { status: 302, headers: responseHeaders });
 }
 

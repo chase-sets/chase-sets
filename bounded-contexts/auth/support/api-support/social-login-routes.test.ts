@@ -237,6 +237,7 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(mockIdentityMutations.linkSocialLogin).toHaveBeenCalledWith({
       userId: "usr_existing",
@@ -365,6 +366,7 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/select?returnTo=%2Faccount%2Forders");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_account_selection=acct_token");
   });
 
@@ -580,6 +582,7 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/growth/waitlist");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
   });
 

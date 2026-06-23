@@ -157,6 +157,8 @@ describe("auth host", () => {
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(302);
     expect((response as Response).headers.get("Location")).toBe("/account/sell-list");
+    expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect((response as Response).headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
@@ -181,6 +183,8 @@ describe("auth host", () => {
     const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
     const location = redirectLocation(response);
 
+    expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect((response as Response).headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(location.pathname).toBe("/account");
     expect(location.searchParams.get("authPrompt")).toBe("add-passkey");
     expect(readFreshWriteToken(location)).toMatchObject({
@@ -204,6 +208,8 @@ describe("auth host", () => {
     const response = await host.createRegisterAction()(createActionArgs(createPasskeyRegistrationRequest()));
     const location = redirectLocation(response);
 
+    expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect((response as Response).headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
     expect(location.pathname).toBe("/account");
     expect(location.searchParams.get("authPrompt")).toBeNull();
     expect(readFreshWriteToken(location)).toMatchObject({
@@ -220,6 +226,7 @@ describe("auth host", () => {
     const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
     const location = redirectLocation(response);
 
+    expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(location.pathname).toBe("/account");
     expect(location.searchParams.get("authPrompt")).toBe("add-passkey");
     expect(location.searchParams.get("afterWrite")).toBeNull();
@@ -240,6 +247,7 @@ describe("auth host", () => {
     );
     const location = redirectLocation(response);
 
+    expect((response as Response).headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(location.pathname).toBe("/account/listings");
     expect(location.searchParams.get("claimListingIntent")).toBe("ldi_1");
     expect(location.searchParams.get("afterWrite")).toBeNull();
@@ -265,6 +273,7 @@ describe("auth host", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/search");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(cookies.find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain("Max-Age=0");
     expect(cookies.find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain("Secure");
     expect(cookies.find((cookie) => cookie.startsWith("chase_sets_session="))).toContain("Max-Age=0");
