@@ -222,13 +222,17 @@ class ImportBatchDb implements PgQueryable {
     const rows = this.rows.filter((row) => row.batch_id === batchId);
     const acceptedCount = rows.filter((row) => row.status === "accepted" || row.status === "committed").length;
     const committedCount = rows.filter((row) => row.status === "committed").length;
+    const rejectedCount = rows.filter((row) => row.status === "rejected").length;
     this.batches.set(batchId, {
       ...batch,
       total_count: rows.length,
       accepted_count: acceptedCount,
-      rejected_count: rows.filter((row) => row.status === "rejected").length,
+      rejected_count: rejectedCount,
       committed_count: committedCount,
-      status: rows.length > 0 && committedCount === acceptedCount ? "committed" : "uploaded",
+      status:
+        rows.length > 0 && rejectedCount === 0 && acceptedCount > 0 && committedCount === acceptedCount
+          ? "committed"
+          : "uploaded",
       updated_at: now,
     });
   }
@@ -418,6 +422,26 @@ describe("inventory import batch runtime", () => {
         "listingQuantityCap is required when listingPriceAmount is set.",
       ]),
     );
+  });
+
+  it("keeps rejected-only validation batches reviewable", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: "catalogItemId,storageLocationId,totalQuantity,option:condition\ncat_active,loc_active,2,",
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      status: "uploaded",
+      total_count: 1,
+      accepted_count: 0,
+      rejected_count: 1,
+      committed_count: 0,
+    });
+    expect(batch.rows[0]?.validation_errors).toContain("Selected options must include Condition.");
   });
 
   it("commits accepted rows idempotently without duplicating inventory or draft listings", async () => {

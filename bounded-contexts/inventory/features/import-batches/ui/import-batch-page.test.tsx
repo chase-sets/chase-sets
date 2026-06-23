@@ -62,13 +62,17 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
 function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchDetail {
   const acceptedCount = rows.filter((entry) => entry.status === "accepted" || entry.status === "committed").length;
   const committedCount = rows.filter((entry) => entry.status === "committed").length;
+  const rejectedCount = rows.filter((entry) => entry.status === "rejected").length;
   return {
     ...batch({
       total_count: rows.length,
       accepted_count: acceptedCount,
-      rejected_count: rows.filter((entry) => entry.status === "rejected").length,
+      rejected_count: rejectedCount,
       committed_count: committedCount,
-      status: rows.length > 0 && acceptedCount === committedCount ? "committed" : "uploaded",
+      status:
+        rows.length > 0 && rejectedCount === 0 && acceptedCount > 0 && acceptedCount === committedCount
+          ? "committed"
+          : "uploaded",
     }),
     rows,
   };
