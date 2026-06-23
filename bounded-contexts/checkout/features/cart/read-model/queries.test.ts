@@ -46,7 +46,7 @@ type SellerAccount = Readonly<{
 function holdsAccurateAvailableQuantity(option: SellerOption): number {
   return Math.min(
     option.listing_quantity_cap,
-    Math.max((option.supply_total_quantity ?? 0) - (option.active_held_quantity ?? 0), 0),
+    Math.max((option.supply_total_quantity ?? option.listing_quantity_cap) - (option.active_held_quantity ?? 0), 0),
   );
 }
 
@@ -54,7 +54,7 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
  * In-memory fake `PgQueryable` that interprets the `listCartLines` SQL: it
  * joins cart line pages against the seller-options table applying the
  * `status = 'active'` filter, computes the holds-accurate
- * `available_quantity = LEAST(listing_quantity_cap, GREATEST(supply - holds, 0))`,
+ * `available_quantity = LEAST(listing_quantity_cap, GREATEST(COALESCE(supply, cap) - holds, 0))`,
  * LEFT JOINs the identity/reputation-maintained `checkout_seller_accounts`
  * table by `seller_account_id` to resolve `seller_display_name` / `seller_slug`
  * and the reputation counters `seller_average_rating` / `seller_review_count`
@@ -183,7 +183,7 @@ describe("listCartLines seller_options join", () => {
     });
   });
 
-  it("computes holds-accurate available_quantity as LEAST(cap, GREATEST(supply - holds, 0))", async () => {
+  it("computes holds-accurate available_quantity as LEAST(cap, GREATEST(COALESCE(supply, cap) - holds, 0))", async () => {
     const db = new CartReadModelDb(
       [line()],
       [
@@ -213,7 +213,7 @@ describe("listCartLines seller_options join", () => {
     ]);
   });
 
-  it("excludes listings whose active holds meet or exceed supply (not falsely ready)", async () => {
+  it("excludes listings whose active holds meet or exceed projected supply (not falsely ready)", async () => {
     const db = new CartReadModelDb(
       [line()],
       [
@@ -232,12 +232,13 @@ describe("listCartLines seller_options join", () => {
           supply_total_quantity: 0,
           active_held_quantity: 0,
         }),
-        // Supply not yet projected: NULL counters -> available 0 -> excluded (fail-safe).
+        // Inventory supply is not projected yet, but holds already consume the
+        // listing cap -> available 0 -> excluded.
         option({
-          listing_id: "lst_unknown_supply",
+          listing_id: "lst_pending_supply_fully_held",
           listing_quantity_cap: 5,
           supply_total_quantity: null,
-          active_held_quantity: null,
+          active_held_quantity: 5,
         }),
       ],
     );
@@ -246,6 +247,29 @@ describe("listCartLines seller_options join", () => {
 
     expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_ready"]);
     expect(row?.seller_options[0]).toMatchObject({ listing_id: "lst_ready", available_quantity: 3 });
+  });
+
+  it("uses the active marketplace listing cap while inventory supply counters are not projected yet", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [
+        option({
+          listing_id: "lst_active_waiting_projection",
+          listing_quantity_cap: 1,
+          supply_total_quantity: null,
+          active_held_quantity: null,
+        }),
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options).toEqual([
+      expect.objectContaining({
+        listing_id: "lst_active_waiting_projection",
+        available_quantity: 1,
+      }),
+    ]);
   });
 
   it("excludes non-active listings (seller-unavailable / withdrawn / paused / draft)", async () => {
@@ -412,9 +436,10 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain("o.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");
     // available_quantity must be holds-accurate: capped by the listing quantity
-    // cap and reduced by active holds against the inventory supply.
+    // cap, reduced by active holds, and backed by the marketplace cap while
+    // inventory supply counters are still catching up.
     expect(db.lastSql).toContain(
-      "GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)",
+      "COALESCE(o.supply_total_quantity, o.listing_quantity_cap) - COALESCE(o.active_held_quantity, 0)",
     );
     expect(db.lastSql).toContain("LEAST(");
     expect(db.lastSql).toContain("o.listing_quantity_cap");

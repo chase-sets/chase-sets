@@ -22,9 +22,9 @@ import { listCartLines, type CheckoutCartLineRow } from "./queries";
  *
  * `CartReadModelDb` interprets the `listCartLines` SQL the same way Postgres
  * does — active-only options, holds-accurate availability
- * (`LEAST(cap, GREATEST(supply - holds, 0))`), sold-out exclusion, seller-identity
- * resolution, cheapest-first ordering, empty -> [] — so the join semantics the
- * readiness optimizer depends on are exercised, not faked away.
+ * (`LEAST(cap, GREATEST(COALESCE(supply, cap) - holds, 0))`), sold-out exclusion,
+ * seller-identity resolution, cheapest-first ordering, empty -> [] — so the join
+ * semantics the readiness optimizer depends on are exercised, not faked away.
  */
 
 type SeededCartLine = Readonly<{
@@ -58,7 +58,7 @@ type SeededSellerOption = Readonly<{
 function holdsAccurateAvailableQuantity(option: SeededSellerOption): number {
   return Math.min(
     option.listing_quantity_cap,
-    Math.max((option.supply_total_quantity ?? 0) - (option.active_held_quantity ?? 0), 0),
+    Math.max((option.supply_total_quantity ?? option.listing_quantity_cap) - (option.active_held_quantity ?? 0), 0),
   );
 }
 
@@ -362,6 +362,68 @@ describe("seller-options readiness end-to-end (cart + checkout, one optimizer / 
       lineId: "cli_charizard",
       outcome: "checkout",
       reason: "unassigned-fulfillment",
+    });
+  });
+
+  it("starts checkout readiness for an active locked marketplace listing before inventory counters project", async () => {
+    const selectedListingId = "lst_active_waiting_projection";
+    const db = new CartReadModelDb(
+      [
+        seededLine({
+          line_id: "cli_abra",
+          catalog_catalog_item_id: "cat_abra",
+          product_id: "cat_abra::form:raw:condition:excellent",
+          item_title: "Abra",
+          quantity: 1,
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: selectedListingId,
+          seller_preference_id: selectedListingId,
+        }),
+      ],
+      [
+        seededOption({
+          listing_id: selectedListingId,
+          seller_account_id: "acc_m47_seller",
+          product_id: "cat_abra::form:raw:condition:excellent",
+          price_amount: "2.34",
+          listing_quantity_cap: 1,
+          supply_total_quantity: null,
+          active_held_quantity: null,
+          product_summary: "Raw / Excellent",
+          seller_slug: "m47-seller",
+          seller_display_name: "M47 Seller",
+        }),
+      ],
+    );
+
+    const cartLines = await listCartLines(db, "acc_buyer");
+    expect(cartLines[0]?.seller_options).toEqual([
+      expect.objectContaining({
+        listing_id: selectedListingId,
+        price_amount: "2.34",
+        available_quantity: 1,
+      }),
+    ]);
+
+    const snapshot = createCartReadinessSnapshot(cartLines);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.unresolvedLineIds).toEqual([]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_abra",
+      outcome: "checkout",
+      reason: "ready",
+    });
+    expect(snapshot.fulfillmentGroups).toEqual([
+      expect.objectContaining({
+        lineIds: ["cli_abra"],
+        listingIds: [selectedListingId],
+        sellerAccountId: "acc_m47_seller",
+      }),
+    ]);
+    expect(sessionSideReadiness(cartLines, snapshot)).toMatchObject({
+      valid: true,
+      current: snapshot,
     });
   });
 

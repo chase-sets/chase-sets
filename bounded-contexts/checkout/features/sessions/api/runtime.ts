@@ -484,7 +484,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
          price_amount::text AS price_amount,
          LEAST(
            listing_quantity_cap,
-           GREATEST(COALESCE(supply_total_quantity, 0) - COALESCE(active_held_quantity, 0), 0)
+           GREATEST(
+             COALESCE(supply_total_quantity, listing_quantity_cap) - COALESCE(active_held_quantity, 0),
+             0
+           )
          ) AS available_quantity
        FROM checkout_marketplace_seller_options
        WHERE listing_id = $1`,
