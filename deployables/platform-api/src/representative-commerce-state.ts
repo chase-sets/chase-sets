@@ -149,10 +149,12 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
     const listings = await runRepresentativeStep("publish representative listings", () =>
       publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock),
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
     const offers = await runRepresentativeStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
