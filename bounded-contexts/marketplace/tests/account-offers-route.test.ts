@@ -5,10 +5,7 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
-import {
-  loader as submittedOfferLoader,
-  SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER,
-} from "../routes/account-offer-submitted";
+import { loader as submittedOfferLoader } from "../routes/account-offer-submitted";
 import { loader as submittedOffersLoader } from "../routes/account-offers-submitted";
 import { action as offerMatchAction, loader as offerMatchLoader } from "../routes/account-offer-match";
 import { loader as offerMatchesLoader } from "../routes/account-offer-matches";
@@ -160,10 +157,14 @@ describe("marketplace offer routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.submittedOffer.offer_id).toBe("off_1");
+    const submittedOffer = result.submittedOffer;
+    if (!submittedOffer) {
+      throw new Error("Expected submitted offer detail.");
+    }
+    expect(submittedOffer.offer_id).toBe("off_1");
   });
 
-  it("returns temporary recovery when a fresh submitted offer read hits projection freshness timeout", async () => {
+  it("returns route-owned recovery when a fresh submitted offer read hits projection freshness timeout", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -199,26 +200,21 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    let response: Response | null = null;
-    try {
-      await submittedOfferLoader({
-        request: new Request(
-          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
-        ),
-        params: { offerId: "off_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      response = error as Response;
-    }
+    const result = await submittedOfferLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
+      ),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
 
-    expect(response?.status).toBe(503);
-    expect(response?.statusText).toBe("Preparing submitted offer");
-    expect(response?.headers.get(SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER)).toBe("refreshable-catching-up");
-    await expect(response?.text()).resolves.toContain("preparing your submitted offer details");
+    expect(result).toEqual({
+      submittedOffer: null,
+      recovery: "fresh-write-preparing",
+    });
   });
 
-  it("returns temporary recovery when a fresh submitted offer read hits an opaque gateway timeout", async () => {
+  it("returns route-owned recovery when a fresh submitted offer read hits an opaque gateway timeout", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -244,23 +240,18 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    let response: Response | null = null;
-    try {
-      await submittedOfferLoader({
-        request: new Request(
-          `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
-        ),
-        params: { offerId: "off_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      response = error as Response;
-    }
+    const result = await submittedOfferLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/offers/submitted/off_1", marketplaceCommit())}`,
+      ),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
 
-    expect(response?.status).toBe(503);
-    expect(response?.statusText).toBe("Preparing submitted offer");
-    expect(response?.headers.get(SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER)).toBe("refreshable-catching-up");
-    await expect(response?.text()).resolves.toContain("preparing your submitted offer details");
+    expect(result).toEqual({
+      submittedOffer: null,
+      recovery: "fresh-write-preparing",
+    });
   });
 
   it("surfaces expired submitted offer fresh-write not-found reads as normal not found", async () => {
@@ -477,11 +468,15 @@ describe("marketplace offer routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.offerMatch.offer_id).toBe("off_1");
-    expect(result.offerMatch.buyer_display_name).toBe("Buyer One");
+    const offerMatch = result.offerMatch;
+    if (!offerMatch) {
+      throw new Error("Expected offer match detail.");
+    }
+    expect(offerMatch.offer_id).toBe("off_1");
+    expect(offerMatch.buyer_display_name).toBe("Buyer One");
   });
 
-  it("returns temporary recovery when a fresh offer match read hits projection freshness timeout", async () => {
+  it("returns route-owned recovery when a fresh offer match read hits projection freshness timeout", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -517,22 +512,19 @@ describe("marketplace offer routes", () => {
       }),
     );
 
-    let response: Response | null = null;
-    try {
-      await offerMatchLoader({
-        request: new Request(
-          `http://localhost${appendFreshWriteToken("/account/offers/matches/off_1", marketplaceCommit())}`,
-        ),
-        params: { offerId: "off_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      response = error as Response;
-    }
+    const result = await offerMatchLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/offers/matches/off_1", marketplaceCommit())}`,
+      ),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
 
-    expect(response?.status).toBe(503);
-    expect(response?.statusText).toBe("Preparing offer match");
-    await expect(response?.text()).resolves.toContain("preparing your offer match details");
+    expect(result).toEqual({
+      offerMatch: null,
+      acceptanceTerms: null,
+      recovery: "fresh-write-preparing",
+    });
   });
 
   it("carries write consistency metadata after accepting an offer match", async () => {
@@ -677,7 +669,11 @@ describe("marketplace offer routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.offerMatch.status).toBe("accepted");
+    const offerMatch = result.offerMatch;
+    if (!offerMatch) {
+      throw new Error("Expected offer match detail.");
+    }
+    expect(offerMatch.status).toBe("accepted");
     expect(offerDetailHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(offerDetailHeaders[0]?.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
   });

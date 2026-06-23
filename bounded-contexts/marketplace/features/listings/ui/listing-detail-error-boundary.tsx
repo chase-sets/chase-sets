@@ -2,25 +2,9 @@ import { t } from "@chase-sets/localization";
 import { isRouteErrorResponse, useLocation, useRouteError } from "react-router";
 import { LinkButton, MarketplaceEmptyState, Page, PageHeader, PageSection } from "@chase-sets/design-system";
 
-export function ListingDetailErrorBoundary() {
-  const error = useRouteError();
-  const location = useLocation();
+export function ListingDetailRecoveryPage({ currentPath }: Readonly<{ currentPath: string }>) {
   const preparingTitle = t("marketplace.routes.accountListing.listing.preparing");
   const preparingDescription = t("marketplace.routes.accountListing.listing.preparing.description");
-  const searchParams = new URLSearchParams(location.search);
-  const isFreshListingWrite =
-    searchParams.has("afterWrite") &&
-    ["listing-publish", "listing-update"].includes(searchParams.get("feedbackWorkflow") ?? "");
-  const isPreparingListingResponse =
-    isRouteErrorResponse(error) &&
-    error.status === 503 &&
-    (error.statusText === preparingTitle || error.data === preparingDescription || isFreshListingWrite);
-
-  if (!isPreparingListingResponse) {
-    throw error;
-  }
-
-  const currentPath = `${location.pathname}${location.search}`;
 
   return (
     <Page>
@@ -48,4 +32,27 @@ export function ListingDetailErrorBoundary() {
       </PageSection>
     </Page>
   );
+}
+
+export function ListingDetailErrorBoundary() {
+  const error = useRouteError();
+  const location = useLocation();
+  const preparingTitle = t("marketplace.routes.accountListing.listing.preparing");
+  const preparingDescription = t("marketplace.routes.accountListing.listing.preparing.description");
+  const searchParams = new URLSearchParams(location.search);
+  const isFreshListingWrite =
+    searchParams.has("afterWrite") &&
+    ["listing-publish", "listing-update"].includes(searchParams.get("feedbackWorkflow") ?? "");
+  const isPreparingListingResponse =
+    isRouteErrorResponse(error) &&
+    error.status === 503 &&
+    (error.statusText === preparingTitle || error.data === preparingDescription || isFreshListingWrite);
+
+  if (!isPreparingListingResponse) {
+    throw error;
+  }
+
+  const currentPath = `${location.pathname}${location.search}`;
+
+  return <ListingDetailRecoveryPage currentPath={currentPath} />;
 }

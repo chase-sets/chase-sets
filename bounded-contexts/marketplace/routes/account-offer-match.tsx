@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
   appendFreshWriteToken,
   loadFreshlyWrittenResource,
@@ -15,19 +15,15 @@ import {
   type OfferMatchDetail,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
-import { OfferMatchDetailErrorBoundary } from "../features/offers/ui/offer-detail-error-boundary";
+import {
+  MarketplaceOfferDetailRecoveryPage,
+  OfferMatchDetailErrorBoundary,
+} from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 
 export { OfferMatchDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
-
-function offerMatchPreparingResponse() {
-  return new Response(t("marketplace.routes.accountOfferMatch.offer.match.preparing.description"), {
-    status: 503,
-    statusText: t("marketplace.routes.accountOfferMatch.offer.match.preparing"),
-  });
-}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -57,10 +53,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const freshWriteRecovery = recoverFreshWriteReadError({
       request,
       error,
-      recoverTransient: offerMatchPreparingResponse,
+      recoverTransient: () => ({
+        offerMatch: null,
+        acceptanceTerms: null,
+        recovery: "fresh-write-preparing" as const,
+      }),
     });
     if (freshWriteRecovery) {
-      throw freshWriteRecovery;
+      return freshWriteRecovery;
     }
 
     if (error instanceof MarketplaceApiError && error.status === 404) {
@@ -129,7 +129,15 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountOfferMatchRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  if (!data.offerMatch) {
+    return (
+      <MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={`${location.pathname}${location.search}`} />
+    );
+  }
+
   const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "offer-accept";
 
   return (

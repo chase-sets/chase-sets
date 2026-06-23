@@ -1,25 +1,21 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useSearchParams } from "react-router";
-import {
-  loadFreshlyWrittenResource,
-  postWriteRecoveryKindForFreshWriteReadError,
-  readApiErrorCode,
-  recoverFreshWriteReadError,
-  type FreshWriteReadErrorClassification,
-} from "@chase-sets/http/responses";
+import { useLoaderData, useLocation, useSearchParams } from "react-router";
+import { loadFreshlyWrittenResource, readApiErrorCode, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
-import { SubmittedOfferDetailErrorBoundary } from "../features/offers/ui/offer-detail-error-boundary";
+import {
+  MarketplaceOfferDetailRecoveryPage,
+  SubmittedOfferDetailErrorBoundary,
+} from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
 
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
-export const SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER = "Chase-Sets-Post-Write-Recovery-Kind";
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
@@ -31,16 +27,6 @@ function marketplaceApiErrorBody(error: unknown) {
 
 function marketplaceApiErrorCode(error: unknown) {
   return readApiErrorCode(marketplaceApiErrorBody(error));
-}
-
-function submittedOfferPreparingResponse(classification: FreshWriteReadErrorClassification) {
-  return new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing.description"), {
-    status: 503,
-    statusText: t("marketplace.routes.accountOfferSubmitted.submitted.offer.preparing"),
-    headers: {
-      [SUBMITTED_OFFER_POST_WRITE_RECOVERY_KIND_HEADER]: postWriteRecoveryKindForFreshWriteReadError(classification),
-    },
-  });
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -62,10 +48,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       getStatus: marketplaceApiErrorStatus,
       getErrorCode: marketplaceApiErrorCode,
       getBody: marketplaceApiErrorBody,
-      recoverTransient: submittedOfferPreparingResponse,
+      recoverTransient: () => ({
+        submittedOffer: null,
+        recovery: "fresh-write-preparing" as const,
+      }),
     });
     if (freshWriteRecovery) {
-      throw freshWriteRecovery;
+      return freshWriteRecovery;
     }
 
     if (error instanceof MarketplaceApiError && error.status === 404) {
@@ -84,7 +73,18 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSubmittedOfferRoute() {
   const data = useLoaderData<typeof loader>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  if (!data.submittedOffer) {
+    return (
+      <MarketplaceOfferDetailRecoveryPage
+        kind="submitted-offer"
+        currentPath={`${location.pathname}${location.search}`}
+      />
+    );
+  }
+
   const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "offer-submit";
 
   return (
