@@ -59,6 +59,41 @@ const mutationExceptionStrategies = new Set([
   "migration",
 ]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+const frozenMutationConsistencyBaselineSurfaces = new Set([
+  "api-route:bounded-contexts/public-presence/api.ts:DELETE /promo-bar-messages/:messageId",
+  "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages",
+  "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/activate",
+  "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/deactivate",
+  "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
+  "api-route:bounded-contexts/public-presence/api.ts:PUT /promo-bar-messages/:messageId",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#1",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#2",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#3",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#4",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:H2df726441e2a#1",
+  "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1",
+  "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
+  "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
+  "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
+  "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
+  "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
+  "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
+  "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
+  "route-action:bounded-contexts/auth/routes/catalog-admin/account-select.tsx",
+  "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
+  "route-action:bounded-contexts/auth/routes/catalog-admin/sign-out.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/sign-in.tsx",
+  "route-action:bounded-contexts/auth/routes/marketplace/sign-out.tsx",
+  "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx",
+  "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
+]);
 
 function normalizeRelative(filePath, repoRoot) {
   return path.relative(repoRoot, filePath).replaceAll("\\", "/");
@@ -1054,14 +1089,31 @@ function validateMutationStrategyProof(entryLabel, entry, indexes, violations) {
   }
 }
 
+function validateMutationBaselineFreeze(options) {
+  const { baseline, frozenBaselineSurfaces, violations } = options;
+  for (const surfaceId of baseline.keys()) {
+    if (!frozenBaselineSurfaces.has(surfaceId)) {
+      violations.push(
+        `scripts/check-structure/mutation-consistency-baseline.json: mutation baseline surface '${surfaceId}' is not in the frozen #1809 baseline; classify the surface in mutationConsistencyInventory instead of adding migration debt`,
+      );
+    }
+  }
+}
+
 function validateMutationConsistencyInventory(options) {
-  const { repoRoot, contextManifests, mutationSurfaces, indexes, violations } = options;
+  const { repoRoot, contextManifests, mutationSurfaces, indexes, violations, frozenBaselineSurfaces } = options;
   const declarations = collectMutationConsistencyDeclarations(contextManifests);
   const baseline = collectBaselineMutationSurfaces(repoRoot);
   const declaredSurfaceIds = new Set();
   const declarationBySurfaceId = new Map();
   const surfaceIds = new Set(mutationSurfaces.map((surface) => surface.id));
   const reportRows = [];
+
+  validateMutationBaselineFreeze({
+    baseline,
+    frozenBaselineSurfaces,
+    violations,
+  });
 
   for (const { context, entry, index } of declarations) {
     const entryLabel = `${context.root}/context.json mutationConsistencyInventory[${index}]`;
@@ -1313,7 +1365,12 @@ function validateInventoryEntry(options) {
 }
 
 export async function validateReadAfterWriteRouteInventory(options) {
-  const { repoRoot, contextManifests, reportOutputPath = "artifacts/read-after-write-route-inventory.md" } = options;
+  const {
+    repoRoot,
+    contextManifests,
+    reportOutputPath = "artifacts/read-after-write-route-inventory.md",
+    frozenBaselineSurfaces = frozenMutationConsistencyBaselineSurfaces,
+  } = options;
   const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
   const rawPostWriteHandoffMetadataUsages = await collectRawPostWriteHandoffMetadataUsage({ repoRoot });
@@ -1479,6 +1536,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
     mutationSurfaces,
     indexes,
     violations,
+    frozenBaselineSurfaces,
   });
 
   writeReadAfterWriteRouteInventoryReport({

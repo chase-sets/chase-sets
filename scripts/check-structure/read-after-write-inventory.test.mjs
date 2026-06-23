@@ -61,6 +61,26 @@ function writeRoute(root, relativeFile, helpers) {
   );
 }
 
+function writeMutationBaseline(root, surfaces) {
+  const absolute = path.join(root, "scripts", "check-structure", "mutation-consistency-baseline.json");
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(
+    absolute,
+    JSON.stringify(
+      {
+        issue: "#1809",
+        owner: "bounded-context owners",
+        reviewBy: "2026-07-31",
+        reason: "Test mutation consistency audit baseline.",
+        surfaces,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
 function recovery(kinds, behavior = "temporary checkout recovery") {
   return { kinds, behavior };
 }
@@ -175,11 +195,12 @@ function createContextManifest(root, overrides = {}) {
   ]);
 }
 
-async function validate(root, contextManifests) {
+async function validate(root, contextManifests, options = {}) {
   return validateReadAfterWriteRouteInventory({
     repoRoot: root,
     contextManifests,
     reportOutputPath: "artifacts/test-read-after-write-route-inventory.md",
+    ...options,
   });
 }
 
@@ -629,6 +650,79 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/routes/unclassified.tsx: mutating route-action is unclassified; add mutationConsistencyInventory with strategy proof",
+    );
+  });
+
+  it("fails when a new discovered mutation surface is added to the frozen baseline", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "unclassified.tsx"),
+      ["export async function action() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+    writeMutationBaseline(root, ["route-action:bounded-contexts/checkout/routes/unclassified.tsx"]);
+
+    const result = await validate(root, createContextManifest(root), { frozenBaselineSurfaces: new Set() });
+
+    expect(result.violations).toContain(
+      "scripts/check-structure/mutation-consistency-baseline.json: mutation baseline surface 'route-action:bounded-contexts/checkout/routes/unclassified.tsx' is not in the frozen #1809 baseline; classify the surface in mutationConsistencyInventory instead of adding migration debt",
+    );
+  });
+
+  it("allows existing frozen baseline rows to cover migration debt until they are burned down", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "unclassified.tsx"),
+      ["export async function action() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+    writeMutationBaseline(root, ["route-action:bounded-contexts/checkout/routes/unclassified.tsx"]);
+
+    const result = await validate(root, createContextManifest(root), {
+      frozenBaselineSurfaces: new Set(["route-action:bounded-contexts/checkout/routes/unclassified.tsx"]),
+    });
+
+    expect(result.violations).toEqual([]);
+    expect(result.mutationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "route-action:bounded-contexts/checkout/routes/unclassified.tsx",
+          strategy: "migration",
+          issueOrException: "#1809",
+        }),
+      ]),
+    );
+  });
+
+  it("allows the baseline to shrink without changing the frozen baseline", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeMutationBaseline(root, []);
+
+    const result = await validate(root, createContextManifest(root), {
+      frozenBaselineSurfaces: new Set(["route-action:bounded-contexts/checkout/routes/removed.tsx"]),
+    });
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it("still fails when a baseline row no longer maps to discovered code", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeMutationBaseline(root, ["route-action:bounded-contexts/checkout/routes/removed.tsx"]);
+
+    const result = await validate(root, createContextManifest(root), {
+      frozenBaselineSurfaces: new Set(["route-action:bounded-contexts/checkout/routes/removed.tsx"]),
+    });
+
+    expect(result.violations).toContain(
+      "scripts/check-structure/mutation-consistency-baseline.json: stale mutation baseline surface 'route-action:bounded-contexts/checkout/routes/removed.tsx' was not discovered",
     );
   });
 
