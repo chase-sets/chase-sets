@@ -533,18 +533,14 @@ describe("response consistency metadata", () => {
   });
 
   it("returns typed data or semantic pending results for default-safe destination reads", async () => {
-    const href = navigateAfterWrite(
-      { commitPositions: [checkoutSource], commitEventIds: [] },
-      "/account/cart",
-      {
-        nowMs: 1234,
-        handoff: {
-          kind: "checkout.cart.add-line",
-          expectation: "collection-non-empty",
-          surface: "account-cart",
-        },
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/account/cart", {
+      nowMs: 1234,
+      handoff: {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
       },
-    );
+    });
     const request = new Request(`https://marketplace.chasesets.test${href}`);
     const isHandoffSatisfied = (cart: { items: readonly unknown[] }, handoff: { expectation: string }) =>
       handoff.expectation === "collection-non-empty" && cart.items.length > 0;
@@ -581,11 +577,9 @@ describe("response consistency metadata", () => {
   });
 
   it("returns typed pending and permanent failures for default-safe destination read errors", async () => {
-    const href = navigateAfterWrite(
-      { commitPositions: [checkoutSource], commitEventIds: [] },
-      "/checkout/chk_1",
-      { nowMs: 1 },
-    );
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/checkout/chk_1", {
+      nowMs: 1,
+    });
     const notFoundError = { status: 404, body: { error: { code: "not_found", message: "Not found." } } };
 
     await expect(
@@ -624,18 +618,14 @@ describe("response consistency metadata", () => {
   });
 
   it("treats expired semantic handoffs as permanent destination results", async () => {
-    const href = navigateAfterWrite(
-      { commitPositions: [checkoutSource], commitEventIds: [] },
-      "/account/cart",
-      {
-        nowMs: 1,
-        handoff: {
-          kind: "checkout.cart.add-line",
-          expectation: "collection-non-empty",
-          surface: "account-cart",
-        },
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/account/cart", {
+      nowMs: 1,
+      handoff: {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
       },
-    );
+    });
 
     await expect(
       loadAfterWrite({

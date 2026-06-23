@@ -379,6 +379,11 @@ describe("post-write consistency observability", () => {
       "handoff_invalid",
       "handoff_malformed",
       "handoff_permanent",
+      "navigation_encoded",
+      "navigation_missing_receipt",
+      "read_data",
+      "read_pending",
+      "read_permanent",
     ] as const;
 
     expect(

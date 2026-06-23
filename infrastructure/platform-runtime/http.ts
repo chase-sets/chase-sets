@@ -100,12 +100,9 @@ export function navigateAfterWriteFromSources(
   return destination;
 }
 
-export async function loadAfterWrite<T>(
-  options: PlatformLoadAfterWriteOptions<T>,
-): Promise<LoadAfterWriteResult<T>> {
+export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {
   const result = await loadAfterWriteWithContract(options);
-  const recoveryAction =
-    result.kind === "data" ? "none" : "recoveryKind" in result ? result.recoveryKind : "unknown";
+  const recoveryAction = result.kind === "data" ? "none" : "recoveryKind" in result ? result.recoveryKind : "unknown";
   const correctionSource =
     "handoff" in result && result.handoff && result.handoff.kind !== "not-applicable"
       ? `semantic-handoff:${result.handoff.handoff.kind}`
