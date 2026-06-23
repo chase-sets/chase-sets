@@ -24,7 +24,7 @@ jobs:
   staging-provider-uat:
     name: Staging Provider Sync UAT
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment: staging
     if: inputs.confirm == 'run catalog staging provider uat'
     env:

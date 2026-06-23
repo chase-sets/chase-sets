@@ -6,6 +6,7 @@ const catalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "
 const pageReadyTimeoutMs = 90_000;
 const sourceOptionTimeoutMs = 90_000;
 const syncTimeoutMs = 120_000;
+const terminalSyncTimeoutMs = 300_000;
 
 type SelectChoice = Readonly<{
   labels?: readonly string[];
@@ -25,6 +26,14 @@ type ProviderSyncJourney = Readonly<{
   providerKey: string;
   unitKey: string;
   scope: readonly ScopeSelection[];
+  preflight?: ImportPreflightExpectation;
+  requiresTerminalSync?: boolean;
+}>;
+
+type ImportPreflightExpectation = Readonly<{
+  requestStrategy?: string;
+  allowedUsageStates?: readonly string[];
+  visibleText: readonly (string | RegExp)[];
 }>;
 
 type SelectedProviderScope = Readonly<{
@@ -66,6 +75,25 @@ const tcgplayerYugiohSetChoice: SelectChoice = {
 
 const providerSyncJourneys: readonly ProviderSyncJourney[] = [
   {
+    name: "One Piece set through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:one-piece:single-card:source-observation-import",
+    scope: [{ label: "Set", choice: { labels: ["Romance Dawn"], values: ["op-01"] } }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "250",
+        "id, name, number, expansion",
+        "Bulk-first",
+        "Fetch Scrydex One Piece expansion cards with max page size",
+        "scrydex:one-piece:expansion:op-01:cards",
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
     name: "Pokemon set regression through TCGdex",
     providerKey: "tcgdex",
     unitKey: "tcgdex:pokemon:single-card:source-observation-import",
@@ -74,6 +102,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
       { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
       { label: "Expansion", choice: { labels: ["Super Electric Breaker"], values: ["SV8"] } },
     ],
+    requiresTerminalSync: true,
   },
   {
     name: "MTG set regression through the shared TCGplayer provider",
@@ -83,6 +112,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
       { label: "Product Line", choice: { labels: ["Magic"], values: ["1"] } },
       { label: "Set Name", choice: { labels: ["Time Spiral", "Classic Sixth Edition"] } },
     ],
+    requiresTerminalSync: true,
   },
   {
     name: "Yu-Gi-Oh set through YGOPRODeck",
@@ -108,10 +138,10 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
 ];
 
 test.describe("catalog staging provider sync UAT", () => {
-  test("operator syncs Pokemon, MTG, and Yu-Gi-Oh provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({
+  test("operator syncs One Piece, Pokemon, MTG, and existing provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({
     page,
   }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(1_800_000);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
       !catalogAdminEmail || !catalogAdminPassword,
@@ -125,7 +155,13 @@ test.describe("catalog staging provider sync UAT", () => {
     for (const journey of providerSyncJourneys) {
       await test.step(journey.name, async () => {
         const selectedScope = await selectProviderScope(page, journey);
-        await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
+        if (journey.preflight) {
+          await expectImportPreflight(page, journey.preflight);
+        }
+        const previousJobRows = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
+        if (journey.requiresTerminalSync) {
+          await expectImportJobSettledForSelectedUnit(page, journey.unitKey, selectedScope, previousJobRows);
+        }
       });
     }
   });
@@ -262,9 +298,10 @@ async function syncSelectedProviderUnit(
   page: Page,
   unitKey: string,
   selectedScope: SelectedProviderScope,
-): Promise<void> {
+): Promise<readonly string[]> {
   const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
   const deadline = Date.now() + sourceOptionTimeoutMs;
@@ -272,12 +309,12 @@ async function syncSelectedProviderUnit(
     if (await syncButton.isEnabled().catch(() => false)) {
       await syncButton.click();
       await expectCommandQueued(page);
-      return;
+      return previousJobRows;
     }
 
     if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 1_000)) {
       await expectActiveImportJobForSelectedUnit(page, unitKey, selectedScope);
-      return;
+      return previousJobRows;
     }
 
     await page.waitForTimeout(1_000);
@@ -285,6 +322,60 @@ async function syncSelectedProviderUnit(
 
   throw new Error(
     `Sync action for ${unitKey} was neither enabled nor represented by a queued/running import job row for the selected or covering scope in the shared UI.`,
+  );
+}
+
+async function expectImportPreflight(page: Page, expectation: ImportPreflightExpectation): Promise<void> {
+  const panel = page.locator('[data-catalog-import-preview="ready"]').first();
+  await expect(panel).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  if (expectation.requestStrategy) {
+    await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
+      timeout: sourceOptionTimeoutMs,
+    });
+  }
+  const usageState = (await panel.getAttribute("data-catalog-import-preview-usage-state")) ?? "none";
+  if (expectation.allowedUsageStates && !expectation.allowedUsageStates.includes(usageState)) {
+    throw new Error(
+      `Import preflight usage state ${usageState} was not one of ${expectation.allowedUsageStates.join(", ")}.`,
+    );
+  }
+  for (const text of expectation.visibleText) {
+    await expect(panel.getByText(text).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  }
+}
+
+async function expectImportJobSettledForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  previousJobRows: readonly string[],
+): Promise<void> {
+  const previous = new Set(previousJobRows.map(normalizeWhitespace));
+  const deadline = Date.now() + terminalSyncTimeoutMs;
+  let observedRows: readonly string[] = [];
+
+  while (Date.now() < deadline) {
+    observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
+    const changedRows = observedRows.filter((row) => !previous.has(row));
+    const unsuccessful = changedRows.find((row) => /\b(failed|cancelled)\b/i.test(row));
+    if (unsuccessful) {
+      throw new Error(`Import job for ${unitKey} reached an unsuccessful terminal state: ${unsuccessful}`);
+    }
+    const completed = changedRows.find((row) => /\bcompleted\b/i.test(row));
+    if (completed) {
+      console.log(
+        `[catalog-staging-provider-uat] ${unitKey} completed for ${selectedScope.displayLabel}: ${completed}`,
+      );
+      return;
+    }
+
+    await page.waitForTimeout(2_000);
+  }
+
+  throw new Error(
+    `Import job for ${unitKey} did not reach a new completed terminal row for ${selectedScope.displayLabel}. Observed rows: ${
+      observedRows.join(" | ") || "none"
+    }`,
   );
 }
 
@@ -347,12 +438,28 @@ function activeImportJobRowsForSelectedUnit(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Locator {
+  return importJobRowsForSelectedUnit(page, unitKey, selectedScope).filter({
+    has: page.getByText(/import job .*(?:queued|running)/i),
+  });
+}
+
+function importJobRowsForSelectedUnit(page: Page, unitKey: string, selectedScope: SelectedProviderScope): Locator {
   return page
     .getByRole("row")
     .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
     .filter({ has: page.getByText(/^(Current scope|Overlapping scope)$/) })
-    .filter({ has: page.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))) })
-    .filter({ has: page.getByText(/import job .*(?:queued|running)/i) });
+    .filter({ has: page.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))) });
+}
+
+async function visibleImportJobRowTexts(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<readonly string[]> {
+  return importJobRowsForSelectedUnit(page, unitKey, selectedScope)
+    .allInnerTexts()
+    .then((rows) => rows.map(normalizeWhitespace).filter(Boolean))
+    .catch(() => []);
 }
 
 function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
@@ -369,6 +476,10 @@ function scopeLabelPattern(labels: readonly string[]): RegExp {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 async function selectedProviderScopeFromCommandForm(commandForm: Locator): Promise<SelectedProviderScope> {

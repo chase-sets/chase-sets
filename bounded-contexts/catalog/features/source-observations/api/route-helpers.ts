@@ -47,6 +47,7 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
   const productLineId = stringField(record.productLineId) ?? stringField(record.categoryId);
   const seriesId = stringField(record.seriesId);
   const setId = stringField(record.expansionId) ?? stringField(record.setId);
+  const setName = stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.expansionName);
   const scope = {
     ...(provider ? { provider } : {}),
     ...(profileKey ? { profileKey } : {}),
@@ -55,6 +56,7 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
     ...(productLineId ? { productLineId } : {}),
     ...(seriesId ? { seriesId } : {}),
     ...(setId ? { setId } : {}),
+    ...(setName ? { setName } : {}),
   };
 
   if (provider?.toLowerCase() !== "tcgplayer") {
@@ -62,13 +64,13 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
   }
 
   const tcgplayerProductLineId = productLineId ?? stringField(record.seriesId);
-  const setName = stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.setId);
+  const tcgplayerSetName = setName ?? stringField(record.setId);
   const productId = stringField(record.productId) ?? stringField(record.tcgplayerProductId);
 
   return {
     ...scope,
     ...(tcgplayerProductLineId ? { productLineId: tcgplayerProductLineId } : {}),
-    ...(setName ? { setName } : {}),
+    ...(tcgplayerSetName ? { setName: tcgplayerSetName } : {}),
     ...(productId ? { productId } : {}),
   };
 }

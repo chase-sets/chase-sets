@@ -82,6 +82,42 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
+  it("preserves generic provider set-name scopes from shared importer aliases", async () => {
+    const job = integrationJob({ status: "queued" });
+    const enqueueIntegrationJob = vi.fn(async () => job);
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        scope: {
+          source: "scrydex",
+          unitKey: "scrydex:one-piece:single-card:source-observation-import",
+          languageCode: "en",
+          expansionName: "op-01",
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ jobId: "job_integration", action: "import" });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "import",
+      scope: {
+        provider: "scrydex",
+        ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+        language: "en",
+        setName: "op-01",
+      },
+      context,
+    });
+  });
+
   it("previews provider integration imports with normalized selected-scope aliases", async () => {
     const preview = {
       action: "import",
