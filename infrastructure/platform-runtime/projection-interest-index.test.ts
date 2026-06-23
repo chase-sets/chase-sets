@@ -200,6 +200,119 @@ describe("projection interest index", () => {
     ]);
   });
 
+  it("maps explicit multi-projection route dependencies for exception reads", () => {
+    const index = buildProjectionInterestIndex({
+      generatedAt: GENERATED_AT,
+      projectionGroups: [
+        projectionGroup({
+          targetContextName: "ordering",
+          projectionName: "ordering-order-projection",
+          ownedTables: ["ordering_order_pages"],
+          runners: [
+            runner({
+              sourceContextName: "ordering",
+              targetContextName: "ordering",
+              projectionName: "ordering-order-projection",
+            }),
+          ],
+        }),
+        projectionGroup({
+          targetContextName: "ordering",
+          projectionName: "ordering-marketplace-offer-acceptance",
+          ownedTables: ["ordering_offer_acceptance_inputs"],
+          runners: [
+            runner({
+              sourceContextName: "marketplace",
+              targetContextName: "ordering",
+              projectionName: "ordering-marketplace-offer-acceptance",
+            }),
+          ],
+        }),
+      ],
+      apiMounts: [
+        createResolvedApiMount(
+          "ordering",
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [
+              {
+                routePath: "/sales",
+                dependencies: [
+                  { projectionName: "ordering-order-projection" },
+                  { projectionName: "ordering-marketplace-offer-acceptance" },
+                ],
+              },
+            ],
+          },
+          {},
+        ),
+      ],
+    });
+
+    expect(
+      lookupRouteProjectionInterests(index, {
+        mountPath: "/api/marketplace",
+        path: "/api/marketplace/sales",
+        method: "GET",
+      }).map((entry) => `${entry.sourceContextName}:${entry.projectionName}`),
+    ).toEqual(["marketplace:ordering-marketplace-offer-acceptance", "ordering:ordering-order-projection"]);
+  });
+
+  it("fails closed when a route read-model table has ambiguous projection ownership", () => {
+    expect(() =>
+      buildProjectionInterestIndex({
+        generatedAt: GENERATED_AT,
+        projectionGroups: [
+          projectionGroup({
+            targetContextName: "checkout",
+            projectionName: "checkout-session-pages",
+            ownedTables: ["checkout_session_pages"],
+            runners: [
+              runner({
+                sourceContextName: "checkout",
+                targetContextName: "checkout",
+                projectionName: "checkout-session-pages",
+              }),
+            ],
+          }),
+          projectionGroup({
+            targetContextName: "checkout",
+            projectionName: "checkout-session-audit-pages",
+            ownedTables: ["checkout_session_pages"],
+            runners: [
+              runner({
+                sourceContextName: "checkout",
+                targetContextName: "checkout",
+                projectionName: "checkout-session-audit-pages",
+              }),
+            ],
+          }),
+        ],
+        apiMounts: [
+          createResolvedApiMount(
+            "checkout",
+            {
+              mountPath: "/api/checkout",
+              kind: "primary",
+              requiresAuth: false,
+              readFreshnessRoutes: [
+                {
+                  routePath: "/account/checkout-sessions/:sessionId",
+                  dependencies: [{ readModelTable: "checkout_session_pages" }],
+                },
+              ],
+            },
+            {},
+          ),
+        ],
+      }),
+    ).toThrow(
+      "Read freshness dependency table 'checkout.checkout_session_pages' is owned by multiple mounted projection groups: checkout-session-pages, checkout-session-audit-pages.",
+    );
+  });
+
   it("keeps projection opt-outs observable while excluding them from default lookups", () => {
     const index = buildProjectionInterestIndex({
       generatedAt: GENERATED_AT,
