@@ -12,6 +12,14 @@ on:
         required: true
         default: https://admin.staging.chasesets.com
         type: string
+      journey_scope:
+        description: Provider journey set to run.
+        required: true
+        default: one-piece-launch
+        type: choice
+        options:
+          - one-piece-launch
+          - all-provider-regression
 
 permissions:
   contents: read
@@ -31,6 +39,7 @@ jobs:
       CI: "true"
       PLAYWRIGHT_SKIP_WEB_SERVER: "true"
       CATALOG_STAGING_PROVIDER_UAT: "true"
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ inputs.journey_scope }}
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
       CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
