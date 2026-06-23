@@ -11,6 +11,8 @@ import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationNormalized,
+  SourceObservationOnePieceCardPrintNormalized,
+  SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
 } from "../domain/domain";
 import type { CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
@@ -180,7 +182,9 @@ function promotionDiagnostics(input: {
   if (
     input.normalized.kind !== "pokemon-card" &&
     input.normalized.kind !== "magic-card-print" &&
-    input.normalized.kind !== "magic-sealed-product"
+    input.normalized.kind !== "magic-sealed-product" &&
+    input.normalized.kind !== "one-piece-card-print" &&
+    input.normalized.kind !== "one-piece-sealed-product"
   ) {
     diagnostics.push({
       code: "unsupported-observation-kind",
@@ -188,7 +192,9 @@ function promotionDiagnostics(input: {
       diagnosticText:
         input.normalized.kind === "magic-set-reference"
           ? "Magic Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
-          : `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
+          : input.normalized.kind === "one-piece-set-reference"
+            ? "One Piece Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
+            : `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
     });
   }
 
@@ -265,6 +271,60 @@ function promotionDiagnostics(input: {
       input.catalog.fieldIds.packCount,
       "catalog.fieldIds.packCount",
       "Magic sealed product promotion",
+      diagnostics,
+    );
+  }
+
+  if (
+    (input.normalized.kind === "one-piece-card-print" || input.normalized.kind === "one-piece-sealed-product") &&
+    !input.setReferenceId
+  ) {
+    diagnostics.push({
+      code: "missing-reference-target",
+      path: "setReferenceId",
+      diagnosticText: "One Piece promotion requires a resolved Set Reference Record.",
+    });
+  }
+
+  if (input.normalized.kind === "one-piece-card-print") {
+    requireNormalizedString(input.normalized.name, "normalized.name", "One Piece card print promotion", diagnostics);
+    requireNormalizedString(
+      input.normalized.cardNumber,
+      "normalized.cardNumber",
+      "One Piece card print promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.setName,
+      "normalized.setName",
+      "One Piece card print promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "One Piece card print promotion",
+      diagnostics,
+    );
+  }
+
+  if (input.normalized.kind === "one-piece-sealed-product") {
+    requireNormalizedString(
+      input.normalized.name,
+      "normalized.name",
+      "One Piece sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.sealedProductForm,
+      "normalized.sealedProductForm",
+      "One Piece sealed product promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "One Piece sealed product promotion",
       diagnostics,
     );
   }
@@ -360,15 +420,25 @@ function commandsForNormalizedKind(input: {
         normalized: input.normalized,
         setReferenceId: input.setReferenceId as ReferenceRecordId,
       });
+    case "one-piece-card-print":
+      return onePieceCardPrintCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
+    case "one-piece-sealed-product":
+      return onePieceSealedProductCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
     case "magic-set-reference":
     case "provider-product":
     case "yugioh-card-print":
     case "yugioh-set-reference":
     case "yugioh-sealed-product":
     case "yugioh-pack-reference":
-    case "one-piece-card-print":
     case "one-piece-set-reference":
-    case "one-piece-sealed-product":
       return [];
   }
 }
@@ -501,6 +571,128 @@ function magicSealedProductCommands(input: {
     0,
     ...magicSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
   );
+  return commands;
+}
+
+function onePieceCardPrintCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationOnePieceCardPrintNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonOnePieceCatalogItemCommands(input, onePieceCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...onePieceCardPrintFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function onePieceSealedProductCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationOnePieceSealedProductNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonOnePieceCatalogItemCommands(input, onePieceCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...onePieceSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function commonOnePieceCatalogItemCommands(
+  input: {
+    providerKey: string;
+    externalKey: string;
+    mode: CatalogProviderPromotionMode;
+    catalogItemId: CatalogItemId;
+    normalized: SourceObservationOnePieceCardPrintNormalized | SourceObservationOnePieceSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    metadata: Readonly<{ title: string; subtitle: string }>;
+    productAssetSet: ProductAssetSet | null;
+  },
+  tags: readonly string[],
+): CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [];
+  const imageUrls = input.productAssetSet
+    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
+    : [...input.normalized.imageUrls];
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "CreateCatalogItem",
+      itemId: input.catalogItemId,
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+    commands.push({
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: input.catalog.blueprintId,
+    });
+  } else {
+    commands.push({
+      type: "ReviseCatalogItemMetadata",
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+  }
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "AssignCatalogItemToCategory",
+      categoryId: input.catalog.categoryId,
+    });
+  }
+
+  commands.push({ type: "SetCatalogItemTags", tags: [...tags] });
+  commands.push({ type: "SetCatalogItemImageUrls", imageUrls });
+  commands.push({
+    type: "SetCatalogItemProductAssetSets",
+    productAssetSets: input.productAssetSet ? [input.productAssetSet] : [],
+  });
+  commands.push({
+    type: "LinkExternalProductReference",
+    providerKey: input.providerKey,
+    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+  });
+
+  for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalCatalogItemReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+    });
+  }
+
+  for (const reference of uniqueExternalProductReferences(input.normalized.externalProductReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalProductReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+      selectedOptions: reference.selectedOptions,
+    });
+  }
+
   return commands;
 }
 
@@ -692,6 +884,48 @@ function magicSealedProductFieldCommands(
   return commands;
 }
 
+function onePieceCardPrintFieldCommands(
+  normalized: SourceObservationOnePieceCardPrintNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardNumber, value: normalized.cardNumber },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+  ];
+
+  if (normalized.rarity) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.rarity, value: normalized.rarity });
+  }
+  if (normalized.cardType) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.cardType });
+  }
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
+function onePieceSealedProductFieldCommands(
+  normalized: SourceObservationOnePieceSealedProductNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.sealedProductForm },
+  ];
+
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
 function pokemonCatalogItemTags(
   profile: CatalogProviderIntegrationProfile,
   normalized: SourceObservationPokemonCardNormalized,
@@ -719,6 +953,22 @@ function magicCatalogItemTags(
       ? [`variant:${normalized.cardVariantKey}`]
       : []),
     ...(normalized.kind === "magic-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
+  ];
+}
+
+function onePieceCatalogItemTags(
+  profile: CatalogProviderIntegrationProfile,
+  normalized: SourceObservationOnePieceCardPrintNormalized | SourceObservationOnePieceSealedProductNormalized,
+): string[] {
+  return [
+    "one-piece",
+    profile.providerKey,
+    ...(normalized.setCode ? [`set:${normalized.setCode.toLowerCase()}`] : []),
+    `kind:${normalized.kind}`,
+    ...(normalized.kind === "one-piece-card-print" && normalized.cardType
+      ? [`card-type:${normalized.cardType.toLowerCase()}`]
+      : []),
+    ...(normalized.kind === "one-piece-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
   ];
 }
 

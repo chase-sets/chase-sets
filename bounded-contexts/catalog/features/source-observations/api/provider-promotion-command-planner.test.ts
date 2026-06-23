@@ -5,11 +5,15 @@ import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationMagicSetReferenceNormalized,
+  SourceObservationOnePieceCardPrintNormalized,
+  SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
   scrydexScryfallCardProviderProfile,
+  scrydexOnePieceCardPrintProviderProfile,
+  scrydexOnePieceSealedProductProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -276,6 +280,94 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
+  it("plans One Piece card-print Catalog Item promotion with Set reference fields", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: scrydexOnePieceCardPrintProviderProfile,
+      profileKey: "scrydex-one-piece-card-print",
+      profileVersion: "2026.06.22",
+      providerKey: "scrydex",
+      externalKey: "card:op01-001",
+      mode: "create",
+      catalogItemId: "cat_one_piece_001" as CatalogItemId,
+      normalized: onePieceCardPrintObservation(),
+      catalog: onePieceCardPrintCatalogMapping(),
+      setReferenceId: "ref_scrydex_one_piece_op01" as ReferenceRecordId,
+      metadata: { title: "Monkey.D.Luffy", subtitle: "Romance Dawn Leader" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.review).toEqual({
+      normalizedKind: "one-piece-card-print",
+      commandCount: 15,
+      catalogItemReferencesLinked: 1,
+      sourceProductReferencesLinked: 2,
+    });
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_scrydex_one_piece_op01" },
+        },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["one-piece", "scrydex", "set:op01", "kind:one-piece-card-print", "card-type:leader"],
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:555001",
+        },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:888001",
+          selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+        },
+      ]),
+    );
+  });
+
+  it("plans One Piece sealed-product Catalog Item promotion without price or inventory facts", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: scrydexOnePieceSealedProductProviderProfile,
+      profileKey: "scrydex-one-piece-sealed-product",
+      profileVersion: "2026.06.22",
+      providerKey: "scrydex",
+      externalKey: "sealed:op01-booster-box",
+      mode: "create",
+      catalogItemId: "cat_one_piece_sealed_001" as CatalogItemId,
+      normalized: onePieceSealedProductObservation(),
+      catalog: onePieceSealedCatalogMapping(),
+      setReferenceId: "ref_scrydex_one_piece_op01" as ReferenceRecordId,
+      metadata: { title: "Romance Dawn Booster Box", subtitle: "One Piece sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_scrydex_one_piece_op01" },
+        },
+        { type: "SetCatalogItemFieldValue", fieldId: "field_sealed_product_form", value: "booster-box" },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["one-piece", "scrydex", "set:op01", "kind:one-piece-sealed-product", "form:booster-box"],
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:555900",
+        },
+      ]),
+    );
+    expect(JSON.stringify(result.plan?.commands)).not.toMatch(/price|inventory|seller|listing/i);
+  });
+
   it("blocks incomplete Magic card-print facts before command planning", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: scrydexScryfallCardProviderProfile,
@@ -367,6 +459,57 @@ describe("planCatalogProviderPromotionCommands", () => {
           path: "normalized.kind",
           diagnosticText:
             "Magic Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path.",
+        },
+      ],
+    });
+  });
+
+  it("blocks One Piece Set reference observations because the Catalog Item path writes cards or sealed products", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: {
+        ...scrydexOnePieceCardPrintProviderProfile,
+        normalizedObservationMapping: {
+          ...scrydexOnePieceCardPrintProviderProfile.normalizedObservationMapping,
+          kind: "one-piece-set-reference",
+        },
+      },
+      profileKey: "scrydex-one-piece-set-reference",
+      profileVersion: "2026.06.22",
+      providerKey: "scrydex",
+      externalKey: "set:op01",
+      mode: "create",
+      catalogItemId: "cat_should_not_be_used" as CatalogItemId,
+      normalized: {
+        kind: "one-piece-set-reference",
+        tcg: "one-piece",
+        languageCode: "en",
+        name: "Romance Dawn",
+        setName: "Romance Dawn",
+        expansionName: "Romance Dawn",
+        cardNumber: null,
+        imageUrls: [],
+        setId: "op01",
+        setCode: "OP01",
+        releaseDate: "2022-12-02",
+        releaseYear: 2022,
+        cardCount: 121,
+        productLineName: "One Piece Card Game",
+      },
+      catalog: onePieceCardPrintCatalogMapping(),
+      setReferenceId: "ref_scrydex_one_piece_op01" as ReferenceRecordId,
+      metadata: { title: "Romance Dawn", subtitle: "One Piece Set" },
+      productAssetSet: null,
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "unsupported-observation-kind",
+          path: "normalized.kind",
+          diagnosticText:
+            "One Piece Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path.",
         },
       ],
     });
@@ -529,6 +672,41 @@ function magicSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogMap
   };
 }
 
+function onePieceCardPrintCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_one_piece_card_print" as BlueprintId,
+    categoryId: "cat_one_piece_card_prints" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_card_number" as FieldId,
+      cardName: "field_card_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_rarity" as FieldId,
+      cardVariant: "field_card_type" as FieldId,
+      cardIllustrator: "field_publisher" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+    },
+  };
+}
+
+function onePieceSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_one_piece_sealed_product" as BlueprintId,
+    categoryId: "cat_one_piece_sealed_products" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_sealed_product_id" as FieldId,
+      cardName: "field_sealed_product_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_product_kind" as FieldId,
+      cardVariant: "field_sealed_product_form" as FieldId,
+      cardIllustrator: "field_publisher" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
+    },
+  };
+}
+
 function pokemonCardObservation(
   overrides: Partial<SourceObservationPokemonCardNormalized> = {},
 ): SourceObservationPokemonCardNormalized {
@@ -674,6 +852,80 @@ function magicSealedProductObservation(
       productForm: "booster-pack",
     },
     externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+    externalProductReferences: [],
+    ...overrides,
+  };
+}
+
+function onePieceCardPrintObservation(
+  overrides: Partial<SourceObservationOnePieceCardPrintNormalized> = {},
+): SourceObservationOnePieceCardPrintNormalized {
+  return {
+    kind: "one-piece-card-print",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Monkey.D.Luffy",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    cardNumber: "OP01-001",
+    imageUrls: ["https://images.example/one-piece/op01-001.jpg"],
+    setId: "op01",
+    setCode: "OP01",
+    rarity: "L",
+    cardType: "Leader",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Monkey.D.Luffy",
+      collectorNumber: "OP01-001",
+      languageCode: "en",
+      productForm: "one-piece-card-print",
+    },
+    externalCatalogItemReferences: [{ providerKey: "TCGPLAYER", externalKey: "PRODUCT:555001" }],
+    externalProductReferences: [
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:888001",
+        selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function onePieceSealedProductObservation(
+  overrides: Partial<SourceObservationOnePieceSealedProductNormalized> = {},
+): SourceObservationOnePieceSealedProductNormalized {
+  return {
+    kind: "one-piece-sealed-product",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Romance Dawn Booster Box",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    cardNumber: null,
+    imageUrls: ["https://images.example/one-piece/op01-booster-box.jpg"],
+    setId: "op01",
+    setCode: "OP01",
+    sealedProductForm: "booster-box",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    barcode: null,
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Romance Dawn Booster Box",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "booster-box",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:555900" }],
     externalProductReferences: [],
     ...overrides,
   };

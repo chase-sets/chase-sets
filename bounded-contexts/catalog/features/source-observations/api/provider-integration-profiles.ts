@@ -2064,7 +2064,12 @@ export const scrydexOnePieceCardPrintProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex One Piece Cards",
   status: "active",
-  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "catalog-item-promotion",
+    "external-reference-extraction",
+  ],
   supportedScopes: ["set-name", "product/card"],
   languageOptions: ["en"],
   optionQueries: [scrydexOnePieceOptionQueries[0], scrydexOnePieceOptionQueries[1]],

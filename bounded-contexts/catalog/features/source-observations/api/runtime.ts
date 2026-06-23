@@ -41,6 +41,8 @@ import {
   initialSourceObservationState,
   isMagicCatalogItemSourceObservationNormalized,
   isMagicSetReferenceSourceObservationNormalized,
+  isOnePieceCatalogItemSourceObservationNormalized,
+  isOnePieceSetReferenceSourceObservationNormalized,
   isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
@@ -48,6 +50,9 @@ import {
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationMagicSealedProductNormalized,
   type SourceObservationNormalized,
+  type SourceObservationOnePieceCardPrintNormalized,
+  type SourceObservationOnePieceSetReferenceNormalized,
+  type SourceObservationOnePieceSealedProductNormalized,
   type SourceObservationPokemonCardNormalized,
   type SourceObservationPromotionProfileEvidence,
   type SourceObservationState,
@@ -1271,7 +1276,10 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<SourceObservationPromotionTargetResult> {
-    if (isMagicSetReferenceSourceObservationNormalized(input.observation.normalized)) {
+    if (
+      isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+    ) {
       return promoteReferenceObservationFromRow({
         ...input,
         normalized: input.observation.normalized,
@@ -1387,7 +1395,7 @@ export function createSourceObservationRuntime(
 
   async function promoteReferenceObservationFromRow(input: {
     observation: SourceObservationDetailRow;
-    normalized: SourceObservationMagicSetReferenceNormalized;
+    normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
     context: EventStoreContext;
   }): Promise<SourceObservationPromotionTargetResult> {
     const providerProfileVersion = await requireReferenceDataPromotionProfileVersion(
@@ -1540,7 +1548,10 @@ export function createSourceObservationRuntime(
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<SourceObservationPromotionTargetResult> {
-    if (isMagicSetReferenceSourceObservationNormalized(input.observation.normalized)) {
+    if (
+      isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
+    ) {
       return reapplyReferenceObservationFromRow({
         ...input,
         normalized: input.observation.normalized,
@@ -1618,7 +1629,7 @@ export function createSourceObservationRuntime(
 
   async function reapplyReferenceObservationFromRow(input: {
     observation: SourceObservationDetailRow;
-    normalized: SourceObservationMagicSetReferenceNormalized;
+    normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
     context: EventStoreContext;
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
@@ -5551,7 +5562,7 @@ async function requireCatalogPromotionProfileVersionForReapply(
 async function requireReferenceDataPromotionProfileVersionForReapply(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   observation: SourceObservationDetailRow,
-  normalized: SourceObservationMagicSetReferenceNormalized,
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
   mode: SourceObservationReapplyProfileMode,
   snapshot: SourceObservationIntegrationProfileSnapshot | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
@@ -5613,7 +5624,7 @@ async function requireCatalogPromotionProfileVersionFromSnapshot(
 async function requireReferenceDataPromotionProfileVersionFromSnapshot(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   snapshot: SourceObservationIntegrationProfileSnapshot,
-  normalized: SourceObservationMagicSetReferenceNormalized,
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
   if (!version) {
@@ -5659,7 +5670,7 @@ function assertPromotionProfileCompatible(
 
 function assertReferenceDataPromotionProfileCompatible(
   version: CatalogProviderIntegrationProfileVersionRecord,
-  normalized: SourceObservationMagicSetReferenceNormalized,
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
 ): void {
   if (!version.profile.capabilities.includes("reference-data-promotion")) {
     throw new Error(`Provider '${version.providerKey}' does not support Reference Data promotion.`);
@@ -5921,11 +5932,14 @@ type CatalogItemPromotionResult = SourceObservationPromotionProfileEvidence &
 type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
   | SourceObservationMagicCardPrintNormalized
-  | SourceObservationMagicSealedProductNormalized;
+  | SourceObservationMagicSealedProductNormalized
+  | SourceObservationOnePieceCardPrintNormalized
+  | SourceObservationOnePieceSealedProductNormalized;
 
 type ReferenceHierarchySourceObservationNormalized =
   | CatalogItemPromotableSourceObservationNormalized
-  | SourceObservationMagicSetReferenceNormalized;
+  | SourceObservationMagicSetReferenceNormalized
+  | SourceObservationOnePieceSetReferenceNormalized;
 
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
@@ -5964,8 +5978,11 @@ async function createCatalogDraftFromObservation(input: {
           assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
         })
       : null;
-  const magicSetReferenceId =
-    input.normalized.kind === "magic-card-print" || input.normalized.kind === "magic-sealed-product"
+  const setReferenceId =
+    input.normalized.kind === "magic-card-print" ||
+    input.normalized.kind === "magic-sealed-product" ||
+    input.normalized.kind === "one-piece-card-print" ||
+    input.normalized.kind === "one-piece-sealed-product"
       ? targetReferenceRecordId
       : undefined;
   const plan = planCatalogProviderPromotionCommands({
@@ -5983,7 +6000,7 @@ async function createCatalogDraftFromObservation(input: {
       fieldIds: input.catalogMapping.fieldIds,
     },
     expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
-    setReferenceId: magicSetReferenceId,
+    setReferenceId,
     metadata,
     productAssetSet,
     preflight: { status: "ready" },
@@ -6036,8 +6053,11 @@ async function refreshCatalogItemFromObservation(input: {
           assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
         })
       : null;
-  const magicSetReferenceId =
-    input.normalized.kind === "magic-card-print" || input.normalized.kind === "magic-sealed-product"
+  const setReferenceId =
+    input.normalized.kind === "magic-card-print" ||
+    input.normalized.kind === "magic-sealed-product" ||
+    input.normalized.kind === "one-piece-card-print" ||
+    input.normalized.kind === "one-piece-sealed-product"
       ? targetReferenceRecordId
       : undefined;
   const plan = planCatalogProviderPromotionCommands({
@@ -6055,7 +6075,7 @@ async function refreshCatalogItemFromObservation(input: {
       fieldIds: input.catalogMapping.fieldIds,
     },
     expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
-    setReferenceId: magicSetReferenceId,
+    setReferenceId,
     metadata,
     productAssetSet,
     preflight: { status: "ready" },
@@ -6113,7 +6133,7 @@ function promotionEvidenceFromPlan(
 
 function referenceDataPromotionEvidence(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-  normalized: SourceObservationMagicSetReferenceNormalized;
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): SourceObservationPromotionProfileEvidence {
   return {
@@ -6125,7 +6145,7 @@ function referenceDataPromotionEvidence(input: {
 
 function referenceDataPromotionPlanFingerprint(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-  normalized: SourceObservationMagicSetReferenceNormalized;
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): string {
   const payload = {
@@ -6211,7 +6231,8 @@ function requireCatalogItemPromotionObservation(
 ): CatalogItemPromotableSourceObservationNormalized {
   if (
     !isPokemonCardSourceObservationNormalized(normalized) &&
-    !isMagicCatalogItemSourceObservationNormalized(normalized)
+    !isMagicCatalogItemSourceObservationNormalized(normalized) &&
+    !isOnePieceCatalogItemSourceObservationNormalized(normalized)
   ) {
     throw new Error(
       `Catalog promotion for provider '${providerKey}' requires a Catalog Item source observation. Normalized kind '${normalized.kind}' is not promotable.`,
@@ -6306,7 +6327,7 @@ async function resolveReferenceDataPromotionHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
   profile: CatalogProviderIntegrationProfile;
-  normalized: SourceObservationMagicSetReferenceNormalized;
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
   context: EventStoreContext;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;
@@ -6327,11 +6348,58 @@ function promotionReferenceHierarchyPayload(normalized: ReferenceHierarchySource
     });
   }
 
+  if (normalized.kind === "one-piece-set-reference") {
+    return toJsonValue({
+      ...normalized,
+      expansion: {
+        id: normalized.setId,
+        code: normalized.setCode,
+        name: normalized.setName,
+        release_date: normalized.releaseDate,
+      },
+      set: {
+        code: normalized.setCode,
+        name: normalized.setName,
+      },
+      set_name: normalized.setName,
+    });
+  }
+
   if (normalized.kind === "magic-card-print" || normalized.kind === "magic-sealed-product") {
     return toJsonValue({
       ...normalized,
       set: normalized.setCode,
       set_name: normalized.setName,
+    });
+  }
+
+  if (normalized.kind === "one-piece-card-print") {
+    return toJsonValue({
+      ...normalized,
+      card: {
+        expansion: {
+          id: normalized.setId,
+          code: normalized.setCode,
+          name: normalized.setName,
+          release_date: normalized.releaseDate,
+        },
+      },
+    });
+  }
+
+  if (normalized.kind === "one-piece-sealed-product") {
+    return toJsonValue({
+      ...normalized,
+      sealedProduct: {
+        expansion: normalized.setId
+          ? {
+              id: normalized.setId,
+              code: normalized.setCode,
+              name: normalized.setName,
+              release_date: normalized.releaseDate,
+            }
+          : null,
+      },
     });
   }
 
@@ -6529,7 +6597,8 @@ function isProviderReferenceAttributeKey(key: string): boolean {
     key.startsWith("tcgdex-") ||
     key.startsWith("tcgplayer-") ||
     key.startsWith("scryfall-") ||
-    key.startsWith("mtgjson-")
+    key.startsWith("mtgjson-") ||
+    key.startsWith("scrydex-one-piece-")
   );
 }
 
@@ -6641,7 +6710,7 @@ async function requireCatalogPromotionProfileVersion(
 async function requireReferenceDataPromotionProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string,
-  normalized: SourceObservationMagicSetReferenceNormalized,
+  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const profile = selector
