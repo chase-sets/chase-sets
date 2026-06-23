@@ -4,7 +4,7 @@ import {
   type ConnectElementTagName,
   type ConnectHTMLElementRecord,
 } from "@stripe/connect-js/pure";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
   EmbeddedProviderSurface,
@@ -13,14 +13,17 @@ import {
   Banner,
   Button,
   Card,
+  createStripeConnectAppearance,
   Inline,
   LinkButton,
   LoadingSpinner,
+  observeStripeAppearance,
   Page,
   PageHeader,
   PageSection,
   ProgressiveDisclosure,
   Stack,
+  stripeAppearanceSnapshot,
   Text,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
@@ -44,11 +47,13 @@ export function loadStripeConnectComponent({
   publishableKey,
   fetchClientSecret,
   contactEmail,
+  appearanceScope = null,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string;
   fetchClientSecret?: FetchClientSecret;
   contactEmail?: string | null;
+  appearanceScope?: Element | null;
 }) {
   if (typeof window === "undefined") {
     throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
@@ -58,12 +63,7 @@ export function loadStripeConnectComponent({
     publishableKey,
     fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode, contactEmail)),
     locale: "en-US",
-    appearance: {
-      overlays: "dialog",
-      variables: {
-        fontFamily: "inherit",
-      },
-    },
+    appearance: createStripeConnectAppearance({ scope: appearanceScope }),
   });
 }
 
@@ -114,8 +114,9 @@ function createStripeConnectElement(
   publishableKey: string,
   fetchClientSecret?: FetchClientSecret,
   contactEmail?: string | null,
+  appearanceScope?: Element | null,
 ): ConnectHTMLElementRecord[StripeConnectComponentName] {
-  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret, contactEmail }).create(
+  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret, contactEmail, appearanceScope }).create(
     componentName(mode),
   );
 }
@@ -201,9 +202,27 @@ export function StripeConnectEmbeddedComponent({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const componentRef = useRef<StripeConnectElement | null>(null);
+  const [appearanceScope, setAppearanceScope] = useState<HTMLDivElement | null>(null);
+  const [appearanceVersion, setAppearanceVersion] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "visible" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+
+  const setContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    setAppearanceScope(node);
+    setAppearanceVersion(node ? stripeAppearanceSnapshot({ scope: node }) : null);
+  }, []);
+
+  useEffect(() => {
+    if (!appearanceScope) {
+      return undefined;
+    }
+
+    return observeStripeAppearance({ scope: appearanceScope }, () => {
+      setAppearanceVersion(stripeAppearanceSnapshot({ scope: appearanceScope }));
+    });
+  }, [appearanceScope]);
 
   useEffect(() => {
     if (!publishableKey) {
@@ -212,14 +231,19 @@ export function StripeConnectEmbeddedComponent({
       return;
     }
 
+    if (!appearanceScope || appearanceVersion === null) {
+      return;
+    }
+
     let cancelled = false;
+    let mountedComponent: StripeConnectElement | null = null;
     setStatus("loading");
     setErrorMessage(null);
 
     const mount = async () => {
       const clientSecret = await fetchEmbeddedClientSecret(mode, contactEmail);
       let preflightClientSecretAvailable = true;
-      if (cancelled || !containerRef.current) {
+      if (cancelled || containerRef.current !== appearanceScope) {
         return;
       }
 
@@ -235,6 +259,7 @@ export function StripeConnectEmbeddedComponent({
           return fetchEmbeddedClientSecret(mode, contactEmail);
         },
         contactEmail,
+        appearanceScope,
       ) as StripeConnectElement;
 
       component.setOnLoaderStart?.(() => {
@@ -255,8 +280,9 @@ export function StripeConnectEmbeddedComponent({
         onProviderExit?.();
       });
 
-      containerRef.current.replaceChildren(component);
+      appearanceScope.replaceChildren(component);
       componentRef.current = component;
+      mountedComponent = component;
       setStatus("visible");
     };
 
@@ -269,11 +295,13 @@ export function StripeConnectEmbeddedComponent({
 
     return () => {
       cancelled = true;
-      componentRef.current?.remove();
-      componentRef.current = null;
-      containerRef.current?.replaceChildren();
+      mountedComponent?.remove();
+      if (componentRef.current === mountedComponent) {
+        componentRef.current = null;
+      }
+      appearanceScope.replaceChildren();
     };
-  }, [contactEmail, mode, onProviderExit, publishableKey, retryCount]);
+  }, [appearanceScope, appearanceVersion, contactEmail, mode, onProviderExit, publishableKey, retryCount]);
 
   return (
     <Stack gap={3}>
@@ -300,7 +328,7 @@ export function StripeConnectEmbeddedComponent({
         />
       ) : null}
       <EmbeddedProviderSurface
-        ref={containerRef}
+        ref={setContainer}
         aria-label={providerPanelTitle(mode)}
         data-testid="stripe-connect-embedded-component"
       />

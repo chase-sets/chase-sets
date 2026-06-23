@@ -239,6 +239,8 @@ The design system does not own:
 - data fetching
 - domain rules
 
+Provider-owned embedded flows still use design-system token mappings. See [Embedded Stripe Appearance](./EMBEDDED_STRIPE_APPEARANCE.md) for the Stripe-specific boundary and residual styling limits.
+
 ## Validation
 
 Use the real marketplace and admin applications as the default visual validation surfaces, and use `npm run test:design-system` for component-level regression checks.

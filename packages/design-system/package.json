@@ -64,6 +64,7 @@
     "./tabs": "./src/components/actions/tabs.tsx",
     "./text-input": "./src/components/forms/text-input.tsx",
     "./theme": "./src/theme/provider.tsx",
+    "./theme/stripe-appearance": "./src/theme/stripe-appearance.ts",
     "./theme/tokens": "./src/theme/tokens.ts",
     "./toast": "./src/components/feedback/toast.tsx",
     "./toggle": "./src/components/actions/toggle.tsx",

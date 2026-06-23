@@ -1,9 +1,21 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
-import { Badge, Button, Inset, Stack, Surface, Text } from "@chase-sets/design-system";
+import {
+  Badge,
+  Button,
+  Inset,
+  Stack,
+  Surface,
+  Text,
+  createStripeElementsAppearance,
+  observeStripeAppearance,
+  stripeAppearanceSnapshot,
+} from "@chase-sets/design-system";
 import { createPaymentsApiClient } from "../../../../client";
 import type { PaymentsPaymentDetail } from "../../api/contracts";
+
+type StripeElementsAppearance = ReturnType<typeof createStripeElementsAppearance>;
 
 type StripePaymentElement = {
   mount(target: HTMLElement | string): void;
@@ -25,13 +37,25 @@ type StripeCheckoutActions = {
   confirm(options?: { redirect: "if_required"; email?: string }): Promise<{ error?: { message?: string } }>;
 };
 
+type StripeElementsOptions = {
+  clientSecret: string;
+  appearance: StripeElementsAppearance;
+};
+
+type StripeCheckoutOptions = {
+  clientSecret: string;
+  elementsOptions: {
+    appearance: StripeElementsAppearance;
+  };
+};
+
 type StripeElements = {
   create(type: "payment"): StripePaymentElement;
 };
 
 type StripeClient = {
-  initCheckout?: (options: { clientSecret: string }) => StripeCheckoutController | Promise<StripeCheckoutController>;
-  elements(options: { clientSecret: string }): StripeElements;
+  initCheckout?: (options: StripeCheckoutOptions) => StripeCheckoutController | Promise<StripeCheckoutController>;
+  elements(options: StripeElementsOptions): StripeElements;
   confirmPayment(options: {
     elements: StripeElements;
     redirect: "if_required";
@@ -119,15 +143,36 @@ export function StripeConfirmationCard({
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    let currentSnapshot = stripeAppearanceSnapshot({ scope: container });
+
+    return observeStripeAppearance({ scope: container }, () => {
+      const nextSnapshot = stripeAppearanceSnapshot({ scope: container });
+      if (nextSnapshot === currentSnapshot) {
+        return;
+      }
+
+      currentSnapshot = nextSnapshot;
+      setAppearanceVersion((version) => version + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
     if (
       payment.status !== "pending-confirmation" ||
       !payment.processor_client_secret ||
       !payment.processor_publishable_key ||
-      !containerRef.current
+      !container
     ) {
       return;
     }
@@ -144,8 +189,17 @@ export function StripeConfirmationCard({
 
         const stripe = factory(payment.processor_publishable_key!);
         const clientSecret = payment.processor_client_secret!;
+        const stripeElementsAppearance = createStripeElementsAppearance({ scope: container });
+        const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
         const checkout =
-          clientSecret.startsWith("cs_") && stripe.initCheckout ? await stripe.initCheckout({ clientSecret }) : null;
+          clientSecret.startsWith("cs_") && stripe.initCheckout
+            ? await stripe.initCheckout({
+                clientSecret,
+                elementsOptions: {
+                  appearance: checkoutElementsAppearance,
+                },
+              })
+            : null;
         if (cancelled) {
           return;
         }
@@ -154,9 +208,10 @@ export function StripeConfirmationCard({
           ? null
           : stripe.elements({
               clientSecret,
+              appearance: stripeElementsAppearance,
             });
         const paymentElement = checkout ? checkout.createPaymentElement() : elements!.create("payment");
-        paymentElement.mount(containerRef.current!);
+        paymentElement.mount(container);
 
         const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
         if (cancelled) {
@@ -204,7 +259,13 @@ export function StripeConfirmationCard({
       stripeRef.current = null;
       setIsReady(false);
     };
-  }, [payment.payment_id, payment.processor_client_secret, payment.processor_publishable_key, payment.status]);
+  }, [
+    appearanceVersion,
+    payment.payment_id,
+    payment.processor_client_secret,
+    payment.processor_publishable_key,
+    payment.status,
+  ]);
 
   useEffect(() => {
     if (payment.status !== "pending-confirmation") {

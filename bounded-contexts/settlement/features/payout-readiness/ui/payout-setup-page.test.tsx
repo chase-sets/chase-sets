@@ -51,6 +51,46 @@ function renderPage(row: SettlementPayoutReadinessRow, options: { providerErrorM
   );
 }
 
+function setThemeScope(element: HTMLElement, colorMode: "light" | "dark", tokens: Readonly<Record<string, string>>) {
+  element.setAttribute("data-chase-theme-scope", "");
+  element.setAttribute("data-color-mode", colorMode);
+  for (const [name, value] of Object.entries(tokens)) {
+    element.style.setProperty(name, value);
+  }
+}
+
+const setupLightTokens = {
+  "--card": "#fffaf2",
+  "--surface-2": "#f4efe3",
+  "--foreground": "#17130f",
+  "--text-secondary": "#4f4638",
+  "--border": "#d8cab4",
+  "--primary": "#0b5cad",
+  "--primary-foreground": "#ffffff",
+  "--body-font": "Inter, sans-serif",
+  "--control-md-px": "1.25rem",
+  "--control-md-py": "0.75rem",
+} as const;
+
+const managementDarkTokens = {
+  "--card": "#101820",
+  "--surface-2": "#172331",
+  "--foreground": "#f8fafc",
+  "--text-secondary": "#cbd5e1",
+  "--border": "#334155",
+  "--primary": "#8fc7ff",
+  "--primary-foreground": "#08111f",
+  "--body-font": "IBM Plex Sans, sans-serif",
+  "--control-md-px": "1rem",
+  "--control-md-py": "0.625rem",
+} as const;
+
+async function flushMutationObserver() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 describe("payout setup page", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
@@ -179,6 +219,7 @@ describe("payout setup page", () => {
   });
 
   it("initializes the supported Connect loader only after creating an embedded session", async () => {
+    setThemeScope(container!, "light", setupLightTokens);
     const fetch = vi.fn(async () =>
       Response.json({
         clientSecret: "acs_test_secret",
@@ -207,6 +248,21 @@ describe("payout setup page", () => {
         publishableKey: "pk_test_123",
         locale: "en-US",
         fetchClientSecret: expect.any(Function),
+        appearance: expect.objectContaining({
+          overlays: "dialog",
+          variables: expect.objectContaining({
+            buttonPaddingX: "20px",
+            buttonPaddingY: "12px",
+            buttonPrimaryColorBackground: setupLightTokens["--primary"],
+            buttonPrimaryColorText: setupLightTokens["--primary-foreground"],
+            colorBackground: setupLightTokens["--card"],
+            colorBorder: setupLightTokens["--border"],
+            colorSecondaryText: setupLightTokens["--text-secondary"],
+            colorText: setupLightTokens["--foreground"],
+            fontFamily: setupLightTokens["--body-font"],
+            formBackgroundColor: setupLightTokens["--surface-2"],
+          }),
+        }),
       }),
     );
     expect(create).toHaveBeenCalledWith("account-onboarding");
@@ -233,6 +289,92 @@ describe("payout setup page", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(container!.textContent).not.toContain("cs_test_secret");
     expect(container!.textContent).not.toContain("acs_test_secret");
+  });
+
+  it("initializes the management component with scoped dark Connect appearance", async () => {
+    setThemeScope(container!, "dark", managementDarkTokens);
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_manage_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const connectElement = document.createElement("stripe-connect-account-management");
+    const create = vi.fn(() => connectElement);
+    mockLoadConnectAndInitialize.mockReturnValue({ create });
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="management" publishableKey="pk_test_123" />);
+    });
+
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          overlays: "dialog",
+          variables: expect.objectContaining({
+            buttonPrimaryColorBackground: managementDarkTokens["--primary"],
+            buttonPrimaryColorText: managementDarkTokens["--primary-foreground"],
+            colorBackground: managementDarkTokens["--card"],
+            colorBorder: managementDarkTokens["--border"],
+            colorSecondaryText: managementDarkTokens["--text-secondary"],
+            colorText: managementDarkTokens["--foreground"],
+            fontFamily: managementDarkTokens["--body-font"],
+            formBackgroundColor: managementDarkTokens["--surface-2"],
+          }),
+        }),
+      }),
+    );
+    expect(create).toHaveBeenCalledWith("account-management");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settlement/payout-setup/account-management-embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: "{}",
+      }),
+    );
+    expect(container!.querySelector("stripe-connect-account-management")).toBe(connectElement);
+  });
+
+  it("remounts Connect with updated scoped appearance when the theme changes", async () => {
+    setThemeScope(container!, "light", setupLightTokens);
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_test_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const firstConnectElement = document.createElement("stripe-connect-account-onboarding");
+    const secondConnectElement = document.createElement("stripe-connect-account-onboarding");
+    const create = vi.fn().mockReturnValueOnce(firstConnectElement).mockReturnValueOnce(secondConnectElement);
+    mockLoadConnectAndInitialize.mockReturnValue({ create });
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="setup" publishableKey="pk_test_123" />);
+    });
+
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(firstConnectElement);
+
+    await act(async () => {
+      container!.setAttribute("data-color-mode", "dark");
+      container!.style.setProperty("--card", managementDarkTokens["--card"]);
+      container!.style.setProperty("--foreground", managementDarkTokens["--foreground"]);
+      container!.style.setProperty("--primary", managementDarkTokens["--primary"]);
+    });
+    await flushMutationObserver();
+
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
+    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables).toEqual(
+      expect.objectContaining({
+        buttonPrimaryColorBackground: managementDarkTokens["--primary"],
+        colorBackground: managementDarkTokens["--card"],
+        colorText: managementDarkTokens["--foreground"],
+      }),
+    );
+    expect(container!.querySelectorAll("stripe-connect-account-onboarding")).toHaveLength(1);
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(secondConnectElement);
   });
 
   it("requests a fresh embedded session whenever Connect asks for a client secret", async () => {

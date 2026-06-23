@@ -189,11 +189,7 @@ export const sourceContextWakeRegistry = [
     priorityLane: "hot",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
-    affectedProjectionNames: [
-      "checkout:checkout.cart-projection",
-      "checkout:checkout.sell-list-projection",
-      "checkout:checkout.session-projection",
-    ],
+    affectedProjectionNames: ["checkout:checkout.cart-projection", "checkout:checkout.session-projection"],
     routeDependencyIds: [
       "checkout.cart-self-refresh",
       "checkout.guest-cart-add-line-handoff",
@@ -357,6 +353,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
       "checkout:checkout-marketplace-seller-options-projection",
+      "checkout:checkout.sell-list-projection",
       "discovery:discovery-market-projection",
       "discovery:discovery-product-alert-notification-projection",
       "marketplace:marketplace-identity-account-projection",
@@ -420,6 +417,7 @@ export const sourceContextWakeRegistry = [
       "platform-operations:support-order-source-projection",
     ],
     routeDependencyIds: [
+      "ordering.accepted-offer-to-sales-list",
       "ordering.postage-policy-command-to-detail",
       "ordering.postage-policy-create-to-list",
       "ordering.purchase-cancel-to-detail",

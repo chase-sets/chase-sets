@@ -289,6 +289,9 @@
       "@chase-sets/design-system/theme": [
         "./packages/design-system/src/theme/provider.tsx"
       ],
+      "@chase-sets/design-system/theme/stripe-appearance": [
+        "./packages/design-system/src/theme/stripe-appearance.ts"
+      ],
       "@chase-sets/design-system/theme/tokens": [
         "./packages/design-system/src/theme/tokens.ts"
       ],
