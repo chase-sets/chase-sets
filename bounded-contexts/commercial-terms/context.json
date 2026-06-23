@@ -109,14 +109,14 @@
         "routeId": "commercial-terms-schedules",
         "actions": ["Create commercial-terms schedule"],
         "command": "CreateSchedule",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "commercial-terms-schedules",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules",
         "readModelTables": ["commercial_terms_schedule_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Schedule list waits on the schedule page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
@@ -136,14 +136,14 @@
         "routeId": "commercial-terms-schedules-detail",
         "actions": ["Update commercial-terms schedule"],
         "command": "ReviseSchedule",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "commercial-terms-schedules-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
         "readModelTables": ["commercial_terms_schedule_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Schedule detail waits on the schedule page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
@@ -163,14 +163,14 @@
         "routeId": "commercial-terms-agreements",
         "actions": ["Create commercial agreement"],
         "command": "CreateAgreement",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "commercial-terms-agreements",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements",
         "readModelTables": ["commercial_terms_agreement_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Agreement list waits on the agreement page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
@@ -190,14 +190,14 @@
         "routeId": "commercial-terms-agreements-detail",
         "actions": ["Update commercial agreement"],
         "command": "ReviseAgreement",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "commercial-terms-agreements-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
         "readModelTables": ["commercial_terms_agreement_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Agreement detail waits on the agreement page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."

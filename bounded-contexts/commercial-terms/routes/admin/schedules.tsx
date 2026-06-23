@@ -1,11 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/http/responses";
 import { ScheduleListPage } from "../../features/schedules/ui/schedule-list-page";
 import {
   CommercialTermsApiError,
@@ -21,25 +17,24 @@ import {
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
   try {
-    const schedules = await loadFreshlyWrittenResource({
+    const schedulesRead = await loadAfterWrite({
       request,
       load: () => api.listSchedules("limit=100&offset=0"),
       isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
-    });
-    return { items: schedules.items, loadError: null };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
       getStatus: commercialTermsApiErrorStatus,
       getErrorCode: commercialTermsApiErrorCode,
       getBody: commercialTermsApiErrorBody,
-      recoverTransient: () => ({ items: [], loadError: formatCommercialTermsAdminLoadError(error) }),
     });
-    if (recovery) {
-      return recovery;
+
+    if (schedulesRead.kind !== "data") {
+      return {
+        items: [],
+        loadError: formatCommercialTermsAdminLoadError("error" in schedulesRead ? schedulesRead.error : undefined),
+      };
     }
 
+    return { items: schedulesRead.data.items, loadError: null };
+  } catch (error) {
     return { items: [], loadError: formatCommercialTermsAdminLoadError(error) };
   }
 }
@@ -59,7 +54,7 @@ export async function action({ request }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(appendFreshWriteToken("/commerce/terms/schedules", result));
+    return redirect(navigateAfterWrite(result, "/commerce/terms/schedules"));
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };
