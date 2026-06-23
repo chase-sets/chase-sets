@@ -4,12 +4,6 @@
   "reviewBy": "2026-07-31",
   "reason": "Current product-wide mutation consistency audit baseline. #1809 splits these rows into bounded remediation issues; new unclassified surfaces fail structure checks.",
   "surfaces": [
-    "api-route:bounded-contexts/public-presence/api.ts:DELETE /promo-bar-messages/:messageId",
-    "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages",
-    "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/activate",
-    "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/deactivate",
-    "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
-    "api-route:bounded-contexts/public-presence/api.ts:PUT /promo-bar-messages/:messageId",
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#1",
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#2",
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#3",
@@ -18,24 +12,6 @@
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
     "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:H2df726441e2a#1",
-    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1",
-    "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
-    "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
-    "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
-    "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
-    "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
-    "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
-    "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
-    "route-action:bounded-contexts/auth/routes/catalog-admin/account-select.tsx",
-    "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
-    "route-action:bounded-contexts/auth/routes/catalog-admin/sign-out.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/sign-in.tsx",
-    "route-action:bounded-contexts/auth/routes/marketplace/sign-out.tsx",
-    "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx",
-    "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx"
+    "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1"
   ]
 }
