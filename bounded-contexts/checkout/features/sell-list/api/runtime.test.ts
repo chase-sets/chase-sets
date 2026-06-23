@@ -387,7 +387,7 @@ describe("sell list checkout runtime readiness boundary", () => {
     expect(allEvents).toEqual([]);
   });
 
-  it("prunes projected Sell List rows that are absent from the aggregate", async () => {
+  it("keeps freshly projected Sell List rows visible when aggregate reads are still catching up", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = createDb([productLine]);
     const services = createCheckoutSellListRuntime({
@@ -396,8 +396,8 @@ describe("sell list checkout runtime readiness boundary", () => {
       db: db as never,
     });
 
-    await expect(services.listLines("acc_seller")).resolves.toEqual([]);
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM checkout_sell_list_line_pages"), [
+    await expect(services.listLines("acc_seller")).resolves.toEqual([productLine]);
+    expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining("DELETE FROM checkout_sell_list_line_pages"), [
       "acc_seller",
       ["sll_product"],
     ]);

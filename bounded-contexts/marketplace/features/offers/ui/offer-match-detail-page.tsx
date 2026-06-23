@@ -90,9 +90,10 @@ export function MarketplaceOfferMatchDetailPage({
       ? t("marketplace.features.offers.ui.offerMatchDetailPage.listings.unavailable")
       : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
   const acceptOfferAction = canAcceptSubmitted ? (
-    <Form spacing="none" method="post">
-      <HiddenInput type="hidden" name="feeQuoteFingerprint" value={acceptanceTerms?.fee_quote_fingerprint ?? ""} />
-      <Button type="submit" name="intent" value="accept-offer" disabled={!offer.can_fulfill}>
+    <Form spacing="none" method="post" action="/account/sell-list">
+      <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
+      <OfferMatchSellListSnapshotFields offer={offer} />
+      <Button type="submit" disabled={!offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
       </Button>
     </Form>
