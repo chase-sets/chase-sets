@@ -284,6 +284,7 @@ type MarketplaceListingRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
+  product_measure_snapshot: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
@@ -292,6 +293,8 @@ type MarketplaceListingRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
+  supply_total_quantity: number | null;
+  active_held_quantity: number | null;
   status: string;
   created_at: string | Date;
   updated_at: string | Date;
@@ -1365,6 +1368,7 @@ async function loadMarketplaceListings(
        listing.item_subtitle,
        listing.selected_options,
        listing.product_summary,
+       listing.product_measure_snapshot,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.price_amount::text AS price_amount,
@@ -1373,10 +1377,24 @@ async function loadMarketplaceListings(
        listing.max_units_per_order,
        listing.max_units_per_day,
        listing.max_units_per_customer_account,
+       supply.total_quantity AS supply_total_quantity,
+       CASE
+         WHEN supply.item_id IS NULL THEN NULL
+         ELSE COALESCE(active_holds.held_quantity, 0)::integer
+       END AS active_held_quantity,
        listing.status,
        listing.created_at::text AS created_at,
        listing.updated_at::text AS updated_at
      FROM marketplace_listing_pages AS listing
+     LEFT JOIN marketplace_supply_items AS supply
+       ON supply.item_id = listing.inventory_item_id
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM marketplace_supply_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS active_holds
+       ON active_holds.item_id = listing.inventory_item_id
      WHERE listing.listing_id = ANY($1::text[])
      ORDER BY listing.updated_at DESC, listing.listing_id ASC`,
     [listingIds],
@@ -1563,6 +1581,7 @@ async function reconcileListings(
          item_subtitle,
          selected_options,
          product_summary,
+         product_measure_snapshot,
          storage_location_name,
          ship_from_code,
          price_amount,
@@ -1571,11 +1590,13 @@ async function reconcileListings(
          max_units_per_order,
          max_units_per_day,
          max_units_per_customer_account,
+         supply_total_quantity,
+         active_held_quantity,
          status,
          created_at,
          updated_at
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
        )
        ON CONFLICT (listing_id) DO UPDATE SET
          listing_slug = EXCLUDED.listing_slug,
@@ -1588,6 +1609,7 @@ async function reconcileListings(
          item_subtitle = EXCLUDED.item_subtitle,
          selected_options = EXCLUDED.selected_options,
          product_summary = EXCLUDED.product_summary,
+         product_measure_snapshot = EXCLUDED.product_measure_snapshot,
          storage_location_name = EXCLUDED.storage_location_name,
          ship_from_code = EXCLUDED.ship_from_code,
          price_amount = EXCLUDED.price_amount,
@@ -1596,6 +1618,8 @@ async function reconcileListings(
          max_units_per_order = EXCLUDED.max_units_per_order,
          max_units_per_day = EXCLUDED.max_units_per_day,
          max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
+         supply_total_quantity = EXCLUDED.supply_total_quantity,
+         active_held_quantity = EXCLUDED.active_held_quantity,
          status = EXCLUDED.status,
          updated_at = EXCLUDED.updated_at`,
       [
@@ -1610,6 +1634,9 @@ async function reconcileListings(
         listing.item_subtitle,
         selectedOptionsJson(listing.selected_options),
         listing.product_summary,
+        listing.product_measure_snapshot && typeof listing.product_measure_snapshot === "object"
+          ? JSON.stringify(listing.product_measure_snapshot)
+          : null,
         listing.storage_location_name,
         listing.ship_from_code,
         listing.price_amount,
@@ -1618,6 +1645,8 @@ async function reconcileListings(
         listing.max_units_per_order,
         listing.max_units_per_day,
         listing.max_units_per_customer_account,
+        listing.supply_total_quantity,
+        listing.active_held_quantity,
         listing.status,
         toIsoText(listing.created_at),
         updatedAt,

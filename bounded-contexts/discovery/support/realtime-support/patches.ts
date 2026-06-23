@@ -21,17 +21,32 @@ export function createDiscoveryListingPatch(
     listing_id: string;
     catalog_catalog_item_id: string;
     status: string;
+    product_measure_snapshot?: unknown;
+    supply_total_quantity?: unknown;
+    active_held_quantity?: unknown;
+    visible_quantity?: number | null;
     seller_listing_availability_status?: string | null;
   }>,
   summary: unknown,
 ): RealtimeProjectionPatch {
+  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicListing } = listing;
+  void supply_total_quantity;
+  void active_held_quantity;
+
+  const isPubliclyBuyable =
+    listing.status === "active" &&
+    listing.seller_listing_availability_status === "available" &&
+    typeof product_measure_snapshot === "object" &&
+    product_measure_snapshot !== null &&
+    Number(listing.visible_quantity ?? 0) > 0;
+
   return createDiscoveryProjectionPatch(topics, [
-    listing.status === "active" && (listing.seller_listing_availability_status ?? "available") === "available"
+    isPubliclyBuyable
       ? {
           op: "upsert",
           entity: "discovery.marketListing",
           id: listing.listing_id,
-          value: listing,
+          value: publicListing,
         }
       : {
           op: "remove",

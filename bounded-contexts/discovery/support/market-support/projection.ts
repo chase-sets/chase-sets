@@ -53,6 +53,7 @@ const MARKET_LISTING_CREATED_COLUMNS = [
   "item_subtitle",
   "selected_options",
   "product_summary",
+  "product_measure_snapshot",
   "storage_location_name",
   "ship_from_code",
   "price_amount",
@@ -61,6 +62,8 @@ const MARKET_LISTING_CREATED_COLUMNS = [
   "max_units_per_order",
   "max_units_per_day",
   "max_units_per_customer_account",
+  "supply_total_quantity",
+  "active_held_quantity",
   "status",
   "created_at",
   "updated_at",
@@ -76,6 +79,7 @@ const MARKET_LISTING_CREATED_UPDATE_COLUMNS = [
   "item_subtitle",
   "selected_options",
   "product_summary",
+  "product_measure_snapshot",
   "storage_location_name",
   "ship_from_code",
   "price_amount",
@@ -84,6 +88,8 @@ const MARKET_LISTING_CREATED_UPDATE_COLUMNS = [
   "max_units_per_order",
   "max_units_per_day",
   "max_units_per_customer_account",
+  "supply_total_quantity",
+  "active_held_quantity",
   "updated_at",
 ] as const;
 const OFFER_DEMAND_MATCH_CREATED_COLUMNS = [
@@ -119,6 +125,59 @@ const OFFER_DEMAND_MATCH_UPDATE_COLUMNS = [
   "updated_at",
 ] as const;
 
+function productMeasureSnapshotFromUnknown(value: unknown) {
+  return value && typeof value === "object" ? JSON.stringify(value) : null;
+}
+
+async function loadDiscoveryMarketProductMeasureSnapshot(
+  db: PgQueryable,
+  catalogItemId: string,
+  productId: string,
+): Promise<string | null> {
+  const result = await db.query<{ measure_snapshot: string }>(
+    `SELECT measure_snapshot::text AS measure_snapshot
+     FROM discovery_market_product_measures
+     WHERE catalog_item_id = $1
+       AND product_id = $2`,
+    [catalogItemId, productId],
+  );
+
+  return result.rows[0]?.measure_snapshot ?? null;
+}
+
+async function recomputeDiscoveryMarketListingSupply(db: PgQueryable, itemId: string): Promise<string[]> {
+  const updated = await db.query<{ listing_id: string }>(
+    `UPDATE discovery_market_listings AS listing
+     SET supply_total_quantity = supply.total_quantity,
+         active_held_quantity = COALESCE(holds.held_quantity, 0)
+     FROM discovery_market_supply_items AS supply
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM discovery_market_supply_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS holds
+       ON holds.item_id = supply.item_id
+     WHERE supply.item_id = $1
+       AND listing.inventory_item_id = supply.item_id
+     RETURNING listing.listing_id`,
+    [itemId],
+  );
+
+  return updated.rows.map((row) => row.listing_id);
+}
+
+async function refreshAvailabilityListingPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  listingIds: readonly string[],
+) {
+  for (const listingId of listingIds) {
+    await refreshGoogleShoppingListing(db, event, listingId, "availability");
+    await emitListingPatch(db, event, listingId);
+  }
+}
+
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
     listing_id: string;
@@ -140,6 +199,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     item_subtitle: string | null;
     selected_options: unknown;
     product_summary: string | null;
+    product_measure_snapshot: unknown | null;
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
@@ -148,6 +208,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     max_units_per_order: number | null;
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;
+    visible_quantity: number;
     status: string;
     created_at: string;
     updated_at: string;
@@ -161,7 +222,14 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        account.seller_listing_availability_reason_category,
        account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
        account.average_rating::text AS seller_average_rating,
-       account.review_count AS seller_review_count
+       account.review_count AS seller_review_count,
+       LEAST(
+         listing.quantity_cap,
+         GREATEST(
+           COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+           0
+         )
+       ) AS visible_quantity
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -230,16 +298,31 @@ async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string)
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
-    `SELECT
-       MIN(price_amount)::text AS lowest_price_amount,
+    `WITH startable_listing AS (
+       SELECT
+         discovery_market_listings.price_amount,
+         LEAST(
+           discovery_market_listings.quantity_cap,
+           GREATEST(
+             COALESCE(discovery_market_listings.supply_total_quantity, discovery_market_listings.quantity_cap) -
+               COALESCE(discovery_market_listings.active_held_quantity, 0),
+             0
+           )
+         ) AS visible_quantity
+       FROM discovery_market_listings
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = discovery_market_listings.account_id
+       WHERE catalog_catalog_item_id = $1
+         AND discovery_market_listings.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+         AND discovery_market_listings.product_measure_snapshot IS NOT NULL
+     )
+     SELECT
+       MIN(price_amount::numeric)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
-       COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM discovery_market_listings
-     INNER JOIN discovery_market_accounts AS account
-       ON account.account_id = discovery_market_listings.account_id
-     WHERE catalog_catalog_item_id = $1
-       AND discovery_market_listings.status = 'active'
-       AND account.seller_listing_availability_status = 'available'`,
+       COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
+     FROM startable_listing
+     WHERE visible_quantity > 0`,
     [catalogItemId],
   );
   const row = result.rows[0];
@@ -505,6 +588,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         itemSubtitle: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
+        productMeasureSnapshot?: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
@@ -524,6 +608,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [data.itemTitle, data.itemSubtitle, data.productSummary],
         data.productId,
       );
+      const productMeasureSnapshot =
+        productMeasureSnapshotFromUnknown(data.productMeasureSnapshot) ??
+        (await loadDiscoveryMarketProductMeasureSnapshot(db, data.catalogItemId, data.productId));
       const current = await db.query<{
         listing_slug: string | null;
         product_slug: string | null;
@@ -551,6 +638,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           item_subtitle: data.itemSubtitle,
           selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
           product_summary: data.productSummary,
+          product_measure_snapshot: productMeasureSnapshot,
           storage_location_name: data.storageLocationName,
           ship_from_code: data.shipFromCode,
           price_amount: data.priceAmount,
@@ -559,12 +647,15 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           max_units_per_order: data.purchaseLimits?.maxUnitsPerOrder ?? null,
           max_units_per_day: data.purchaseLimits?.maxUnitsPerDay ?? null,
           max_units_per_customer_account: data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          supply_total_quantity: null,
+          active_held_quantity: null,
           status: "draft",
           created_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,
         },
-        casts: { selected_options: "jsonb" },
+        casts: { selected_options: "jsonb", product_measure_snapshot: "jsonb" },
       });
+      await recomputeDiscoveryMarketListingSupply(db, data.inventoryItemId);
       await rememberSlugRedirect(db, {
         entityKind: "listing",
         entityId: data.listingId,
@@ -581,6 +672,160 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       });
       await refreshGoogleShoppingListing(db, event, data.listingId, "listing-created");
       await emitListingPatch(db, event, data.listingId);
+    },
+    "catalog.catalog-item.product-measures-resolved": async (event) => {
+      const data = event.data as {
+        catalogItemId: string;
+        products?: unknown;
+      };
+      const products = JSON.stringify(Array.isArray(data.products) ? data.products : []);
+
+      await db.query(
+        `DELETE FROM discovery_market_product_measures
+         WHERE catalog_item_id = $1
+           AND product_id NOT IN (
+             SELECT measure->>'productId'
+             FROM jsonb_array_elements($2::jsonb) AS product(measure)
+             WHERE COALESCE(measure->>'productId', '') <> ''
+           )`,
+        [data.catalogItemId, products],
+      );
+      await db.query(
+        `INSERT INTO discovery_market_product_measures (
+           catalog_item_id,
+           product_id,
+           measure_snapshot,
+           updated_at
+         )
+         SELECT $1, measure->>'productId', measure, $3
+         FROM jsonb_array_elements($2::jsonb) AS product(measure)
+         WHERE COALESCE(measure->>'productId', '') <> ''
+         ON CONFLICT (catalog_item_id, product_id) DO UPDATE SET
+           measure_snapshot = EXCLUDED.measure_snapshot,
+           updated_at = EXCLUDED.updated_at`,
+        [data.catalogItemId, products, event.timing.recordedAt],
+      );
+
+      const updated = await db.query<{ listing_id: string }>(
+        `WITH resolved_products AS (
+           SELECT measure
+           FROM jsonb_array_elements($2::jsonb) AS product(measure)
+         )
+         UPDATE discovery_market_listings AS listing
+         SET product_measure_snapshot = (
+               SELECT measure
+               FROM resolved_products
+               WHERE measure->>'productId' = listing.product_id
+               LIMIT 1
+             ),
+             updated_at = $3
+         WHERE listing.catalog_catalog_item_id = $1
+         RETURNING listing.listing_id`,
+        [data.catalogItemId, products, event.timing.recordedAt],
+      );
+
+      for (const row of updated.rows) {
+        await refreshGoogleShoppingListing(db, event, row.listing_id, "catalog");
+        await emitListingPatch(db, event, row.listing_id);
+      }
+    },
+    "inventory.item.created": async (event) => {
+      const data = event.data as {
+        itemId: string;
+        totalQuantity: number;
+      };
+
+      await db.query(
+        `INSERT INTO discovery_market_supply_items (
+           item_id,
+           total_quantity,
+           last_stream_version,
+           updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (item_id) DO UPDATE SET
+           total_quantity = EXCLUDED.total_quantity,
+           last_stream_version = EXCLUDED.last_stream_version,
+           updated_at = EXCLUDED.updated_at
+         WHERE discovery_market_supply_items.last_stream_version < EXCLUDED.last_stream_version`,
+        [data.itemId, data.totalQuantity, event.streamVersion, event.timing.recordedAt],
+      );
+
+      const listingIds = await recomputeDiscoveryMarketListingSupply(db, data.itemId);
+      await refreshAvailabilityListingPatches(db, event, listingIds);
+    },
+    "inventory.item.adjusted": async (event) => {
+      const data = event.data as {
+        itemId: string;
+        quantityDelta: number;
+      };
+
+      await db.query(
+        `UPDATE discovery_market_supply_items
+         SET total_quantity = total_quantity + $2,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE item_id = $1
+           AND last_stream_version < $4`,
+        [data.itemId, data.quantityDelta, event.timing.recordedAt, event.streamVersion],
+      );
+
+      const listingIds = await recomputeDiscoveryMarketListingSupply(db, data.itemId);
+      await refreshAvailabilityListingPatches(db, event, listingIds);
+    },
+    "inventory.hold.placed": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        itemId: string;
+        quantity: number;
+      };
+
+      await db.query(
+        `INSERT INTO discovery_market_supply_holds (
+           hold_id,
+           item_id,
+           quantity,
+           status,
+           released_at,
+           last_stream_version,
+           updated_at
+         ) VALUES ($1, $2, $3, 'active', NULL, $4, $5)
+         ON CONFLICT (hold_id) DO UPDATE SET
+           item_id = EXCLUDED.item_id,
+           quantity = EXCLUDED.quantity,
+           status = EXCLUDED.status,
+           released_at = EXCLUDED.released_at,
+           last_stream_version = EXCLUDED.last_stream_version,
+           updated_at = EXCLUDED.updated_at
+         WHERE discovery_market_supply_holds.last_stream_version < EXCLUDED.last_stream_version`,
+        [data.holdId, data.itemId, data.quantity, event.streamVersion, event.timing.recordedAt],
+      );
+
+      const listingIds = await recomputeDiscoveryMarketListingSupply(db, data.itemId);
+      await refreshAvailabilityListingPatches(db, event, listingIds);
+    },
+    "inventory.hold.released": async (event) => {
+      const data = event.data as {
+        holdId: string;
+        releasedAt: string;
+      };
+
+      const released = await db.query<{ item_id: string }>(
+        `UPDATE discovery_market_supply_holds
+         SET status = 'released',
+             released_at = $2,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE hold_id = $1
+           AND last_stream_version < $4
+         RETURNING item_id`,
+        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
+      );
+
+      const itemId = released.rows[0]?.item_id;
+      if (itemId) {
+        const listingIds = await recomputeDiscoveryMarketListingSupply(db, itemId);
+        await refreshAvailabilityListingPatches(db, event, listingIds);
+      }
     },
     "marketplace.listing.price-updated": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);

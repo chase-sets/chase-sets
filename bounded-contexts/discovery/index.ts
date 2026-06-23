@@ -45,8 +45,18 @@ export const module = defineBoundedContextModule<DiscoveryServices, PgTransactio
           subscriptionName: "discovery.catalog-google-shopping-feed-row-projection",
           buildHandlers: () => buildGoogleShoppingFeedRowProjectionHandlers(services.db),
         },
+        "catalog.discovery-market-projection": {
+          subscriptionName: "discovery.catalog-market-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => marketProjectionHandlers,
+        },
         "identity.discovery-market-projection": {
           subscriptionName: "discovery.identity-market-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => marketProjectionHandlers,
+        },
+        "inventory.discovery-market-projection": {
+          subscriptionName: "discovery.inventory-market-projection",
           filterToEventTypes: true,
           buildHandlers: () => marketProjectionHandlers,
         },

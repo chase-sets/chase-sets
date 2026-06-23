@@ -892,7 +892,11 @@ function buyNowCandidatesFromDetail(slug, detail) {
     .filter(
       (candidate) =>
         normalizeString(candidate?.listing_id) &&
+        normalizeString(candidate?.catalog_catalog_item_id) &&
+        normalizeString(candidate?.product_id) &&
         String(candidate?.status ?? "").toLowerCase() === "active" &&
+        Number(candidate?.price_amount ?? 0) >= 0 &&
+        Array.isArray(candidate?.selected_options) &&
         Number(candidate?.visible_quantity ?? candidate?.quantity_cap ?? 0) > 0,
     )
     .map((listing) => ({

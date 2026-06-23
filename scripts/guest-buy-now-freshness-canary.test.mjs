@@ -538,7 +538,11 @@ describe("guest Buy Now freshness canary", () => {
             market_listings: [
               {
                 listing_id: "lst_1",
+                catalog_catalog_item_id: "cat_buyable",
+                product_id:
+                  "cat_buyable::dim_seed_form:chc_seed_form_raw::dim_seed_condition:chc_seed_condition_near_mint",
                 status: "active",
+                price_amount: "350.00",
                 visible_quantity: 2,
                 catalog_catalog_item_id: "cat_1",
                 product_id: "prd_1",
@@ -716,6 +720,8 @@ describe("guest Buy Now freshness canary", () => {
                       listing_id: "lst_blocked",
                       status: "active",
                       visible_quantity: 1,
+                      catalog_catalog_item_id: "cat_blocked",
+                      product_id: "prd_blocked",
                       selected_options: [],
                     },
                   ],

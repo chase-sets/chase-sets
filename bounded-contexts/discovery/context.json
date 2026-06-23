@@ -211,6 +211,27 @@
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },
     {
+      "sourceContextName": "catalog",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "order": 21,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.released"
+      ],
+      "order": 22,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
+    },
+    {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
@@ -294,11 +315,14 @@
     },
     {
       "projectionName": "discovery-market-projection",
-      "sourceContextNames": ["identity", "marketplace"],
+      "sourceContextNames": ["catalog", "identity", "inventory", "marketplace"],
       "ownedTables": [
         "discovery_market_accounts",
         "discovery_market_account_reviews",
         "discovery_market_listings",
+        "discovery_market_product_measures",
+        "discovery_market_supply_holds",
+        "discovery_market_supply_items",
         "discovery_offer_demand_matches"
       ],
       "requiredDuringBootstrap": true,

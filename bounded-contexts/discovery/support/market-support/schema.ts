@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS discovery_market_listings (
   item_subtitle text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
+  product_measure_snapshot jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount text NOT NULL,
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS discovery_market_listings (
   max_units_per_order integer NULL,
   max_units_per_day integer NULL,
   max_units_per_customer_account integer NULL,
+  supply_total_quantity integer NULL,
+  active_held_quantity integer NULL,
   status text NOT NULL DEFAULT 'draft',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -81,6 +84,11 @@ ALTER TABLE discovery_market_listings
 
 ALTER TABLE discovery_market_listings
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;
+
+ALTER TABLE discovery_market_listings
+  ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL,
+  ADD COLUMN IF NOT EXISTS supply_total_quantity integer NULL,
+  ADD COLUMN IF NOT EXISTS active_held_quantity integer NULL;
 
 ALTER TABLE discovery_market_listings
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
@@ -103,6 +111,37 @@ CREATE INDEX IF NOT EXISTS discovery_market_listings_status_idx
   ON discovery_market_listings (status);
 CREATE INDEX IF NOT EXISTS discovery_market_listings_selected_options_idx
   ON discovery_market_listings USING gin (selected_options);
+
+CREATE TABLE IF NOT EXISTS discovery_market_supply_items (
+  item_id text PRIMARY KEY,
+  total_quantity integer NOT NULL CHECK (total_quantity >= 0),
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS discovery_market_supply_holds (
+  hold_id text PRIMARY KEY,
+  item_id text NOT NULL,
+  quantity integer NOT NULL CHECK (quantity >= 0),
+  status text NOT NULL,
+  released_at timestamptz NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS discovery_market_supply_holds_item_idx
+  ON discovery_market_supply_holds (item_id, status);
+
+CREATE TABLE IF NOT EXISTS discovery_market_product_measures (
+  catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  measure_snapshot jsonb NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (catalog_item_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS discovery_market_product_measures_catalog_idx
+  ON discovery_market_product_measures (catalog_item_id);
 
 CREATE TABLE IF NOT EXISTS discovery_offer_demand_matches (
   offer_id text PRIMARY KEY,

@@ -147,38 +147,67 @@ export async function getDiscoveryItemDetail(
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
-    `SELECT
-       MIN(price_amount)::text AS lowest_price_amount,
+    `WITH startable_listing AS (
+       SELECT
+         listing.price_amount,
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(
+             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+             0
+           )
+         ) AS visible_quantity
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.catalog_catalog_item_id = $1
+         AND listing.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+         AND listing.product_measure_snapshot IS NOT NULL
+     )
+     SELECT
+       MIN(price_amount::numeric)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
-       COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM discovery_market_listings AS listing
-     INNER JOIN discovery_market_accounts AS account
-       ON account.account_id = listing.account_id
-     WHERE listing.catalog_catalog_item_id = $1
-       AND listing.status = 'active'
-       AND account.seller_listing_availability_status = 'available'`,
+       COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
+     FROM startable_listing
+     WHERE visible_quantity > 0`,
     [item.catalog_item_id],
   );
 
   const listingsResult = await db.query<
     Omit<DiscoveryItemDetailRow["market_listings"][number], "selected_options"> & {
       selected_options: unknown;
+      product_measure_snapshot?: unknown;
+      supply_total_quantity?: unknown;
+      active_held_quantity?: unknown;
     }
   >(
-    `SELECT
-       listing.*,
-       account.seller_slug,
-       account.seller_display_name,
-       account.average_rating::text AS seller_average_rating,
-       COALESCE(account.review_count, 0)::integer AS seller_review_count,
-       listing.quantity_cap AS visible_quantity
-     FROM discovery_market_listings AS listing
-     LEFT JOIN discovery_market_accounts AS account
-       ON account.account_id = listing.account_id
-     WHERE listing.catalog_catalog_item_id = $1
-       AND listing.status = 'active'
-       AND account.seller_listing_availability_status = 'available'
-     ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
+    `WITH startable_listing AS (
+       SELECT
+         listing.*,
+         account.seller_slug,
+         account.seller_display_name,
+         account.average_rating::text AS seller_average_rating,
+         COALESCE(account.review_count, 0)::integer AS seller_review_count,
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(
+             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+             0
+           )
+         ) AS visible_quantity
+       FROM discovery_market_listings AS listing
+       LEFT JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.catalog_catalog_item_id = $1
+         AND listing.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+         AND listing.product_measure_snapshot IS NOT NULL
+     )
+     SELECT *
+     FROM startable_listing
+     WHERE visible_quantity > 0
+     ORDER BY price_amount::numeric ASC, updated_at DESC, listing_id ASC`,
     [item.catalog_item_id],
   );
 
@@ -223,10 +252,16 @@ export async function getDiscoveryItemDetail(
     image_urls: normalizeStringArray(item.image_urls),
     product_asset_sets: asArray(item.product_asset_sets),
     market_summary: marketSummary,
-    market_listings: listingsResult.rows.map((row) => ({
-      ...row,
-      selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
-    })),
+    market_listings: listingsResult.rows.map((row) => {
+      const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
+      void product_measure_snapshot;
+      void supply_total_quantity;
+      void active_held_quantity;
+      return {
+        ...publicRow,
+        selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+      };
+    }),
     offer_demand_matches: offersResult.rows.map((row) => ({
       ...row,
       selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],

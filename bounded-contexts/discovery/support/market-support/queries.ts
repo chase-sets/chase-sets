@@ -30,9 +30,17 @@ export type DiscoveryPublicListingRow = Readonly<{
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
   status: string;
+  visible_quantity: number;
   created_at: string;
   updated_at: string;
 }>;
+
+type DiscoveryPublicListingDbRow = DiscoveryPublicListingRow &
+  Readonly<{
+    product_measure_snapshot?: unknown;
+    supply_total_quantity?: unknown;
+    active_held_quantity?: unknown;
+  }>;
 
 export type DiscoveryPublicAccountRow = Readonly<{
   account_id: string;
@@ -58,9 +66,14 @@ export type DiscoveryPublicAccountReviewRow = Readonly<{
   updated_at: string;
 }>;
 
-function mapListing(row: DiscoveryPublicListingRow): DiscoveryPublicListingRow {
+function mapListing(row: DiscoveryPublicListingDbRow): DiscoveryPublicListingRow {
+  const { product_measure_snapshot, supply_total_quantity, active_held_quantity, ...publicRow } = row;
+  void product_measure_snapshot;
+  void supply_total_quantity;
+  void active_held_quantity;
+
   return {
-    ...row,
+    ...publicRow,
     selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     google_shopping_structured_data_payload: objectValue(row.google_shopping_structured_data_payload),
   };
@@ -70,39 +83,54 @@ export async function getDiscoveryPublicListingBySlug(
   db: PgQueryable,
   slug: string,
 ): Promise<DiscoveryPublicListingRow | null> {
-  const result = await db.query<DiscoveryPublicListingRow>(
-    `SELECT
-       listing.*,
-       item.slug AS catalog_item_slug,
-       account.seller_slug,
-       account.seller_display_name,
-       account.seller_listing_availability_status,
-       account.seller_listing_availability_reason_category,
-       account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
-       account.average_rating::text AS seller_average_rating,
-       COALESCE(account.review_count, 0)::integer AS seller_review_count,
-       google_feed.payload AS google_shopping_structured_data_payload
-     FROM discovery_market_listings AS listing
-     LEFT JOIN discovery_market_accounts AS account
-       ON account.account_id = listing.account_id
-     LEFT JOIN discovery_item_detail_pages AS item
-       ON item.catalog_item_id = listing.catalog_catalog_item_id
-     LEFT JOIN discovery_google_shopping_feed_rows AS google_feed
-       ON google_feed.listing_id = listing.listing_id
-      AND google_feed.eligibility_status = 'eligible'
-      AND google_feed.tombstone_status = 'live'
-      AND google_feed.payload IS NOT NULL
-      AND google_feed.payload <> '{}'::jsonb
-     LEFT JOIN discovery_slug_redirects AS redirect
-       ON redirect.entity_kind = 'listing'
-      AND redirect.slug = $1
-     WHERE listing.listing_slug = $1
-        OR listing.listing_id = $1
-        OR listing.listing_id = redirect.entity_id
-        OR listing.listing_slug = redirect.target_slug
+  const result = await db.query<DiscoveryPublicListingDbRow>(
+    `WITH candidate_listing AS (
+       SELECT
+         listing.*,
+         item.slug AS catalog_item_slug,
+         account.seller_slug,
+         account.seller_display_name,
+         account.seller_listing_availability_status,
+         account.seller_listing_availability_reason_category,
+         account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+         account.average_rating::text AS seller_average_rating,
+         COALESCE(account.review_count, 0)::integer AS seller_review_count,
+         google_feed.payload AS google_shopping_structured_data_payload,
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(
+             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+             0
+           )
+         ) AS visible_quantity
+       FROM discovery_market_listings AS listing
+       LEFT JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       LEFT JOIN discovery_item_detail_pages AS item
+         ON item.catalog_item_id = listing.catalog_catalog_item_id
+       LEFT JOIN discovery_google_shopping_feed_rows AS google_feed
+         ON google_feed.listing_id = listing.listing_id
+        AND google_feed.eligibility_status = 'eligible'
+        AND google_feed.tombstone_status = 'live'
+        AND google_feed.payload IS NOT NULL
+        AND google_feed.payload <> '{}'::jsonb
+       LEFT JOIN discovery_slug_redirects AS redirect
+         ON redirect.entity_kind = 'listing'
+        AND redirect.slug = $1
+       WHERE listing.listing_slug = $1
+          OR listing.listing_id = $1
+          OR listing.listing_id = redirect.entity_id
+          OR listing.listing_slug = redirect.target_slug
+     )
+     SELECT *
+     FROM candidate_listing
+     WHERE status = 'active'
+       AND seller_listing_availability_status = 'available'
+       AND product_measure_snapshot IS NOT NULL
+       AND visible_quantity > 0
      ORDER BY
-       (listing.listing_slug = $1) DESC,
-       (listing.listing_id = $1) DESC
+       (listing_slug = $1) DESC,
+       (listing_id = $1) DESC
      LIMIT 1`,
     [slug],
   );
@@ -146,27 +174,40 @@ export async function getDiscoveryPublicAccountBySlug(
   }
 
   const [listingResult, reviewResult] = await Promise.all([
-    db.query<DiscoveryPublicListingRow>(
-      `SELECT
-         listing.*,
-         item.slug AS catalog_item_slug,
-         account.seller_slug,
-         account.seller_display_name,
-         account.seller_listing_availability_status,
-         account.seller_listing_availability_reason_category,
-         account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
-         account.average_rating::text AS seller_average_rating,
-         COALESCE(account.review_count, 0)::integer AS seller_review_count,
-         NULL::jsonb AS google_shopping_structured_data_payload
-       FROM discovery_market_listings AS listing
-       LEFT JOIN discovery_market_accounts AS account
-         ON account.account_id = listing.account_id
-       LEFT JOIN discovery_item_detail_pages AS item
-         ON item.catalog_item_id = listing.catalog_catalog_item_id
-       WHERE listing.account_id = $1
-         AND listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
-       ORDER BY listing.updated_at DESC, listing.price_amount ASC, listing.listing_id ASC`,
+    db.query<DiscoveryPublicListingDbRow>(
+      `WITH startable_listing AS (
+         SELECT
+           listing.*,
+           item.slug AS catalog_item_slug,
+           account.seller_slug,
+           account.seller_display_name,
+           account.seller_listing_availability_status,
+           account.seller_listing_availability_reason_category,
+           account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+           account.average_rating::text AS seller_average_rating,
+           COALESCE(account.review_count, 0)::integer AS seller_review_count,
+           NULL::jsonb AS google_shopping_structured_data_payload,
+           LEAST(
+             listing.quantity_cap,
+             GREATEST(
+               COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+               0
+             )
+           ) AS visible_quantity
+         FROM discovery_market_listings AS listing
+         LEFT JOIN discovery_market_accounts AS account
+           ON account.account_id = listing.account_id
+         LEFT JOIN discovery_item_detail_pages AS item
+           ON item.catalog_item_id = listing.catalog_catalog_item_id
+         WHERE listing.account_id = $1
+           AND listing.status = 'active'
+           AND account.seller_listing_availability_status = 'available'
+           AND listing.product_measure_snapshot IS NOT NULL
+       )
+       SELECT *
+       FROM startable_listing
+       WHERE visible_quantity > 0
+       ORDER BY updated_at DESC, price_amount::numeric ASC, listing_id ASC`,
       [account.account_id],
     ),
     db.query<DiscoveryPublicAccountReviewRow>(
@@ -223,10 +264,18 @@ export async function listDiscoveryPublicSitemapUrls(
          AND account.status = 'active'
          AND EXISTS (
            SELECT 1
-           FROM discovery_market_listings AS listing
-           WHERE listing.account_id = account.account_id
-             AND listing.status = 'active'
-             AND account.seller_listing_availability_status = 'available'
+             FROM discovery_market_listings AS listing
+             WHERE listing.account_id = account.account_id
+               AND listing.status = 'active'
+               AND account.seller_listing_availability_status = 'available'
+               AND listing.product_measure_snapshot IS NOT NULL
+               AND LEAST(
+                 listing.quantity_cap,
+                 GREATEST(
+                   COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+                   0
+                 )
+               ) > 0
          )
        ORDER BY account.updated_at DESC
        LIMIT 5000`,
@@ -239,6 +288,14 @@ export async function listDiscoveryPublicSitemapUrls(
        WHERE listing.listing_slug <> ''
          AND listing.status = 'active'
          AND account.seller_listing_availability_status = 'available'
+         AND listing.product_measure_snapshot IS NOT NULL
+         AND LEAST(
+           listing.quantity_cap,
+           GREATEST(
+             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+             0
+           )
+         ) > 0
        ORDER BY listing.updated_at DESC
        LIMIT 5000`,
     ),

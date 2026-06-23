@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as identityModule } from "@chase-sets/identity";
+import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
@@ -25,7 +26,7 @@ import { createDiscoveryServices } from "../../support/runtime-support/services"
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const discoveryContextNames = ["catalog", "identity", "marketplace", "discovery"] as const;
+const discoveryContextNames = ["catalog", "identity", "inventory", "marketplace", "discovery"] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -88,6 +89,7 @@ describe("marketplace search", () => {
     pools = createMultiContextTestPools(databaseUrls);
     catalogServices = catalogModule.createServices(pools.catalog, {});
     const identityServices = identityModule.createServices(pools.identity, undefined);
+    const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
@@ -106,6 +108,14 @@ describe("marketplace search", () => {
         module: identityModule,
         services: identityServices,
         pool: pools.identity,
+        projectionHandlerSets: [],
+      },
+      {
+        contextName: "inventory",
+        mountRole: "source-only",
+        module: inventoryModule,
+        services: inventoryServices,
+        pool: pools.inventory,
         projectionHandlerSets: [],
       },
       {
@@ -135,6 +145,7 @@ describe("marketplace search", () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
     await bootstrapContextDatabase(identityModule, pools.identity);
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
