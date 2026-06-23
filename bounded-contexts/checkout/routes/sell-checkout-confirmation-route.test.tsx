@@ -106,6 +106,8 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       confirmation: expect.objectContaining({
         confirmation_id: "slc_chk_sell_1",
       }),
+      sellerActivityPath: "/account/sell-list",
+      committedSalesPath: "/account/sales",
     });
   });
 
@@ -134,7 +136,36 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       confirmation: expect.objectContaining({
         confirmation_id: "slc_chk_sell_1",
       }),
+      sellerActivityPath: expect.stringContaining("/account/sell-list?afterWrite="),
+      committedSalesPath: expect.stringContaining("/account/sales?afterWrite="),
     });
+  });
+
+  it("preserves seller checkout freshness on confirmation page exit links", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetSellListConfirmation.mockResolvedValue(confirmationRow());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListConfirmation: mockGetSellListConfirmation,
+    });
+
+    const requestPath = appendFreshWriteToken(
+      "/checkout/sell/session/chk_sell_1/confirmation",
+      checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+    );
+
+    const result = await sellCheckoutConfirmationLoader({
+      request: new Request(`http://localhost${requestPath}`),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    const originalAfterWrite = new URL(requestPath, "http://localhost").searchParams.get("afterWrite");
+    expect(new URL(result.sellerActivityPath, "http://localhost").searchParams.get("afterWrite")).toBe(
+      originalAfterWrite,
+    );
+    expect(new URL(result.committedSalesPath, "http://localhost").searchParams.get("afterWrite")).toBe(
+      originalAfterWrite,
+    );
   });
 
   it("returns to Sell List preparation when a freshly written seller confirmation is still catching up", async () => {

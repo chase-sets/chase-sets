@@ -66,6 +66,14 @@
       ]
     },
     {
+      "sourceContextName": "marketplace",
+      "projectionName": "checkout.sell-list-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.offer.accepted"],
+      "order": 23,
+      "projectionHandlerSetNames": ["checkout.sell-list-projection"]
+    },
+    {
       "sourceContextName": "catalog",
       "projectionName": "checkout-marketplace-seller-options-projection",
       "subscriptionVersion": 1,
@@ -106,7 +114,7 @@
     },
     {
       "projectionName": "checkout.sell-list-projection",
-      "sourceContextNames": ["checkout"],
+      "sourceContextNames": ["marketplace"],
       "ownedTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
@@ -551,7 +559,7 @@
         "owner": "checkout",
         "reviewBy": "2026-07-31",
         "reason": "The route-support action file carries the Checkout commit receipt for the sell-checkout-session route; the post-write read itself is covered by the sell-checkout-confirmation destination above.",
-        "helperUses": ["appendFreshWriteToken"],
+        "helperUses": ["appendFreshWriteTokenFromSources"],
         "files": ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"]
       }
     }

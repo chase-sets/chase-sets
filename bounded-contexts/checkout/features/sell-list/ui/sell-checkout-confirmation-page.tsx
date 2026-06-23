@@ -12,6 +12,8 @@ import { sellListConfirmationSupportReference } from "../read-model/support-refe
 
 export type SellCheckoutConfirmationPageProps = Readonly<{
   confirmation: CheckoutSellListConfirmationRow;
+  sellerActivityPath?: string;
+  committedSalesPath?: string;
 }>;
 
 function lineOutcomeLabel(
@@ -42,7 +44,11 @@ function lineStatusLabel(status: "completed" | "partial" | "skipped") {
   }
 }
 
-export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfirmationPageProps) {
+export function SellCheckoutConfirmationPage({
+  confirmation,
+  sellerActivityPath = "/account/sell-list",
+  committedSalesPath = "/account/sales",
+}: SellCheckoutConfirmationPageProps) {
   const summary = confirmation.handoff_summary;
   const lineOutcomes = summary.lineOutcomes ?? [];
   const acceptedOfferCount = summary.acceptedOfferCount ?? 0;
@@ -59,7 +65,7 @@ export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfi
           title={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title")}
           description={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description")}
           actions={
-            <LinkButton href="/account/sell-list" tone="secondary">
+            <LinkButton href={sellerActivityPath} tone="secondary">
               {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.seller.activity")}
             </LinkButton>
           }
@@ -97,10 +103,10 @@ export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfi
           ]}
           actions={
             <Stack gap={2} direction={{ base: "column", sm: "row" }}>
-              <LinkButton href="/account/sell-list">
+              <LinkButton href={sellerActivityPath}>
                 {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.seller.activity")}
               </LinkButton>
-              <LinkButton href="/account/sales" tone="secondary">
+              <LinkButton href={committedSalesPath} tone="secondary">
                 {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.committed.sales")}
               </LinkButton>
             </Stack>

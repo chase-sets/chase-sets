@@ -168,6 +168,7 @@ export async function performMarketplaceHandoff(
   const completedLineIds: string[] = [];
   const remainingLineQuantities: { lineId: string; quantity: number }[] = [];
   const lineOutcomes: Array<NonNullable<SellListConfirmationSummary["lineOutcomes"]>[number]> = [];
+  const writeResults: unknown[] = [];
   let acceptedOfferCount = 0;
   let publishedListingCount = 0;
 
@@ -177,10 +178,11 @@ export async function performMarketplaceHandoff(
     let completedQuantity = 0;
 
     if (readinessAction === "selected-offer" && review.selectedOffer) {
-      await marketplaceApi.acceptOfferMatch(review.selectedOffer.offerId, {
+      const result = await marketplaceApi.acceptOfferMatch(review.selectedOffer.offerId, {
         feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
         sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:selected:${review.selectedOffer.offerId}`,
       });
+      writeResults.push(result);
       acceptedOfferIds.push(review.selectedOffer.offerId);
       completedQuantity += line.quantity;
       acceptedOfferCount += 1;
@@ -188,10 +190,11 @@ export async function performMarketplaceHandoff(
 
     if (readinessAction === "smart-match") {
       for (const target of review.productOfferTargets) {
-        await marketplaceApi.acceptOfferMatch(target.offerId, {
+        const result = await marketplaceApi.acceptOfferMatch(target.offerId, {
           feeQuoteFingerprint: target.feeQuoteFingerprint,
           sourceActionKey: `sell-confirm:${confirmationId}:${line.line_id}:match:${target.offerId}`,
         });
+        writeResults.push(result);
         acceptedOfferIds.push(target.offerId);
         completedQuantity += target.quantity;
         acceptedOfferCount += 1;
@@ -206,11 +209,13 @@ export async function performMarketplaceHandoff(
         quantityCap: review.fallbackListing.quantityCap,
         listingIdOverride,
       });
+      writeResults.push(createdListing);
       listingId = responseString(createdListing, "id", "listingId", "listing_id") || listingIdOverride;
       try {
-        await marketplaceApi.publishListing(listingId, {
+        const result = await marketplaceApi.publishListing(listingId, {
           feeQuoteFingerprint: responseString(createdListing, "feeQuoteFingerprint", "fee_quote_fingerprint") || null,
         });
+        writeResults.push(result);
       } catch (error) {
         if (!isAlreadyActiveListingPublishReplay(error)) {
           throw error;
@@ -255,6 +260,7 @@ export async function performMarketplaceHandoff(
   return {
     completedLineIds,
     remainingLineQuantities,
+    writeResults,
     summary: {
       acceptedOfferCount,
       publishedListingCount,

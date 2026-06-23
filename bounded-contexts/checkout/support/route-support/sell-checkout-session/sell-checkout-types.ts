@@ -74,6 +74,7 @@ export type SellListMarketplaceHandoff = Readonly<{
   completedLineIds: readonly string[];
   remainingLineQuantities: readonly { lineId: string; quantity: number }[];
   summary: SellListConfirmationSummary;
+  writeResults: readonly unknown[];
 }>;
 
 export type SellListConfirmResponse = Readonly<{

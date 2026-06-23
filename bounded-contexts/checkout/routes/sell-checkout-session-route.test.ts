@@ -514,6 +514,45 @@ describe("checkout web routes: sell checkout session", () => {
     );
   });
 
+  it("carries the Marketplace accepted-offer receipt into the seller confirmation redirect", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockResolvedValueOnce({
+      status: "accepted",
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "55",
+          eventIds: ["evt_marketplace_offer_accepted"],
+        },
+      ],
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expectSellConfirmationRedirect(result);
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(readFreshWriteToken(new URL(location, "http://localhost").toString())).toMatchObject({
+      sources: expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "checkout",
+        }),
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "55",
+          eventIds: ["evt_marketplace_offer_accepted"],
+        }),
+      ]),
+    });
+  });
+
   it("redirects duplicate seller confirmation posts to the existing confirmation without replaying handoff", async () => {
     mockSignedInSellCheckoutState();
     mockGetSellListConfirmation.mockResolvedValue({
