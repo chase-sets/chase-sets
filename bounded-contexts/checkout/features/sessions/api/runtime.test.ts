@@ -523,7 +523,11 @@ describe("checkout session runtime", () => {
     expect(result.session.order_ids).toEqual([]);
     expect(db.query).toHaveBeenCalledTimes(2);
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
-    expect(String(db.query.mock.calls[1]?.[0])).toContain("checkout_marketplace_seller_options");
+    const buyNowReadinessSql = String(db.query.mock.calls[1]?.[0]);
+    expect(buyNowReadinessSql).toContain("checkout_marketplace_seller_options");
+    expect(buyNowReadinessSql).toContain(
+      "COALESCE(supply_total_quantity, listing_quantity_cap) - COALESCE(active_held_quantity, 0)",
+    );
   });
 
   it("rejects buy-now session creation when fulfillment is not assigned", async () => {

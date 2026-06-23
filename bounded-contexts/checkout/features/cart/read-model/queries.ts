@@ -195,7 +195,10 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              'price_amount', o.price_amount::text,
              'available_quantity', LEAST(
                o.listing_quantity_cap,
-               GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)
+               GREATEST(
+                 COALESCE(o.supply_total_quantity, o.listing_quantity_cap) - COALESCE(o.active_held_quantity, 0),
+                 0
+               )
              ),
              'product_summary', o.product_summary
            )
@@ -210,7 +213,10 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
          AND o.status = 'active'
          AND LEAST(
            o.listing_quantity_cap,
-           GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)
+           GREATEST(
+             COALESCE(o.supply_total_quantity, o.listing_quantity_cap) - COALESCE(o.active_held_quantity, 0),
+             0
+           )
          ) > 0
      ) opt ON true
      WHERE line.buyer_account_id = $1
