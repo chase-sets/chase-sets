@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CatalogAssetStoragePutInput } from "./asset-storage";
-import { normalizeProductAssetSet } from "./product-asset-normalization";
+import { extractApprovedOnePieceImageEvidence, normalizeProductAssetSet } from "./product-asset-normalization";
 
 describe("product asset normalization", () => {
   it("preserves the source asset and trims transparent display padding before generating variants", async () => {
@@ -11,6 +11,8 @@ describe("product asset normalization", () => {
     const assetSet = await normalizeProductAssetSet({
       sourceBody,
       sourceContentType: "image/webp",
+      sourceProviderKey: "tcgdex",
+      sourceUrl: "https://assets.tcgdex.net/en/base/base1/004/high.webp",
       storageBaseKey: "catalog/items/cat_test/product-image",
       generatedAt: "2026-05-20T00:00:00.000Z",
       assetStorage: {
@@ -26,6 +28,21 @@ describe("product asset normalization", () => {
 
     expect(assetSet.source.width).toBe(120);
     expect(assetSet.source.height).toBe(200);
+    expect(assetSet.sourcePolicy).toEqual({
+      sourceProviderKey: "tcgdex",
+      sourceUrlHost: "assets.tcgdex.net",
+      sourceUrlHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      sourceContentType: "image/webp",
+      approval: "catalog-owned-rehost-approved",
+      rehostingBehavior: "store-source-and-webp-display-variants",
+      retention: {
+        policyKey: "catalog-product-image-retention-v1",
+        retentionKind: "retain-while-referenced",
+        previewRetentionDays: 90,
+        takedownPath: "catalog-asset-takedown",
+        removalSlaDays: 30,
+      },
+    });
     expect(storedAssets[0]?.body).toEqual(sourceBody);
 
     const thumbnail = assetSet.variants.find((variant) => variant.role === "thumbnail" && variant.density === 1);
@@ -53,6 +70,68 @@ describe("product asset normalization", () => {
         expect.stringMatching(/catalog-detail-480w-1x-[a-f0-9]{12}-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
       ]),
     );
+  });
+
+  it("extracts approved current One Piece image URLs without duplicates", () => {
+    const result = extractApprovedOnePieceImageEvidence({
+      providerKey: "tcgplayer",
+      imageUrls: [
+        "https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg",
+        "https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg",
+        "http://tcgplayer-cdn.tcgplayer.com/product/987650_insecure.jpg",
+      ],
+      sourceUpdatedAt: "2026-06-01T00:00:00.000Z",
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result).toEqual({
+      status: "current",
+      imageUrls: ["https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg"],
+      diagnostics: [],
+      retentionPolicy: expect.objectContaining({
+        policyKey: "catalog-product-image-retention-v1",
+        retentionKind: "retain-while-referenced",
+      }),
+    });
+  });
+
+  it("records missing One Piece images as review diagnostics instead of retained payloads", () => {
+    const result = extractApprovedOnePieceImageEvidence({
+      providerKey: "scrydex",
+      imageUrls: [],
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("missing");
+    expect(result.imageUrls).toEqual([]);
+    expect(result.diagnostics).toEqual(["scrydex did not provide approved One Piece image URI evidence."]);
+  });
+
+  it("marks stale One Piece image evidence for review before rehosting", () => {
+    const result = extractApprovedOnePieceImageEvidence({
+      providerKey: "tcgplayer",
+      imageUrls: ["https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg"],
+      sourceUpdatedAt: "2024-01-01T00:00:00.000Z",
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("stale");
+    expect(result.imageUrls).toEqual(["https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg"]);
+    expect(result.diagnostics[0]).toContain("must be reviewed before rehosting");
+  });
+
+  it("excludes unapproved One Piece comparison image sources", () => {
+    const result = extractApprovedOnePieceImageEvidence({
+      providerKey: "bandai-official",
+      imageUrls: ["https://www.bandai.example/one-piece/card-image.jpg"],
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("unapproved");
+    expect(result.imageUrls).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      "Provider 'bandai-official' is not approved for retained One Piece image evidence.",
+    ]);
   });
 });
 

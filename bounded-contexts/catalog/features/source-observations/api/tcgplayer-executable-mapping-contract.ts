@@ -418,6 +418,7 @@ export const tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingC
     fields: {
       tcg: constantExpression("one-piece", "catalog-truth", ["normalized-observation", "hash-material"]),
       ...providerProductFields,
+      imageUrls: tcgplayerOnePieceImageUrlsExpression(),
     },
   },
 } as const satisfies CatalogProviderExecutableMappingContract;
@@ -538,6 +539,30 @@ function constantExpression(
     },
     owner,
     uses,
+    redaction: "none",
+  };
+}
+
+function tcgplayerOnePieceImageUrlsExpression(): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "coalesce",
+      selectors: [
+        {
+          kind: "path",
+          path: "imageUrls",
+          required: false,
+          nullPolicy: "omit",
+        },
+        {
+          kind: "constant",
+          value: [],
+        },
+      ],
+      required: true,
+    },
+    owner: "catalog-truth",
+    uses: ["normalized-observation"],
     redaction: "none",
   };
 }

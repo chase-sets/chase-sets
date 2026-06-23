@@ -39,6 +39,31 @@ uses the existing automation-provider credential posture documented in
 | Bandai official One Piece Card Game | Canonical validation reference only unless separate approval permits ingestion | Do not scrape or retain official text/images without approval |
 | Fallback/community/free sources | Comparison-only or fallback evidence after source approval | Do not promote as default production authority |
 
+## Image Evidence Operations
+
+Only Scrydex and TCGplayer One Piece image URI evidence may enter the shared
+Catalog importer/review surfaces, and only when the provider-data signoff covers
+image evidence for that source. Bandai official and fallback/community images
+remain comparison-only and must not be linked, cached, transformed, rehosted, or
+retained.
+
+When approved image evidence exists, operators should see it as normalized image
+evidence in the shared Source Observation review/detail surfaces. Promotion must
+publish Chase Sets asset URLs from a Catalog-owned Product Asset Set, not
+provider image URLs. If an image is missing, stale, or from an unapproved source,
+keep the Source Observation reviewable and do not rehost it until the source is
+approved and current.
+
+Retained Product Asset Sets follow `catalog-product-image-retention-v1`: preview
+assets expire after 90 days, staging/production assets are retained while
+referenced, and takedown/removal requests target deletion within 30 days after
+approval through the Catalog asset takedown path. Evidence packets may include
+provider key, source URL host/hash, source hash, Catalog storage key or public
+Chase Sets URL, image count, status, and redacted diagnostics. They must not
+include full provider image URLs, raw payload bodies, provider image bytes,
+provider screenshots, prices, inventory, quantities, seller/account facts,
+cookies, API keys, team ids, or console captures.
+
 ## Scrydex Bulk-First Operations
 
 Scrydex imports must use bulk/list/search pagination whenever the provider can

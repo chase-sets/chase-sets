@@ -443,6 +443,8 @@ export async function normalizeTcgdexImageAsset(input: {
   return normalizeProductAssetSet({
     sourceBody: body,
     sourceContentType: contentType,
+    sourceProviderKey: "tcgdex",
+    sourceUrl: assetUrl,
     storageBaseKey: input.storageBaseKey,
     generatedAt: input.observedAt,
     assetStorage: input.assetStorage,

@@ -228,9 +228,9 @@ describe("Scrydex One Piece provider adapter", () => {
     expect(fixture.calls.map((call) => search(call.url, "page_size"))).toEqual(["100", "250", "250", "100"]);
     expect(fixture.calls.map((call) => search(call.url, "select"))).toEqual([
       "id,name,code,total,release_date,language,language_code",
-      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants",
-      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants",
-      "id,name,type,language,language_code,expansion",
+      "id,name,number,printed_number,rarity,rarity_code,type,images,language,language_code,expansion,printings,variants",
+      "id,name,number,printed_number,rarity,rarity_code,type,images,language,language_code,expansion,printings,variants",
+      "id,name,type,images,language,language_code,expansion",
     ]);
     expect(fixture.calls.map((call) => search(call.url, "q"))).toEqual([
       null,
@@ -297,6 +297,7 @@ describe("Scrydex One Piece provider adapter", () => {
           "rarity",
           "rarity_code",
           "type",
+          "images",
           "language",
           "language_code",
           "expansion",
@@ -320,7 +321,7 @@ describe("Scrydex One Piece provider adapter", () => {
         estimatedRequestCount: null,
         estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
         pageSize: 100,
-        selectedFields: ["id", "name", "type", "language", "language_code", "expansion"],
+        selectedFields: ["id", "name", "type", "images", "language", "language_code", "expansion"],
         perRecordFallbackReason: null,
         usageCheckState: "checked",
       },
@@ -462,6 +463,11 @@ describe("Scrydex One Piece provider adapter", () => {
             rarity: "Leader",
             rarity_code: "L",
             type: "Leader",
+            imageUrls: [
+              "https://images.scrydex.example/op01-001/large",
+              "https://images.scrydex.example/op01-001/medium",
+              "https://images.scrydex.example/op01-001/small",
+            ],
             language: "English",
             language_code: "en",
             expansion: {
@@ -579,17 +585,17 @@ function scrydexFixtureFetch(): Readonly<{
         data: [scrydexExpansion],
         total_pages: 1,
       },
-    [`${fixtureBaseUrl}/cards?page=1&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
+    [`${fixtureBaseUrl}/cards?page=1&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
       {
         data: [scrydexCards[0], scrydexCards[1]],
         total_pages: 2,
       },
-    [`${fixtureBaseUrl}/cards?page=2&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
+    [`${fixtureBaseUrl}/cards?page=2&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
       {
         data: [scrydexCards[2]],
         total_pages: 2,
       },
-    [`${fixtureBaseUrl}/expansions/op-01/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion`]:
+    [`${fixtureBaseUrl}/expansions/op-01/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion`]:
       {
         data: [scrydexSealedProduct],
         total_pages: 1,
@@ -652,6 +658,14 @@ const scrydexCards = [
     rarity: "Leader",
     rarity_code: "L",
     type: "Leader",
+    images: [
+      {
+        type: "front",
+        small: "https://images.scrydex.example/op01-001/small",
+        medium: "https://images.scrydex.example/op01-001/medium",
+        large: "https://images.scrydex.example/op01-001/large",
+      },
+    ],
     language: "English",
     language_code: "en",
     expansion: scrydexExpansion,
@@ -705,6 +719,14 @@ const scrydexSealedProduct = {
   id: "op01-booster-box",
   name: "Romance Dawn Booster Box",
   type: "booster_box",
+  images: [
+    {
+      type: "front",
+      small: "https://images.scrydex.example/op01-booster-box/small",
+      medium: "https://images.scrydex.example/op01-booster-box/medium",
+      large: "https://images.scrydex.example/op01-booster-box/large",
+    },
+  ],
   language: "English",
   language_code: "en",
   expansion: scrydexExpansion,

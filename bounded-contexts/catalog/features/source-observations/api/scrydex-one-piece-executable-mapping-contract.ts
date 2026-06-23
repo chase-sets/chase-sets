@@ -274,7 +274,7 @@ function scrydexOnePieceCardNormalizedObservation(): ScrydexOnePieceExecutableMa
         "hash-material",
       ]),
       releaseYear: scrydexOnePieceConstantExpression(null, "catalog-truth", ["normalized-observation"]),
-      imageUrls: scrydexOnePieceConstantExpression([], "catalog-truth", ["normalized-observation", "hash-material"]),
+      imageUrls: scrydexOnePieceImageUrlsExpression("card.imageUrls"),
       mergeIdentity: scrydexOnePieceMergeIdentityExpression({
         setNamePath: "card.expansion.name",
         printedProductNamePath: "card.name",
@@ -411,7 +411,7 @@ function scrydexOnePieceSealedProductNormalizedObservation(): ScrydexOnePieceExe
       ]),
       releaseYear: scrydexOnePieceConstantExpression(null, "catalog-truth", ["normalized-observation"]),
       barcode: scrydexOnePieceConstantExpression(null, "external-reference", ["normalized-observation"]),
-      imageUrls: scrydexOnePieceConstantExpression([], "catalog-truth", ["normalized-observation", "hash-material"]),
+      imageUrls: scrydexOnePieceImageUrlsExpression("sealedProduct.imageUrls"),
       mergeIdentity: scrydexOnePieceMergeIdentityExpression({
         setNamePath: "sealedProduct.expansion.name",
         printedProductNamePath: "sealedProduct.name",
@@ -568,6 +568,14 @@ function scrydexOnePieceProductLineExpression(): CatalogProviderMappingValueExpr
     "normalized-observation",
     "hash-material",
   ]);
+}
+
+function scrydexOnePieceImageUrlsExpression(path: string): CatalogProviderMappingValueExpression {
+  return scrydexOnePieceCoalesceExpression(
+    [scrydexOnePiecePathSelector(path, false), { kind: "constant", value: [] }],
+    "catalog-truth",
+    ["normalized-observation", "hash-material"],
+  );
 }
 
 function scrydexOnePieceMergeIdentityExpression(input: {

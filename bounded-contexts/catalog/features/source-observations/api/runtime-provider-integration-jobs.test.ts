@@ -1225,6 +1225,7 @@ describe("source observation runtime: provider integration jobs", () => {
               "rarity",
               "rarity_code",
               "type",
+              "images",
               "language",
               "language_code",
               "expansion",

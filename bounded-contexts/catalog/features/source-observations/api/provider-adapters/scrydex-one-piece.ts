@@ -54,8 +54,8 @@ const scrydexCardPageSize = 250;
 const scrydexSealedPageSize = 100;
 const scrydexExpansionSelect = "id,name,code,total,release_date,language,language_code";
 const scrydexCardSelect =
-  "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants";
-const scrydexSealedSelect = "id,name,type,language,language_code,expansion";
+  "id,name,number,printed_number,rarity,rarity_code,type,images,language,language_code,expansion,printings,variants";
+const scrydexSealedSelect = "id,name,type,images,language,language_code,expansion";
 const scrydexUsageLagDiagnostic =
   "Scrydex usage is account-level and may lag live imports by 20-30 minutes per provider policy.";
 const scrydexUsageCheckedDiagnostic = "Scrydex account usage check completed with redacted credit evidence.";
@@ -93,6 +93,7 @@ export type ScrydexOnePieceCard = Readonly<{
   rarity?: string;
   rarity_code?: string;
   type?: string;
+  imageUrls?: readonly string[];
   language?: string;
   language_code?: string;
   expansion?: ScrydexOnePieceExpansion;
@@ -109,6 +110,7 @@ export type ScrydexOnePieceSealedProduct = Readonly<{
   id?: string;
   name?: string;
   type?: string;
+  imageUrls?: readonly string[];
   language?: string;
   language_code?: string;
   expansion?: ScrydexOnePieceExpansion;
@@ -1212,6 +1214,7 @@ function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
   const record = jsonRecord(value);
   const printings = stringArrayValue(record.printings);
   const variants = sanitizeScrydexCardVariants(record.variants);
+  const imageUrls = scrydexImageUrls(record.images);
   return compactRecord({
     id: stringValue(record.id),
     name: stringValue(record.name),
@@ -1220,6 +1223,7 @@ function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
     rarity: stringValue(record.rarity),
     rarity_code: stringValue(record.rarity_code),
     type: stringValue(record.type),
+    imageUrls: imageUrls.length > 0 ? imageUrls : null,
     language: stringValue(record.language),
     language_code: stringValue(record.language_code),
     expansion: sanitizeScrydexExpansion(record.expansion),
@@ -1247,14 +1251,33 @@ function sanitizeScrydexCardVariants(value: JsonValue | undefined): readonly Scr
 
 function sanitizeScrydexSealedProduct(value: JsonValue): ScrydexOnePieceSealedProduct {
   const record = jsonRecord(value);
+  const imageUrls = scrydexImageUrls(record.images);
   return compactRecord({
     id: stringValue(record.id),
     name: stringValue(record.name),
     type: stringValue(record.type),
+    imageUrls: imageUrls.length > 0 ? imageUrls : null,
     language: stringValue(record.language),
     language_code: stringValue(record.language_code),
     expansion: sanitizeScrydexExpansion(record.expansion),
   });
+}
+
+function scrydexImageUrls(value: JsonValue | undefined): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value.flatMap((entry) => {
+        const record = jsonRecord(entry);
+        return [record.large, record.medium, record.small]
+          .map(stringValue)
+          .filter((url): url is string => typeof url === "string" && isHttpsUrl(url));
+      }),
+    ),
+  ];
 }
 
 function sanitizeScrydexExpansion(value: JsonValue): ScrydexOnePieceExpansion {
@@ -1535,6 +1558,14 @@ function parseJsonText(value: string): JsonValue | null {
 
 function jsonRecord(value: JsonValue): Readonly<Record<string, JsonValue>> {
   return isJsonRecord(value) ? value : {};
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function isJsonRecord(value: unknown): value is ScrydexPagedResponse {

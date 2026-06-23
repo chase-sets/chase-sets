@@ -77,6 +77,33 @@ One Piece production sync follows the base provider-data policy in
 | Export package | Redacted summary only by default | Reviewed evidence package approval required before provider-controlled content is exported |
 | Source hash material | Allowed normalized Catalog facts and stable provider ids only | Must exclude raw bodies, secrets, seller/account facts, prices, inventory, listings, orders, messages, and session material |
 
+## Image Evidence And Rehosting
+
+Scrydex and TCGplayer are the only One Piece sources approved for retained image
+URI evidence in the production sync path. Bandai official and fallback/community
+sources may be cited as redacted validation labels only; their images must not
+be linked, cached, transformed, rehosted, retained in fixtures, or shown in
+operator evidence unless a separate legal/source approval changes that source
+role.
+
+Approved Scrydex or TCGplayer image evidence may be shown in the shared Catalog
+importer/review surfaces as normalized image URI evidence. Promotion must not
+publish provider image URLs as product-facing imagery. When an approved image is
+used for Catalog Item imagery, Catalog downloads it into owned asset storage,
+stores the source plus WebP display variants as a Product Asset Set, and
+publishes only Chase Sets asset URLs as compatibility `imageUrls`.
+
+Product Asset Set metadata follows `catalog-product-image-retention-v1`: retain
+staging/production assets while referenced, expire preview assets after 90 days,
+store only source provider key, source URL host/hash, source content type,
+rehosting behavior, and removal metadata, and avoid storing the full provider
+image URL in retained asset metadata. Takedown or source-revocation requests use
+the Catalog asset takedown path in
+[Catalog Asset Storage](../../../docs/runbooks/catalog-asset-storage.md):
+freeze unsafe imports/promotions, remove Catalog image references through
+Catalog commands, delete source and variant objects, record redacted audit
+evidence, and target removal within 30 days of approval.
+
 ## Activation Signoff Checklist
 
 Production activation for any One Piece provider is blocked until all applicable
@@ -104,6 +131,11 @@ items below are complete:
 - [ ] Conflict policy explains Scrydex, TCGplayer, Bandai validation, and
   fallback source authority, losing evidence retention, duplicate-prevention
   order, and manual-review blockers.
+- [ ] Asset policy evidence proves approved Scrydex/TCGplayer images are
+  rehosted into Catalog-owned Product Asset Sets, provider image URLs do not
+  leak into promoted compatibility image URLs, missing/stale images stay
+  reviewable, and redacted fixtures exclude unapproved imagery, prices,
+  inventory, seller/account facts, and raw provider bodies.
 - [ ] #2285 staging UAT passes from the Chase Sets interface without direct
   URLs, APIs, CLI, SQL, Postman, browser console commands, provider endpoints,
   or hidden Admin/API routes, and proves One Piece, Pokemon, and MTG source
