@@ -187,16 +187,19 @@
       },
       "destination": {
         "routeIds": ["account-inventory-imports", "account-inventory-import"],
+        "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Import batch detail uses compatibility fresh-write not-found retries while job-backed inventory routes are classified."
+          "behavior": "Import batch detail uses the completed import job receipt for compatibility fresh-write not-found retries, and the import result page carries that same receipt into inventory and listing setup handoff links while job-backed inventory routes remain snapshot-owned."
         }
       },
       "exception": {
         "status": "not-read-model-backed",
         "owner": "inventory",
         "reviewBy": "2026-07-31",
-        "reason": "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the later batch detail loader keeps compatibility fresh-write not-found retry, but the authoritative post-write contract is the job snapshot rather than a read-model freshness wait."
+        "reason": "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the completed job result now carries the Inventory commit receipt into import, inventory, and listing setup links, but the authoritative Inventory post-write contract remains the job snapshot rather than an Inventory read-model freshness wait.",
+        "files": ["bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx"],
+        "helperUses": ["appendFreshWriteToken"]
       }
     },
     {

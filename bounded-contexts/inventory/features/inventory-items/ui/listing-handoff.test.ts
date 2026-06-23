@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inventoryListingHref } from "./listing-handoff";
+import { appendInventoryHandoffSearch, inventoryListingHref } from "./listing-handoff";
 
 describe("inventory listing handoff links", () => {
   it("carries fresh inventory handoff receipts into listing setup links", () => {
@@ -15,5 +15,14 @@ describe("inventory listing handoff links", () => {
     expect(inventoryListingHref("inv_1", "/account/inventory?feedbackWorkflow=inventory-create")).toBe(
       "/account/listings?inventoryItemId=inv_1",
     );
+  });
+
+  it("carries fresh inventory handoff receipts into inventory navigation links", () => {
+    expect(
+      appendInventoryHandoffSearch(
+        "/account/inventory",
+        "/account/inventory/imports/imb_1?afterWrite=fresh&postWriteHandoff=handoff",
+      ),
+    ).toBe("/account/inventory?afterWrite=fresh&postWriteHandoff=handoff");
   });
 });

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
 import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -81,6 +81,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryImportsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
 
   return (
     <InventoryImportBatchPage
@@ -88,6 +89,7 @@ export default function MarketplaceInventoryImportsRoute() {
       storageLocations={data.storageLocations.items}
       detail={data.detail}
       activeJobId={data.activeJobId}
+      currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}
     />
   );
