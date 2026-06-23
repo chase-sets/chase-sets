@@ -92,6 +92,22 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: row ? 1 : 0 };
     }
 
+    if (sql.includes("UPDATE ordering_market_listing_inputs AS listing")) {
+      const catalogItemId = String(values[0]);
+      const products = JSON.parse(String(values[1])) as { productId?: unknown }[];
+      let affected = 0;
+      for (const row of this.listings.values()) {
+        if (row.catalog_catalog_item_id !== catalogItemId) {
+          continue;
+        }
+        const measure = products.find((product) => product?.productId === row.product_id) ?? null;
+        row.product_measure_snapshot = measure ? JSON.stringify(measure) : null;
+        row.updated_at = String(values[2]);
+        affected += 1;
+      }
+      return { rows: [], rowCount: affected };
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -185,6 +201,34 @@ describe("ordering marketplace supply projection", () => {
       terms_schedule_id: "terms_standard",
       terms_agreement_id: "agreement_1",
       terms_resolved_at: "2026-05-09T00:01:00.000Z",
+    });
+  });
+
+  it("refreshes existing listing inputs from Catalog resolved product measures", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent());
+    await handlers["catalog.catalog-item.product-measures-resolved"]!(
+      event("catalog.catalog-item.product-measures-resolved", "catalog.product-measures-cat_1", {
+        catalogItemId: "cat_1",
+        products: [
+          {
+            catalogItemId: "cat_1",
+            productId: "prd_1",
+            measureVersion: "pm_raw_v1",
+          },
+        ],
+      }),
+    );
+
+    expect(db.listings.get("lst_1")).toMatchObject({
+      product_measure_snapshot: JSON.stringify({
+        catalogItemId: "cat_1",
+        productId: "prd_1",
+        measureVersion: "pm_raw_v1",
+      }),
+      updated_at: "2026-05-09T00:00:00.000Z",
     });
   });
 });

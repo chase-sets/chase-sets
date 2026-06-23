@@ -8,6 +8,7 @@ import {
   buildMarketplaceCatalogProjectionHandlers,
   buildMarketplaceInventoryProjectionHandlers,
 } from "./features/listings/integrations/supply/supply-projection";
+import { buildMarketplaceListingProjectionHandlers } from "./features/listings/read-model/projection";
 import {
   buildReviewAccountProjectionHandlers,
   buildReputationOrderProjectionHandlers,
@@ -35,6 +36,10 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
       manifest: contextManifest,
       handlers: {
         "catalog.marketplace-catalog-item-projection": () => buildMarketplaceCatalogProjectionHandlers(services.db),
+        "catalog.marketplace-listing-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
+        },
         "identity.marketplace-identity-account-projection": {
           filterToEventTypes: true,
           buildHandlers: () => accountProjectionHandlers,
@@ -47,6 +52,11 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           subscriptionName: "marketplace.reputation-account-projection",
           filterToEventTypes: true,
           buildHandlers: () => accountProjectionHandlers,
+        },
+        "marketplace.marketplace-listing-projection": {
+          subscriptionName: "marketplace.self-listing-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
         },
         "identity.reputation-account-projection": {
           subscriptionName: "reputation.identity-account-projection",

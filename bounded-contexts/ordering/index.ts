@@ -73,6 +73,10 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
           filterToEventTypes: true,
           buildHandlers: () => marketplaceSupplyHandlers,
         },
+        "catalog.ordering-marketplace-supply-input-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => marketplaceSupplyHandlers,
+        },
         "inventory.ordering-inventory-supply-input-projection": () =>
           buildOrderingInventorySupplyProjectionHandlers(services.db),
         "inventory.ordering-inventory-reservation-outcomes": () =>

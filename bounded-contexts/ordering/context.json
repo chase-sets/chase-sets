@@ -43,6 +43,14 @@
       "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
     },
     {
+      "sourceContextName": "catalog",
+      "projectionName": "ordering-marketplace-supply-input-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "order": 31,
+      "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
+    },
+    {
       "sourceContextName": "inventory",
       "projectionName": "ordering-inventory-supply-input-projection",
       "subscriptionVersion": 1,
@@ -109,7 +117,7 @@
     },
     {
       "projectionName": "ordering-marketplace-supply-input-projection",
-      "sourceContextNames": ["marketplace"],
+      "sourceContextNames": ["marketplace", "catalog"],
       "ownedTables": ["ordering_market_listing_inputs"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"

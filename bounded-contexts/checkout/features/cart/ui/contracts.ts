@@ -35,6 +35,7 @@ export interface CheckoutCartLine {
     price_amount: string;
     available_quantity: number;
     product_summary: string | null;
+    product_measure_snapshot: Readonly<Record<string, unknown>> | null;
   }[];
   created_at: string;
   updated_at: string;

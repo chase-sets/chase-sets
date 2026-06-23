@@ -48,6 +48,12 @@ const cartReadinessSnapshot = createCartReadinessSnapshot([
         price_amount: "25.00",
         available_quantity: 1,
         product_summary: null,
+        product_measure_snapshot: {
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          selectedOptions: [],
+          measureVersion: "pm_test_raw_v1",
+        },
       },
     ],
     updated_at: "2026-04-29T00:00:00.000Z",

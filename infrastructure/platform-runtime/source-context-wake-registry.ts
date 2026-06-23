@@ -159,12 +159,15 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "catalog:catalog-source-observation-projection",
       "checkout:checkout-catalog-item-projection",
+      "checkout:checkout-marketplace-seller-options-projection",
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
       "discovery:discovery-item-detail-projection",
       "discovery:discovery-search-item-projection",
       "inventory:inventory-catalog-item-projection",
       "marketplace:marketplace-catalog-item-projection",
+      "marketplace:marketplace-listing-projection",
+      "ordering:ordering-marketplace-supply-input-projection",
       "pricing:pricing-catalog-input-projection",
     ],
     routeDependencyIds: [],
@@ -367,6 +370,7 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [
       "marketplace.listing-availability-self-refresh",
+      "marketplace.listing-create-from-list-to-detail",
       "marketplace.listing-create-to-detail",
       "marketplace.listing-fee-lock-self-refresh",
       "marketplace.listing-inventory-self-refresh",

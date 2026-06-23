@@ -43,6 +43,7 @@ export type CheckoutCartSellerOptionRow = Readonly<{
   price_amount: string;
   available_quantity: number;
   product_summary: string | null;
+  product_measure_snapshot: Readonly<Record<string, unknown>> | null;
 }>;
 
 type CartLinePageRow = Readonly<{
@@ -116,6 +117,10 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
       source.product_summary === null || source.product_summary === undefined
         ? null
         : String(source.product_summary).trim() || null,
+    product_measure_snapshot:
+      typeof source.product_measure_snapshot === "object" && source.product_measure_snapshot !== null
+        ? (source.product_measure_snapshot as Readonly<Record<string, unknown>>)
+        : null,
   };
 }
 
@@ -200,7 +205,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
                  0
                )
              ),
-             'product_summary', o.product_summary
+             'product_summary', o.product_summary,
+             'product_measure_snapshot', o.product_measure_snapshot
            )
            ORDER BY o.price_amount ASC, o.listing_id ASC
          ),

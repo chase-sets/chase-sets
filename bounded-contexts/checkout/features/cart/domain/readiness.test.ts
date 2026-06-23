@@ -9,6 +9,21 @@ import {
   type CartReadinessLine,
 } from "./readiness";
 
+const rawProductMeasureSnapshot = {
+  catalogItemId: "cat_1",
+  productId: "cat_1::form:raw",
+  selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+  measureVersion: "pm_test_raw_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.02,
+  unitWeightOunces: 0.08,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+};
+
 const readyLine: CartReadinessLine = {
   line_id: "cli_ready",
   catalog_catalog_item_id: "cat_1",
@@ -27,6 +42,7 @@ const readyLine: CartReadinessLine = {
       price_amount: "25.00",
       available_quantity: 1,
       product_summary: "Raw",
+      product_measure_snapshot: rawProductMeasureSnapshot,
     },
   ],
   updated_at: "2026-06-09T00:00:00.000Z",
@@ -73,6 +89,7 @@ describe("cart readiness snapshots", () => {
           price_amount: "10.00",
           available_quantity: 2,
           product_summary: "Raw",
+          product_measure_snapshot: rawProductMeasureSnapshot,
         },
       ],
     };
@@ -169,6 +186,7 @@ describe("cart readiness snapshots", () => {
           price_amount: "30.00",
           available_quantity: 1,
           product_summary: "Raw",
+          product_measure_snapshot: rawProductMeasureSnapshot,
         },
         {
           listing_id: "lst_lower",
@@ -177,6 +195,7 @@ describe("cart readiness snapshots", () => {
           price_amount: "24.00",
           available_quantity: 1,
           product_summary: "Raw",
+          product_measure_snapshot: rawProductMeasureSnapshot,
         },
       ],
     };
@@ -405,6 +424,31 @@ describe("cart readiness snapshots", () => {
     });
   });
 
+  it("blocks a priced and available listing when its shipping measure is missing", () => {
+    const missingMeasureLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_missing_measure",
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          product_measure_snapshot: null,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([missingMeasureLine]);
+
+    expect(cartReadinessLineHasFulfillment(missingMeasureLine)).toBe(false);
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_missing_measure"]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_missing_measure",
+      outcome: "checkout",
+      reason: "shipping-measure-missing",
+    });
+  });
+
   it("marks a Smart Match line ready when active options exist", () => {
     const optimizeWithOptions: CartReadinessLine = {
       ...readyLine,
@@ -425,6 +469,61 @@ describe("cart readiness snapshots", () => {
       lineId: "cli_optimize_ready",
       outcome: "checkout",
       reason: "ready",
+    });
+  });
+
+  it("marks a Smart Match line ready when measured supply is split across listings", () => {
+    const splitSupplyLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_split_supply",
+      quantity: 3,
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 2, price_amount: "21.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_b", available_quantity: 1, price_amount: "18.00" },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([splitSupplyLine]);
+
+    expect(cartReadinessLineHasFulfillment(splitSupplyLine)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_split_supply",
+      outcome: "checkout",
+      reason: "ready",
+    });
+    expect(applyCartReadinessToLines([splitSupplyLine], snapshot)).toEqual([splitSupplyLine]);
+  });
+
+  it("marks split Smart Match supply unresolved when shipping measures are incomplete", () => {
+    const splitSupplyMissingMeasureLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_split_missing_measure",
+      quantity: 3,
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 2, price_amount: "21.00" },
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_b",
+          available_quantity: 1,
+          price_amount: "18.00",
+          product_measure_snapshot: null,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([splitSupplyMissingMeasureLine]);
+
+    expect(cartReadinessLineHasFulfillment(splitSupplyMissingMeasureLine)).toBe(false);
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_split_missing_measure",
+      outcome: "checkout",
+      reason: "shipping-measure-missing",
     });
   });
 

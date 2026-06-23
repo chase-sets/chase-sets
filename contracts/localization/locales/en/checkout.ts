@@ -42,9 +42,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.from": "from",
   "checkout.features.cart.ui.cartPage.fulfillment.needs.review": "Some items need attention",
   "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.many":
-    "{count} items need fulfillment or availability resolved before checkout.",
+    "{count} items need fulfillment, shipping measure, or availability resolved before checkout.",
   "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.one":
-    "1 item needs fulfillment or availability resolved before checkout.",
+    "1 item needs fulfillment, shipping measure, or availability resolved before checkout.",
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
   "checkout.features.cart.ui.cartPage.lock.this.listing": "Lock this listing",
@@ -73,6 +73,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
   "checkout.features.cart.ui.cartPage.shipping.and.tax": "Shipping and tax",
+  "checkout.features.cart.ui.cartPage.shipping.measure.missing": "Shipping measure missing",
   "checkout.features.cart.ui.cartPage.selected.listing": "Selected listing",
   "checkout.features.cart.ui.cartPage.keep.shopping": "Keep shopping",
   "checkout.features.cart.ui.cartPage.standard": "Standard",

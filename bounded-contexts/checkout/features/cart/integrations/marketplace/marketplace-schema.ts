@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_options (
   price_amount numeric(12, 2) NOT NULL,
   listing_quantity_cap integer NOT NULL,
   product_summary text NULL,
+  product_measure_snapshot jsonb NULL,
   status text NOT NULL,
   updated_at timestamptz NOT NULL,
   seller_slug text NULL,
@@ -20,4 +21,7 @@ CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_options (
 
 CREATE INDEX IF NOT EXISTS checkout_marketplace_seller_options_product_idx
   ON checkout_marketplace_seller_options (product_id, status, price_amount);
+
+ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL;
 `;

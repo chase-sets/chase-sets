@@ -3,6 +3,10 @@ import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recomputeCheckoutSellerOptionSupply } from "../inventory/inventory-projection";
 
+function productMeasureSnapshotFromUnknown(value: unknown) {
+  return value && typeof value === "object" ? JSON.stringify(value) : null;
+}
+
 /**
  * Checkout-local seller-options projection.
  *
@@ -36,6 +40,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         productSummary?: string | null;
         priceAmount: string;
         quantityCap: number;
+        productMeasureSnapshot?: unknown;
       };
 
       await db.query(
@@ -47,10 +52,11 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            price_amount,
            listing_quantity_cap,
            product_summary,
+           product_measure_snapshot,
            status,
            updated_at,
            inventory_item_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              product_id = EXCLUDED.product_id,
@@ -58,6 +64,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
              price_amount = EXCLUDED.price_amount,
              listing_quantity_cap = EXCLUDED.listing_quantity_cap,
              product_summary = EXCLUDED.product_summary,
+             product_measure_snapshot = EXCLUDED.product_measure_snapshot,
              inventory_item_id = EXCLUDED.inventory_item_id,
              updated_at = EXCLUDED.updated_at`,
         [
@@ -68,6 +75,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           data.priceAmount,
           data.quantityCap,
           data.productSummary ?? null,
+          productMeasureSnapshotFromUnknown(data.productMeasureSnapshot),
           event.timing.recordedAt,
           data.inventoryItemId ?? null,
         ],
@@ -79,6 +87,33 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
       if (data.inventoryItemId) {
         await recomputeCheckoutSellerOptionSupply(db, data.inventoryItemId);
       }
+    },
+    "catalog.catalog-item.product-measures-resolved": async (event) => {
+      const data = event.data as {
+        catalogItemId: string;
+        products?: unknown;
+      };
+
+      await db.query(
+        `WITH resolved_products AS (
+           SELECT measure
+           FROM jsonb_array_elements($2::jsonb) AS product(measure)
+         )
+         UPDATE checkout_marketplace_seller_options AS option
+         SET product_measure_snapshot = (
+               SELECT measure
+               FROM resolved_products
+               WHERE measure->>'productId' = option.product_id
+               LIMIT 1
+             ),
+             updated_at = $3
+         WHERE option.catalog_catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          JSON.stringify(Array.isArray(data.products) ? data.products : []),
+          event.timing.recordedAt,
+        ],
+      );
     },
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as { priceAmount: string };

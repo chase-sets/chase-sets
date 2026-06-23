@@ -50,6 +50,7 @@ type SeededSellerOption = Readonly<{
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
   product_summary: string | null;
+  product_measure_snapshot: Readonly<Record<string, unknown>> | null;
   status: string;
   seller_slug: string | null;
   seller_display_name: string | null;
@@ -130,6 +131,7 @@ class CartReadModelDb implements PgQueryable {
             price_amount: option.price_amount,
             available_quantity: holdsAccurateAvailableQuantity(option),
             product_summary: option.product_summary,
+            product_measure_snapshot: option.product_measure_snapshot,
           })),
       }));
 
@@ -154,6 +156,24 @@ function seededLine(overrides: Partial<SeededCartLine> = {}): SeededCartLine {
   };
 }
 
+function productMeasureSnapshot(overrides: Partial<Readonly<Record<string, unknown>>> = {}) {
+  return {
+    catalogItemId: "cat_charizard",
+    productId: "cat_charizard::form:raw",
+    selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+    measureVersion: "pm_test_raw_v1",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.02,
+    unitWeightOunces: 0.08,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    source: "profile",
+    confidence: "measured",
+    ...overrides,
+  };
+}
+
 function seededOption(overrides: Partial<SeededSellerOption> = {}): SeededSellerOption {
   return {
     listing_id: "lst_dear",
@@ -164,6 +184,7 @@ function seededOption(overrides: Partial<SeededSellerOption> = {}): SeededSeller
     supply_total_quantity: 100,
     active_held_quantity: 0,
     product_summary: "Raw",
+    product_measure_snapshot: productMeasureSnapshot(),
     status: "active",
     seller_slug: "card-vault",
     seller_display_name: "Card Vault",
@@ -421,6 +442,64 @@ describe("seller-options readiness end-to-end (cart + checkout, one optimizer / 
         sellerAccountId: "acc_m47_seller",
       }),
     ]);
+    expect(sessionSideReadiness(cartLines, snapshot)).toMatchObject({
+      valid: true,
+      current: snapshot,
+    });
+  });
+
+  it("does not mark active seller supply ready before its product measure projects", async () => {
+    const selectedListingId = "lst_missing_measure";
+    const db = new CartReadModelDb(
+      [
+        seededLine({
+          line_id: "cli_abra_missing_measure",
+          catalog_catalog_item_id: "cat_abra",
+          product_id: "cat_abra::form:raw:condition:excellent",
+          item_title: "Abra",
+          quantity: 1,
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: selectedListingId,
+          seller_preference_id: selectedListingId,
+        }),
+      ],
+      [
+        seededOption({
+          listing_id: selectedListingId,
+          seller_account_id: "acc_m47_seller",
+          product_id: "cat_abra::form:raw:condition:excellent",
+          price_amount: "2.34",
+          listing_quantity_cap: 1,
+          supply_total_quantity: null,
+          active_held_quantity: null,
+          product_summary: "Raw / Excellent",
+          product_measure_snapshot: null,
+          seller_slug: "m47-seller",
+          seller_display_name: "M47 Seller",
+        }),
+      ],
+    );
+
+    const cartLines = await listCartLines(db, "acc_buyer");
+    expect(cartLines[0]?.seller_options).toEqual([
+      expect.objectContaining({
+        listing_id: selectedListingId,
+        price_amount: "2.34",
+        available_quantity: 1,
+        product_measure_snapshot: null,
+      }),
+    ]);
+
+    const snapshot = createCartReadinessSnapshot(cartLines);
+
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_abra_missing_measure"]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_abra_missing_measure",
+      outcome: "checkout",
+      reason: "shipping-measure-missing",
+    });
     expect(sessionSideReadiness(cartLines, snapshot)).toMatchObject({
       valid: true,
       current: snapshot,

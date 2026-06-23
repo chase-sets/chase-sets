@@ -75,6 +75,20 @@ function demoSellerOptionFor(lockedListingId: string | null): CartReadinessLine[
     price_amount: line.priceAmount,
     available_quantity: line.availableQuantity,
     product_summary: line.productSummary,
+    product_measure_snapshot: {
+      catalogItemId: line.catalogItemId,
+      productId: `${line.catalogItemId}::seed-readiness-fallback`,
+      selectedOptions: [...line.selectedOptions],
+      measureVersion: "checkout-seed-demo-raw-card-v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.02,
+      unitWeightOunces: 0.08,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+    },
   };
 }
 

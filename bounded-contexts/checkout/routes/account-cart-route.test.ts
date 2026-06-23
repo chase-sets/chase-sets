@@ -329,7 +329,18 @@ describe("checkout web routes: account cart", () => {
           locked_listing_id: "lst_new",
           selected_listing_id: "lst_new",
           availability_state: "available",
-          seller_options: [{ listing_id: "lst_new", available_quantity: 1, price_amount: "4.77" }],
+          seller_options: [
+            {
+              listing_id: "lst_new",
+              available_quantity: 1,
+              price_amount: "4.77",
+              product_measure_snapshot: {
+                catalogItemId: "cat_1",
+                productId: "prd_1",
+                measureVersion: "pm_test_raw_v1",
+              },
+            },
+          ],
         },
       ],
       count: 1,
