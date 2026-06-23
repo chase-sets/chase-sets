@@ -99,6 +99,18 @@ function accountNotFoundResponse() {
   );
 }
 
+function projectionFreshnessTimeoutResponse() {
+  return jsonResponse(
+    {
+      error: {
+        code: "projection_freshness_timeout",
+        message: "Projection read model did not catch up before the freshness timeout.",
+      },
+    },
+    503,
+  );
+}
+
 describe("marketplace account route loader", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -132,6 +144,89 @@ describe("marketplace account route loader", () => {
     });
   });
 
+  it("retries actor resolution without the fresh receipt when Auth session freshness times out after registration", async () => {
+    let authCalls = 0;
+    const authFreshnessHeaders: boolean[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/auth/session")) {
+          authCalls += 1;
+          authFreshnessHeaders.push(new Headers(init?.headers).has(CHASE_SETS_READ_AFTER_WRITE_HEADER));
+          if (authCalls === 1) {
+            return projectionFreshnessTimeoutResponse();
+          }
+
+          return jsonResponse({ actor });
+        }
+
+        if (url.includes("/api/identity/current-actor-display")) {
+          return jsonResponse(actorDisplay);
+        }
+
+        if (url.includes("/api/identity/accounts/acc_identity")) {
+          return jsonResponse({
+            account_id: "acc_identity",
+            account_type: "personal",
+            badges: [],
+            display_name: "Fresh Seller",
+            name: "Fresh Seller",
+            status: "active",
+            updated_at: "",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    const path = appendFreshWriteToken("/account?authPrompt=add-passkey", identityCommit("57"));
+    const data = await loader({
+      request: accountRequest(path),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data.account).toMatchObject({
+      account_id: "acc_identity",
+      display_name: "Fresh Seller",
+    });
+    expect(data.accountRecovery).toBeNull();
+    expect(authCalls).toBe(2);
+    expect(authFreshnessHeaders).toEqual([true, false]);
+  });
+
+  it("does not retry actor resolution freshness timeouts without a fresh write receipt", async () => {
+    let authCalls = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/auth/session")) {
+          authCalls += 1;
+          return projectionFreshnessTimeoutResponse();
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    await expect(
+      loader({
+        request: accountRequest(),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 503 });
+
+    expect(authCalls).toBe(1);
+  });
+
   it("does not fabricate an actor fallback for account 404s without a fresh write receipt", async () => {
     stubAccountLoaderFetch(accountNotFoundResponse);
 
@@ -158,18 +253,46 @@ describe("marketplace account route loader", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
+  it("uses the command-side account fallback when a fresh account projection 404 hides a committed account", async () => {
+    let accountCalls = 0;
+    stubAccountLoaderFetch((_input, init) => {
+      accountCalls += 1;
+      const hasFreshWriteHeader = new Headers(init?.headers).has(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+      if (hasFreshWriteHeader) {
+        return accountNotFoundResponse();
+      }
+
+      return jsonResponse({
+        account_id: "acc_identity",
+        account_type: "personal",
+        badges: [],
+        display_name: "Fresh Seller",
+        name: "Fresh Seller",
+        status: "active",
+        updated_at: "",
+      });
+    });
+
+    const path = appendFreshWriteToken("/account?authPrompt=add-passkey", identityCommit("58"));
+    const data = await loader({
+      request: accountRequest(path),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data.account).toMatchObject({
+      account_id: "acc_identity",
+      display_name: "Fresh Seller",
+    });
+    expect(data.accountRecovery).toEqual({
+      kind: "temporary-actor-account-fallback",
+      recoveryKind: "refreshable-catching-up",
+    });
+    expect(accountCalls).toBe(2);
+  });
+
   it("uses the shared temporary fallback for fresh projection timeout reads", async () => {
-    stubAccountLoaderFetch(() =>
-      jsonResponse(
-        {
-          error: {
-            code: "projection_freshness_timeout",
-            message: "Projection read model did not catch up before the freshness timeout.",
-          },
-        },
-        503,
-      ),
-    );
+    stubAccountLoaderFetch(projectionFreshnessTimeoutResponse);
 
     const path = appendFreshWriteToken("/account?authPrompt=add-passkey", identityCommit("53"));
     const data = await loader({
@@ -191,15 +314,7 @@ describe("marketplace account route loader", () => {
       accountCalls += 1;
       const hasFreshWriteHeader = new Headers(init?.headers).has(CHASE_SETS_READ_AFTER_WRITE_HEADER);
       if (hasFreshWriteHeader) {
-        return jsonResponse(
-          {
-            error: {
-              code: "projection_freshness_timeout",
-              message: "Projection read model did not catch up before the freshness timeout.",
-            },
-          },
-          503,
-        );
+        return projectionFreshnessTimeoutResponse();
       }
 
       return jsonResponse({

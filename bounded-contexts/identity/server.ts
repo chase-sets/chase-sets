@@ -1,8 +1,6 @@
 import {
   createActorEventStoreContext as createGenericActorEventStoreContext,
   hasPermission as hasActorPermission,
-  requireActorFromAuthApi,
-  resolveActorFromAuthApi,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 import {
@@ -11,7 +9,6 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
-import type { PermissionKey } from "./support/runtime-support/common";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 
@@ -28,6 +25,11 @@ export {
   type LinkedPlatformAuthorizationRow,
   type LinkedPlatformAuthorizationStore,
 } from "./support/ucp-support/linked-platform-authorizations";
+export {
+  requestWithoutFreshWrite,
+  requireActorFromIdentityApi,
+  resolveActorFromIdentityApi,
+} from "./support/route-support/identity-request";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
@@ -178,40 +180,4 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
 
 export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
-}
-
-export async function resolveActorFromIdentityApi(
-  options: Readonly<{
-    identityApiBaseUrl: string;
-    request: Request;
-    fetch?: typeof globalThis.fetch;
-  }>,
-): Promise<ResolvedActor | null> {
-  const authApiBaseUrl = new URL(options.identityApiBaseUrl);
-  authApiBaseUrl.pathname = "/api/auth";
-  return resolveActorFromAuthApi({
-    authApiBaseUrl: authApiBaseUrl.toString().replace(/\/$/, ""),
-    request: options.request,
-    fetch: options.fetch,
-  });
-}
-
-export async function requireActorFromIdentityApi(
-  options: Readonly<{
-    request: Request;
-    permission?: PermissionKey;
-    signInPath?: string;
-    identityApiBaseUrl?: string;
-    fetch?: typeof globalThis.fetch;
-  }>,
-): Promise<ResolvedActor> {
-  return requireActorFromAuthApi({
-    request: options.request,
-    permission: options.permission,
-    signInPath: options.signInPath,
-    authApiBaseUrl: options.identityApiBaseUrl
-      ? new URL("/api/auth", `${options.identityApiBaseUrl}/`).toString().replace(/\/$/, "")
-      : resolveRequestApiBaseUrl(options.request, "/api/auth"),
-    fetch: options.fetch,
-  });
 }
