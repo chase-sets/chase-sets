@@ -149,6 +149,12 @@
           "dependencies": [
             {
               "readModelTable": "identity_sessions"
+            },
+            {
+              "readModelTable": "auth_identity_user_memberships"
+            },
+            {
+              "readModelTable": "auth_identity_memberships"
             }
           ]
         },
