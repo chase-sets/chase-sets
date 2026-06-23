@@ -9,7 +9,7 @@ import {
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
+import { requestWithoutFreshWrite, requireActorFromIdentityApi } from "../../support/route-support/identity-request";
 import { IdentityApiError, type Account, type CurrentActorDisplay } from "../../support/request-support/api-client";
 import { AccountProfilePage } from "../../features/accounts/ui/account-profile-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -39,12 +39,6 @@ function identityApiErrorStatus(error: unknown) {
 
 function identityApiErrorBody(error: unknown) {
   return error instanceof IdentityApiError ? error.body : null;
-}
-
-function requestWithoutFreshWrite(request: Request) {
-  const url = new URL(request.url);
-  url.searchParams.delete("afterWrite");
-  return new Request(url, request);
 }
 
 async function getAccountOrActorFallback(
