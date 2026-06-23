@@ -682,7 +682,10 @@
       },
       "proof": {
         "authoritativeResponse": "The issue-owned routes respond from the command handler's evolved aggregate state, the bulk lifecycle preview result, or the authoring job enqueue result. Tests prove stale projection detail reads are not consulted after a command snapshot and that lifecycle and bulk preview/confirm responses carry the committed or durable snapshot needed for the operator UI.",
-        "tests": ["bounded-contexts/catalog/tests/catalog-admin-model-mutation-consistency.test.ts"]
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-admin-model-mutation-consistency.test.ts",
+          "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
+        ]
       }
     },
     {
@@ -721,7 +724,10 @@
       },
       "proof": {
         "authoritativeResponse": "Catalog Item command routes respond from the command handler's evolved aggregate state via commandSnapshotResponse. Bulk preview routes respond from the computed preview result, and bulk confirm routes respond from the authoring job enqueue snapshot. Tests prove stale item detail reads are not consulted after command snapshots and preview/confirm responses carry the snapshot needed for operator UI.",
-        "tests": ["bounded-contexts/catalog/tests/catalog-item-mutation-consistency.test.ts"]
+        "tests": [
+          "bounded-contexts/catalog/tests/catalog-item-mutation-consistency.test.ts",
+          "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
+        ]
       }
     },
     {
@@ -764,7 +770,8 @@
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",
-          "bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts"
+          "bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts",
+          "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
         ]
       }
     },
@@ -814,7 +821,8 @@
         "fallback": "The client parses initial command-owned job/profile/review/preview snapshots, reconnects durable job streams with last-event-id, retries transient 429/503 stream overloads, and treats sync.required.snapshot as the authoritative durable job snapshot when a stream cannot replay all events. Non-stream workbench commands return the same scoped API snapshot directly.",
         "tests": [
           "bounded-contexts/catalog/support/shell-support/api/client.test.ts",
-          "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"
+          "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx",
+          "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
         ]
       }
     },
@@ -848,7 +856,10 @@
       },
       "proof": {
         "authoritativeResponse": "integrationsAction dispatches CatalogIntegrationsCommandResult snapshots from command handlers; promotion execution re-previews live context to suppress stale preview submissions, durable job commands return job ids/status, and actions clear stale preview/job context when a new command snapshot supersedes it.",
-        "tests": ["bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"]
+        "tests": [
+          "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx",
+          "bounded-contexts/catalog/tests/catalog-admin-post-write-default-safe-contract.test.ts"
+        ]
       }
     },
     {
