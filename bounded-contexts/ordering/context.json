@@ -197,7 +197,13 @@
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
-              "projectionName": "ordering-order-projection"
+              "readModelTable": "ordering_order_pages"
+            },
+            {
+              "readModelTable": "ordering_order_line_pages"
+            },
+            {
+              "readModelTable": "ordering_order_hold_pages"
             }
           ]
         },
@@ -206,7 +212,13 @@
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
-              "projectionName": "ordering-order-projection"
+              "readModelTable": "ordering_order_pages"
+            },
+            {
+              "readModelTable": "ordering_order_line_pages"
+            },
+            {
+              "readModelTable": "ordering_order_hold_pages"
             }
           ]
         },
@@ -261,6 +273,7 @@
         "apiContextName": "ordering",
         "apiRoutePath": "/sales",
         "projectionDependencies": ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+        "freshnessDependencyReason": "The sales list must wait for both the accepted-offer input projection and the order page projection because it combines offer acceptance readiness with the resulting order list.",
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Seller checkout confirmation preserves the Marketplace accepted-offer receipt on the Sales link; the Sales loader forwards that receipt to Ordering so accepted-offer inputs and order pages catch up before the seller sees the post-sale list."
@@ -281,7 +294,7 @@
         "routeId": "account-purchase",
         "apiContextName": "ordering",
         "apiRoutePath": "/purchases/:id",
-        "projectionDependencies": ["ordering-order-projection"],
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -303,7 +316,7 @@
         "routeId": "account-sale",
         "apiContextName": "ordering",
         "apiRoutePath": "/sales/:id",
-        "projectionDependencies": ["ordering-order-projection"],
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -408,7 +421,7 @@
         "routeId": "account-purchase",
         "apiContextName": "ordering",
         "apiRoutePath": "/purchases/:id",
-        "projectionDependencies": ["ordering-order-projection"],
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Purchase cancellation redirects back to purchase detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
@@ -431,7 +444,7 @@
         "routeId": "account-sale",
         "apiContextName": "ordering",
         "apiRoutePath": "/sales/:id",
-        "projectionDependencies": ["ordering-order-projection"],
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."

@@ -231,6 +231,208 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("accepts read-model table dependencies resolved through single-owner projection ownership", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(root, createContextManifest(root));
+
+    expect(result.violations).toEqual([]);
+    expect(result.reportEntries[0].dependencies).toEqual(["checkout_session_pages"]);
+  });
+
+  it("fails when a live freshness route omits runtime dependencies", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        apiMounts: [
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [
+              {
+                routePath: "/account/checkout-sessions/:sessionId",
+                methods: ["GET", "HEAD"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readFreshnessRoutes /account/checkout-sessions/:sessionId: readFreshnessRoutes entry '/account/checkout-sessions/:sessionId' must declare dependencies",
+    );
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.readModelTables includes 'checkout_session_pages' but the matching readFreshnessRoutes dependencies do not",
+    );
+  });
+
+  it("accepts explicit projection dependencies when inventory explains the multi-group exception", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        projectionGroups: [
+          {
+            projectionName: "checkout.session-projection",
+            sourceContextNames: ["checkout"],
+            ownedTables: ["checkout_session_pages"],
+          },
+          {
+            projectionName: "checkout.payment-input-projection",
+            sourceContextNames: ["payments"],
+            ownedTables: ["checkout_payment_inputs"],
+          },
+        ],
+        apiMounts: [
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [
+              {
+                routePath: "/account/checkout-sessions/:sessionId",
+                methods: ["GET", "HEAD"],
+                dependencies: [
+                  { projectionName: "checkout.session-projection" },
+                  { projectionName: "checkout.payment-input-projection" },
+                ],
+              },
+            ],
+          },
+        ],
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendFreshWriteToken"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              projectionDependencies: ["checkout.session-projection", "checkout.payment-input-projection"],
+              freshnessDependencyReason:
+                "The session detail route reads two projection groups before either exposes one canonical owned table for the whole read.",
+              helperUses: ["loadFreshlyWrittenResource"],
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+        mutationConsistencyInventory: [
+          {
+            id: "checkout.session-start-action",
+            owner: "checkout",
+            risk: "critical",
+            strategy: "fresh-read",
+            surfaces: ["route-action:bounded-contexts/checkout/routes/checkout-start.tsx"],
+            visibleDestination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              projectionDependencies: ["checkout.session-projection", "checkout.payment-input-projection"],
+              freshnessDependencyReason:
+                "The session detail route reads two projection groups before either exposes one canonical owned table for the whole read.",
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it("fails when derived freshness dependencies have ambiguous table ownership", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        projectionGroups: [
+          {
+            projectionName: "checkout.session-projection",
+            sourceContextNames: ["checkout"],
+            ownedTables: ["checkout_session_pages"],
+          },
+          {
+            projectionName: "checkout.duplicate-session-projection",
+            sourceContextNames: ["checkout"],
+            ownedTables: ["checkout_session_pages"],
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination: readModelTable 'checkout.checkout_session_pages' is owned by multiple projection groups (checkout.duplicate-session-projection, checkout.session-projection)",
+    );
+  });
+
+  it("fails when explicit projection dependencies omit the structure justification", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        apiMounts: [
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [
+              {
+                routePath: "/account/checkout-sessions/:sessionId",
+                methods: ["GET", "HEAD"],
+                dependencies: [{ projectionName: "checkout.session-projection" }],
+              },
+            ],
+          },
+        ],
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendFreshWriteToken"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              projectionDependencies: ["checkout.session-projection"],
+              helperUses: ["loadFreshlyWrittenResource"],
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.freshnessDependencyReason is required when declaring projectionDependencies instead of readModelTables",
+    );
+  });
+
   it("fails when transient recovery declares an unknown recovery kind", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);

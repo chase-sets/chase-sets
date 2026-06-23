@@ -613,6 +613,13 @@ function validateFreshnessRouteDependencies(options) {
     violations.push(`${routeLabel}: routePath '${route.routePath}' does not match a discovered GET/HEAD API route`);
   }
 
+  if (!Array.isArray(route.dependencies) || route.dependencies.length === 0) {
+    violations.push(
+      `${routeLabel}: readFreshnessRoutes entry '${route.routePath ?? "unknown"}' must declare dependencies`,
+    );
+    return;
+  }
+
   for (const [dependencyIndex, dependency] of (route.dependencies ?? []).entries()) {
     const dependencyLabel = `${routeLabel} dependencies[${dependencyIndex}]`;
     if (!isPlainObject(dependency)) {
@@ -648,11 +655,78 @@ function validateFreshnessRouteDependencies(options) {
       }
     }
   }
+}
 
-  if (!Array.isArray(route.dependencies) || route.dependencies.length === 0) {
+function validateReadModelTableOwnership(options) {
+  const { dependencyLabel, tableName, targetContextName, tableOwnersByContext, violations } = options;
+  const owners = tableOwnersByContext.get(targetContextName)?.get(tableName) ?? [];
+  if (owners.length === 0) {
     violations.push(
-      `${contextLabel}: readFreshnessRoutes entry '${route.routePath ?? "unknown"}' must declare dependencies`,
+      `${dependencyLabel}: readModelTable '${targetContextName}.${tableName}' is not owned by a declared projection group`,
     );
+    return;
+  }
+  if (owners.length > 1) {
+    violations.push(
+      `${dependencyLabel}: readModelTable '${targetContextName}.${tableName}' is owned by multiple projection groups (${owners
+        .map((owner) => owner.projectionName)
+        .sort()
+        .join(", ")})`,
+    );
+  }
+}
+
+function validateProjectionDependencyJustification(options) {
+  const { sectionLabel, section, violations } = options;
+  const projectionDependencies = section.projectionDependencies ?? [];
+  if (projectionDependencies.length > 0 && !isNonEmptyString(section.freshnessDependencyReason)) {
+    violations.push(
+      `${sectionLabel}.freshnessDependencyReason is required when declaring projectionDependencies instead of readModelTables`,
+    );
+  }
+}
+
+function validateInventoryFreshnessDependencies(options) {
+  const { entryLabel, sectionLabel, section, freshnessRoute, targetContextName, projectionGroupsByContext } = options;
+  const { tableOwnersByContext, violations } = options;
+  const declaredTables = new Set(
+    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.readModelTable).filter(isNonEmptyString),
+  );
+  const declaredProjections = new Set(
+    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.projectionName).filter(isNonEmptyString),
+  );
+  const projectionGroups = projectionGroupsByContext.get(targetContextName) ?? new Map();
+
+  for (const tableName of section.readModelTables ?? []) {
+    if (!declaredTables.has(tableName)) {
+      violations.push(
+        `${entryLabel}: ${sectionLabel}.readModelTables includes '${tableName}' but the matching readFreshnessRoutes dependencies do not`,
+      );
+    }
+
+    validateReadModelTableOwnership({
+      dependencyLabel: `${entryLabel}: ${sectionLabel}`,
+      tableName,
+      targetContextName,
+      tableOwnersByContext,
+      violations,
+    });
+  }
+
+  validateProjectionDependencyJustification({ sectionLabel: `${entryLabel}: ${sectionLabel}`, section, violations });
+
+  for (const projectionName of section.projectionDependencies ?? []) {
+    if (!projectionGroups.has(projectionName)) {
+      violations.push(
+        `${entryLabel}: ${sectionLabel}.projectionDependencies includes '${targetContextName}.${projectionName}' but that projection group is not declared`,
+      );
+      continue;
+    }
+    if (!declaredProjections.has(projectionName)) {
+      violations.push(
+        `${entryLabel}: ${sectionLabel}.projectionDependencies includes '${projectionName}' but the matching readFreshnessRoutes explicit dependencies do not`,
+      );
+    }
   }
 }
 
@@ -949,7 +1023,7 @@ function validateMutationException(entryLabel, entry, violations) {
 }
 
 function validateMutationFreshReadProof(options) {
-  const { entryLabel, entry, freshnessRoutesByContext, violations } = options;
+  const { entryLabel, entry, indexes, violations } = options;
   const destination = isPlainObject(entry.visibleDestination) ? entry.visibleDestination : {};
   if (!isNonEmptyString(destination.apiContextName)) {
     violations.push(`${entryLabel}: fresh-read visibleDestination.apiContextName is required`);
@@ -975,7 +1049,9 @@ function validateMutationFreshReadProof(options) {
     violations.push(`${entryLabel}: fresh-read requires readModelTables or projectionDependencies`);
   }
 
-  const freshnessRoute = freshnessRoutesByContext.get(destination.apiContextName)?.get(destination.apiRoutePath);
+  const freshnessRoute = indexes.freshnessRoutesByContext
+    .get(destination.apiContextName)
+    ?.get(destination.apiRoutePath);
   if (!freshnessRoute) {
     violations.push(
       `${entryLabel}: fresh-read destination '${destination.apiContextName}.${destination.apiRoutePath}' has no matching readFreshnessRoutes declaration`,
@@ -983,26 +1059,16 @@ function validateMutationFreshReadProof(options) {
     return;
   }
 
-  const declaredTables = new Set(
-    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.readModelTable).filter(isNonEmptyString),
-  );
-  const declaredProjections = new Set(
-    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.projectionName).filter(isNonEmptyString),
-  );
-  for (const tableName of readModelTables) {
-    if (!declaredTables.has(tableName)) {
-      violations.push(
-        `${entryLabel}: readModelTable '${tableName}' is not declared on the matching readFreshnessRoutes entry`,
-      );
-    }
-  }
-  for (const projectionName of projectionDependencies) {
-    if (!declaredProjections.has(projectionName)) {
-      violations.push(
-        `${entryLabel}: projectionDependency '${projectionName}' is not declared on the matching readFreshnessRoutes entry`,
-      );
-    }
-  }
+  validateInventoryFreshnessDependencies({
+    entryLabel,
+    sectionLabel: "fresh-read visibleDestination",
+    section: destination,
+    freshnessRoute,
+    targetContextName: destination.apiContextName,
+    projectionGroupsByContext: indexes.projectionGroupsByContext,
+    tableOwnersByContext: indexes.tableOwnersByContext,
+    violations,
+  });
 }
 
 function validateTransientRecoveryDeclaration(options) {
@@ -1039,7 +1105,7 @@ function validateMutationStrategyProof(entryLabel, entry, indexes, violations) {
     validateMutationFreshReadProof({
       entryLabel,
       entry,
-      freshnessRoutesByContext: indexes.freshnessRoutesByContext,
+      indexes,
       violations,
     });
     return;
@@ -1327,28 +1393,16 @@ function validateInventoryEntry(options) {
     return entry;
   }
 
-  const declaredTables = new Set(
-    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.readModelTable).filter(isNonEmptyString),
-  );
-  const declaredProjections = new Set(
-    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.projectionName).filter(isNonEmptyString),
-  );
-
-  for (const tableName of destination.readModelTables ?? []) {
-    if (!declaredTables.has(tableName)) {
-      violations.push(
-        `${entryLabel}: destination.readModelTables includes '${tableName}' but the matching readFreshnessRoutes dependencies do not`,
-      );
-    }
-  }
-
-  for (const projectionName of destination.projectionDependencies ?? []) {
-    if (!declaredProjections.has(projectionName)) {
-      violations.push(
-        `${entryLabel}: destination.projectionDependencies includes '${projectionName}' but the matching readFreshnessRoutes dependencies do not`,
-      );
-    }
-  }
+  validateInventoryFreshnessDependencies({
+    entryLabel,
+    sectionLabel: "destination",
+    section: destination,
+    freshnessRoute,
+    targetContextName: destination.apiContextName,
+    projectionGroupsByContext,
+    tableOwnersByContext,
+    violations,
+  });
 
   validateFreshnessRouteDependencies({
     context: context,
