@@ -97,7 +97,22 @@ describe("marketplace route layout", () => {
       "Sell",
       "Buy Cart",
     ]);
-    expect(sellNav?.children?.map((item) => item.label)).toEqual(["Listings", "Offer Matches", "Sales", "Shipping"]);
+    expect(sellNav?.children?.map((item) => item.label)).toEqual([
+      "Inventory",
+      "Import",
+      "Listings",
+      "Offer Matches",
+      "Sales",
+      "Shipping",
+    ]);
+    expect(sellNav?.children?.map((item) => item.href)).toEqual([
+      "/account/inventory",
+      "/account/inventory/imports",
+      "/account/listings",
+      "/account/offers/matches",
+      "/account/sales",
+      "/account/sales/shipments",
+    ]);
     expect(accountMenuItems.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
@@ -112,8 +127,8 @@ describe("marketplace route layout", () => {
       "Sell",
       "Wallet",
     ]);
-    expect(html).not.toContain('href="/account/inventory"');
-    expect(html).not.toContain('href="/account/inventory/imports"');
+    expect(html).toContain('href="/account/inventory"');
+    expect(html).toContain('href="/account/inventory/imports"');
     expect(html).toContain('href="/account/cart"');
     expect(html).not.toContain('href="/account/product-alerts"');
     expect(html).not.toContain('href="/account/notifications"');
@@ -184,6 +199,18 @@ describe("marketplace route layout", () => {
       "Alerts",
       "Account",
     ]);
+  });
+
+  it("keeps inventory workflows permission-scoped inside seller navigation", () => {
+    const actor = {
+      permissions: ["accounts.view", "listings.view", "offers.view", "orders.view", "orders.manage"],
+    };
+
+    const sellNav = resolveMarketplaceNavItems("top-nav", actor).find((item) => item.key === "selling-workspace");
+
+    expect(sellNav?.children?.map((item) => item.label)).toEqual(["Listings", "Offer Matches", "Sales"]);
+    expect(sellNav?.children?.map((item) => item.href)).not.toContain("/account/inventory");
+    expect(sellNav?.children?.map((item) => item.href)).not.toContain("/account/inventory/imports");
   });
 
   it("keeps wallet discoverable through account navigation without selling workflow permissions", () => {
