@@ -5,10 +5,14 @@ import {
   getInventoryCatalogItem,
   getInventoryExternalCatalogItemReference,
   getInventoryExternalProductReference,
+  searchInventoryCatalogItems,
 } from "./queries";
 
 export type InventoryCatalogItemServices = Readonly<{
   getCatalogItem: (itemId: string) => ReturnType<typeof getInventoryCatalogItem>;
+  searchCatalogItems: (
+    params: Parameters<typeof searchInventoryCatalogItems>[1],
+  ) => ReturnType<typeof searchInventoryCatalogItems>;
   getExternalProductReference: (
     providerKey: string,
     externalKey: string,
@@ -23,6 +27,7 @@ export type InventoryCatalogItemServices = Readonly<{
 export function createInventoryCatalogItemRuntime(deps: InventoryRuntimeDeps): InventoryCatalogItemServices {
   return {
     getCatalogItem: (itemId) => getInventoryCatalogItem(deps.db, itemId),
+    searchCatalogItems: (params) => searchInventoryCatalogItems(deps.db, params),
     getExternalProductReference: (providerKey, externalKey) =>
       getInventoryExternalProductReference(deps.db, providerKey, externalKey),
     getExternalCatalogItemReference: (providerKey, externalKey) =>

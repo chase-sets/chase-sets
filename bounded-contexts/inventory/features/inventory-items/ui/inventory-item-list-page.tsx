@@ -33,6 +33,10 @@ import type { InventoryItemListItem } from "./contracts";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 
+type CatalogItemSearchResponse = Readonly<{
+  items?: readonly InventoryCatalogItemSnapshot[];
+}>;
+
 function displayItemLabel(item: InventoryItemListItem) {
   return item.item_title ?? item.catalog_catalog_item_id;
 }
@@ -41,6 +45,10 @@ function displayCost(item: InventoryItemListItem) {
   return item.acquisition_cost_amount
     ? `$${item.acquisition_cost_amount}`
     : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
+}
+
+function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
+  return [item.title, item.subtitle].filter(Boolean).join(" - ");
 }
 
 function listingHref(item: InventoryItemListItem) {
@@ -78,6 +86,8 @@ export function InventoryItemListPage({
 }) {
   const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
   const [initialSelectedOptionss] = useState(() => selectedOptionssFromEntries(createItemDraft?.selectedOptions ?? []));
+  const [catalogItemSearch, setCatalogItemSearch] = useState(initialCatalogItemId);
+  const [catalogSearchResults, setCatalogSearchResults] = useState<readonly InventoryCatalogItemSnapshot[]>([]);
   const [catalogItemId, setCatalogItemId] = useState(initialCatalogItemId);
   const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
@@ -85,51 +95,66 @@ export function InventoryItemListPage({
   const [selectedOptionss, setVersionSelections] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const trimmedCatalogItemId = catalogItemId.trim();
-    if (!trimmedCatalogItemId) {
-      setCatalogItem(null);
+    const search = catalogItemSearch.trim();
+    if (search.length < 2) {
+      setCatalogSearchResults([]);
       setCatalogLookupError(null);
       setCatalogLookupPending(false);
-      setVersionSelections({});
       return;
     }
 
     const controller = new AbortController();
     setCatalogLookupPending(true);
+    const query = new URLSearchParams({ search, status: "active", limit: "10" });
 
-    void fetch(`${catalogItemApiBaseUrl}/${encodeURIComponent(trimmedCatalogItemId)}`, {
+    void fetch(`${catalogItemApiBaseUrl}?${query.toString()}`, {
       credentials: "include",
       signal: controller.signal,
     })
       .then(async (response) => {
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+          const message = typeof body?.error === "string" ? body.error : body?.error?.message;
           throw new Error(
-            body?.error ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+            message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
           );
         }
 
-        return response.json() as Promise<InventoryCatalogItemSnapshot>;
+        return response.json() as Promise<CatalogItemSearchResponse>;
       })
-      .then((item) => {
-        setCatalogItem(item);
-        setCatalogLookupError(null);
-        setVersionSelections(
-          item.product_schema
-            ? normalizeSelectedOptionssForSchema(
-                item.product_schema,
-                trimmedCatalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
-              )
-            : {},
+      .then((result) => {
+        const items = result.items ?? [];
+        setCatalogSearchResults(items);
+        setCatalogLookupError(
+          items.length === 0
+            ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched")
+            : null,
         );
+
+        if (catalogItemId) {
+          const selectedItem = items.find((item) => item.catalog_item_id === catalogItemId);
+          if (selectedItem) {
+            setCatalogItem(selectedItem);
+            if (catalogItemSearch.trim() === catalogItemId) {
+              setCatalogItemSearch(selectedItem.title);
+              setVersionSelections(
+                selectedItem.product_schema
+                  ? normalizeSelectedOptionssForSchema(
+                      selectedItem.product_schema,
+                      catalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
+                    )
+                  : {},
+              );
+            }
+          }
+        }
       })
       .catch((error) => {
         if (controller.signal.aborted) {
           return;
         }
 
-        setCatalogItem(null);
-        setVersionSelections({});
+        setCatalogSearchResults([]);
         setCatalogLookupError(
           error instanceof Error
             ? error.message
@@ -143,7 +168,30 @@ export function InventoryItemListPage({
       });
 
     return () => controller.abort();
-  }, [catalogItemApiBaseUrl, catalogItemId, initialCatalogItemId, initialSelectedOptionss]);
+  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialCatalogItemId, initialSelectedOptionss]);
+
+  function resetCatalogItemSelection(nextSearch: string) {
+    setCatalogItemSearch(nextSearch);
+    setCatalogItemId("");
+    setCatalogItem(null);
+    setVersionSelections({});
+  }
+
+  function selectCatalogItem(nextCatalogItemId: string) {
+    const item = catalogSearchResults.find((candidate) => candidate.catalog_item_id === nextCatalogItemId);
+    setCatalogItemId(nextCatalogItemId);
+    setCatalogItem(item ?? null);
+    setCatalogLookupError(null);
+    setCatalogItemSearch(item?.title ?? catalogItemSearch);
+    setVersionSelections(
+      item?.product_schema
+        ? normalizeSelectedOptionssForSchema(
+            item.product_schema,
+            nextCatalogItemId === initialCatalogItemId ? initialSelectedOptionss : {},
+          )
+        : {},
+    );
+  }
 
   const serializedVersionSelection = catalogItem?.product_schema
     ? JSON.stringify(
@@ -196,22 +244,40 @@ export function InventoryItemListPage({
                   <HiddenInput type="hidden" name="returnTo" value={createItemDraft.returnTo} />
                 ) : null}
                 <TextInput
-                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
-                  name="catalogItemId"
-                  required
+                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog")}
                   placeholder={t(
                     "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item",
                   )}
-                  value={catalogItemId}
-                  onChange={(event) => setCatalogItemId(event.target.value)}
+                  value={catalogItemSearch}
+                  onChange={(event) => resetCatalogItemSelection(event.target.value)}
                   description={t(
-                    "inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to",
+                    "inventory.features.inventoryItems.ui.inventoryItemListPage.search.by.title.or.paste.catalog",
+                  )}
+                />
+                <NativeSelect
+                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item")}
+                  name="catalogItemId"
+                  required
+                  value={catalogItemId}
+                  onChange={(event) => selectCatalogItem(event.target.value)}
+                  disabled={catalogSearchResults.length === 0}
+                  placeholder={
+                    catalogLookupPending
+                      ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")
+                      : t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item")
+                  }
+                  items={catalogSearchResults.map((item) => ({
+                    value: item.catalog_item_id,
+                    label: catalogItemOptionLabel(item),
+                  }))}
+                  description={t(
+                    "inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item",
                   )}
                 />
                 <HiddenInput type="hidden" name="selectedOptions" value={serializedVersionSelection} />
                 {catalogLookupPending ? (
                   <Text size="sm" tone="secondary">
-                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")}
                   </Text>
                 ) : null}
                 {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
@@ -296,7 +362,7 @@ export function InventoryItemListPage({
                   </Stack>
                 ) : (
                   <Text tone="secondary">
-                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.for.a.catalog.item.then")}
                   </Text>
                 )}
               </Inset>

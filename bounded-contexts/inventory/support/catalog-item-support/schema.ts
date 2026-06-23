@@ -22,6 +22,9 @@ CREATE INDEX IF NOT EXISTS inventory_catalog_items_language_idx
 CREATE INDEX IF NOT EXISTS inventory_catalog_items_status_idx
   ON inventory_catalog_items (status);
 
+CREATE INDEX IF NOT EXISTS inventory_catalog_items_picker_idx
+  ON inventory_catalog_items (status, title, catalog_item_id);
+
 CREATE TABLE IF NOT EXISTS inventory_catalog_blueprints (
   blueprint_id text PRIMARY KEY,
   name text NOT NULL DEFAULT '',

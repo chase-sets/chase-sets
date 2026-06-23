@@ -34,6 +34,14 @@ describe("inventory item pages", () => {
     expect(html).not.toContain(">ja<");
   });
 
+  it("renders catalog item creation as a visible search and selection flow", () => {
+    const html = renderToString(<InventoryItemListPage data={{ items: [] }} locations={[]} />);
+
+    expect(html).toContain("Search catalog");
+    expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
+    expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
+  });
+
   it("renders inventory detail language codes as localized labels", () => {
     const detail: InventoryItemDetail = { ...inventoryItem, holds: [] };
     const html = renderToString(<InventoryItemDetailPage item={detail} />);
