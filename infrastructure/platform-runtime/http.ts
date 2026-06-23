@@ -6,9 +6,11 @@ import {
   navigateAfterWrite as navigateAfterWriteWithContract,
   navigateAfterWriteFromSources as navigateAfterWriteFromSourcesWithContract,
   readFreshWriteToken,
+  redirectAfterWriteFromSources as redirectAfterWriteFromSourcesWithContract,
   type LoadAfterWriteOptions,
   type LoadAfterWriteResult,
   type NavigateAfterWriteOptions,
+  type RedirectAfterWriteOptions,
 } from "@chase-sets/http/responses";
 import {
   recordPlatformPostWriteConsistencyEvent,
@@ -28,6 +30,11 @@ export type PlatformPostWriteTelemetry = Readonly<
 >;
 
 export type PlatformNavigateAfterWriteOptions = NavigateAfterWriteOptions &
+  Readonly<{
+    telemetry?: PlatformPostWriteTelemetry;
+  }>;
+
+export type PlatformRedirectAfterWriteOptions = RedirectAfterWriteOptions &
   Readonly<{
     telemetry?: PlatformPostWriteTelemetry;
   }>;
@@ -98,6 +105,29 @@ export function navigateAfterWriteFromSources(
     options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
   );
   return destination;
+}
+
+export function redirectAfterWrite(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: PlatformRedirectAfterWriteOptions = {},
+): Response {
+  return redirectAfterWriteFromSources([commandResult], destinationRoute, options);
+}
+
+export function redirectAfterWriteFromSources(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: PlatformRedirectAfterWriteOptions = {},
+): Response {
+  const response = redirectAfterWriteFromSourcesWithContract(commandResults, destinationRoute, options);
+  const destination = response.headers.get("Location") ?? destinationRoute;
+  recordPostWriteTelemetry(
+    options.telemetry,
+    readFreshWriteToken(destination, options.nowMs) ? "navigation_encoded" : "navigation_missing_receipt",
+    options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
+  );
+  return response;
 }
 
 export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {

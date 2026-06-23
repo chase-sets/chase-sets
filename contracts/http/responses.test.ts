@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  COOKIE_BACKED_CONTINUATION_RELOAD_HEADER,
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
   appendPostWriteHandoff,
@@ -26,6 +27,7 @@ import {
   readPostWriteHandoffState,
   readResponseConsistencyMetadata,
   recoverFreshWriteReadError,
+  redirectAfterWrite,
 } from "./responses";
 import {
   semanticHandoffFixtureAddLine,
@@ -532,6 +534,37 @@ describe("response consistency metadata", () => {
       sources: [checkoutSource, source],
     });
     expect(readPostWriteHandoff(href, 1234)).toBeNull();
+  });
+
+  it("creates cookie-backed continuation redirects with document reload and fresh-write evidence", () => {
+    const response = redirectAfterWrite(
+      {
+        commitPositions: [source],
+        commitEventIds: ["evt_1"],
+        email: "seller@example.com",
+      },
+      "/account",
+      {
+        continuation: "cookie-backed",
+        headers: {
+          "Set-Cookie": "chase_sets_session=session_token; Path=/; HttpOnly; SameSite=Lax",
+        },
+        nowMs: 1234,
+      },
+    );
+
+    const location = response.headers.get("Location");
+    expect(response.status).toBe(302);
+    expect(response.headers.get(COOKIE_BACKED_CONTINUATION_RELOAD_HEADER)).toBe("true");
+    expect(response.headers.get("Set-Cookie")).toContain("chase_sets_session=session_token");
+    expect(readFreshWriteToken(String(location), 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [source],
+    });
+
+    const token = new URL(String(location), "https://chase-sets.local").searchParams.get("afterWrite");
+    const parsed = JSON.parse(decodeURIComponent(String(token))) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty("email");
   });
 
   it("returns typed data or semantic pending results for default-safe destination reads", async () => {

@@ -105,6 +105,7 @@ const POST_WRITE_HANDOFF_PARAM = "postWriteHandoff";
 const DEFAULT_FRESH_WRITE_MAX_AGE_MS = 30_000;
 const DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS = 5_000;
 const DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS = [75, 150, 300, 600, 1_000] as const;
+export const COOKIE_BACKED_CONTINUATION_RELOAD_HEADER = "X-Remix-Reload-Document";
 export const CHASE_SETS_COMMIT_RECEIPT_HEADER = "Chase-Sets-Commit-Receipt";
 export const CHASE_SETS_READ_AFTER_WRITE_HEADER = "Chase-Sets-Read-After-Write";
 export const CHASE_SETS_READ_TARGET_CONTEXT_HEADER = "Chase-Sets-Read-Target-Context";
@@ -199,8 +200,15 @@ export type PostWriteHandoffEvaluation<T> =
 
 export type NavigateAfterWriteOptions = Readonly<{
   handoff?: PostWriteHandoff;
+  continuation?: "url" | "cookie-backed";
   nowMs?: number;
 }>;
+
+export type RedirectAfterWriteOptions = NavigateAfterWriteOptions &
+  Readonly<{
+    headers?: HeadersInit;
+    status?: 302 | 303;
+  }>;
 
 export type FreshWriteReadRecoveryOptions<T> = Readonly<{
   request: Request | string | URL;
@@ -687,6 +695,32 @@ export function navigateAfterWriteFromSources(
   return options.handoff
     ? appendPostWriteHandoffFromSources(destinationRoute, commandResults, options.handoff, options.nowMs)
     : appendFreshWriteTokenFromSources(destinationRoute, commandResults, options.nowMs);
+}
+
+function createPostWriteRedirectResponse(destination: string, options: RedirectAfterWriteOptions = {}): Response {
+  const headers = new Headers(options.headers);
+  headers.set("Location", destination);
+  if (options.continuation === "cookie-backed") {
+    headers.set(COOKIE_BACKED_CONTINUATION_RELOAD_HEADER, "true");
+  }
+
+  return new Response(null, { status: options.status ?? 302, headers });
+}
+
+export function redirectAfterWrite(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: RedirectAfterWriteOptions = {},
+): Response {
+  return redirectAfterWriteFromSources([commandResult], destinationRoute, options);
+}
+
+export function redirectAfterWriteFromSources(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: RedirectAfterWriteOptions = {},
+): Response {
+  return createPostWriteRedirectResponse(navigateAfterWriteFromSources(commandResults, destinationRoute, options), options);
 }
 
 export function readFreshWriteToken(

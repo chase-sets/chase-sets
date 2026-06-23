@@ -1,13 +1,18 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { t } from "@chase-sets/localization";
-import { appendFreshWriteToken, getMutationResultCommandReceipt } from "@chase-sets/http/responses";
+import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import {
   hasPermission as hasActorPermission,
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import {
+  createForwardedAuthFetch,
+  navigateAfterWrite,
+  redirectAfterWrite,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
 import type { InteractiveAuthResult } from "../runtime-support/services";
 export type { InteractiveAuthResult } from "../runtime-support/services";
 import { AuthApiError } from "../../client";
@@ -247,12 +252,28 @@ function hasSamePathname(path: string, expectedPath: string) {
   return url.pathname === expectedUrl.pathname;
 }
 
-function applyScopedFreshWriteToken(
+function applyScopedContinuationPath(
   path: string,
   source: unknown | undefined,
   options: Readonly<{ scopePath: string }>,
 ) {
-  return source && hasSamePathname(path, options.scopePath) ? appendFreshWriteToken(path, source) : path;
+  return source && hasSamePathname(path, options.scopePath)
+    ? navigateAfterWrite(source, path, { continuation: "cookie-backed" })
+    : path;
+}
+
+function createScopedContinuationRedirect(
+  path: string,
+  headers: Headers,
+  source: unknown | undefined,
+  options: Readonly<{ scopePath: string }>,
+) {
+  return source && hasSamePathname(path, options.scopePath)
+    ? redirectAfterWrite(source, path, {
+        continuation: "cookie-backed",
+        headers,
+      })
+    : createRedirectResponse(path, headers);
 }
 
 function requireAccountSelectionTokenOrRedirect(
@@ -285,24 +306,23 @@ export function completeBrowserAuthentication(
 ) {
   const headers = new Headers();
   clearAccountSelectionCookie(headers, request);
-  const successPath = applyScopedFreshWriteToken(
-    getSafeReturnTo(request, options.defaultSuccessPath),
-    options.freshWriteSource,
-    {
-      scopePath: options.defaultSuccessPath,
-    },
-  );
+  const successPath = getSafeReturnTo(request, options.defaultSuccessPath);
 
   if (result.type === "account-selection-required") {
     appendAccountSelectionCookie(headers, result.selectionToken, request);
+    const scopedSuccessPath = applyScopedContinuationPath(successPath, options.freshWriteSource, {
+      scopePath: options.defaultSuccessPath,
+    });
     return createRedirectResponse(
-      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(successPath)}`,
+      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(scopedSuccessPath)}`,
       headers,
     );
   }
 
   appendSessionCookie(headers, result.sessionToken, request);
-  return createRedirectResponse(successPath, headers);
+  return createScopedContinuationRedirect(successPath, headers, options.freshWriteSource, {
+    scopePath: options.defaultSuccessPath,
+  });
 }
 
 async function signOutActorViaAuthApi(
