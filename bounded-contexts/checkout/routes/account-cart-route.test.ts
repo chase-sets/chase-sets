@@ -264,6 +264,151 @@ describe("checkout web routes: account cart", () => {
     });
   });
 
+  it("keeps a selected listing add-line handoff pending until checkout seller options include the locked listing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({
+      items: [
+        {
+          line_id: "cli_selected",
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: "lst_new",
+          selected_listing_id: "lst_new",
+          availability_state: "available",
+          seller_options: [],
+        },
+      ],
+      count: 1,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: {
+        items: [
+          expect.objectContaining({
+            line_id: "cli_selected",
+            locked_listing_id: "lst_new",
+            seller_options: [],
+          }),
+        ],
+        count: 1,
+      },
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        recoveryKind: "pending-projection",
+        message: expect.any(String),
+      },
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_pending",
+        actorMode: "account",
+        recoveryAction: "pending_empty_state",
+      }),
+    );
+  });
+
+  it("satisfies a selected listing add-line handoff after checkout seller options include the locked listing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({
+      items: [
+        {
+          line_id: "cli_selected",
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: "lst_new",
+          selected_listing_id: "lst_new",
+          availability_state: "available",
+          seller_options: [{ listing_id: "lst_new", available_quantity: 1, price_amount: "4.77" }],
+        },
+      ],
+      count: 1,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: {
+        items: [
+          expect.objectContaining({
+            line_id: "cli_selected",
+            locked_listing_id: "lst_new",
+          }),
+        ],
+        count: 1,
+      },
+      cartRecovery: null,
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_satisfied",
+        actorMode: "account",
+        recoveryAction: "none",
+      }),
+    );
+  });
+
+  it("renders normal cart readiness when selected listing seller-options catch-up outlives the handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({
+      items: [
+        {
+          line_id: "cli_selected",
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: "lst_new",
+          selected_listing_id: "lst_new",
+          availability_state: "available",
+          seller_options: [],
+        },
+      ],
+      count: 1,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const cart = { items: [expect.objectContaining({ line_id: "cli_selected" })], count: 1 };
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ cart, cartRecovery: null });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_expired",
+        recoveryAction: "none",
+      }),
+    );
+  });
+
   it("shows temporary guest cart recovery when a valid add-line handoff still reads an empty projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockGetGuestCart.mockResolvedValue({ items: [], count: 0 });

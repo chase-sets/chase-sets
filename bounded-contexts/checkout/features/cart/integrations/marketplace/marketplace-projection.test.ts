@@ -22,6 +22,7 @@ type SellerOptionRow = {
  */
 class ProjectionDb implements PgQueryable {
   public readonly options = new Map<string, SellerOptionRow>();
+  public readonly recomputedInventoryItemIds: string[] = [];
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -64,7 +65,7 @@ class ProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("SET status = 'active'") && sql.includes("WHERE listing_id = $1")) {
-      return this.setStatusByListing(String(values[0]), "active", String(values[1]));
+      return this.setStatusByListing(String(values[0]), "active", String(values[1]), true);
     }
 
     if (sql.includes("SET status = 'paused'")) {
@@ -89,19 +90,28 @@ class ProjectionDb implements PgQueryable {
       sql.includes("UPDATE checkout_marketplace_seller_options AS o") &&
       sql.includes("supply_total_quantity = supply.total_quantity")
     ) {
+      this.recomputedInventoryItemIds.push(String(values[0]));
       return { rows: [], rowCount: 0 };
     }
 
     throw new Error(`Unexpected query: ${sql}`);
   }
 
-  private setStatusByListing<Row>(listingId: string, status: string, updatedAt: string): PgQueryResult<Row> {
+  private setStatusByListing<Row>(
+    listingId: string,
+    status: string,
+    updatedAt: string,
+    returnInventoryItem = false,
+  ): PgQueryResult<Row> {
     const row = this.options.get(listingId);
     if (row) {
       row.status = status;
       row.updated_at = updatedAt;
     }
-    return { rows: [], rowCount: row ? 1 : 0 };
+    return {
+      rows: row && returnInventoryItem ? ([{ inventory_item_id: row.inventory_item_id }] as Row[]) : [],
+      rowCount: row ? 1 : 0,
+    };
   }
 
   private flipSellerStatus<Row>(
@@ -225,6 +235,19 @@ describe("checkout marketplace seller-options projection", () => {
       event("marketplace.listing.withdrawn", "marketplace.listing-lst_1", {}),
     );
     expect(db.options.get("lst_1")?.status).toBe("withdrawn");
+  });
+
+  it("recomputes joined supply when a listing is published", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ inventoryItemId: "inv_supply" }));
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+    );
+
+    expect(db.options.get("lst_1")).toMatchObject({ status: "active", inventory_item_id: "inv_supply" });
+    expect(db.recomputedInventoryItemIds).toEqual(["inv_supply", "inv_supply"]);
   });
 
   it("gates and restores a seller's active rows on availability disabled/enabled", async () => {
