@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import {
+  runCatalogIntegrationDryRun,
+  type CatalogIntegrationDryRunResult,
+  type CatalogIntegrationObservationFact,
+} from "../catalog-integration-engine";
+import {
   CATALOG_PROVIDER_CREDENTIAL_REDACTED_VALUE,
   createCatalogProviderCredentialReadiness,
 } from "../catalog-integration-credential-readiness";
@@ -120,6 +125,39 @@ type ScrydexPage<TItem> = Readonly<{
   items: readonly TItem[];
   sourceUrl: string;
 }>;
+
+type ScrydexOnePieceUnitKey =
+  | typeof SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+  | typeof SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY
+  | typeof SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+
+const scrydexOnePieceProofFetchedAt = "2026-06-22T00:00:00.000Z";
+const scrydexOnePieceProofExpansion: ScrydexOnePieceExpansion = {
+  id: "op-01",
+  name: "Romance Dawn",
+  code: "OP-01",
+  total: 121,
+  release_date: "2022-12-02",
+  language_code: "en",
+};
+const scrydexOnePieceProofCard: ScrydexOnePieceCard = {
+  id: "op01-001",
+  name: "Monkey.D.Luffy",
+  number: "001",
+  printed_number: "OP01-001",
+  rarity: "Leader",
+  rarity_code: "L",
+  type: "Leader",
+  language_code: "en",
+  expansion: scrydexOnePieceProofExpansion,
+};
+const scrydexOnePieceProofSealedProduct: ScrydexOnePieceSealedProduct = {
+  id: "op01-booster-box",
+  name: "Romance Dawn Booster Box",
+  type: "Booster Box",
+  language_code: "en",
+  expansion: scrydexOnePieceProofExpansion,
+};
 
 export function createScrydexOnePieceProviderAdapter(
   options: ScrydexOnePieceProviderAdapterOptions = {},
@@ -399,6 +437,152 @@ export function createScrydexOnePieceProviderAdapter(
         })),
       ];
     },
+  };
+}
+
+export async function runScrydexOnePieceSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexOnePieceBaseUrl}/expansions/op-01/cards`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "card:op01-001",
+        payload: {
+          kind: "one-piece-card",
+          card: scrydexOnePieceProofCard,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexOnePieceProofExpansion.release_date,
+        fetchedAt: scrydexOnePieceProofFetchedAt,
+      }),
+    ],
+  });
+}
+
+export async function runScrydexOnePieceSetReferenceValidationDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexOnePieceBaseUrl}/expansions/op-01`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+        externalKey: "set:op-01",
+        payload: {
+          kind: "one-piece-set-reference",
+          expansion: scrydexOnePieceProofExpansion,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexOnePieceProofExpansion.release_date,
+        fetchedAt: scrydexOnePieceProofFetchedAt,
+      }),
+    ],
+  });
+}
+
+export async function runScrydexOnePieceSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexOnePieceBaseUrl}/expansions/op-01/sealed`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "sealed:op01-booster-box",
+        payload: {
+          kind: "one-piece-sealed-product",
+          sealedProduct: scrydexOnePieceProofSealedProduct,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexOnePieceProofExpansion.release_date,
+        fetchedAt: scrydexOnePieceProofFetchedAt,
+      }),
+    ],
+  });
+}
+
+function runScrydexOnePieceProofDryRun(input: {
+  unitKey: ScrydexOnePieceUnitKey;
+  payloads: readonly ProviderPayloadEnvelope<ScrydexOnePieceProviderPayload>[];
+}): CatalogIntegrationDryRunResult {
+  return runCatalogIntegrationDryRun({
+    unitKey: input.unitKey,
+    profileVersion: SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
+    payloads: input.payloads,
+    normalize: (envelope) => normalizeScrydexOnePieceProofPayload(envelope),
+  });
+}
+
+function normalizeScrydexOnePieceProofPayload(
+  envelope: ProviderPayloadEnvelope<ScrydexOnePieceProviderPayload>,
+): CatalogIntegrationObservationFact {
+  if (envelope.payload.kind === "one-piece-card") {
+    const card = envelope.payload.card;
+    return {
+      unitKey: envelope.unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion: SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
+      normalizedFacts: compactStringRecord({
+        tcg: "one-piece",
+        productLineName: "One Piece Card Game",
+        name: card.name,
+        cardNumber: card.printed_number ?? card.number,
+        setId: card.expansion?.id,
+        setCode: card.expansion?.code,
+        setName: card.expansion?.name,
+        rarity: card.rarity,
+        cardType: card.type,
+      }),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    };
+  }
+
+  if (envelope.payload.kind === "one-piece-set-reference") {
+    const expansion = envelope.payload.expansion;
+    return {
+      unitKey: envelope.unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion: SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
+      normalizedFacts: compactStringRecord({
+        tcg: "one-piece",
+        productLineName: "One Piece Card Game",
+        name: expansion.name,
+        setId: expansion.id,
+        setCode: expansion.code,
+        setName: expansion.name,
+        cardCount: stringOrNumberToString(expansion.total),
+      }),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    };
+  }
+
+  const sealedProduct = envelope.payload.sealedProduct;
+  return {
+    unitKey: envelope.unitKey,
+    providerKey: envelope.providerKey,
+    externalKey: envelope.externalKey,
+    profileVersion: SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
+    normalizedFacts: compactStringRecord({
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      name: sealedProduct.name,
+      setId: sealedProduct.expansion?.id,
+      setCode: sealedProduct.expansion?.code,
+      setName: sealedProduct.expansion?.name,
+      sealedProductForm: "sealed-product",
+      productKind: sealedProduct.type,
+    }),
+    sourceUrl: envelope.provenance.sourceUrl,
+    sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+    sourceHash: envelope.provenance.contentHash,
   };
 }
 
@@ -903,6 +1087,16 @@ function stringValue(value: unknown): string | null {
 
 function stringOrNumberValue(value: unknown): string | number | null {
   return typeof value === "number" ? value : stringValue(value);
+}
+
+function stringOrNumberToString(value: unknown): string | undefined {
+  return stringValue(value) ?? undefined;
+}
+
+function compactStringRecord(
+  values: Readonly<Record<string, string | null | undefined>>,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => Boolean(entry[1])));
 }
 
 function booleanValue(value: unknown): boolean | null {
