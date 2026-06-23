@@ -521,6 +521,7 @@ export type CatalogProviderDuplicatePreventionIdentityRule =
   | CatalogProviderSourceObservationLinkRule
   | CatalogProviderDeterministicPokemonCardFieldMatchRule
   | CatalogProviderDeterministicMagicCatalogItemFieldMatchRule
+  | CatalogProviderDeterministicOnePieceCatalogItemFieldMatchRule
   | CatalogProviderPartialDraftPokemonCardMatchRule
   | CatalogProviderSealedProductMatchRule
   | CatalogProviderBarcodeGtinMatchRule
@@ -561,6 +562,18 @@ export type CatalogProviderDeterministicMagicCatalogItemFieldMatchRule = Readonl
   ruleKey: string;
   matchKind: "deterministic-magic-catalog-item-field-match";
   normalizedKind: "magic-card-print" | "magic-sealed-product";
+  referenceRecord: Readonly<{
+    typeKey: "set";
+    keyPath: "setName";
+    targetFieldKey: "set";
+  }>;
+  fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
+}>;
+
+export type CatalogProviderDeterministicOnePieceCatalogItemFieldMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "deterministic-one-piece-catalog-item-field-match";
+  normalizedKind: "one-piece-card-print" | "one-piece-sealed-product";
   referenceRecord: Readonly<{
     typeKey: "set";
     keyPath: "setName";
@@ -2249,10 +2262,29 @@ export const scrydexOnePieceSealedProductProviderProfile = {
     replayPolicy: "same-profile-version",
     rules: [
       {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
         ruleKey: "source-observation-link",
         matchKind: "source-observation-link",
         providerKeySource: "observation-provider",
         externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "one-piece-sealed-product-deterministic-fields",
+        matchKind: "deterministic-one-piece-catalog-item-field-match",
+        normalizedKind: "one-piece-sealed-product",
+        referenceRecord: {
+          typeKey: "set",
+          keyPath: "setName",
+          targetFieldKey: "set",
+        },
+        fieldMatches: [
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+          { fieldKey: "cardVariant", valuePath: "sealedProductForm" },
+        ],
       },
       {
         ruleKey: "future-provider-bridge-review",
@@ -2349,10 +2381,30 @@ function scrydexOnePieceDuplicatePreventionMapping(): CatalogProviderIntegration
     replayPolicy: "same-profile-version",
     rules: [
       {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
         ruleKey: "source-observation-link",
         matchKind: "source-observation-link",
         providerKeySource: "observation-provider",
         externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "one-piece-card-print-deterministic-fields",
+        matchKind: "deterministic-one-piece-catalog-item-field-match",
+        normalizedKind: "one-piece-card-print",
+        referenceRecord: {
+          typeKey: "set",
+          keyPath: "setName",
+          targetFieldKey: "set",
+        },
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+          { fieldKey: "cardVariant", valuePath: "cardType" },
+        ],
       },
       {
         ruleKey: "future-provider-bridge-review",

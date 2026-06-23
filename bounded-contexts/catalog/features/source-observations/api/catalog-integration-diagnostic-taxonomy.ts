@@ -60,7 +60,8 @@ export type CatalogIntegrationDiagnosticGroupingKey =
   | "aliasLanguageCode"
   | "comparisonSourceKey"
   | "externalId"
-  | "fieldClass";
+  | "fieldClass"
+  | "decisionPath";
 
 export type CatalogIntegrationDiagnosticInstance = Readonly<{
   code: CatalogIntegrationDiagnosticCode;
@@ -76,6 +77,7 @@ export type CatalogIntegrationDiagnosticInstance = Readonly<{
   comparisonSourceKey?: string;
   externalId?: string;
   fieldClass?: string;
+  decisionPath?: string;
 }>;
 
 export const catalogIntegrationDiagnosticTaxonomy = [
@@ -859,6 +861,6 @@ function groupingKeysFor(
     case "alias-equivalence":
       return ["providerKey", "aliasTargetKind", "aliasType", "aliasLanguageCode"];
     case "provider-comparison":
-      return ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass"];
+      return ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass", "decisionPath"];
   }
 }

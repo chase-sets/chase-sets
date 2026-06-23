@@ -3,15 +3,20 @@ import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../i
 import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
+  SourceObservationOnePieceCardPrintNormalized,
+  SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
+  scrydexOnePieceCardPrintProviderProfile,
+  scrydexOnePieceSealedProductProviderProfile,
   scrydexScryfallCardProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
+  tcgplayerOnePieceSingleCardProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
 import {
@@ -209,6 +214,169 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
     expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
 
+  it("reuses existing One Piece Catalog Items when Scrydex carries TCGplayer card evidence", async () => {
+    const db = duplicatePreventionDb({ externalCatalogItemIds: ["cat_op_tcgplayer_card"] });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: scrydexOnePieceCardPrintProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "card:op01-001",
+      normalized: onePieceCardPrintObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:551001" }],
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_op_tcgplayer_card",
+      ruleKey: "exact-external-catalog-item-reference",
+      evidenceSummary: {
+        evidenceText: "1 external Catalog Item reference(s)",
+      },
+    });
+    expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
+  });
+
+  it("reuses One Piece reprints and variants only through set, card number, name, and card type evidence", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_op_romance_dawn_parallel"] });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: scrydexOnePieceCardPrintProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "card:op01-001-parallel",
+      normalized: onePieceCardPrintObservation({
+        name: "Monkey.D.Luffy",
+        cardNumber: "OP01-001",
+        setName: "Romance Dawn",
+        expansionName: "Romance Dawn",
+        cardType: "parallel",
+        externalCatalogItemReferences: [],
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_op_romance_dawn_parallel",
+      ruleKey: "one-piece-card-print-deterministic-fields",
+      evidenceSummary: {
+        matchKind: "deterministic-one-piece-catalog-item-field-match",
+        evidenceText: "deterministic One Piece catalog item identity",
+      },
+    });
+    expect(db.values.flat().join("\n")).toContain('"fieldId":"field_card_variant","value":"parallel"');
+    expect(db.values.flat().join("\n")).toContain('"referenceId":"ref_expansion_swsh1"');
+  });
+
+  it("reuses One Piece sealed packaging variants through product name, set, and sealed form", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_op_booster_box"] }),
+      profile: scrydexOnePieceSealedProductProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "sealed:op01-box",
+      normalized: onePieceSealedProductObservation({
+        name: "Romance Dawn Booster Box",
+        sealedProductForm: "booster-box",
+        externalCatalogItemReferences: [],
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_op_booster_box",
+      ruleKey: "one-piece-sealed-product-deterministic-fields",
+      evidenceSummary: {
+        matchKind: "deterministic-one-piece-catalog-item-field-match",
+      },
+    });
+  });
+
+  it("reuses existing One Piece sealed Catalog Items when Scrydex carries TCGplayer product evidence", async () => {
+    const db = duplicatePreventionDb({ externalCatalogItemIds: ["cat_op_tcgplayer_sealed"] });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: scrydexOnePieceSealedProductProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "sealed:op01-pack",
+      normalized: onePieceSealedProductObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:551777" }],
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_op_tcgplayer_sealed",
+      ruleKey: "exact-external-catalog-item-reference",
+    });
+    expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
+  });
+
+  it("keeps marketplace-only One Piece products review-only instead of creating a duplicate Catalog Item", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({}),
+      profile: tcgplayerOnePieceSingleCardProviderProfile,
+      providerKey: "tcgplayer",
+      externalKey: "product:551099",
+      normalized: providerProductObservation({
+        productLineName: "One Piece Card Game",
+        productCategoryName: "Cards",
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:551099" }],
+        mergeIdentity: {
+          tcg: "one-piece",
+          productLineName: "One Piece Card Game",
+          setName: "Romance Dawn",
+          printedProductName: "Marketplace Promo",
+          collectorNumber: "P-001",
+          languageCode: "en",
+          productForm: "single-card",
+          barcode: null,
+        },
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "review-only",
+      ruleKey: "future-provider-bridge-review",
+      candidateCatalogItemIds: [],
+      evidenceSummary: {
+        matchKind: "future-provider-bridge-match",
+        evidenceText: "1 bridge provider reference(s)",
+      },
+    });
+  });
+
+  it("blocks ambiguous One Piece provider disagreement from automatic promotion", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_op_a", "cat_op_b"] }),
+      profile: scrydexOnePieceCardPrintProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "card:op01-001",
+      normalized: onePieceCardPrintObservation({ externalCatalogItemReferences: [] }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      ruleKey: "one-piece-card-print-deterministic-fields",
+      diagnosticText:
+        "Multiple Catalog Items match this Source Observation's deterministic One Piece identity evidence.",
+      candidateCatalogItemIds: ["cat_op_a", "cat_op_b"],
+      evidenceSummary: {
+        ruleKey: "one-piece-card-print-deterministic-fields",
+        matchKind: "deterministic-one-piece-catalog-item-field-match",
+        evidenceText: "deterministic One Piece catalog item identity",
+        candidateCatalogItemIds: ["cat_op_a", "cat_op_b"],
+      },
+    });
+  });
+
   it("reuses Magic card prints through deterministic set, collector number, language, and name evidence", async () => {
     const result = await resolveCatalogProviderDuplicatePrevention({
       db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_print"] }),
@@ -323,12 +491,15 @@ function duplicatePreventionDb(input: {
   externalProductCatalogItemIds?: readonly string[];
   deterministicCatalogItemIds?: readonly string[];
   partialCatalogItemId?: string | null;
-}): CatalogProviderDuplicatePreventionDb & { queries: string[] } {
+}): CatalogProviderDuplicatePreventionDb & { queries: string[]; values: readonly unknown[][] } {
   const queries: string[] = [];
+  const values: unknown[][] = [];
   return {
     queries,
-    query: async <T>(sql: string) => {
+    values,
+    query: async <T>(sql: string, queryValues: readonly unknown[] = []) => {
       queries.push(sql);
+      values.push([...queryValues]);
 
       if (sql.includes("FROM catalog_external_catalog_item_references")) {
         return rows(input.externalCatalogItemIds ?? []);
@@ -360,6 +531,74 @@ function duplicatePreventionDb(input: {
         rows: [] as T[],
       };
     },
+  };
+}
+
+function onePieceCardPrintObservation(
+  overrides: Partial<SourceObservationOnePieceCardPrintNormalized> = {},
+): SourceObservationOnePieceCardPrintNormalized {
+  return {
+    kind: "one-piece-card-print",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Monkey.D.Luffy",
+    cardNumber: "OP01-001",
+    setId: "op-01",
+    setCode: "OP-01",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    rarity: "Leader",
+    cardType: "standard",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Monkey.D.Luffy",
+      collectorNumber: "OP01-001",
+      languageCode: "en",
+      productForm: "one-piece-card-print",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:551001" }],
+    externalProductReferences: [],
+    ...overrides,
+  };
+}
+
+function onePieceSealedProductObservation(
+  overrides: Partial<SourceObservationOnePieceSealedProductNormalized> = {},
+): SourceObservationOnePieceSealedProductNormalized {
+  return {
+    kind: "one-piece-sealed-product",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Romance Dawn Booster Pack",
+    cardNumber: null,
+    setId: "op-01",
+    setCode: "OP-01",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    sealedProductForm: "booster-pack",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    barcode: null,
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Romance Dawn Booster Pack",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "one-piece-sealed-product",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:551777" }],
+    externalProductReferences: [],
+    ...overrides,
   };
 }
 
