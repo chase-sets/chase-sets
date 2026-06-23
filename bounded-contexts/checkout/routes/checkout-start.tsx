@@ -34,6 +34,7 @@ import {
   CheckoutApiError,
   createCheckoutRequestApiClient,
   type CartReadinessDecisionInput,
+  type CartReadinessSnapshot,
   type CreateCheckoutSessionRequest,
 } from "../support/request-support/api-client";
 import { parseCheckoutStartCartReadinessDecisions } from "../features/cart/api/readiness-decisions";
@@ -57,6 +58,11 @@ type GuestCheckoutStart = Readonly<{
   accountId: string;
   guestToken: string;
   expiresAt: string;
+}>;
+type CheckoutStartCartReadinessSummary = Readonly<{
+  status: CartReadinessSnapshot["status"];
+  lineCount: number;
+  customerSafeFacts: readonly string[];
 }>;
 
 function parseSelectedOptions(value: string | null) {
@@ -356,6 +362,26 @@ function signInPathForReturnTo(returnTo: string) {
   return `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
+function cartReadinessSummary(snapshot: CartReadinessSnapshot): CheckoutStartCartReadinessSummary {
+  return {
+    status: snapshot.status,
+    lineCount: snapshot.lineCount,
+    customerSafeFacts: snapshot.customerSafeFacts,
+  };
+}
+
+function checkoutStatusLabel(status: CheckoutStartCartReadinessSummary["status"] | null) {
+  if (status === "ready" || status === null) {
+    return t("checkout.routes.checkoutStart.ready");
+  }
+
+  return t("checkout.routes.checkoutStart.needs.review");
+}
+
+function cartCheckoutCanContinue(summary: CheckoutStartCartReadinessSummary | null) {
+  return summary === null || summary.status === "ready";
+}
+
 function isAccountSignInRequiredError(error: unknown) {
   if (!(error instanceof AuthApiError) || error.status !== 409) {
     return false;
@@ -501,15 +527,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const source = sourceFromUrl(url);
   const api = createCheckoutRequestApiClient(request);
+  const isGuestBuyer = actor?.roleKey === "guest-buyer";
+  const cartReadiness =
+    actor && !isGuestBuyer && !source ? cartReadinessSummary((await api.createCartReadiness({})).readiness) : null;
   const cart = actor || source ? null : await api.getGuestCart(readAnonymousCartId(request));
   const returnTo = currentPathWithSearch(request);
-  const isGuestBuyer = actor?.roleKey === "guest-buyer";
 
   return {
     isSignedIn: Boolean(actor && !isGuestBuyer),
     isGuestBuyer,
     source,
-    cartCount: cart?.count ?? (source ? 1 : 0),
+    cartReadiness,
+    cartCount: cartReadiness?.lineCount ?? cart?.count ?? (source ? 1 : 0),
     entryAttemptKey: createId("chkentry"),
     signInPath: signInPathForReturnTo(returnTo),
   };
@@ -644,6 +673,9 @@ export default function CheckoutStartRoute() {
   const actionData = useActionData<typeof action>() as CheckoutStartActionData | undefined;
   const source = data.source;
   const isOfferIntent = source?.type === "offer-intent";
+  const cartReadiness = source ? null : data.cartReadiness;
+  const cartCanContinue = cartCheckoutCanContinue(cartReadiness);
+  const checkoutStatus = checkoutStatusLabel(cartReadiness?.status ?? null);
   const headerCopy = checkoutStartHeaderCopy({
     isSignedIn: data.isSignedIn,
     isOfferIntent,
@@ -796,7 +828,7 @@ export default function CheckoutStartRoute() {
               : t("checkout.routes.checkoutStart.not.charged.yet"),
           },
         ]}
-        total={t("checkout.routes.checkoutStart.ready")}
+        total={checkoutStatus}
         totalLabel={t("checkout.routes.checkoutStart.checkout.status")}
         reassurance={
           <SecurePaymentIndicator
@@ -815,6 +847,21 @@ export default function CheckoutStartRoute() {
   const checkoutMain = (
     <Stack gap={4}>
       {sourceSummary}
+      {data.isSignedIn && !source && !cartCanContinue ? (
+        <Banner
+          title={t("checkout.routes.checkoutStart.cart.needs.review")}
+          description={
+            cartReadiness?.customerSafeFacts[0] ?? t("checkout.routes.checkoutStart.cart.needs.review.description")
+          }
+          tone="warning"
+          actions={
+            <LinkButton href="/account/cart" leadingIcon="cart" tone="secondary">
+              {t("checkout.routes.checkoutStart.review.buy.cart")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+
       {actionData && "recovery" in actionData ? (
         <Banner
           title={actionData.recovery.title}
@@ -856,7 +903,7 @@ export default function CheckoutStartRoute() {
         />
       ) : null}
 
-      {data.isSignedIn || data.isGuestBuyer ? (
+      {(data.isSignedIn || data.isGuestBuyer) && (source || cartCanContinue) ? (
         <PageSection
           title={
             data.isGuestBuyer
@@ -960,7 +1007,7 @@ export default function CheckoutStartRoute() {
                   : t("checkout.routes.checkoutStart.items"),
             })
       }
-      total={t("checkout.routes.checkoutStart.ready")}
+      total={checkoutStatus}
     >
       {checkoutSummary}
     </CheckoutMobileSummaryDisclosure>
