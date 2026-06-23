@@ -1543,6 +1543,26 @@ describe("source observation runtime: provider integration jobs", () => {
       credentialDiagnosticCode: "credential-missing",
       transportReadiness: "blocked",
     });
+    expect(unitsByKey["tcgplayer:one-piece:single-card:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
+      credentialReadiness: "blocked",
+      credentialReadinessState: "missing",
+      credentialDiagnosticCode: "credential-missing",
+      transportReadiness: "blocked",
+    });
+    expect(unitsByKey["tcgplayer:one-piece:sealed-product:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
+      credentialReadiness: "blocked",
+      credentialReadinessState: "missing",
+      credentialDiagnosticCode: "credential-missing",
+      transportReadiness: "blocked",
+    });
     expect(unitsByKey["scrydex:one-piece:single-card:source-observation-import"]).toMatchObject({
       semanticReadiness: "ready",
       fixtureValidationStatus: "ready",
