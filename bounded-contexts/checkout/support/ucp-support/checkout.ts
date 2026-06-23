@@ -305,7 +305,7 @@ export function createCheckoutUcpHandlers(
             );
           }
 
-          const paymentId = await createCheckoutPaymentThroughPayments(
+          const payment = await createCheckoutPaymentThroughPayments(
             input.request,
             sessionId,
             orderIds,
@@ -317,6 +317,7 @@ export function createCheckoutUcpHandlers(
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
           );
+          const paymentId = payment.payment_id;
           await checkout.sessions.recordPaymentStarted(
             {
               sessionId,

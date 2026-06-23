@@ -151,6 +151,63 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
+  it("preserves payment freshness metadata on the confirmation handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({
+      payment_id: "pay_1",
+      order_ids: ["ord_1"],
+      status: "confirmed",
+      commitPosition: "84",
+      commitEventIds: ["evt_payment_created"],
+      commitPositions: [
+        {
+          sourceContextName: "payments",
+          maxGlobalPosition: "84",
+          eventIds: ["evt_payment_created"],
+        },
+      ],
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "priority");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_card_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location");
+    expect(response.status).toBe(302);
+    expect(location).toContain("/checkout/buy/session/chk_1/confirmation?afterWrite=");
+    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([
+      {
+        sourceContextName: "payments",
+        maxGlobalPosition: "84",
+        eventIds: ["evt_payment_created"],
+      },
+    ]);
+  });
+
   it("starts payment from checkout review for accelerated saved-payment confirmation", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
