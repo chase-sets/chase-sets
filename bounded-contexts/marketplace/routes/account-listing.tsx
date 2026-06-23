@@ -2,10 +2,10 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+  loadAfterWrite,
+  navigateAfterWrite,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -24,6 +24,12 @@ import {
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
+const ACCOUNT_LISTING_POST_WRITE_TELEMETRY = {
+  boundedContextName: "marketplace",
+  surface: "account-listing",
+  routeId: "account-listing",
+  routeTemplate: "/account/listings/:listingId",
+} as const satisfies PlatformPostWriteTelemetry;
 
 export { ListingDetailErrorBoundary as ErrorBoundary };
 
@@ -70,41 +76,46 @@ function listingPhotoFormData(formData: FormData) {
   return apiForm;
 }
 
+function navigateToAccountListingAfterWrite(commandResult: unknown, destinationRoute: string) {
+  return navigateAfterWrite(commandResult, destinationRoute, {
+    telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
+  });
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
   const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(request));
-  let listing: MarketplaceListingDetail;
+  const listingRead = await loadAfterWrite<MarketplaceListingDetail>({
+    request,
+    isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
+    load: () => api.getSellerListing(params.listingId!),
+    telemetry: ACCOUNT_LISTING_POST_WRITE_TELEMETRY,
+  });
 
-  try {
-    listing = await loadFreshlyWrittenResource({
-      request,
-      isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
-      load: () => api.getSellerListing(params.listingId!),
-    });
-  } catch (error) {
-    const freshWriteRecovery = recoverFreshWriteReadError({
-      request,
-      error,
-      recoverTransient: () => ({
-        listing: null,
-        feeHistory: { items: [], total: 0, count: 0 },
-        recovery: "fresh-write-preparing" as const,
-      }),
-    });
-    if (freshWriteRecovery) {
-      return freshWriteRecovery;
-    }
+  if (listingRead.kind === "pending") {
+    return {
+      listing: null,
+      feeHistory: { items: [], total: 0, count: 0 },
+      recovery: "fresh-write-preparing" as const,
+    };
+  }
 
+  if (listingRead.kind === "permanent-failure") {
+    const error = "error" in listingRead ? listingRead.error : null;
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
     }
 
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
   }
 
   return {
-    listing,
+    listing: listingRead.data,
     feeHistory: await nonFreshApi.getSellerListingFeeHistory(params.listingId!),
   };
 }
@@ -128,28 +139,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
         };
       case "update-price":
         return redirect(
-          appendFreshWriteToken(
-            `${pathname}?feedbackWorkflow=listing-update`,
+          navigateToAccountListingAfterWrite(
             await api.updateListingPrice(params.listingId!, {
               priceAmount: priceDraftAmount,
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
+            `${pathname}?feedbackWorkflow=listing-update`,
           ),
         );
       case "update-quantity-cap":
         return redirect(
-          appendFreshWriteToken(
-            `${pathname}?feedbackWorkflow=listing-update`,
+          navigateToAccountListingAfterWrite(
             await api.updateListingQuantityCap(params.listingId!, {
               quantityCap: Number(formData.get("quantityCap") ?? 0),
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
+            `${pathname}?feedbackWorkflow=listing-update`,
           ),
         );
       case "update-purchase-limits":
         return redirect(
-          appendFreshWriteToken(
-            `${pathname}?feedbackWorkflow=listing-update`,
+          navigateToAccountListingAfterWrite(
             await api.updateListingPurchaseLimits(params.listingId!, {
               purchaseLimits: {
                 maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
@@ -157,28 +167,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
                 maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
               },
             }),
+            `${pathname}?feedbackWorkflow=listing-update`,
           ),
         );
       case "add-photos":
         return redirect(
-          appendFreshWriteToken(
-            `${pathname}?feedbackWorkflow=listing-update`,
+          navigateToAccountListingAfterWrite(
             await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData)),
+            `${pathname}?feedbackWorkflow=listing-update`,
           ),
         );
       case "publish":
         return redirect(
-          appendFreshWriteToken(
-            `${pathname}?feedbackWorkflow=listing-publish`,
+          navigateToAccountListingAfterWrite(
             await api.publishListing(params.listingId!, {
               feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
             }),
+            `${pathname}?feedbackWorkflow=listing-publish`,
           ),
         );
       case "pause":
-        return redirect(appendFreshWriteToken(pathname, await api.pauseListing(params.listingId!)));
+        return redirect(navigateToAccountListingAfterWrite(await api.pauseListing(params.listingId!), pathname));
       case "withdraw":
-        return redirect(appendFreshWriteToken(pathname, await api.withdrawListing(params.listingId!)));
+        return redirect(navigateToAccountListingAfterWrite(await api.withdrawListing(params.listingId!), pathname));
       default:
         break;
     }

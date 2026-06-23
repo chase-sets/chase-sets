@@ -10,11 +10,18 @@ import {
   CHASE_SETS_INTERNAL_API_ORIGIN_ENV,
   createForwardedAuthFetch,
   createForwardedAuthHeaders,
+  loadAfterWrite,
+  navigateAfterWrite,
   resolveInternalApiOrigin,
   resolveRequestApiBaseUrl,
 } from "./http";
+import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
+
+let unregisterPostWriteTelemetry: (() => void) | null = null;
 
 afterEach(() => {
+  unregisterPostWriteTelemetry?.();
+  unregisterPostWriteTelemetry = null;
   vi.unstubAllEnvs();
 });
 
@@ -187,5 +194,94 @@ describe("createForwardedAuthFetch", () => {
       ],
     });
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
+  });
+});
+
+describe("default-safe post-write navigation runtime", () => {
+  it("records source-side navigation diagnostics when it encodes a fresh-write receipt", () => {
+    const recorder = vi.fn();
+    unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
+
+    const href = navigateAfterWrite(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_1"],
+          },
+        ],
+        commitEventIds: ["evt_1"],
+      },
+      "/account/listings/lst_1",
+      {
+        nowMs: 1234,
+        telemetry: {
+          boundedContextName: "marketplace",
+          surface: "account-listing",
+          routeId: "account-listing",
+          routeTemplate: "/account/listings/:listingId",
+        },
+      },
+    );
+
+    expect(href).toContain("afterWrite=");
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "marketplace",
+        surface: "account-listing",
+        strategy: "fresh-read",
+        outcome: "navigation_encoded",
+        routeId: "account-listing",
+        routeTemplate: "/account/listings/:listingId",
+      }),
+    );
+  });
+
+  it("records destination-side read diagnostics for default-safe reads", async () => {
+    const recorder = vi.fn();
+    unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
+    const href = navigateAfterWrite(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_1"],
+          },
+        ],
+        commitEventIds: ["evt_1"],
+      },
+      "/account/listings/lst_1",
+      { nowMs: 1234 },
+    );
+
+    const result = await loadAfterWrite({
+      request: new Request(`https://marketplace.chasesets.test${href}`),
+      load: async () => ({ listingId: "lst_1" }),
+      isNotFound: () => false,
+      nowMs: () => 1234,
+      telemetry: {
+        boundedContextName: "marketplace",
+        surface: "account-listing",
+        routeId: "account-listing",
+        routeTemplate: "/account/listings/:listingId",
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "data",
+      data: { listingId: "lst_1" },
+    });
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "marketplace",
+        surface: "account-listing",
+        strategy: "fresh-read",
+        outcome: "read_data",
+        recoveryAction: "none",
+        freshnessOutcome: "fresh",
+      }),
+    );
   });
 });

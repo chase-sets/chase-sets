@@ -197,6 +197,11 @@ export type PostWriteHandoffEvaluation<T> =
       ageMs: number;
     }>;
 
+export type NavigateAfterWriteOptions = Readonly<{
+  handoff?: PostWriteHandoff;
+  nowMs?: number;
+}>;
+
 export type FreshWriteReadRecoveryOptions<T> = Readonly<{
   request: Request | string | URL;
   error: unknown;
@@ -208,6 +213,56 @@ export type FreshWriteReadRecoveryOptions<T> = Readonly<{
   getErrorCode?: (error: unknown) => string | null;
   getBody?: (error: unknown) => unknown;
 }>;
+
+export type LoadAfterWriteOptions<T> = Readonly<{
+  request: Request;
+  load: () => Promise<T>;
+  isNotFound: (error: unknown) => boolean;
+  isHandoffSatisfied?: (data: T, handoff: PostWriteHandoff) => boolean;
+  waitForFreshness?: (receipt: FreshWriteReceipt) => Promise<void>;
+  retryDelaysMs?: readonly number[];
+  nowMs?: () => number;
+  maxAgeMs?: number;
+  clockSkewMs?: number;
+  getStatus?: (error: unknown) => number | null;
+  getErrorCode?: (error: unknown) => string | null;
+  getBody?: (error: unknown) => unknown;
+}>;
+
+export type LoadAfterWriteResult<T> =
+  | Readonly<{
+      kind: "data";
+      data: T;
+      handoff: PostWriteHandoffEvaluation<T> | null;
+    }>
+  | Readonly<{
+      kind: "pending";
+      reason: "fresh-write-read-transient";
+      data: null;
+      recoveryKind: PostWriteRecoveryKind;
+      classification: FreshWriteReadErrorClassification;
+      error: unknown;
+    }>
+  | Readonly<{
+      kind: "pending";
+      reason: "semantic-handoff-pending";
+      data: T;
+      recoveryKind: PostWriteRecoveryKind;
+      handoff: Extract<PostWriteHandoffEvaluation<T>, { kind: "pending" }>;
+    }>
+  | Readonly<{
+      kind: "permanent-failure";
+      reason: "fresh-write-read-permanent";
+      recoveryKind: PostWriteRecoveryKind;
+      classification: FreshWriteReadErrorClassification;
+      error: unknown;
+    }>
+  | Readonly<{
+      kind: "permanent-failure";
+      reason: "semantic-handoff-expired" | "semantic-handoff-malformed" | "semantic-handoff-invalid";
+      recoveryKind: PostWriteRecoveryKind;
+      state: Exclude<PostWriteHandoffState, { kind: "valid" | "missing" }>;
+    }>;
 
 type MetadataCarrier = {
   [RESPONSE_METADATA]?: ResponseMetadata;
@@ -574,6 +629,24 @@ export function appendPostWriteHandoffFromSources(
   return appendPostWriteHandoffFromMetadataSources(path, sources, handoff, nowMs);
 }
 
+export function navigateAfterWrite(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: NavigateAfterWriteOptions = {},
+): string {
+  return navigateAfterWriteFromSources([commandResult], destinationRoute, options);
+}
+
+export function navigateAfterWriteFromSources(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: NavigateAfterWriteOptions = {},
+): string {
+  return options.handoff
+    ? appendPostWriteHandoffFromSources(destinationRoute, commandResults, options.handoff, options.nowMs)
+    : appendFreshWriteTokenFromSources(destinationRoute, commandResults, options.nowMs);
+}
+
 export function readFreshWriteToken(
   requestOrUrl: Request | string | URL,
   nowMs = Date.now(),
@@ -825,6 +898,96 @@ export function recoverFreshWriteReadError<T>(options: FreshWriteReadRecoveryOpt
   }
 
   return options.recoverPermanent?.(classification) ?? null;
+}
+
+function postWriteHandoffFailureReason(
+  state: Exclude<PostWriteHandoffState, { kind: "valid" | "missing" }>,
+): "semantic-handoff-expired" | "semantic-handoff-malformed" | "semantic-handoff-invalid" {
+  if (state.kind === "malformed") {
+    return "semantic-handoff-malformed";
+  }
+
+  return state.freshWrite.kind === "expired" ? "semantic-handoff-expired" : "semantic-handoff-invalid";
+}
+
+export async function loadAfterWrite<T>(options: LoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {
+  const nowMs = options.nowMs ?? Date.now;
+  let data: T;
+
+  try {
+    data = await loadFreshlyWrittenResource({
+      request: options.request,
+      load: options.load,
+      isNotFound: options.isNotFound,
+      waitForFreshness: options.waitForFreshness,
+      retryDelaysMs: options.retryDelaysMs,
+      nowMs,
+      maxAgeMs: options.maxAgeMs,
+    });
+  } catch (error) {
+    const classification = classifyFreshWriteReadError({
+      request: options.request,
+      error,
+      nowMs: nowMs(),
+      maxAgeMs: options.maxAgeMs,
+      getStatus: options.getStatus,
+      getErrorCode: options.getErrorCode,
+      getBody: options.getBody,
+    });
+    const recoveryKind = postWriteRecoveryKindForFreshWriteReadError(classification);
+
+    return classification.transient
+      ? {
+          kind: "pending",
+          reason: "fresh-write-read-transient",
+          data: null,
+          recoveryKind,
+          classification,
+          error,
+        }
+      : {
+          kind: "permanent-failure",
+          reason: "fresh-write-read-permanent",
+          recoveryKind,
+          classification,
+          error,
+        };
+  }
+
+  if (!options.isHandoffSatisfied) {
+    return { kind: "data", data, handoff: null };
+  }
+
+  const handoff = evaluatePostWriteHandoff({
+    request: options.request,
+    data,
+    isSatisfied: options.isHandoffSatisfied,
+    nowMs: nowMs(),
+    maxAgeMs: options.maxAgeMs,
+    clockSkewMs: options.clockSkewMs,
+  });
+
+  if (handoff.kind === "satisfied" || handoff.kind === "not-applicable") {
+    if (handoff.kind === "not-applicable" && handoff.state.kind !== "missing") {
+      const recoveryKind = postWriteRecoveryKindForHandoffState(handoff.state);
+      return {
+        kind: "permanent-failure",
+        reason: postWriteHandoffFailureReason(handoff.state),
+        recoveryKind,
+        state: handoff.state,
+      };
+    }
+
+    return { kind: "data", data, handoff };
+  }
+
+  return {
+    kind: "pending",
+    reason: "semantic-handoff-pending",
+    data,
+    recoveryKind: "pending-projection",
+    handoff,
+  };
 }
 
 function delay(ms: number): Promise<void> {

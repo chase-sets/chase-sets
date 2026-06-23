@@ -11,7 +11,10 @@ const freshWriteHelperNames = new Set([
   "appendPostWriteHandoff",
   "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
+  "loadAfterWrite",
   "loadFreshlyWrittenResource",
+  "navigateAfterWrite",
+  "navigateAfterWriteFromSources",
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
@@ -22,7 +25,7 @@ const semanticPostWriteHandoffHelperNames = new Set([
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
-const helperImportPattern = /from\s+["']@chase-sets\/http\/responses["']/;
+const helperImportPattern = /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http)["']/;
 const rawPostWriteHandoffMetadataPattern =
   /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);
@@ -418,7 +421,7 @@ export async function collectFreshWriteHelperUsage(options) {
     }
 
     const helperUses = [...freshWriteHelperNames].filter((helperName) =>
-      new RegExp(`\\b${helperName}\\s*\\(`).test(content),
+      new RegExp(`\\b${helperName}\\s*(?:<[^>\\n]+>\\s*)?\\(`).test(content),
     );
     if (helperUses.length === 0) {
       continue;

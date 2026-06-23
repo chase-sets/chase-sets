@@ -43,17 +43,29 @@ function createTempRepo() {
 function writeRoute(root, relativeFile, helpers) {
   const absolute = path.join(root, relativeFile);
   mkdirSync(path.dirname(absolute), { recursive: true });
-  const exportName = helpers.includes("loadFreshlyWrittenResource") ? "loader" : "action";
+  const platformRuntimeHelpers = new Set(["loadAfterWrite", "navigateAfterWrite", "navigateAfterWriteFromSources"]);
+  const importModule = helpers.some((helper) => platformRuntimeHelpers.has(helper))
+    ? "@chase-sets/platform-runtime/http"
+    : "@chase-sets/http/responses";
+  const exportName = helpers.some((helper) => helper === "loadFreshlyWrittenResource" || helper === "loadAfterWrite")
+    ? "loader"
+    : "action";
   writeFileSync(
     absolute,
     [
-      `import { ${helpers.join(", ")} } from "@chase-sets/http/responses";`,
+      `import { ${helpers.join(", ")} } from "${importModule}";`,
       `export async function ${exportName}() {`,
-      ...helpers.map((helper) =>
-        helper === "loadFreshlyWrittenResource"
+      ...helpers.map((helper) => {
+        if (helper === "loadAfterWrite") {
+          return `  return ${helper}<{ ok: boolean }>({ request: new Request("http://test"), load: async () => ({ ok: true }), isNotFound: () => false });`;
+        }
+
+        return helper === "loadFreshlyWrittenResource"
           ? `  return ${helper}({ request: new Request("http://test"), load: async () => ({ ok: true }) });`
-          : `  return ${helper}("/next", { context: "checkout", globalPosition: "1" });`,
-      ),
+          : platformRuntimeHelpers.has(helper)
+            ? `  return ${helper}({ context: "checkout", globalPosition: "1" }, "/next");`
+            : `  return ${helper}("/next", { context: "checkout", globalPosition: "1" });`;
+      }),
       "}",
       "",
     ].join("\n"),
@@ -430,6 +442,51 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.freshnessDependencyReason is required when declaring projectionDependencies instead of readModelTables",
+    );
+  });
+
+  it("accepts the default-safe platform runtime helpers in freshness inventory", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["navigateAfterWrite"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadAfterWrite"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["navigateAfterWrite"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadAfterWrite"],
+              transientRecovery: recovery("refreshable-catching-up"),
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+    expect(result.helperUsages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: "bounded-contexts/checkout/routes/checkout-start.tsx",
+          helpers: ["navigateAfterWrite"],
+        }),
+        expect.objectContaining({
+          file: "bounded-contexts/checkout/routes/checkout-session.tsx",
+          helpers: ["loadAfterWrite"],
+        }),
+      ]),
     );
   });
 

@@ -370,14 +370,14 @@
         "routeId": "account-listing",
         "actions": ["Update listing", "Publish listing"],
         "command": "Marketplace listing commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-listing",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
@@ -399,7 +399,7 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
