@@ -489,7 +489,7 @@ export function createScrydexOnePieceProviderAdapter(
         ...scrydexUsageTransportDiagnostics(usageReadiness),
         {
           code: "scrydex-one-piece-price-history-source-authority-gated",
-          severity: "warning",
+          severity: "info",
           message: scrydexPriceHistoryPerCardDiagnostic,
           unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         },
@@ -1054,7 +1054,7 @@ function scrydexUsageTransportDiagnostics(
   if (usageReadiness.usageCheckState === "checked") {
     diagnostics.push({
       code: "scrydex-account-usage-stale-window",
-      severity: "warning",
+      severity: "info",
       message: scrydexUsageLagDiagnostic,
     });
   }
