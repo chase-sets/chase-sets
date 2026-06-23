@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
-import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse, type MutationResult } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "./features/wallets/read-model/queries";
 import type {
@@ -68,6 +68,8 @@ export type SettlementPayoutEmbeddedSession = Readonly<{
   components: readonly ("payout-setup" | "payout-account-management")[];
   readiness?: SettlementPayoutReadinessRow;
 }>;
+
+export type SettlementPayoutSetupRefreshResult = MutationResult<SettlementPayoutReadinessRow>;
 
 export class SettlementApiError extends Error {
   public constructor(
@@ -179,7 +181,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async refreshPayoutSetup(): Promise<SettlementPayoutReadinessRow> {
+    async refreshPayoutSetup(): Promise<SettlementPayoutSetupRefreshResult> {
       return parseJsonResponse(
         await client["payout-setup"].refresh.$post({
           json: {},

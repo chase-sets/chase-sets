@@ -193,23 +193,18 @@
       "source": {
         "routeId": "account-payout-setup",
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
-        "command": "RecordPayoutReadiness"
+        "command": "RecordPayoutReadiness",
+        "helperUses": ["appendFreshWriteToken"]
       },
       "destination": {
-        "routeId": "account-payout-setup",
+        "routeId": "account-sell-list",
         "apiContextName": "settlement",
         "apiRoutePath": "/payout-readiness",
         "readModelTables": ["settlement_payout_readiness_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Payout setup refresh renders the command-owned readiness snapshot immediately, while follow-on account surfaces such as Sell List read the Settlement payout-readiness API backed by the exact settlement_payout_readiness_pages projection."
+          "behavior": "Payout setup refresh and provider exit render the command-owned readiness snapshot immediately; when a safe returnTo target is present and the refresh result is ready, the account-payout-setup route redirects to that target with the Settlement receipt so follow-on account surfaces such as Sell List forward afterWrite to the Settlement payout-readiness API and wait on settlement_payout_readiness_pages."
         }
-      },
-      "exception": {
-        "status": "not-post-write-read",
-        "owner": "settlement",
-        "reviewBy": "2026-09-30",
-        "reason": "Payout setup refresh is a Settlement snapshot-return mutation, not a browser route that carries afterWrite into a same-page read. The /payout-readiness freshness route exists for cross-surface readiness readers such as Sell List, and settlement.account-payout-setup-route-snapshot-correction owns the immediate provider-exit status."
       }
     }
   ],

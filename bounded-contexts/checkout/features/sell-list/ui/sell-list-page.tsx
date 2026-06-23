@@ -1156,7 +1156,9 @@ export function CheckoutSellListPage({
   const firstBlockedLineHref = firstBlockedLine
     ? sellListLineRecoveryHref(firstBlockedLine, inventoryByProductId.get(firstBlockedLine.product_id)?.[0] ?? null)
     : null;
-  const recoveryHref = !payoutIsReady ? "/account/payouts/setup" : (firstBlockedLineHref ?? "/search");
+  const recoveryHref = !payoutIsReady
+    ? "/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"
+    : (firstBlockedLineHref ?? "/search");
   const recoveryLabel = !payoutIsReady
     ? t("checkout.features.sellList.ui.sellListPage.set.up.payouts")
     : blockedLineCount > 0
@@ -1357,7 +1359,11 @@ export function CheckoutSellListPage({
                       : t("checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description")
                   }
                   action={
-                    <LinkButton href="/account/payouts/setup" tone="secondary" size="sm">
+                    <LinkButton
+                      href="/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"
+                      tone="secondary"
+                      size="sm"
+                    >
                       {t("checkout.features.sellList.ui.sellListPage.set.up.payouts")}
                     </LinkButton>
                   }
