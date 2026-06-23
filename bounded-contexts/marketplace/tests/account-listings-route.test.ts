@@ -197,7 +197,7 @@ describe("account listings route", () => {
     expect(result.createForm?.priceAmount).toBe("350.00");
   });
 
-  it("does not synthesize seller availability for marketplace fresh-write timeouts", async () => {
+  it("renders temporary seller availability state for marketplace availability fresh-write timeouts", async () => {
     const projectionTimeout = new MarketplaceApiError(503, {
       error: {
         code: "projection_freshness_timeout",
@@ -216,7 +216,7 @@ describe("account listings route", () => {
       getSellerListingAvailability: vi.fn().mockRejectedValue(projectionTimeout),
     });
     mockCreateInventoryRequestApiClient.mockReturnValue({});
-    const path = appendFreshWriteToken("/account/listings", {
+    const path = appendFreshWriteToken("/account/listings?availabilityAction=disabled", {
       commitPositions: [
         {
           sourceContextName: "marketplace",
@@ -227,13 +227,17 @@ describe("account listings route", () => {
       commitEventIds: ["evt_marketplace_52"],
     });
 
-    await expect(
-      loader({
-        request: new Request(`http://localhost${path}`),
-        params: {},
-        context: {},
-      } as never),
-    ).rejects.toBe(projectionTimeout);
+    const result = await loader({
+      request: new Request(`http://localhost${path}`),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result.listingAvailability).toMatchObject({
+      account_id: "acc_seller",
+      status: "unavailable",
+    });
+    expect(result.listings).toEqual({ items: [], total: 0, count: 0 });
   });
 
   it("pre-fills selected product options from listing setup links", async () => {

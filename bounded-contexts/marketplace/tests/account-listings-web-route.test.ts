@@ -342,6 +342,44 @@ describe("marketplace listing routes", () => {
     expect(readFreshWriteToken(location)?.commitPosition).toBe("42");
   });
 
+  it("marks seller availability disable redirects with the pending availability action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        return Promise.resolve(
+          jsonResponse({ accountId: "acc_1", version: 2, status: "unavailable" }, 200, {
+            "Chase-Sets-Consistency": "eventual",
+            "Chase-Sets-Commit-Position": "43",
+          }),
+        );
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "disable-listing-availability");
+    form.set("reasonCategory", "operations");
+
+    const result = await listingsAction({
+      request: new Request("http://localhost/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/listings\?availabilityAction=disabled&afterWrite=/);
+    expect(readFreshWriteToken(location)?.commitPosition).toBe("43");
+  });
+
   it("forwards afterWrite metadata when refreshing listing availability", async () => {
     const availabilityHeaders: Headers[] = [];
     const freshPath = appendFreshWriteToken(

@@ -27,6 +27,13 @@ const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.lis
 
 export { ListingDetailErrorBoundary as ErrorBoundary };
 
+function requestWithoutFreshWrite(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
+  return new Request(url.toString(), { headers: request.headers });
+}
+
 function staleQuoteFromError(error: MarketplaceApiError) {
   if (error.status !== 409) {
     return null;
@@ -66,15 +73,14 @@ function listingPhotoFormData(formData: FormData) {
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
+  const nonFreshApi = createMarketplaceRequestApiClient(requestWithoutFreshWrite(request));
+  let listing: MarketplaceListingDetail;
 
   try {
-    return await loadFreshlyWrittenResource({
+    listing = await loadFreshlyWrittenResource({
       request,
       isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
-      load: async () => ({
-        listing: await api.getSellerListing(params.listingId!),
-        feeHistory: await api.getSellerListingFeeHistory(params.listingId!),
-      }),
+      load: () => api.getSellerListing(params.listingId!),
     });
   } catch (error) {
     const freshWriteRecovery = recoverFreshWriteReadError({
@@ -96,6 +102,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     throw error;
   }
+
+  return {
+    listing,
+    feeHistory: await nonFreshApi.getSellerListingFeeHistory(params.listingId!),
+  };
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
