@@ -17,6 +17,7 @@ import {
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
+  scrydexOnePieceCardPrintProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
@@ -170,6 +171,33 @@ describe("catalog provider integration profiles", () => {
         ],
       },
     });
+  });
+
+  it("registers Scrydex One Piece as live credentialed transport with fixture-backed activation evidence", () => {
+    const profile = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+      profileKey: "one-piece-card-print-source-observation",
+    })?.profile;
+
+    expect(profile).toBe(scrydexOnePieceCardPrintProviderProfile);
+    expect(profile?.connector).toMatchObject({
+      kind: "scrydex-one-piece-json",
+      transportMode: "live-credentialed",
+      fixtureEvidence: "required-for-active-profile-validation",
+      authentication: {
+        scheme: "scrydex-api-key",
+        credentialsRequired: true,
+        teamIdentifierRequired: true,
+        retainedCredentialMaterial: "never",
+      },
+      requestPolicy: {
+        normalImportStrategy: "bulk-first",
+        selectedFieldsOnly: true,
+        highestSafePageSizeRequired: true,
+        perRecordFallbackPolicy: "documented-tested-preflighted-operator-visible",
+      },
+      excludedEvidence: expect.arrayContaining(["unapproved-price-history"]),
+    });
+    expect(profile?.connector).not.toHaveProperty("fixtureBackedOnly");
   });
 
   it("keeps TCGplayer pricing and seller workflow evidence outside Catalog truth", () => {
@@ -935,6 +963,9 @@ describe("catalog provider integration profiles", () => {
       "one-piece-single-card-product-sku",
       "one-piece-sealed-product-sku",
     ]);
+    expect(activeOnePieceVersions.map(catalogProviderProfileVersionIngestionUnitKey)).not.toContain(
+      "scrydex:one-piece:price-history:reference-data",
+    );
 
     for (const version of activeOnePieceVersions) {
       expect(version.executableMappingContract, version.profileKey).toBeDefined();

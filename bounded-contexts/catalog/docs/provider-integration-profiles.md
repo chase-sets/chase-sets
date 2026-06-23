@@ -187,15 +187,17 @@ Fields, which Product IDs are Catalog Item references, which SKUs are Product
 references, or whether a provider-product observation is promotable.
 
 The adapter identifies TCGplayer integration work as narrow ingestion units
-rather than one broad provider semantic profile. The implemented production
-Magic unit is `tcgplayer:mtg:single-card:source-observation-import`. The
-Pokemon automation unit is retained as a test profile for contract coverage.
-Planned split units such as `tcgplayer:mtg:sealed-product:source-observation-import`
-and `tcgplayer:one-piece:single-card:source-observation-import` require their
-own profile versions before runtime import can enable them. Raw and graded card
-differences stay inside the single-card unit as condition/certification and
-selected Option evidence unless a future provider payload proves a distinct
-aggregate target, lifecycle, duplicate-prevention policy, or promotion plan.
+rather than one broad provider semantic profile. Implemented active production
+units include `tcgplayer:mtg:single-card:source-observation-import`,
+`tcgplayer:mtg:sealed-product:source-observation-import`,
+`tcgplayer:yugioh:single-card:source-observation-import`,
+`tcgplayer:one-piece:single-card:source-observation-import`, and
+`tcgplayer:one-piece:sealed-product:source-observation-import`. The Pokemon
+automation unit is retained as a test profile for contract coverage. Raw and
+graded card differences stay inside the single-card unit as
+condition/certification and selected Option evidence unless a future provider
+payload proves a distinct aggregate target, lifecycle, duplicate-prevention
+policy, or promotion plan.
 
 TCGplayer provider-product Source Observations remain non-promotable until an
 active profile declares Catalog Item promotion capability and a valid promotion
@@ -250,9 +252,9 @@ this Catalog identity proof.
 
 ## Scrydex One Piece Production Shape
 
-One Piece production sync uses dedicated Scrydex One Piece profile units and the
-shared Scrydex transport credential. Production-like writes remain gated until
-[Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+One Piece production sync uses dedicated active Scrydex One Piece profile units
+and the shared Scrydex transport credential. Production-like writes remain gated
+until [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
 is accepted. The live adapter is a provider transport boundary: it owns
 Scrydex auth, team id handling, endpoint paths, pagination, throttling, usage
 checks, rate limits, credit diagnostics, raw response parsing, and sanitized
@@ -267,8 +269,14 @@ provider semantic profile:
 - `scrydex:one-piece:single-card:source-observation-import`
 - `scrydex:one-piece:set:reference-data`
 - `scrydex:one-piece:sealed-product:source-observation-import`
-- `scrydex:one-piece:price-history:reference-data`, which stays disabled unless
-  source authority approves price-history evidence outside Catalog truth
+
+No active Scrydex One Piece price-history profile version is seeded for this
+milestone. Price-history evidence stays source-authority-gated because Scrydex
+exposes it as per-card data and One Piece policy excludes unapproved
+price-history bodies from Catalog truth. If a future source-authority decision
+approves a bounded price/freshness evidence class, it must add a separate
+ingestion unit, bulk/call-budget proof or documented operator-visible fallback,
+and tests before runtime import can enable it.
 
 Every Scrydex One Piece unit must follow the bulk-first policy in the One Piece
 signoff. Normal imports use paginated list/search or filtered bulk calls with
@@ -281,6 +289,8 @@ The Scrydex Scryfall-style proof profile remains test-scoped validation
 evidence for Scryfall-shaped Magic fixtures only. Production One Piece imports
 use the `scrydex:one-piece:*` profile units and must not inherit proof-only
 Scryfall fixture language, Admin labels, runbook steps, or promotion semantics.
+The active Scrydex One Piece connector is live credentialed transport with
+fixture-backed activation evidence; it is not a fixture-only production path.
 
 ## Future Integrations
 
