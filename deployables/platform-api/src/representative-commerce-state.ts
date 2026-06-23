@@ -172,6 +172,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         {
           listingIds: listings.map((listing) => listing.listingId),
           offerIds: offers.map((offer) => offer.offerId),
+          existingRepresentativeLimit: readCandidateLimit(),
         },
       ),
     );

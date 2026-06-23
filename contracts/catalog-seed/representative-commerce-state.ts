@@ -199,6 +199,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
 export type DiscoveryRepresentativeMarketStateInput = Readonly<{
   listingIds: readonly string[];
   offerIds: readonly string[];
+  existingRepresentativeLimit?: number;
 }>;
 
 export type DiscoveryRepresentativeMarketStateServices = Readonly<{
@@ -851,8 +852,21 @@ export async function reconcileRepresentativeDiscoveryMarketState(
   services: DiscoveryRepresentativeMarketStateServices,
   input: DiscoveryRepresentativeMarketStateInput,
 ): Promise<DiscoveryRepresentativeMarketStateResult> {
-  const listingIds = uniqueTextValues(input.listingIds);
-  const offerIds = uniqueTextValues(input.offerIds);
+  const explicitListingIds = uniqueTextValues(input.listingIds);
+  const explicitOfferIds = uniqueTextValues(input.offerIds);
+  const existingRepresentativeLimit = normalizeRepresentativeCandidateLimit(input.existingRepresentativeLimit);
+  const [listingIds, offerIds] = await Promise.all([
+    explicitListingIds.length > 0
+      ? Promise.resolve(explicitListingIds)
+      : loadExistingRepresentativeMarketplaceListingIds(services.marketplaceDb, {
+          limit: existingRepresentativeLimit,
+        }),
+    explicitOfferIds.length > 0
+      ? Promise.resolve(explicitOfferIds)
+      : loadExistingRepresentativeMarketplaceOfferIds(services.marketplaceDb, {
+          limit: existingRepresentativeLimit,
+        }),
+  ]);
   const [listings, offers] = await Promise.all([
     loadMarketplaceListings(services.marketplaceDb, listingIds),
     loadMarketplaceOffers(services.marketplaceDb, offerIds),
@@ -872,6 +886,40 @@ export async function reconcileRepresentativeDiscoveryMarketState(
     listingCount: listings.length,
     offerCount: offers.length,
   };
+}
+
+async function loadExistingRepresentativeMarketplaceListingIds(
+  db: RepresentativeQueryable,
+  options: Readonly<{ limit: number }>,
+): Promise<readonly string[]> {
+  const result = await db.query<{ listing_id: string }>(
+    `SELECT listing.listing_id
+     FROM marketplace_listing_pages AS listing
+     WHERE listing.listing_id LIKE 'lst$_repr$_%' ESCAPE '$'
+       AND listing.status = 'active'
+     ORDER BY listing.updated_at DESC, listing.listing_id ASC
+     LIMIT $1`,
+    [options.limit],
+  );
+
+  return result.rows.map((row) => row.listing_id);
+}
+
+async function loadExistingRepresentativeMarketplaceOfferIds(
+  db: RepresentativeQueryable,
+  options: Readonly<{ limit: number }>,
+): Promise<readonly string[]> {
+  const result = await db.query<{ offer_id: string }>(
+    `SELECT offer.offer_id
+     FROM marketplace_offer_pages AS offer
+     WHERE offer.offer_id LIKE 'off$_repr$_%' ESCAPE '$'
+       AND offer.status IN ('submitted', 'accepted')
+     ORDER BY offer.updated_at DESC, offer.offer_id ASC
+     LIMIT $1`,
+    [options.limit],
+  );
+
+  return result.rows.map((row) => row.offer_id);
 }
 
 async function loadCurrentRepresentativeCatalogItemIds(
