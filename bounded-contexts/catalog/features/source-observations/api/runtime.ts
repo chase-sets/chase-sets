@@ -5208,10 +5208,8 @@ function booleanFromString(value: string | null | undefined): boolean | null {
 function scrydexOnePieceCredentialsFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): ScrydexOnePieceCredentials | undefined {
-  const apiKey =
-    env.SCRYDEX_ONE_PIECE_API_KEY?.trim() || env.SCRYDEX_API_KEY?.trim() || env.SCRYDEX_X_API_KEY?.trim() || "";
-  const teamId =
-    env.SCRYDEX_ONE_PIECE_TEAM_ID?.trim() || env.SCRYDEX_TEAM_ID?.trim() || env.SCRYDEX_X_TEAM_ID?.trim() || "";
+  const apiKey = env.SCRYDEX_API_KEY?.trim() || "";
+  const teamId = env.SCRYDEX_TEAM_ID?.trim() || "";
 
   return apiKey && teamId ? { apiKey, teamId } : undefined;
 }

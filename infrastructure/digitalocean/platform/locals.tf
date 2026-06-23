@@ -319,9 +319,17 @@ locals {
   }
   catalog_asset_s3_bucket       = local.catalog_asset_s3_buckets[var.environment]
   catalog_asset_public_base_url = local.catalog_asset_public_base_urls[var.environment]
-  catalog_magic_provider_runtime_env = {
+  catalog_provider_runtime_env = {
     TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = {
       value  = var.tcgplayer_automation_tcg_auth_cookie
+      secret = true
+    }
+    SCRYDEX_API_KEY = {
+      value  = var.scrydex_api_key
+      secret = true
+    }
+    SCRYDEX_TEAM_ID = {
+      value  = var.scrydex_team_id
       secret = true
     }
     TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS = {

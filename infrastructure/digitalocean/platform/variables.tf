@@ -557,6 +557,25 @@ variable "tcgplayer_automation_tcg_auth_cookie" {
   description = "Approved TCGplayer automation session cookie for Catalog provider option queries and imports. Keep empty until staging or production provider access is approved."
 }
 
+variable "scrydex_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Shared approved Scrydex API key for Catalog provider option queries and imports. Configure once per environment for all Scrydex-backed product lines."
+
+  validation {
+    condition     = (trimspace(var.scrydex_api_key) == "") == (trimspace(var.scrydex_team_id) == "")
+    error_message = "scrydex_api_key and scrydex_team_id must be configured together."
+  }
+}
+
+variable "scrydex_team_id" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Shared approved Scrydex team identifier for Catalog provider option queries and imports. Configure once per environment for all Scrydex-backed product lines."
+}
+
 variable "google_social_login_client_id" {
   type      = string
   sensitive = true

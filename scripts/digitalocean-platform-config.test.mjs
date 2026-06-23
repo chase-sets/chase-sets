@@ -145,28 +145,45 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
-  it("wires Magic provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
+  it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
     expect(platformVariables).toContain('variable "tcgplayer_automation_tcg_auth_cookie"');
+    expect(platformVariables).toContain('variable "scrydex_api_key"');
+    expect(platformVariables).toContain('variable "scrydex_team_id"');
+    expect(platformVariables).toContain("scrydex_api_key and scrydex_team_id must be configured together.");
     expect(platformVariables).toContain("sensitive   = true");
     expect(platformVariables).toContain('default     = ""');
-    expect(platformLocals).toContain("catalog_magic_provider_runtime_env");
+    expect(platformLocals).toContain("catalog_provider_runtime_env");
     expect(platformLocals).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
     expect(platformLocals).toContain("value  = var.tcgplayer_automation_tcg_auth_cookie");
+    expect(platformLocals).toContain("SCRYDEX_API_KEY");
+    expect(platformLocals).toContain("value  = var.scrydex_api_key");
+    expect(platformLocals).toContain("SCRYDEX_TEAM_ID");
+    expect(platformLocals).toContain("value  = var.scrydex_team_id");
+    expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_API_KEY");
+    expect(platformLocals).not.toContain("SCRYDEX_ONE_PIECE_TEAM_ID");
     expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
     expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
     expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
-    expect(occurrenceCount(platformMain, "for_each = local.catalog_magic_provider_runtime_env")).toBe(5);
+    expect(occurrenceCount(platformMain, "for_each = local.catalog_provider_runtime_env")).toBe(5);
     expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
-      "for_each = local.catalog_magic_provider_runtime_env",
+      "for_each = local.catalog_provider_runtime_env",
     );
     expect(platformPrWorkflow).toContain("TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie");
+    expect(platformPrWorkflow).toContain("TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key");
+    expect(platformPrWorkflow).toContain("TF_VAR_scrydex_team_id: pr-validation-scrydex-team");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
     );
+    expect(platformProductionWorkflow).toContain("TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}");
+    expect(platformProductionWorkflow).toContain("TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}");
     expect(platformStagingResetWorkflow).toContain(
       "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
     );
-    expect(platformMain).not.toMatch(/TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"/);
+    expect(platformStagingResetWorkflow).toContain("TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}");
+    expect(platformStagingResetWorkflow).toContain("TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}");
+    expect(platformMain).not.toMatch(
+      /TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"|SCRYDEX_API_KEY\s*=\s*"[^"]+"|SCRYDEX_TEAM_ID\s*=\s*"[^"]+"/,
+    );
   });
 
   it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
