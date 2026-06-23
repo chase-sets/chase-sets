@@ -20,7 +20,7 @@ Catalog persists provider integration profiles in `catalog_provider_integration_
 Each row carries the provider key, profile key, profile version, ingestion-unit key, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, optional executable mapping contract, and optional retirement plan.
 Admin-authored rows also carry migration evidence and authoring audit metadata so operators can see who cloned or changed a version and what replay or fixture evidence justified activation.
 
-The current TCGdex, TCGplayer, and Scrydex profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer and Scrydex are fixture-backed executable `test` profile versions while their import workflows remain planned.
+Current production and proof profiles are seeded through this versioned data path during Catalog bootstrap. Active production import/reference units include TCGdex Pokemon, TCGplayer Magic, MTGJSON, Scryfall, Scrydex One Piece, and TCGplayer One Piece units when their source authority gates are accepted. Fixture-backed `test` profile versions remain explicit non-production contract evidence only.
 
 Profile lifecycle values are:
 
@@ -227,11 +227,11 @@ in the same cleanup, not leave a compatibility alias.
 
 ## Scrydex Scryfall-Style Proof Profile
 
-The Scrydex profile is a planned, fixture-backed proof profile for
-Scryfall-style card payloads. It exists to validate the provider mapping
-framework's extensibility before a live Scrydex transport adapter is accepted.
-It does not add runtime provider branches and does not declare Catalog Item
-promotion capability.
+The Scrydex Scryfall-style profile is a fixture-backed `test` profile for
+Scryfall-shaped Magic card payloads. It remains only as contract evidence for
+the provider mapping framework's extensibility. It is not the production Scrydex
+transport path, must not appear as a production import choice, and does not
+declare Catalog Item promotion capability.
 
 The executable Scrydex profile maps raw card payload evidence such as Scryfall
 ID, set code, set name, collector number, language, image URLs, and
@@ -250,10 +250,10 @@ this Catalog identity proof.
 
 ## Scrydex One Piece Production Shape
 
-One Piece production sync promotes Scrydex from a fixture-only proof concept
-into a paid provider path only after
+One Piece production sync uses dedicated Scrydex One Piece profile units and the
+shared Scrydex transport credential. Production-like writes remain gated until
 [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
-is accepted. The live adapter must be a provider transport boundary: it owns
+is accepted. The live adapter is a provider transport boundary: it owns
 Scrydex auth, team id handling, endpoint paths, pagination, throttling, usage
 checks, rate limits, credit diagnostics, raw response parsing, and sanitized
 transport evidence. Provider profiles and executable mapping contracts own which
@@ -261,14 +261,14 @@ Scrydex facts become Source Observation facts, duplicate-prevention evidence,
 Reference Records, external references, selected Options, and promotion command
 plans.
 
-Planned One Piece Scrydex profile units are narrow ingestion units, not one broad
+One Piece Scrydex profile units are narrow ingestion units, not one broad
 provider semantic profile:
 
 - `scrydex:one-piece:single-card:source-observation-import`
 - `scrydex:one-piece:set:reference-data`
 - `scrydex:one-piece:sealed-product:source-observation-import`
-- `scrydex:one-piece:price-history:reference-data` when source authority
-  approves price-history evidence outside Catalog truth
+- `scrydex:one-piece:price-history:reference-data`, which stays disabled unless
+  source authority approves price-history evidence outside Catalog truth
 
 Every Scrydex One Piece unit must follow the bulk-first policy in the One Piece
 signoff. Normal imports use paginated list/search or filtered bulk calls with
@@ -277,11 +277,10 @@ one-call-per-sealed-product are forbidden normal paths. Any per-record fallback
 must be documented, tested, preflighted with call impact, and surfaced to the
 operator before execution.
 
-The existing Scrydex Scryfall-style proof profile remains fixture-backed
-validation evidence until production Scrydex units replace it. Cleanup must
-remove or rename proof-only language once live Scrydex One Piece profiles are
-accepted so Admin, tests, docs, and runbooks do not imply that production One
-Piece imports use Scryfall-shaped Magic fixture semantics.
+The Scrydex Scryfall-style proof profile remains test-scoped validation
+evidence for Scryfall-shaped Magic fixtures only. Production One Piece imports
+use the `scrydex:one-piece:*` profile units and must not inherit proof-only
+Scryfall fixture language, Admin labels, runbook steps, or promotion semantics.
 
 ## Future Integrations
 

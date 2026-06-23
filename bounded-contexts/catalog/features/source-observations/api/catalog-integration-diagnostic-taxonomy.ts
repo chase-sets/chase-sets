@@ -8,7 +8,8 @@ export type CatalogIntegrationDiagnosticSource =
   | "credential-readiness"
   | "projection-lag"
   | "admin-route"
-  | "alias-equivalence";
+  | "alias-equivalence"
+  | "provider-comparison";
 
 export type CatalogIntegrationDiagnosticSeverity = "info" | "warning" | "error" | "blocked";
 
@@ -56,7 +57,10 @@ export type CatalogIntegrationDiagnosticGroupingKey =
   | "projectionName"
   | "aliasTargetKind"
   | "aliasType"
-  | "aliasLanguageCode";
+  | "aliasLanguageCode"
+  | "comparisonSourceKey"
+  | "externalId"
+  | "fieldClass";
 
 export type CatalogIntegrationDiagnosticInstance = Readonly<{
   code: CatalogIntegrationDiagnosticCode;
@@ -69,6 +73,9 @@ export type CatalogIntegrationDiagnosticInstance = Readonly<{
   sectionKey?: string;
   unitKey?: string;
   remediation?: string;
+  comparisonSourceKey?: string;
+  externalId?: string;
+  fieldClass?: string;
 }>;
 
 export const catalogIntegrationDiagnosticTaxonomy = [
@@ -514,6 +521,25 @@ export const catalogIntegrationDiagnosticTaxonomy = [
   entry("import-eligibility", "engine", "error", "import-blocking", "summary", "Resolve import eligibility blockers."),
 
   entry(
+    "one-piece-provider-disagreement",
+    "provider-comparison",
+    "warning",
+    "advisory",
+    "detail",
+    "Review the redacted One Piece provider comparison before promotion.",
+    "redacted-provider-evidence",
+  ),
+  entry(
+    "one-piece-fallback-source-unapproved",
+    "provider-comparison",
+    "blocked",
+    "promotion-blocking",
+    "summary",
+    "Record named source approval before using fallback evidence.",
+    "redacted-provider-evidence",
+  ),
+
+  entry(
     "fixture-harness-failure",
     "fixture",
     "error",
@@ -832,5 +858,7 @@ function groupingKeysFor(
       return ["providerKey", "profileVersion", "path"];
     case "alias-equivalence":
       return ["providerKey", "aliasTargetKind", "aliasType", "aliasLanguageCode"];
+    case "provider-comparison":
+      return ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass"];
   }
 }

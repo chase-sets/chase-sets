@@ -37,6 +37,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
         "projection-lag",
         "admin-route",
         "alias-equivalence",
+        "provider-comparison",
       ]),
     );
     expect(new Set(catalogIntegrationDiagnosticTaxonomy.map((entry) => entry.severity))).toEqual(
@@ -126,6 +127,8 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       "invalid_json_body",
       "invalid_profile_section_command",
       "profile_activation_blocked",
+      "one-piece-provider-disagreement",
+      "one-piece-fallback-source-unapproved",
     ] as const;
 
     expect(() => assertCatalogIntegrationDiagnosticTaxonomyCoverage(existingCodes)).not.toThrow();
@@ -169,6 +172,47 @@ describe("Catalog Integration diagnostic taxonomy", () => {
         expect(definition.groupingKeys).toContain("aliasType");
       }
     }
+  });
+
+  it("covers One Piece provider-comparison diagnostics with redacted field-class grouping", () => {
+    expect(() =>
+      assertCatalogIntegrationDiagnosticTaxonomyCoverage([
+        "one-piece-provider-disagreement",
+        "one-piece-fallback-source-unapproved",
+      ]),
+    ).not.toThrow();
+
+    expect(getCatalogIntegrationDiagnosticDefinition("one-piece-provider-disagreement")).toMatchObject({
+      source: "provider-comparison",
+      severity: "warning",
+      blockingBehavior: "advisory",
+      evidencePolicy: "redacted-provider-evidence",
+      groupingKeys: ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass"],
+    });
+    expect(getCatalogIntegrationDiagnosticDefinition("one-piece-fallback-source-unapproved")).toMatchObject({
+      source: "provider-comparison",
+      severity: "blocked",
+      blockingBehavior: "promotion-blocking",
+      evidencePolicy: "redacted-provider-evidence",
+    });
+    expect(
+      toCatalogIntegrationDiagnostic({
+        code: "one-piece-provider-disagreement",
+        path: "validation.cardNumber",
+        diagnosticText: "Scrydex and Bandai comparison disagreed.",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:single-card:source-observation-import",
+        comparisonSourceKey: "bandai-one-piece-official",
+        externalId: "redacted-card-id",
+        fieldClass: "card number",
+      }),
+    ).toMatchObject({
+      source: "provider-comparison",
+      severity: "warning",
+      remediation: "Review the redacted One Piece provider comparison before promotion.",
+      comparisonSourceKey: "bandai-one-piece-official",
+      fieldClass: "card number",
+    });
   });
 
   it("uses blocking behavior consistently for readiness and destructive workflow gates", () => {

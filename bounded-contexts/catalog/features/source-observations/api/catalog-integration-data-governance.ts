@@ -365,6 +365,20 @@ export type CatalogIntegrationOnePieceProviderAuthorityPolicy = Readonly<{
   activationRequirement: string;
 }>;
 
+export type CatalogIntegrationOnePieceValidationTarget = "card" | "expansion" | "sealed-product";
+
+export type CatalogIntegrationOnePieceValidationCheck = Readonly<{
+  key: string;
+  target: CatalogIntegrationOnePieceValidationTarget;
+  validationSource: "bandai-one-piece-official";
+  comparedProviders: readonly ("scrydex-one-piece" | "tcgplayer-one-piece")[];
+  comparedFieldClasses: readonly string[];
+  allowedEvidence: readonly string[];
+  forbiddenEvidence: readonly string[];
+  operatorEvidenceRequirement: string;
+  fallbackSourcePolicy: string;
+}>;
+
 export const catalogIntegrationOnePieceProviderAuthorityPolicies = [
   onePieceAuthorityPolicy({
     key: "scrydex-one-piece",
@@ -458,6 +472,82 @@ export const catalogIntegrationOnePieceProviderAuthorityPolicies = [
   }),
 ] as const satisfies readonly CatalogIntegrationOnePieceProviderAuthorityPolicy[];
 
+export const catalogIntegrationOnePieceValidationChecks = [
+  onePieceValidationCheck({
+    key: "one-piece-card-release-validation",
+    target: "card",
+    validationSource: "bandai-one-piece-official",
+    comparedProviders: ["scrydex-one-piece", "tcgplayer-one-piece"],
+    comparedFieldClasses: [
+      "card name",
+      "card number",
+      "rarity",
+      "card type/color/life/power/cost attributes",
+      "expansion membership",
+    ],
+    allowedEvidence: [
+      "redacted official reference label",
+      "normalized provider fact path",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official page text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate at least one representative card through the Admin interface without retaining Bandai payload bodies or imagery.",
+    fallbackSourcePolicy:
+      "Fallback or community card sources are comparison-only after named approval and cannot resolve Catalog truth automatically.",
+  }),
+  onePieceValidationCheck({
+    key: "one-piece-expansion-validation",
+    target: "expansion",
+    validationSource: "bandai-one-piece-official",
+    comparedProviders: ["scrydex-one-piece", "tcgplayer-one-piece"],
+    comparedFieldClasses: [
+      "expansion name",
+      "set code",
+      "release date",
+      "product-line membership",
+      "card-count or release-summary evidence",
+    ],
+    allowedEvidence: [
+      "redacted official release reference",
+      "normalized expansion reference record",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official release text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate the imported One Piece expansion or set reference from the Admin interface and keep only redacted disagreement evidence.",
+    fallbackSourcePolicy:
+      "Fallback or community expansion sources are comparison-only after named approval and cannot become the default production authority.",
+  }),
+  onePieceValidationCheck({
+    key: "one-piece-sealed-product-validation",
+    target: "sealed-product",
+    validationSource: "bandai-one-piece-official",
+    comparedProviders: ["scrydex-one-piece", "tcgplayer-one-piece"],
+    comparedFieldClasses: [
+      "sealed product name",
+      "product form",
+      "contained expansion or release family",
+      "packaging label",
+      "marketplace product/SKU bridge evidence",
+    ],
+    allowedEvidence: [
+      "redacted official product reference",
+      "normalized sealed-product Source Observation",
+      "TCGplayer product/SKU reference candidate",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official product text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate at least one sealed product through the Admin interface and keep TCGplayer commerce facts out of Catalog truth.",
+    fallbackSourcePolicy:
+      "Fallback or community sealed-product sources are comparison-only after named approval and cannot bypass Scrydex or TCGplayer authority.",
+  }),
+] as const satisfies readonly CatalogIntegrationOnePieceValidationCheck[];
+
 export type CatalogIntegrationScrydexBulkImportPolicy = Readonly<{
   providerKey: "scrydex";
   productLineKey: "one-piece";
@@ -513,6 +603,12 @@ function onePieceAuthorityPolicy(
   policy: CatalogIntegrationOnePieceProviderAuthorityPolicy,
 ): CatalogIntegrationOnePieceProviderAuthorityPolicy {
   return policy;
+}
+
+function onePieceValidationCheck(
+  check: CatalogIntegrationOnePieceValidationCheck,
+): CatalogIntegrationOnePieceValidationCheck {
+  return check;
 }
 
 // ---------------------------------------------------------------------------
