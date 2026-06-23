@@ -811,14 +811,18 @@ function pathFromBuyableDetail(slug, detail) {
   const listing = (Array.isArray(detail?.market_listings) ? detail.market_listings : []).find(
     (candidate) =>
       normalizeString(candidate?.listing_id) &&
+      normalizeString(candidate?.catalog_catalog_item_id) &&
+      normalizeString(candidate?.product_id) &&
       String(candidate?.status ?? "").toLowerCase() === "active" &&
+      Number(candidate?.price_amount ?? 0) >= 0 &&
+      Array.isArray(candidate?.selected_options) &&
       Number(candidate?.visible_quantity ?? candidate?.quantity_cap ?? 0) > 0,
   );
   if (!listing) {
     return null;
   }
 
-  const params = new URLSearchParams({ market: "buy" });
+  const params = new URLSearchParams({ market: "buy", listing: listing.listing_id });
   for (const selection of Array.isArray(listing.selected_options) ? listing.selected_options : []) {
     const dimensionId = normalizeString(selection?.dimensionId);
     const optionId = normalizeString(selection?.optionId);

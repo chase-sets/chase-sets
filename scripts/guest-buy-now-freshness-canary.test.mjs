@@ -537,7 +537,11 @@ describe("guest Buy Now freshness canary", () => {
             market_listings: [
               {
                 listing_id: "lst_1",
+                catalog_catalog_item_id: "cat_buyable",
+                product_id:
+                  "cat_buyable::dim_seed_form:chc_seed_form_raw::dim_seed_condition:chc_seed_condition_near_mint",
                 status: "active",
+                price_amount: "350.00",
                 visible_quantity: 2,
                 selected_options: [
                   { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
@@ -561,7 +565,7 @@ describe("guest Buy Now freshness canary", () => {
     );
 
     expect(itemPath).toBe(
-      "/items/buyable-card?market=buy&dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint",
+      "/items/buyable-card?market=buy&listing=lst_1&dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint",
     );
     expect(requestedUrls[0]).toBe(
       "https://marketplace.staging.chasesets.com/api/marketplace/items?q=charizard&includeTotal=true",

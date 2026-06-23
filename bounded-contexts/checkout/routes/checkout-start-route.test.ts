@@ -90,6 +90,19 @@ import {
   loader as checkoutStartLoader,
 } from "./checkout-start";
 
+function checkoutSessionResult(sessionId: string, position = "42") {
+  return {
+    session_id: sessionId,
+    commitPositions: [
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: position,
+        eventIds: [`evt_${sessionId}`],
+      },
+    ],
+  };
+}
+
 describe("checkout web routes: checkout start", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -479,7 +492,7 @@ describe("checkout web routes: checkout start", () => {
 
   it("starts signed-in buy-now checkout from the preserved checkout start payload", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
-    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_buy_now" });
+    mockCreateCheckoutSession.mockResolvedValue(checkoutSessionResult("chk_buy_now"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
@@ -529,7 +542,85 @@ describe("checkout web routes: checkout start", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
+    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/session/chk_buy_now");
+    expect(readFreshWriteToken(new Request(redirectUrl.toString()))).toMatchObject({
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_chk_buy_now"],
+        },
+      ],
+    });
+  });
+
+  it("starts signed-out buy-now checkout with a guest cookie and fresh checkout receipt", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue(checkoutSessionResult("chk_guest_buy_now"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("source", "buy-now");
+    form.set("listingId", "lst_1");
+    form.set("fulfillmentMode", "locked-listing");
+    form.set("lockedListingId", "lst_1");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
+    form.set("quantity", "1");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
+
+    expect(mockStartGuestCheckout).toHaveBeenCalledWith({
+      displayName: "Jane Smith",
+      email: "jane@example.com",
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "entry_attempt_1",
+      source: expect.objectContaining({
+        type: "buy-now",
+        listingId: "lst_1",
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+      }),
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/session/chk_guest_buy_now");
+    expect(readFreshWriteToken(new Request(redirectUrl.toString()))).toMatchObject({
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_chk_guest_buy_now"],
+        },
+      ],
+    });
   });
 
   it("silently recovers active guest buy-now checkout when the current guest account cannot start the preserved session", async () => {

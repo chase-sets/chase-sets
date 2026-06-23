@@ -123,18 +123,33 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
-    `SELECT
-       listing.catalog_catalog_item_id,
-       MIN(listing.price_amount)::text AS lowest_price_amount,
+    `WITH startable_listing AS (
+       SELECT
+         listing.catalog_catalog_item_id,
+         listing.price_amount,
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(
+             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
+             0
+           )
+         ) AS visible_quantity
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+         AND listing.product_measure_snapshot IS NOT NULL
+         AND listing.catalog_catalog_item_id = ANY($1::text[])
+     )
+     SELECT
+       catalog_catalog_item_id,
+       MIN(price_amount::numeric)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
-       COALESCE(SUM(listing.quantity_cap), 0)::integer AS total_visible_quantity
-     FROM discovery_market_listings AS listing
-     INNER JOIN discovery_market_accounts AS account
-       ON account.account_id = listing.account_id
-     WHERE listing.status = 'active'
-       AND account.seller_listing_availability_status = 'available'
-       AND listing.catalog_catalog_item_id = ANY($1::text[])
-     GROUP BY listing.catalog_catalog_item_id`,
+       COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
+     FROM startable_listing
+     WHERE visible_quantity > 0
+     GROUP BY catalog_catalog_item_id`,
     [itemIds],
   );
 

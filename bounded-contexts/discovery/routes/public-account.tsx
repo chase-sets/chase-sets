@@ -306,7 +306,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <Grid columns={{ base: 1, lg: 2 }} gap={4}>
             {account.listings.map((listing) => {
               const availability = t("discovery.routes.publicAccount.quantity.available", {
-                quantity: listing.quantity_cap,
+                quantity: listing.visible_quantity,
               });
               const limitLabel = purchaseLimitLabel(listing);
               const availabilityDetail = limitLabel ? `${availability} | ${limitLabel}` : availability;

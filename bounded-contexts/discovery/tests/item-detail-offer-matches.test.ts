@@ -7,6 +7,8 @@ function createEvent(type: string, data: Record<string, unknown>, recordedAt: st
   return {
     type,
     streamId: "marketplace.offer-offer_charizard",
+    streamVersion: 1,
+    globalPosition: "1",
     data,
     timing: { recordedAt },
   };
@@ -121,6 +123,45 @@ describe("item detail offer matches", () => {
     ]);
   });
 
+  it("projects checkout-start availability evidence into public market listings", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.product-measures-resolved"]?.(
+      createEvent(
+        "catalog.catalog-item.product-measures-resolved",
+        {
+          catalogItemId: "cat_charizard",
+          products: [{ productId: "cat_charizard::raw", weightOz: 4 }],
+        },
+        "2026-04-28T00:00:00.000Z",
+      ) as never,
+    );
+    await handlers["inventory.item.created"]?.({
+      ...createEvent(
+        "inventory.item.created",
+        { itemId: "itm_charizard", totalQuantity: 3 },
+        "2026-04-28T00:01:00.000Z",
+      ),
+      streamId: "inventory.item-itm_charizard",
+    } as never);
+
+    expect(calls[0].sql).toContain("DELETE FROM discovery_market_product_measures");
+    expect(calls[1].sql).toContain("INSERT INTO discovery_market_product_measures");
+    expect(calls[2].sql).toContain("UPDATE discovery_market_listings AS listing");
+    expect(calls[2].sql).toContain("product_measure_snapshot");
+    expect(calls[3].sql).toContain("INSERT INTO discovery_market_supply_items");
+    expect(calls[4].sql).toContain("UPDATE discovery_market_listings AS listing");
+    expect(calls[4].sql).toContain("supply_total_quantity = supply.total_quantity");
+    expect(calls[4].sql).toContain("active_held_quantity = COALESCE(holds.held_quantity, 0)");
+  });
+
   it("returns submitted public offer demand on item detail payloads", async () => {
     const offerQueries: string[] = [];
     const db = {
@@ -149,7 +190,7 @@ describe("item detail offer matches", () => {
           };
         }
 
-        if (sql.includes("MIN(price_amount)::text")) {
+        if (sql.includes("MIN(price_amount::numeric)::text")) {
           return {
             rows: [
               {
@@ -207,5 +248,114 @@ describe("item detail offer matches", () => {
     ]);
     expect(offerQueries[0]).toContain("offer.status = 'submitted'");
     expect(offerQueries[0]).not.toContain("offer.status IN ('submitted', 'accepted')");
+  });
+
+  it("summarizes only checkout-startable listings on item detail payloads", async () => {
+    const marketQueries: string[] = [];
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM discovery_item_detail_pages")) {
+          return {
+            rows: [
+              {
+                catalog_item_id: "cat_charizard",
+                title: "Charizard",
+                subtitle: "Base Set",
+                description: "Classic card",
+                blueprint_id: null,
+                blueprint: null,
+                status: "active",
+                field_values: [],
+                categories: [],
+                tags: [],
+                image_urls: [],
+                product_asset_sets: [],
+                image_fallback: null,
+                product_schema: null,
+                updated_at: "2026-04-28T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM discovery_market_listings")) {
+          marketQueries.push(sql);
+          if (sql.includes("MIN(price_amount::numeric)::text")) {
+            return {
+              rows: [
+                {
+                  lowest_price_amount: "380.00",
+                  active_listing_count: 1,
+                  total_visible_quantity: 2,
+                },
+              ],
+            };
+          }
+
+          return {
+            rows: [
+              {
+                listing_id: "lst_ready",
+                listing_slug: "charizard-lst_ready",
+                product_slug: "charizard-product",
+                account_id: "acc_seller",
+                inventory_item_id: "itm_1",
+                catalog_catalog_item_id: "cat_charizard",
+                product_id: "cat_charizard::raw",
+                item_title: "Charizard",
+                item_subtitle: "Base Set",
+                selected_options: [{ dimensionId: "form", optionId: "raw" }],
+                product_summary: "Raw",
+                product_measure_snapshot: { productId: "cat_charizard::raw", weightOz: 4 },
+                storage_location_name: "Vault",
+                ship_from_code: "STL",
+                price_amount: "380.00",
+                shipping_allowance_percentage_bps: 500,
+                quantity_cap: 3,
+                max_units_per_order: null,
+                max_units_per_day: null,
+                max_units_per_customer_account: null,
+                supply_total_quantity: 3,
+                active_held_quantity: 1,
+                status: "active",
+                seller_slug: "fresh-seller",
+                seller_display_name: "Fresh Seller",
+                seller_average_rating: null,
+                seller_review_count: 0,
+                visible_quantity: 2,
+                created_at: "2026-04-28T00:00:00.000Z",
+                updated_at: "2026-04-28T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM discovery_offer_demand_matches")) {
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+
+    const item = await getDiscoveryItemDetail(db, "cat_charizard");
+
+    expect(item?.market_summary).toEqual({
+      lowest_price_amount: "380.00",
+      active_listing_count: 1,
+      total_visible_quantity: 2,
+    });
+    expect(item?.market_listings).toEqual([
+      expect.objectContaining({
+        listing_id: "lst_ready",
+        visible_quantity: 2,
+      }),
+    ]);
+    expect(JSON.stringify(item?.market_listings)).not.toContain("product_measure_snapshot");
+    expect(marketQueries[0]).toContain("listing.product_measure_snapshot IS NOT NULL");
+    expect(marketQueries[0]).toContain("COALESCE(listing.supply_total_quantity, listing.quantity_cap)");
+    expect(marketQueries[0]).toContain("COALESCE(listing.active_held_quantity, 0)");
+    expect(marketQueries[1]).toContain("listing.product_measure_snapshot IS NOT NULL");
+    expect(marketQueries[1]).toContain("WHERE visible_quantity > 0");
   });
 });
