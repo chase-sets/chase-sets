@@ -145,7 +145,7 @@
           "Record delivery, return, or exception"
         ],
         "command": "Fulfillment shipment commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],

@@ -74,6 +74,12 @@ function freshRequest(path: string, position = "42") {
   return new Request(`https://marketplace.chasesets.test${appendFreshWriteToken(path, fulfillmentCommit(position))}`);
 }
 
+function expiredFreshRequest(path: string, position = "42") {
+  return new Request(
+    `https://marketplace.chasesets.test${appendFreshWriteToken(path, fulfillmentCommit(position), 1_000)}`,
+  );
+}
+
 describe("fulfillment seller shipment route", () => {
   beforeEach(() => {
     mockRequireActor.mockResolvedValue({ accountId: "acc_seller", permissions: ["fulfillment.manage"] });
@@ -130,6 +136,48 @@ describe("fulfillment seller shipment route", () => {
       shipment: null,
       freshnessError: "Fulfillment shipment projection is catching up.",
     });
+  });
+
+  it("returns temporary recovery when a fresh shipment detail read is not found yet", async () => {
+    mockApi.getSellerShipment.mockRejectedValue(
+      new MockFulfillmentApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Shipment has not projected yet.",
+        },
+      }),
+    );
+    const request = freshRequest("/account/sales/shipments/shp_1", "53");
+
+    const result = await loader({
+      request,
+      params: { shipmentId: "shp_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      shipment: null,
+      freshnessError: "Shipment has not projected yet.",
+    });
+  });
+
+  it("treats expired shipment detail handoffs as permanent not found", async () => {
+    mockApi.getSellerShipment.mockRejectedValue(
+      new MockFulfillmentApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Shipment not found.",
+        },
+      }),
+    );
+
+    await expect(
+      loader({
+        request: expiredFreshRequest("/account/sales/shipments/shp_1", "54"),
+        params: { shipmentId: "shp_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("treats projection freshness timeouts without a fresh receipt as permanent loader failures", async () => {
