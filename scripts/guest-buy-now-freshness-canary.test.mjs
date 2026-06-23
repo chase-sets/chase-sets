@@ -157,6 +157,21 @@ describe("guest Buy Now freshness canary", () => {
     });
   });
 
+  it("fails clearly when checkout start shows route-owned recovery before a session exists", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        checkoutStartRecoveryVisible: true,
+        afterWritePresent: false,
+        guestCookiePresent: false,
+        pageText: "Checkout needs attention. We could not start checkout from the current cart or item. View Buy Cart.",
+      }),
+    ).toEqual({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "checkout-start-recovery-visible",
+    });
+  });
+
   it("fails closed when fresh receipt or guest cookie handoff is missing", () => {
     expect(
       classifyGuestBuyNowObservation({
@@ -714,6 +729,40 @@ describe("guest Buy Now freshness canary", () => {
     expect(JSON.stringify(evidence)).not.toContain("raw-token");
     expect(JSON.stringify(evidence)).not.toContain("guest-buy-now-canary@example.test");
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("records checkout start recovery as a hard fixture or availability failure", async () => {
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 3,
+      observe: async () => ({
+        latencyMs: 950,
+        readyLatencyMs: null,
+        afterWritePresent: false,
+        guestCookiePresent: false,
+        checkoutStartRecoveryVisible: true,
+        stateWaitOutcome: "matched",
+        pageText: "Checkout needs attention. We could not start checkout from the current cart or item. View Buy Cart.",
+        negativeProbe: { attempted: false },
+      }),
+    });
+
+    expect(evidence).toMatchObject({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "checkout-start-recovery-visible",
+      checkoutStartRecoveryVisible: true,
+      stateWaitOutcome: "matched",
+      negativeProbe: { attempted: false, outcome: "skipped" },
+      attemptCount: 1,
+      maxAttempts: 3,
+    });
   });
 
   it("retries transient platform setup failures up to the attempt budget", async () => {

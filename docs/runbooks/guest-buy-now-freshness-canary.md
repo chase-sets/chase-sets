@@ -42,7 +42,7 @@ The canary uses the shared Checkout state model with the tightened #1227 gate:
 | `pass` within SLO | Promote | Checkout review reached a payable state inside the readiness budget with receipt and cookie handoff intact. |
 | `pass` beyond SLO | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Checkout eventually became payable but slower than the ratified single-write readiness SLO. |
 | `temporary` without pay-ready | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Fresh receipt valid and recovery user-safe, but the page never became pay-ready inside the budget. |
-| `fail` | Abort | Permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
+| `fail` | Abort | Checkout start recovery (`checkout-start-recovery-visible`), permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
 | any non-abort state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. Probe failures override SLO warnings. |
 
 Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration error or unexpected script failure before the canary can build evidence. Controlled browser navigation/load timeouts are canary failures, not blind runtime exits: they record `failureReason: "browser-navigation-timeout"`, include a redacted `runtimeFailure` stage/message, skip the negative probe, and retry within the configured attempt budget before failing closed. Transient 5xx account setup failures record `platform-temporary-unavailable` and use the same bounded retry policy.
@@ -70,7 +70,7 @@ The script writes one evidence file per flow (`artifacts/release-health/guest-bu
 - `segmentReferences` naming the #1228 server-side segments (commit-to-notify, notify-to-relay, relay-to-control-plane-store, control-plane-claim-to-worker, checkpoint-readiness, route-wait) and where to join them;
 - wait mode when visible, checkout document status, known-state wait outcome;
 - negative probe outcome and document status;
-- booleans for `afterWrite`, guest/session cookies, permanent not-found, temporary recovery (final and observed-at-any-point), checkout review visibility, and the platform generic error wrapper.
+- booleans for `afterWrite`, guest/session cookies, checkout-start recovery, permanent not-found, temporary recovery (final and observed-at-any-point), checkout review visibility, and the platform generic error wrapper.
 
 The evidence must not contain guest email, contact name, guest token, account email/password, session token, cookie values, raw `afterWrite`, checkout session ids, account/user ids, event ids, or full URLs. The script fails closed if redaction guards detect a leak.
 
@@ -122,6 +122,7 @@ A public production guest browser canary remains not feasible: it would create p
 5. If `negative-probe-masked-invalid-session`, the recovery route is hiding real errors behind preparing-checkout; treat as a Checkout recovery regression and block promotion.
 6. If fixture discovery reports no active buyable item, refresh representative commerce state or update `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`.
 7. If `platform-error-page-detected` or `negative-probe-platform-error`, check whether a customer-facing checkout recovery is returning a 5xx document. App Platform/Cloudflare replaces 5xx documents with its generic error wrapper, so temporary checkout recovery should render with a non-5xx document status while internal API freshness timeouts can remain 503 JSON.
-8. If `browser-navigation-timeout`, inspect `runtimeFailure.stage` first. `wait-guest-buy-readiness` points at Buy Now routing from item detail to `/checkout/buy/readiness`; `wait-buy-checkout-session` points at checkout session creation/redirect to `/checkout/buy/session/:sessionId`; `load-buy-now-item-page` points at marketplace item detail availability or edge latency. The runtime message is redacted, so use the correlation id and Playwright artifacts rather than raw URLs.
-9. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
-10. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.
+8. If `checkout-start-recovery-visible`, the checkout start route rendered its own recovery before creating a session. Check the resolved fixture first: a stale or checkout-unsafe active listing can keep the canary on `/checkout/buy/readiness` with "Checkout needs attention" instead of redirecting. Treat this as a fixture/supply readiness blocker, not a browser wait failure.
+9. If `browser-navigation-timeout`, inspect `runtimeFailure.stage` first. `wait-guest-buy-readiness` points at Buy Now routing from item detail to `/checkout/buy/readiness`; `wait-buy-checkout-session` points at checkout session creation/redirect to `/checkout/buy/session/:sessionId`; `load-buy-now-item-page` points at marketplace item detail availability or edge latency. The runtime message is redacted, so use the correlation id and Playwright artifacts rather than raw URLs.
+10. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
+11. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.
