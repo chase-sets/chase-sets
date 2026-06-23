@@ -720,7 +720,10 @@ export function redirectAfterWriteFromSources(
   destinationRoute: string,
   options: RedirectAfterWriteOptions = {},
 ): Response {
-  return createPostWriteRedirectResponse(navigateAfterWriteFromSources(commandResults, destinationRoute, options), options);
+  return createPostWriteRedirectResponse(
+    navigateAfterWriteFromSources(commandResults, destinationRoute, options),
+    options,
+  );
 }
 
 export function readFreshWriteToken(
