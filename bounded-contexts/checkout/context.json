@@ -240,7 +240,7 @@
         "routeId": "buy-checkout-readiness",
         "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
         "command": "StartCheckoutSession",
-        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
+        "helperUses": ["appendFreshWriteToken", "navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "buy-checkout-session",
@@ -267,7 +267,7 @@
         "routeId": "buy-checkout-session",
         "actions": ["Confirm checkout", "Continue to payment"],
         "command": "ConfirmCheckoutSession",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "buy-checkout-confirmation",
@@ -294,7 +294,7 @@
         "routeId": "buy-checkout-session",
         "actions": ["Refresh checkout preview", "Update checkout review state"],
         "command": "Checkout session review commands",
-        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
+        "helperUses": ["navigateAfterWrite", "navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "buy-checkout-session",
@@ -316,7 +316,7 @@
         "routeId": "buy-checkout-session",
         "actions": ["Submit offer intent"],
         "command": "ConfirmCheckoutSession",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "account-offer-submitted",
@@ -345,7 +345,7 @@
         "routeId": "account-cart",
         "actions": ["Update Buy Cart"],
         "command": "Checkout cart commands",
-        "helperUses": ["appendFreshWriteTokenFromSources"]
+        "helperUses": ["navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "account-cart",
@@ -501,7 +501,7 @@
         "routeId": "account-sell-list",
         "actions": ["Update account sell list"],
         "command": "Checkout sell-list commands",
-        "helperUses": ["appendFreshWriteToken", "appendPostWriteHandoff"],
+        "helperUses": ["navigateAfterWrite"],
         "postWriteHandoffs": [
           {
             "kind": "checkout.sell-list.add-line",
@@ -553,7 +553,7 @@
         "routeId": "account-sell-list",
         "actions": ["Start guest seller checkout from Sell List readiness"],
         "command": "CreateGuestSellListReadiness",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "sell-checkout-session",
@@ -582,7 +582,7 @@
         "routeId": "sell-checkout-session",
         "actions": ["Confirm signed-in seller checkout"],
         "command": "ConfirmSellListCheckout",
-        "helperUses": ["appendFreshWriteTokenFromSources"]
+        "helperUses": ["navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "sell-checkout-confirmation",

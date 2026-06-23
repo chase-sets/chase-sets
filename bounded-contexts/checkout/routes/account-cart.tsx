@@ -2,7 +2,6 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
-  appendFreshWriteTokenFromSources,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
   postWriteRecoveryKindForFreshWriteReadError,
@@ -13,6 +12,7 @@ import {
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
 import {
   recordPlatformPostWriteConsistencyEvent,
   type PlatformPostWriteConsistencyOutcome,
@@ -44,7 +44,7 @@ async function writeCartCommandsInOrder(writes: readonly (() => Promise<unknown>
 }
 
 function redirectToFreshAccountCart(writeResults: readonly unknown[]) {
-  return redirect(appendFreshWriteTokenFromSources("/account/cart", writeResults));
+  return redirect(navigateAfterWriteFromSources(writeResults, "/account/cart"));
 }
 
 function checkoutApiErrorStatus(error: unknown) {

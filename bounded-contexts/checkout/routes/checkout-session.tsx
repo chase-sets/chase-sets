@@ -10,17 +10,17 @@ import {
   useNavigation,
   useRouteError,
 } from "react-router";
-import {
-  appendFreshWriteToken,
-  appendFreshWriteTokenFromSources,
-  loadFreshlyWrittenResource,
-  type SourceCommitPosition,
-} from "@chase-sets/http/responses";
+import { loadFreshlyWrittenResource, type SourceCommitPosition } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import {
+  createForwardedAuthFetch,
+  navigateAfterWrite,
+  navigateAfterWriteFromSources,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import {
   checkoutRecoveryForError,
@@ -510,7 +510,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const result = await api.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
-      return redirect(appendFreshWriteToken(`/checkout/buy/session/${params.sessionId}`, result));
+      return redirect(navigateAfterWrite(result, `/checkout/buy/session/${params.sessionId}`));
     }
 
     if (intent === "refresh-checkout-preview") {
@@ -526,9 +526,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
-        appendFreshWriteTokenFromSources(
-          `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
+        navigateAfterWriteFromSources(
           [shippingOptionResult, shippingAddressResult],
+          `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
         ),
       );
     }
@@ -582,9 +582,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
-          appendFreshWriteTokenFromSources(
-            `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
+          navigateAfterWriteFromSources(
             [shippingOptionResult, shippingAddressResult],
+            `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
           ),
         );
       }
@@ -602,16 +602,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       if (result.offer_id) {
         return redirect(
-          appendFreshWriteTokenFromSources(
-            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
+          navigateAfterWriteFromSources(
             [result, visibleFreshWriteSource(result)],
+            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
           ),
         );
       }
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return payment or purchases.");
       }
-      return redirect(appendFreshWriteToken(confirmationPathForSession(params.sessionId), result));
+      return redirect(navigateAfterWrite(result, confirmationPathForSession(params.sessionId)));
     }
 
     return null;

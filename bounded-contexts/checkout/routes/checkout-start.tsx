@@ -3,8 +3,9 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect, redirectDocument } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import { appendFreshWriteToken, appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -355,7 +356,7 @@ async function waitForMergedCartProjection(api: CheckoutRequestApi, mergeResult:
 }
 
 function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
-  return appendFreshWriteTokenFromSources(`/checkout/buy/session/${session.session_id}`, [...writeSources, session]);
+  return navigateAfterWriteFromSources([...writeSources, session], `/checkout/buy/session/${session.session_id}`);
 }
 
 function signInPathForReturnTo(returnTo: string) {

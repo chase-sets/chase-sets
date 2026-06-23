@@ -1,8 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
-  appendFreshWriteToken,
-  appendPostWriteHandoff,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
   postWriteRecoveryKindForFreshWriteReadError,
@@ -14,6 +12,7 @@ import {
 } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   recordPlatformPostWriteConsistencyEvent,
@@ -327,7 +326,7 @@ function requestWithMergeFreshness(request: Request, mergeResult: unknown, merge
   }
 
   const currentPath = currentPathWithSearch(request);
-  const freshPath = appendPostWriteHandoff(currentPath, mergeResult, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF);
+  const freshPath = navigateAfterWrite(mergeResult, currentPath, { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF });
   return freshPath === currentPath ? request : requestForPath(request, freshPath);
 }
 
@@ -1195,7 +1194,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
         const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
         const response = redirect(
-          appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF),
+          navigateAfterWrite(result, "/account/sell-list", { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF }),
         );
         appendAnonymousSellListCookie(response.headers, anonymousOwnerId, request);
         return response;
@@ -1206,15 +1205,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
       const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
-      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+      return redirect(
+        navigateAfterWrite(result, "/account/sell-list", { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF }),
+      );
     }
 
     if (intent === "remove-sell-list-line") {
       if (!useAccountSellList && anonymousSellListId) {
         return redirect(
-          appendFreshWriteToken(
-            "/account/sell-list",
+          navigateAfterWrite(
             await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
+            "/account/sell-list",
           ),
         );
       }
@@ -1224,7 +1225,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       return redirect(
-        appendFreshWriteToken("/account/sell-list", await api.removeSellListLine(String(formData.get("lineId") ?? ""))),
+        navigateAfterWrite(await api.removeSellListLine(String(formData.get("lineId") ?? "")), "/account/sell-list"),
       );
     }
 
@@ -1252,7 +1253,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       return redirect(
-        appendFreshWriteToken(sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan), readiness),
+        navigateAfterWrite(readiness, sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan)),
       );
     }
 
