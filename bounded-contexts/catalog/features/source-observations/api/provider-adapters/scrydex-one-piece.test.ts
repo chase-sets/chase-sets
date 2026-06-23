@@ -159,11 +159,11 @@ describe("Scrydex One Piece provider adapter", () => {
         }),
         expect.objectContaining({
           code: "scrydex-account-usage-stale-window",
-          severity: "warning",
+          severity: "info",
         }),
         expect.objectContaining({
           code: "scrydex-one-piece-price-history-source-authority-gated",
-          severity: "warning",
+          severity: "info",
         }),
       ]),
     );
