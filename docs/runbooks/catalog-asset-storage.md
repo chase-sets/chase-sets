@@ -1,6 +1,17 @@
 # Catalog Asset Storage
 
-Catalog uses owned asset storage for provider-fed product imagery. TCGdex imports download the high quality `high.webp` card image as the source asset, generate normalized WebP variants, and record a Product Asset Set before recording a Source Observation. Promoted Catalog Items receive Chase Sets-owned Product Asset Sets plus compatibility image URLs, not TCGdex asset URLs.
+Catalog uses owned asset storage for approved provider-fed product imagery. TCGdex imports download the high quality `high.webp` card image as the source asset, generate normalized WebP variants, and record a Product Asset Set before recording a Source Observation. Promoted Catalog Items receive Chase Sets-owned Product Asset Sets plus compatibility image URLs, not provider asset URLs.
+
+One Piece image evidence is conservative by default:
+
+| Source | Link as URI evidence | Rehost | Retain provider body or image bytes as evidence |
+| --- | --- | --- | --- |
+| Scrydex One Piece | Yes, when the approved API response contains an image URI and the provider-data signoff permits image evidence | Yes, only after Catalog downloads the image into a Product Asset Set | No |
+| TCGplayer One Piece | Yes, when the approved provider path returns product image URI evidence | Yes, only after Catalog downloads the image into a Product Asset Set | No |
+| Bandai official One Piece Card Game | Validation label only | No, unless a separate legal/source approval changes the source role | No |
+| Fallback, community, or comparison sources | No by default | No | No |
+
+Approved One Piece image URI evidence is retained as redacted audit evidence. The Product Asset Set stores the source provider key, source URL host, source URL hash, source content type, rehosting behavior, and the `catalog-product-image-retention-v1` policy. It does not store the full provider image URL inside the retained asset metadata.
 
 ## Variant Policy
 
@@ -18,6 +29,20 @@ Each role's width is also a rendering contract. Product UI should render the rol
 All generated files are stored as `image/webp`, preserve aspect ratio, preserve alpha, and should be served with long-lived immutable cache headers. Display variants are generated from a normalized display source that trims transparent or near-empty edge padding before resizing. The original provider asset remains stored as the `source` variant for provenance and future regeneration.
 
 Display variant object keys include both the source hash and the display-normalization fingerprint. When the normalization policy changes, new variant URLs are generated instead of overwriting immutable CDN objects with different bytes.
+
+## Retention And Removal
+
+Production and staging Product Asset Sets are retained while referenced by a Source Observation, Catalog Item, or downstream projection. Preview assets expire after 90 days through the preview bucket lifecycle rule. Staging and production do not expire automatically because product imagery is catalog truth once promoted.
+
+Takedown, source revocation, or policy/legal removal requests use the Catalog asset takedown path:
+
+1. Freeze new imports or promotions for the affected provider/unit if the source approval is in doubt.
+2. Locate Product Asset Sets by source provider key, source URL hash or host, source hash, storage key, public URL, Catalog Item id, or Source Observation id.
+3. Remove the Catalog Item image URLs and Product Asset Sets through Catalog commands so projections drop the public references.
+4. Delete the source and generated variant objects from the environment bucket/CDN origin.
+5. Record redacted audit evidence with the source provider key, Catalog-owned storage keys or hashes, actor, reason, and removal timestamp.
+
+The target removal SLA is 30 days after an approved takedown/removal request, or sooner when legal/security requires it. Do not retain provider image bytes, screenshots, raw payload bodies, cookies, seller/account facts, prices, inventory, quantities, listings, or provider console captures in issue comments, fixtures, logs, metrics, traces, PR bodies, or UAT evidence.
 
 ## Local Development
 
@@ -61,24 +86,24 @@ The CDN custom domain is required, not cosmetic. If an asset URL works through t
 
 ## Object Keys
 
-TCGdex normalized assets use deterministic keys under:
+Provider-normalized assets use deterministic keys under:
 
 ```text
-catalog/source-observations/tcgdex/{languageCode}/{externalKey}/{role}-{width}w-{density}x-{sourceHash12}.webp
+catalog/source-observations/{providerKey}/{languageCode}/{externalKey}/{role}-{width}w-{density}x-{sourceHash12}.webp
 ```
 
 The source asset uses:
 
 ```text
-catalog/source-observations/tcgdex/{languageCode}/{externalKey}/source-{sourceHash12}.webp
+catalog/source-observations/{providerKey}/{languageCode}/{externalKey}/source-{sourceHash12}.webp
 ```
 
 The source hash keeps replay/idempotency stable while allowing a future provider image change to produce new object keys for review.
 
 ## Failure Policy
 
-- If TCGdex does not provide an image, the observation records no image URLs.
-- If TCGdex provides an image but download, processing, or storage fails, the observation fails and should be retried.
+- If an approved provider does not provide an image, the observation records no image URLs.
+- If an approved provider provides an image but download, processing, or storage fails, the observation fails and should be retried.
 - Re-imports of the same source image use the same deterministic object keys.
 - Discovery and downstream contexts should continue using the previously projected Product Asset Set until a new Catalog asset event projects successfully.
 - Preview assets expire after 90 days through the preview bucket lifecycle rule. Staging and production assets do not expire automatically.

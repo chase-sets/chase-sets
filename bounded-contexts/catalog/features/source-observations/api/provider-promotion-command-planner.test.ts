@@ -95,6 +95,51 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
+  it("promotes approved image evidence through Catalog-owned asset URLs without leaking provider payload facts", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
+      providerKey: "tcgdex",
+      externalKey: "swsh1-001",
+      mode: "create",
+      catalogItemId: "cat_001" as CatalogItemId,
+      normalized: pokemonCardObservation({
+        imageUrls: ["https://assets.tcgdex.net/en/swsh/swsh1/001/high.webp"],
+        variants: {
+          excludedEvidence: {
+            price: "redacted fixture boundary",
+            inventory: "redacted fixture boundary",
+          },
+        },
+      }),
+      catalog: catalogMapping(),
+      expansionReferenceId: "ref_expansion_sword_shield" as ReferenceRecordId,
+      metadata: { title: "Pikachu", subtitle: "" },
+      productAssetSet: productAssetSet(),
+      preflight: { status: "ready" },
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemImageUrls",
+          imageUrls: ["https://assets.example/detail.webp"],
+        },
+        {
+          type: "SetCatalogItemProductAssetSets",
+          productAssetSets: [
+            expect.objectContaining({ sourcePolicy: expect.objectContaining({ sourceProviderKey: "tcgdex" }) }),
+          ],
+        },
+      ]),
+    );
+    expect(JSON.stringify(result.plan?.commands)).not.toContain(
+      "https://assets.tcgdex.net/en/swsh/swsh1/001/high.webp",
+    );
+    expect(JSON.stringify(result.plan?.commands)).not.toContain("redacted fixture boundary");
+  });
+
   it("plans refresh without blueprint or category assignment and clears missing asset sets", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
@@ -696,6 +741,21 @@ function productAssetSet(): ProductAssetSet {
   return {
     kind: "product-image",
     sourceHash: "asset-hash",
+    sourcePolicy: {
+      sourceProviderKey: "tcgdex",
+      sourceUrlHost: "assets.tcgdex.net",
+      sourceUrlHash: "source-url-hash",
+      sourceContentType: "image/webp",
+      approval: "catalog-owned-rehost-approved",
+      rehostingBehavior: "store-source-and-webp-display-variants",
+      retention: {
+        policyKey: "catalog-product-image-retention-v1",
+        retentionKind: "retain-while-referenced",
+        previewRetentionDays: 90,
+        takedownPath: "catalog-asset-takedown",
+        removalSlaDays: 30,
+      },
+    },
     source: {
       role: "source",
       width: 1000,

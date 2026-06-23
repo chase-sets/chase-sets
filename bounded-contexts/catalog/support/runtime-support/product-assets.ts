@@ -15,10 +15,31 @@ export type ProductAssetVariant = JsonObject &
     generatedAt: string;
   }>;
 
+export type ProductAssetRetentionPolicy = JsonObject &
+  Readonly<{
+    policyKey: "catalog-product-image-retention-v1";
+    retentionKind: "retain-while-referenced";
+    previewRetentionDays: 90;
+    takedownPath: "catalog-asset-takedown";
+    removalSlaDays: 30;
+  }>;
+
+export type ProductAssetSourcePolicy = JsonObject &
+  Readonly<{
+    sourceProviderKey: string;
+    sourceUrlHost: string | null;
+    sourceUrlHash: string | null;
+    sourceContentType: string;
+    approval: "catalog-owned-rehost-approved";
+    rehostingBehavior: "store-source-and-webp-display-variants";
+    retention: ProductAssetRetentionPolicy;
+  }>;
+
 export type ProductAssetSet = JsonObject &
   Readonly<{
     kind: "product-image";
     sourceHash: string;
+    sourcePolicy: ProductAssetSourcePolicy;
     source: ProductAssetVariant;
     variants: readonly ProductAssetVariant[];
   }>;

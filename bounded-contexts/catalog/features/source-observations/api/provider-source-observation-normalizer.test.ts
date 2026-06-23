@@ -20,6 +20,10 @@ import {
   mtgjsonMtgCardReferenceSourceObservationMappingContract,
   mtgjsonMtgSetReferenceSourceObservationMappingContract,
 } from "./mtgjson-executable-mapping-contract";
+import { scrydexOnePieceCardPrintSourceObservationMappingContract } from "./scrydex-one-piece-executable-mapping-contract";
+import { tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract } from "./tcgplayer-executable-mapping-contract";
+import scrydexOnePieceCardFixture from "./__fixtures__/scrydex-one-piece-card-print/normal.json";
+import tcgplayerOnePieceFixture from "./__fixtures__/tcgplayer-one-piece-single-card/normal.json";
 
 describe("provider Source Observation normalizer", () => {
   it("builds a provider-product Source Observation from mapping config", () => {
@@ -296,6 +300,80 @@ describe("provider Source Observation normalizer", () => {
           { providerKey: "scryfall", externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe" },
         ],
       },
+    });
+  });
+
+  it("normalizes redacted One Piece fixtures without retaining provider imagery or commerce payloads", () => {
+    const scrydexResult = normalizeCatalogProviderSourceObservation({
+      contract: scrydexOnePieceCardPrintSourceObservationMappingContract,
+      payload: scrydexOnePieceCardFixture,
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+    const tcgplayerResult = normalizeCatalogProviderSourceObservation({
+      contract: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
+      payload: tcgplayerOnePieceFixture,
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(scrydexResult.diagnostics).toEqual([]);
+    expect(scrydexResult.observation).toMatchObject({
+      providerKey: "scrydex",
+      normalized: {
+        kind: "one-piece-card-print",
+        imageUrls: [],
+      },
+    });
+    expect(tcgplayerResult.diagnostics).toEqual([]);
+    expect(tcgplayerResult.observation).toMatchObject({
+      providerKey: "tcgplayer",
+      normalized: {
+        kind: "provider-product",
+        productLineName: "One Piece Card Game",
+        imageUrls: [],
+      },
+    });
+    expect(JSON.stringify(scrydexResult.observation?.sourcePayload)).not.toMatch(
+      /image_url|imageUrls|price|inventory/i,
+    );
+    expect(JSON.stringify(tcgplayerResult.observation?.sourcePayload)).toContain("redacted fixture boundary");
+    expect(JSON.stringify(tcgplayerResult.observation?.sourcePayload)).not.toMatch(/\b\d+\.\d{2}\b|quantity|seller/i);
+  });
+
+  it("extracts approved TCGplayer One Piece image URL evidence when the fixture provides it", () => {
+    const result = normalizeCatalogProviderSourceObservation({
+      contract: tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
+      payload: {
+        ...tcgplayerOnePieceFixture,
+        imageUrls: ["https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg"],
+      },
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.observation?.normalized).toMatchObject({
+      kind: "provider-product",
+      productLineName: "One Piece Card Game",
+      imageUrls: ["https://tcgplayer-cdn.tcgplayer.com/product/987650_200w.jpg"],
+    });
+  });
+
+  it("extracts approved Scrydex One Piece image URL evidence from sanitized payloads", () => {
+    const result = normalizeCatalogProviderSourceObservation({
+      contract: scrydexOnePieceCardPrintSourceObservationMappingContract,
+      payload: {
+        ...scrydexOnePieceCardFixture,
+        card: {
+          ...scrydexOnePieceCardFixture.card,
+          imageUrls: ["https://images.scrydex.example/op01-001/large"],
+        },
+      },
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.observation?.normalized).toMatchObject({
+      kind: "one-piece-card-print",
+      imageUrls: ["https://images.scrydex.example/op01-001/large"],
     });
   });
 
