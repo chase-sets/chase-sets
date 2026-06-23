@@ -419,10 +419,16 @@ async function hasActiveImportJobForSelectedUnit(
   selectedScope: SelectedProviderScope,
   timeout: number,
 ): Promise<boolean> {
-  return activeImportJobRowsForSelectedUnit(page, unitKey, selectedScope)
-    .first()
-    .isVisible({ timeout })
-    .catch(() => false);
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const rows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
+    if (rows.some((row) => /import job .*(?:queued|running)/i.test(row))) {
+      return true;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  return false;
 }
 
 async function expectActiveImportJobForSelectedUnit(
@@ -430,44 +436,29 @@ async function expectActiveImportJobForSelectedUnit(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<void> {
-  const activeJobRow = activeImportJobRowsForSelectedUnit(page, unitKey, selectedScope).first();
   await expect(page.getByText("Import already running", { exact: true }).first()).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
-  await expect(
-    activeJobRow,
-    `Selected unit ${unitKey} should have a visible current or covering queued/running import job row.`,
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(activeJobRow.getByText(`Unit: ${unitKey}`).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(activeJobRow.getByText(/^(Current scope|Overlapping scope)$/).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(
-    activeJobRow.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))).first(),
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(activeJobRow.getByText(/import job .*(?:queued|running)/i).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
+    const active = rows.find((row) => /import job .*(?:queued|running)/i.test(row));
+    if (active) {
+      return;
+    }
+    await page.waitForTimeout(1_000);
+  }
+
+  throw new Error(
+    `Selected unit ${unitKey} should have a visible current or covering queued/running import job row for ${selectedScope.displayLabel}.`,
+  );
 }
 
-function activeImportJobRowsForSelectedUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-): Locator {
-  return importJobRowsForSelectedUnit(page, unitKey, selectedScope).filter({
-    has: page.getByText(/import job .*(?:queued|running)/i),
-  });
-}
-
-function importJobRowsForSelectedUnit(page: Page, unitKey: string, selectedScope: SelectedProviderScope): Locator {
+function importJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
   return page
     .getByRole("row")
     .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
-    .filter({ has: page.getByText(/^(Current scope|Overlapping scope)$/) })
-    .filter({ has: page.getByText(scopeLabelPattern(selectedProviderScopeActiveJobScopeLabels(selectedScope))) });
+    .filter({ has: page.getByText(/^(Current scope|Overlapping scope)$/) });
 }
 
 async function visibleImportJobRowTexts(
@@ -475,10 +466,17 @@ async function visibleImportJobRowTexts(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<readonly string[]> {
-  return importJobRowsForSelectedUnit(page, unitKey, selectedScope)
+  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope).map(normalizeWhitespace);
+  return importJobRowsForSelectedUnit(page, unitKey)
     .allInnerTexts()
-    .then((rows) => rows.map(normalizeWhitespace).filter(Boolean))
+    .then((rows) =>
+      rows.map(normalizeWhitespace).filter((row) => row && importJobRowTextMatchesSelectedScope(row, scopeLabels)),
+    )
     .catch(() => []);
+}
+
+function importJobRowTextMatchesSelectedScope(row: string, scopeLabels: readonly string[]): boolean {
+  return scopeLabels.some((label) => row.includes(`Scope: ${label}`));
 }
 
 function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
@@ -493,14 +491,6 @@ function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProvid
 function scopeLabelPrefixes(label: string): readonly string[] {
   const segments = label.split(" / ").filter(Boolean);
   return Array.from({ length: segments.length }, (_, index) => segments.slice(0, segments.length - index).join(" / "));
-}
-
-function scopeLabelPattern(labels: readonly string[]): RegExp {
-  return new RegExp(`^Scope: (?:${labels.map(escapeRegExp).join("|")})$`);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeWhitespace(value: string): string {
