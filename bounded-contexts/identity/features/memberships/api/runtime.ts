@@ -23,6 +23,7 @@ export type MembershipServices = Readonly<{
   commandHandler: CommandHandler<MembershipCommand, MembershipState, MembershipEvent>;
   listMemberships: (params?: Parameters<typeof listMemberships>[1]) => ReturnType<typeof listMemberships>;
   getMembership: (membershipId: string) => ReturnType<typeof getMembership>;
+  getMembershipState: (membershipId: string) => Promise<MembershipState | null>;
   getActiveMembershipForUserAccount: (
     userId: string,
     accountId: string,
@@ -32,7 +33,7 @@ export type MembershipServices = Readonly<{
 }>;
 
 export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<MembershipEvent>(),
     initialState: () => initialMembershipState,
@@ -44,6 +45,10 @@ export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipSe
     commandHandler,
     listMemberships: (params) => listMemberships(deps.db, params),
     getMembership: (membershipId) => getMembership(deps.db, membershipId),
+    getMembershipState: async (membershipId) => {
+      const aggregate = await repository.load(`identity.membership-${membershipId}`);
+      return aggregate.state.id ? aggregate.state : null;
+    },
     getActiveMembershipForUserAccount: (userId, accountId) =>
       getActiveMembershipForUserAccount(deps.db, userId, accountId),
     listMembershipsForUser: (userId) => listMembershipsForUser(deps.db, userId),

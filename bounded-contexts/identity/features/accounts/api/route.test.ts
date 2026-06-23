@@ -42,6 +42,8 @@ function buildServices(overrides: Partial<AccountServices> = {}) {
     })),
     listAccounts: vi.fn(async () => ({ items: [], total: 0 })),
     getAccount: vi.fn(async () => null),
+    getAccountForRead: vi.fn(async () => null),
+    getAccountState: vi.fn(async () => null),
     projectors: [],
     ...overrides,
   } as AccountServices;
@@ -110,5 +112,29 @@ describe("account API route", () => {
         streamId: "identity.account-acc_1",
       }),
     );
+  });
+
+  it("returns the command-side account when the account projection is not available", async () => {
+    const services = buildServices({
+      getAccountForRead: vi.fn(async () => ({
+        account_id: "acc_1",
+        account_type: "personal",
+        badges: [],
+        display_name: "Fresh Seller",
+        name: "Fresh Seller",
+        status: "active",
+        updated_at: "",
+      })),
+    });
+
+    const response = await buildApp(services).request("/accounts/acc_1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      account_id: "acc_1",
+      display_name: "Fresh Seller",
+      status: "active",
+    });
+    expect(services.getAccountForRead).toHaveBeenCalledWith("acc_1");
   });
 });

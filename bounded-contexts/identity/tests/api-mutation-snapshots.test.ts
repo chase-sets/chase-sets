@@ -81,6 +81,8 @@ function createServices() {
       }),
       listAccounts: vi.fn(async () => ({ items: [], total: 0 })),
       getAccount: vi.fn(async () => null),
+      getAccountForRead: vi.fn(async () => null),
+      getAccountState: vi.fn(async () => null),
       projectors: [],
     },
     users: {
@@ -105,6 +107,7 @@ function createServices() {
         user_id: "usr_2",
         account_id: actor.accountId,
       })),
+      getMembershipState: vi.fn(async () => null),
       listMemberships: vi.fn(async () => ({ items: [], total: 0 })),
       getActiveMembershipForUserAccount: vi.fn(async () => null),
       listMembershipsForUser: vi.fn(async () => []),
