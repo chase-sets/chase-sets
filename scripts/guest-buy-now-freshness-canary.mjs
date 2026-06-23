@@ -68,6 +68,17 @@ export function isBuySessionUrl(value) {
   return BUY_SESSION_URL_PATTERN.test(String(value ?? ""));
 }
 
+export function isCheckoutSessionDocumentResponseUrl(value) {
+  return isBuySessionUrl(value);
+}
+
+export function buyNowRouteTransitionWaitOptions(timeoutMs) {
+  return {
+    waitUntil: "commit",
+    timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS),
+  };
+}
+
 export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
   return {
     outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_CANARY_OUT", env),
@@ -408,7 +419,11 @@ export async function runGuestBuyNowFreshnessCanary(options) {
 }
 
 function retryableCanaryFailure(failureReason) {
-  return failureReason === "checkout-ready-slo-exceeded" || failureReason === "browser-navigation-timeout";
+  return (
+    failureReason === "checkout-ready-slo-exceeded" ||
+    failureReason === "browser-navigation-timeout" ||
+    failureReason === "platform-temporary-unavailable"
+  );
 }
 
 function runtimeFailureObservation(error) {
@@ -450,8 +465,7 @@ async function observeBuyNowCheckout(options) {
       return;
     }
     try {
-      const url = new URL(response.url());
-      if (/\/checkout\/chk_/.test(url.pathname)) {
+      if (isCheckoutSessionDocumentResponseUrl(response.url())) {
         checkoutDocumentStatuses.push(response.status());
       }
     } catch {
@@ -487,7 +501,7 @@ async function observeBuyNowCheckout(options) {
       stage = "click-guest-buy-now";
       await buyNowButton.click({ timeout: options.timeoutMs });
       stage = "wait-guest-buy-readiness";
-      await page.waitForURL(BUY_READINESS_URL_PATTERN, { timeout: options.timeoutMs });
+      await page.waitForURL(BUY_READINESS_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
       stage = "fill-guest-contact";
       await page.getByLabel(/contact name/i).fill(options.contactName);
       await page.getByLabel(/email/i).fill(options.guestEmail);
@@ -497,7 +511,7 @@ async function observeBuyNowCheckout(options) {
     }
 
     stage = "wait-buy-checkout-session";
-    await page.waitForURL(BUY_SESSION_URL_PATTERN, { timeout: options.timeoutMs });
+    await page.waitForURL(BUY_SESSION_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
     const redirectedAt = Date.now();
     stage = "load-checkout-session-document";
     await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
@@ -558,7 +572,7 @@ async function startAccountSession(page, context, options, baseUrl) {
       data: { email: accountEmail, password: accountPassword },
     });
     if (response.status() !== 200) {
-      throw new Error(`Buy Now canary account sign-in failed with HTTP ${response.status()}.`);
+      throw canaryHttpError(`Buy Now canary account sign-in failed with HTTP ${response.status()}.`, response.status());
     }
     sessionToken = (await response.json())?.sessionToken;
   } else {
@@ -571,7 +585,10 @@ async function startAccountSession(page, context, options, baseUrl) {
       },
     });
     if (response.status() !== 201) {
-      throw new Error(`Buy Now canary synthetic account registration failed with HTTP ${response.status()}.`);
+      throw canaryHttpError(
+        `Buy Now canary synthetic account registration failed with HTTP ${response.status()}.`,
+        response.status(),
+      );
     }
     sessionToken = (await response.json())?.sessionToken;
   }
@@ -590,6 +607,14 @@ async function startAccountSession(page, context, options, baseUrl) {
       secure: baseUrl.startsWith("https://"),
     },
   ]);
+}
+
+function canaryHttpError(message, status) {
+  const error = new Error(message);
+  if (Number(status) >= 500) {
+    error.reason = "platform-temporary-unavailable";
+  }
+  return error;
 }
 
 function createPageRequestFetch(page) {
