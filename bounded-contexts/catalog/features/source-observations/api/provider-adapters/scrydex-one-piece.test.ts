@@ -64,9 +64,9 @@ describe("Scrydex One Piece provider adapter", () => {
         unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         optionKind: "expansions",
       }),
-    ).rejects.toThrow("Scrydex One Piece credentials are required");
+    ).rejects.toThrow("Shared Scrydex credentials are required");
     await expect(collectPayloads(adapter.fetchPayloads(plan))).rejects.toThrow(
-      "Scrydex One Piece credentials are required",
+      "Shared Scrydex credentials are required",
     );
     await expect(adapter.getCredentialReadiness()).resolves.toEqual([
       expect.objectContaining({

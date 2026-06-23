@@ -64,8 +64,20 @@ function readModel(activeJobCount: number, jobs: readonly ImportJobRow[]): Catal
 
 let latest: LiveImportJobsState;
 
-function Probe({ model, pollMs }: Readonly<{ model: CatalogPrimaryWorkbenchReadModel; pollMs?: number }>) {
-  latest = useLiveImportJobs(model, { pollMs });
+function Probe({
+  model,
+  pendingJobDiscovery = false,
+  pendingJobDiscoveryKey = null,
+  pendingJobDiscoveryMs,
+  pollMs,
+}: Readonly<{
+  model: CatalogPrimaryWorkbenchReadModel;
+  pendingJobDiscovery?: boolean;
+  pendingJobDiscoveryKey?: string | null;
+  pendingJobDiscoveryMs?: number;
+  pollMs?: number;
+}>) {
+  latest = useLiveImportJobs(model, { pendingJobDiscovery, pendingJobDiscoveryKey, pendingJobDiscoveryMs, pollMs });
   return null;
 }
 
@@ -117,6 +129,65 @@ describe("useLiveImportJobs", () => {
 
     act(() => {
       vi.advanceTimersByTime(2_000);
+    });
+    expect(mocks.revalidate).toHaveBeenCalledTimes(3);
+  });
+
+  it("temporarily polls after a queued command before the active job projects", () => {
+    render(
+      <Probe
+        model={readModel(0, [])}
+        pendingJobDiscovery
+        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryMs={2_500}
+        pollMs={1_000}
+      />,
+    );
+
+    expect(latest.live).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(mocks.revalidate).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(latest.live).toBe(false);
+    const callsAfterDiscoveryTimeout = mocks.revalidate.mock.calls.length;
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(mocks.revalidate).toHaveBeenCalledTimes(callsAfterDiscoveryTimeout);
+  });
+
+  it("hands off queued-command discovery to active-job polling", () => {
+    const { rerender } = render(
+      <Probe
+        model={readModel(0, [])}
+        pendingJobDiscovery
+        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryMs={2_500}
+        pollMs={1_000}
+      />,
+    );
+
+    expect(latest.live).toBe(true);
+
+    rerender(
+      <Probe
+        model={readModel(1, [jobRow()])}
+        pendingJobDiscovery
+        pendingJobDiscoveryKey="start-provider-import:tcgdex:ja:SV8"
+        pendingJobDiscoveryMs={2_500}
+        pollMs={1_000}
+      />,
+    );
+    expect(latest.live).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(3_000);
     });
     expect(mocks.revalidate).toHaveBeenCalledTimes(3);
   });

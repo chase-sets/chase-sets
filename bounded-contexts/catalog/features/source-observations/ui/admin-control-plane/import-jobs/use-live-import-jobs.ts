@@ -11,10 +11,12 @@ type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][numbe
 // not emit projection patches), so this is the issue's bounded fallback: a plain
 // loader revalidation on an interval, alive only while work is actually running.
 const DEFAULT_LIVE_IMPORT_POLL_MS = 4_000;
+const DEFAULT_PENDING_JOB_DISCOVERY_MS = 120_000;
 
 export type LiveImportJobsState = Readonly<{
-  // True while at least one job is active AND the tab is visible — i.e. the
-  // interval is actively re-fetching. Drives the "live" affordance in the module.
+  // True while the tab is visible and either an active job is present or a just
+  // queued command is briefly discovering its projected import job row. Drives
+  // the "live" affordance in the module.
   live: boolean;
   // Per-job (jobId -> progress) view of completed/total/percent that is guaranteed
   // monotonic: a regressing or out-of-order server snapshot is ignored so the row
@@ -29,6 +31,9 @@ export type ImportJobProgress = Readonly<{
 }>;
 
 type LiveImportJobsOptions = Readonly<{
+  pendingJobDiscovery?: boolean;
+  pendingJobDiscoveryKey?: string | null;
+  pendingJobDiscoveryMs?: number;
   pollMs?: number;
 }>;
 
@@ -55,22 +60,26 @@ function jobToProgress(job: ImportJobRow): CatalogBulkActionProgress {
 }
 
 // Live import-job progress for the daily workbench. Revalidates the route loader
-// on a bounded interval — only while a job is active and the tab is visible — and
-// gates every refreshed snapshot through the monotonic reducer so out-of-order /
-// regressing server reads never render backward. Loader revalidation refreshes the
-// read model in place (no remount), so the operator's open stage and selection
-// survive a live refresh.
+// on a bounded interval while a job is active, or briefly after a queued command
+// before that job has projected into the read model. Every refreshed snapshot is
+// gated through the monotonic reducer so out-of-order / regressing server reads
+// never render backward. Loader revalidation refreshes the read model in place
+// (no remount), so the operator's open stage and selection survive a live refresh.
 export function useLiveImportJobs(
   readModel: CatalogPrimaryWorkbenchReadModel,
   options: LiveImportJobsOptions = {},
 ): LiveImportJobsState {
   const pollMs = options.pollMs ?? DEFAULT_LIVE_IMPORT_POLL_MS;
+  const pendingJobDiscovery = options.pendingJobDiscovery ?? false;
+  const pendingJobDiscoveryKey = options.pendingJobDiscoveryKey ?? null;
+  const pendingJobDiscoveryMs = options.pendingJobDiscoveryMs ?? DEFAULT_PENDING_JOB_DISCOVERY_MS;
   const revalidator = useRevalidator();
   const revalidateRef = useRef(revalidator.revalidate);
   revalidateRef.current = revalidator.revalidate;
 
   const jobs = readModel.importJobs.jobs;
   const hasActiveJobs = readModel.importJobs.activeJobCount > 0;
+  const [discoveringQueuedJob, setDiscoveringQueuedJob] = useState(false);
 
   // Last accepted progress per job (the contract snapshot the reducer compares,
   // plus the read-model-only percent that rides with it), kept across renders so
@@ -121,10 +130,28 @@ export function useLiveImportJobs(
     };
   }, []);
 
-  const live = hasActiveJobs && documentVisible;
+  useEffect(() => {
+    if (!pendingJobDiscovery || hasActiveJobs) {
+      setDiscoveringQueuedJob(false);
+      return;
+    }
 
-  // The bounded poll: arm a timer only while jobs are active and the tab is
-  // visible; tear it down on terminal state, when the tab hides, and on unmount.
+    setDiscoveringQueuedJob(true);
+    const timeout = setTimeout(() => {
+      setDiscoveringQueuedJob(false);
+    }, pendingJobDiscoveryMs);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [hasActiveJobs, pendingJobDiscovery, pendingJobDiscoveryKey, pendingJobDiscoveryMs]);
+
+  const live = (hasActiveJobs || discoveringQueuedJob) && documentVisible;
+
+  // The bounded poll: arm a timer only while jobs are active (or briefly being
+  // discovered after command queueing) and the tab is visible; tear it down on
+  // terminal state, when the discovery window expires, when the tab hides, and on
+  // unmount.
   // The effect depends only on the primitives `live`/`pollMs`, so unrelated
   // re-renders (e.g. a revalidated read model) never re-arm the interval.
   useEffect(() => {

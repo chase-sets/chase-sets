@@ -383,12 +383,12 @@ export function createScrydexOnePieceProviderAdapter(
           sourceKind: "environment-secret",
           state: readiness.configured ? "configured" : "missing",
           message: readiness.configured
-            ? "Scrydex One Piece credentials are configured."
-            : "Scrydex One Piece credentials require X-Api-Key and X-Team-ID before option queries or imports.",
+            ? "Shared Scrydex credentials are configured for One Piece transport."
+            : "Shared Scrydex credentials require X-Api-Key and X-Team-ID before option queries or imports.",
           checkedAt,
           scope: {
             environmentKey: "runtime",
-            secretReference: "scrydex-one-piece-api-key-and-team-id",
+            secretReference: "scrydex-api-key-and-team-id",
           },
           evidence: {
             credentialRequirement: "required",
@@ -1026,7 +1026,7 @@ function requireScrydexCredentials(
   const apiKey = stringValue(options.credentials?.apiKey);
   const teamId = stringValue(options.credentials?.teamId);
   if (!apiKey || !teamId) {
-    throw new Error("Scrydex One Piece credentials are required for provider transport.");
+    throw new Error("Shared Scrydex credentials are required for One Piece provider transport.");
   }
   return { apiKey, teamId };
 }

@@ -2,6 +2,7 @@ import { Accordion, ProgressiveDisclosure, WorkbenchStack, WorkbenchText } from 
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import type { SourceObservationIntegrationImportPreview } from "../../contracts";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-module";
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
 import { CommandFormButton } from "./command-controls";
@@ -24,6 +25,7 @@ import {
 export function CatalogIntegrationImportToPromotionWorkspace({
   readModel,
   aliasVisibility = null,
+  commandFeedback = null,
   deferredSourceOptions = null,
   deferredImportPreview = null,
 }: Readonly<{
@@ -33,6 +35,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   // reviewing Source Observations before promotion. The workspace stays agnostic
   // of the alias read model by accepting it as a rendered node.
   aliasVisibility?: React.ReactNode;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
 }>) {
@@ -61,7 +64,11 @@ export function CatalogIntegrationImportToPromotionWorkspace({
           icon="inbox"
           defaultOpen
         >
-          <CatalogIntegrationImportJobsModule readModel={readModel} deferredImportPreview={deferredImportPreview} />
+          <CatalogIntegrationImportJobsModule
+            readModel={readModel}
+            commandFeedback={commandFeedback}
+            deferredImportPreview={deferredImportPreview}
+          />
         </ProgressiveDisclosure>
       </WorkbenchStack>
     ),

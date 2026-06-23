@@ -30,6 +30,7 @@ import type {
   SourceObservationIntegrationImportPreviewTarget,
   SourceObservationProviderUsageEstimate,
 } from "../../contracts";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { DeferredSupplementaryPanel } from "../../deferred-supplementary-panel";
 import {
   catalogPrimaryWorkbenchProviderTransportSummary,
@@ -42,18 +43,31 @@ import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-prom
 import { useLiveImportJobs } from "./use-live-import-jobs";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+const importJobDiscoveryIntents = new Set([
+  "start-provider-import",
+  "start-reapply",
+  "start-replay",
+  "retry-import-job",
+  "resume-import-job",
+]);
 
 export function CatalogIntegrationImportJobsModule({
   readModel,
+  commandFeedback = null,
   deferredImportPreview = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
 }>) {
   // Live progress: while a durable import is active and the tab is visible, the
   // loader revalidates on a bounded interval and `jobProgress` carries the
   // monotonic-gated completed/total/percent so a row never visibly counts backward.
-  const { live, jobProgress } = useLiveImportJobs(readModel);
+  const pendingJobDiscoveryKey = pendingImportJobDiscoveryKey(readModel, commandFeedback);
+  const { live, jobProgress } = useLiveImportJobs(readModel, {
+    pendingJobDiscovery: pendingJobDiscoveryKey !== null,
+    pendingJobDiscoveryKey,
+  });
 
   const jobColumns = useMemo<DataColumn<ImportJobRow>[]>(
     () => [
@@ -365,6 +379,28 @@ export function CatalogIntegrationImportJobsModule({
       />
     </WorkflowModule>
   );
+}
+
+function pendingImportJobDiscoveryKey(
+  readModel: CatalogPrimaryWorkbenchReadModel,
+  commandFeedback: CatalogPrimaryWorkbenchCommandFeedback | null,
+): string | null {
+  if (commandFeedback?.status !== "success" || commandFeedback.result !== "job-queued") {
+    return null;
+  }
+  if (!importJobDiscoveryIntents.has(commandFeedback.intent)) {
+    return null;
+  }
+
+  const parts = [
+    commandFeedback.intent,
+    readModel.routeContext.providerKey,
+    readModel.routeContext.unitKey,
+    readModel.routeContext.importScope,
+    readModel.routeContext.profileVersion,
+  ].filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(":") : null;
 }
 
 function DeferredImportPreviewEvidence({
