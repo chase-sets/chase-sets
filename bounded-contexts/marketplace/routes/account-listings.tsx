@@ -4,7 +4,12 @@ import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "reac
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import { appendFreshWriteToken, loadFreshlyWrittenResource, type ListResponse } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  classifyFreshWriteReadError,
+  loadFreshlyWrittenResource,
+  type ListResponse,
+} from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -110,8 +115,70 @@ function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftInten
   };
 }
 
+type AccountListingsPageReads = Readonly<{
+  listings: ListResponse<MarketplaceListingListItem>;
+  feeLockReport: ListResponse<MarketplaceListingFeeLockReportEntry>;
+  inventoryItemsResponse: ListResponse<MarketplaceListingInventoryItemOption>;
+  hasListingStockLocation: boolean;
+  listingAvailability: MarketplaceSellerListingAvailability;
+}>;
+
+function emptyListResponse<T>(): ListResponse<T> {
+  return { items: [], total: 0, count: 0 };
+}
+
+function createFreshWriteRecoveryPageReads(accountId: string): AccountListingsPageReads {
+  return {
+    listings: emptyListResponse(),
+    feeLockReport: emptyListResponse(),
+    inventoryItemsResponse: emptyListResponse(),
+    hasListingStockLocation: false,
+    listingAvailability: {
+      account_id: accountId,
+      status: "available",
+      disabled_reason_category: null,
+      available_again_on: null,
+      disabled_at: null,
+      enabled_at: null,
+      updated_at: "1970-01-01T00:00:00.000Z",
+    },
+  };
+}
+
+async function loadListingInventoryOptions(
+  marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
+  selectedInventoryItemId: string | null,
+) {
+  const inventoryItemsResponse = await marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY);
+  if (
+    !selectedInventoryItemId ||
+    inventoryItemsResponse.items.some((item) => item.item_id === selectedInventoryItemId)
+  ) {
+    return inventoryItemsResponse;
+  }
+
+  const selectedItemResponse = await marketplaceApi.listSellerListingInventory(
+    new URLSearchParams({ inventoryItemId: selectedInventoryItemId, limit: "1", offset: "0" }).toString(),
+  );
+  const selectedItem = selectedItemResponse.items.find((item) => item.item_id === selectedInventoryItemId);
+  if (!selectedItem) {
+    return inventoryItemsResponse;
+  }
+
+  return {
+    ...inventoryItemsResponse,
+    items: [selectedItem, ...inventoryItemsResponse.items],
+    total: Math.max(inventoryItemsResponse.total, inventoryItemsResponse.items.length + 1),
+    count: inventoryItemsResponse.count + 1,
+  };
+}
+
+function hasMarketplaceFreshWriteSource(classification: ReturnType<typeof classifyFreshWriteReadError>) {
+  return classification.receipt?.sources.some((source) => source.sourceContextName === "marketplace") ?? false;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "listings.view" });
+  const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const searchParams = new URL(request.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
@@ -121,24 +188,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const claimListingIntentId = searchParams.get("claimListingIntent")?.trim() ?? "";
   let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
   let claimError: string | null = null;
-
-  const { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability } =
-    await loadFreshlyWrittenResource({
-      request,
-      isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
-      load: async () => {
-        const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
-          await Promise.all([
-            marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-            marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-            marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY),
-            marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
-            marketplaceApi.getSellerListingAvailability(),
-          ]);
-
-        return { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability };
-      },
-    });
+  let inventoryHandoffError: string | null = null;
 
   if (claimListingIntentId) {
     const anonymousOwnerId = readAnonymousListingDraftOwnerId(request);
@@ -154,6 +204,56 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
+  let pageReads: AccountListingsPageReads;
+  try {
+    pageReads = await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
+      load: async () => {
+        const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
+          await Promise.all([
+            marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
+            marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+            loadListingInventoryOptions(marketplaceApi, selectedInventoryItemId),
+            marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
+            marketplaceApi.getSellerListingAvailability(),
+          ]);
+
+        return { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability };
+      },
+    });
+  } catch (error) {
+    const classification = classifyFreshWriteReadError({
+      request,
+      error,
+    });
+    if (
+      claimListingIntentId &&
+      claimedDraft &&
+      classification.transient &&
+      !hasMarketplaceFreshWriteSource(classification)
+    ) {
+      pageReads = createFreshWriteRecoveryPageReads(actor.accountId);
+    } else if (selectedInventoryItemId && classification.transient && !hasMarketplaceFreshWriteSource(classification)) {
+      const [listings, feeLockReport, listingAvailability] = await Promise.all([
+        marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
+        marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+        marketplaceApi.getSellerListingAvailability(),
+      ]);
+      pageReads = {
+        listings,
+        feeLockReport,
+        inventoryItemsResponse: emptyListResponse(),
+        hasListingStockLocation: false,
+        listingAvailability,
+      };
+      inventoryHandoffError = t("marketplace.routes.accountListings.inventory.item.preparing");
+    } else {
+      throw error;
+    }
+  }
+
+  const { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability } = pageReads;
   const inventoryItems = inventoryItemsResponse.items as MarketplaceListingInventoryItemOption[];
   const selectedInventoryItem = selectedInventoryItemId
     ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
@@ -167,7 +267,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     listingAvailability,
     inventoryItems,
     hasListingStockLocation,
-    claimError,
+    claimError: claimError ?? inventoryHandoffError,
     createForm: claimedDraft
       ? createFormFromClaimedDraft(claimedDraft)
       : selectedInventoryItem

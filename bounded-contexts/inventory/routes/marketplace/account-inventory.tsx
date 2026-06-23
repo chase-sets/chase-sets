@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -141,6 +141,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "inventory-create";
   const feedbackEntityId = searchParams.get("feedbackEntityId");
@@ -150,6 +151,7 @@ export default function MarketplaceInventoryRoute() {
       data={data.items as ListResponse<InventoryItemListItem>}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       createItemDraft={data.createItemDraft}
+      currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
         shouldShowFeedback ? (

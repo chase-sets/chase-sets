@@ -477,6 +477,8 @@ export const marketplaceEnglishTranslations = {
     "We're preparing your listing details. Try again in a moment.",
   "marketplace.routes.accountListing.fee.quote.stale": "Fee quote is stale. Refresh the fee preview before continuing.",
   "marketplace.routes.accountListings.listings.marketplace": "Listings | Marketplace",
+  "marketplace.routes.accountListings.inventory.item.preparing":
+    "That inventory item is still preparing for listing setup. Refresh this page in a moment and the selected stock should appear.",
   "marketplace.routes.accountListings.listing.draft.not.found":
     "Listing draft was not found. Start a new listing draft from the item page.",
   "marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn":

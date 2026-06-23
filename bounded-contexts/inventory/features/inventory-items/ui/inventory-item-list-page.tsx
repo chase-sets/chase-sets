@@ -30,6 +30,7 @@ import {
 } from "../integrations/catalog/versioning";
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
 import type { InventoryItemListItem } from "./contracts";
+import { inventoryListingHref } from "./listing-handoff";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 
@@ -51,10 +52,6 @@ function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
   return [item.title, item.subtitle].filter(Boolean).join(" - ");
 }
 
-function listingHref(item: InventoryItemListItem) {
-  return `/account/listings?inventoryItemId=${encodeURIComponent(item.item_id)}`;
-}
-
 function getOrderedDimensions(schema: InventoryProductSchema) {
   return schema.canonicalDimensionOrder
     .map((entry) => schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId))
@@ -72,6 +69,7 @@ export function InventoryItemListPage({
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   feedbackPrompt,
   createItemDraft,
+  currentPath,
 }: {
   data: { items: readonly InventoryItemListItem[] };
   locations: readonly InventoryStorageLocation[];
@@ -83,6 +81,7 @@ export function InventoryItemListPage({
     selectedOptions?: readonly { dimensionId: string; optionId: string }[];
     returnTo?: string | null;
   } | null;
+  currentPath?: string | null;
 }) {
   const [initialCatalogItemId] = useState(() => createItemDraft?.catalogItemId?.trim() ?? "");
   const [initialSelectedOptionss] = useState(() => selectedOptionssFromEntries(createItemDraft?.selectedOptions ?? []));
@@ -437,7 +436,7 @@ export function InventoryItemListPage({
                     {t("inventory.features.inventoryItems.ui.inventoryItemListPage.open")}
                   </LinkButton>
                   {row.available_quantity > 0 ? (
-                    <LinkButton href={listingHref(row)} tone="ghost" size="sm">
+                    <LinkButton href={inventoryListingHref(row.item_id, currentPath)} tone="ghost" size="sm">
                       {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}
                     </LinkButton>
                   ) : null}

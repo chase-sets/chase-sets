@@ -24,7 +24,14 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 vi.mock("../support/request-support/api-client", () => ({
-  MarketplaceApiError: class MarketplaceApiError extends Error {},
+  MarketplaceApiError: class MarketplaceApiError extends Error {
+    public constructor(
+      public readonly status: number,
+      public readonly body: unknown,
+    ) {
+      super(`API error ${status}`);
+    }
+  },
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
 }));
 
@@ -32,6 +39,8 @@ vi.mock("@chase-sets/inventory/server", () => ({
   createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,
 }));
 
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { MarketplaceApiError } from "../support/request-support/api-client";
 import { loader } from "../routes/account-listings";
 
 describe("account listings route", () => {
@@ -40,6 +49,7 @@ describe("account listings route", () => {
   });
 
   it("claims an anonymous listing draft intent and pre-fills the create listing form", async () => {
+    const listSellerListings = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["listings.view", "listings.manage"],
@@ -65,9 +75,9 @@ describe("account listings route", () => {
       updated_at: "2026-04-17T00:00:00.000Z",
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      listSellerListings,
+      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
       hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(false),
       claimAnonymousListingDraftIntent: mockClaimAnonymousListingDraftIntent,
       getSellerListingAvailability: vi.fn().mockResolvedValue({
@@ -93,6 +103,9 @@ describe("account listings route", () => {
     } as never);
 
     expect(mockClaimAnonymousListingDraftIntent).toHaveBeenCalledWith("anon_listing_draft", "ldi_1");
+    expect(mockClaimAnonymousListingDraftIntent.mock.invocationCallOrder[0]).toBeLessThan(
+      listSellerListings.mock.invocationCallOrder[0]!,
+    );
     expect(result.claimError).toBeNull();
     expect(result.createForm).toEqual({
       inventoryItemId: "",
@@ -104,6 +117,123 @@ describe("account listings route", () => {
       maxUnitsPerDay: "",
       maxUnitsPerCustomerAccount: "",
     });
+  });
+
+  it("keeps the claimed draft form when fresh seller page reads are still catching up", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockClaimAnonymousListingDraftIntent.mockResolvedValue({
+      intent_id: "ldi_1",
+      anonymous_owner_id: "anon_listing_draft",
+      source_path: "/items/charizard?market=sell",
+      catalog_item_id: "cat_charizard",
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Form: Raw",
+      price_amount: "350.00",
+      quantity_cap: 2,
+      max_units_per_order: 1,
+      max_units_per_day: null,
+      max_units_per_customer_account: null,
+      status: "claimed",
+      claimed_account_id: "acc_seller",
+      claimed_at: "2026-04-17T00:00:00.000Z",
+      expires_at: "2026-05-17T00:00:00.000Z",
+      created_at: "2026-04-17T00:00:00.000Z",
+      updated_at: "2026-04-17T00:00:00.000Z",
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListings: vi.fn().mockRejectedValue(
+        new MarketplaceApiError(503, {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection freshness timed out.",
+          },
+        }),
+      ),
+      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(false),
+      claimAnonymousListingDraftIntent: mockClaimAnonymousListingDraftIntent,
+      getSellerListingAvailability: vi.fn().mockResolvedValue({
+        account_id: "acc_seller",
+        status: "available",
+        disabled_reason_category: null,
+        available_again_on: null,
+        disabled_at: null,
+        enabled_at: null,
+        updated_at: "2026-04-17T00:00:00.000Z",
+      }),
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+    const path = appendFreshWriteToken("/account/listings?claimListingIntent=ldi_1", {
+      commitPositions: [
+        {
+          sourceContextName: "identity",
+          maxGlobalPosition: "51",
+          eventIds: ["evt_identity_51"],
+        },
+      ],
+      commitEventIds: ["evt_identity_51"],
+    });
+
+    const result = await loader({
+      request: new Request(`http://localhost${path}`, {
+        headers: {
+          cookie: "chase_sets_anonymous_listing_drafts=anon_listing_draft",
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result.listings).toEqual({ items: [], total: 0, count: 0 });
+    expect(result.inventoryItems).toEqual([]);
+    expect(result.listingAvailability.account_id).toBe("acc_seller");
+    expect(result.claimError).toBeNull();
+    expect(result.createForm?.catalogItemId).toBe("cat_charizard");
+    expect(result.createForm?.priceAmount).toBe("350.00");
+  });
+
+  it("does not synthesize seller availability for marketplace fresh-write timeouts", async () => {
+    const projectionTimeout = new MarketplaceApiError(503, {
+      error: {
+        code: "projection_freshness_timeout",
+        message: "Projection freshness timed out.",
+      },
+    });
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(false),
+      getSellerListingAvailability: vi.fn().mockRejectedValue(projectionTimeout),
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+    const path = appendFreshWriteToken("/account/listings", {
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "52",
+          eventIds: ["evt_marketplace_52"],
+        },
+      ],
+      commitEventIds: ["evt_marketplace_52"],
+    });
+
+    await expect(
+      loader({
+        request: new Request(`http://localhost${path}`),
+        params: {},
+        context: {},
+      } as never),
+    ).rejects.toBe(projectionTimeout);
   });
 
   it("pre-fills selected product options from listing setup links", async () => {

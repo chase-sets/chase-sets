@@ -114,7 +114,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (54)
+## Read-After-Write Route Inventory (56)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -163,7 +163,9 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-create-to-detail` | marketplace | critical | exact wait | push-accelerated |
 | `marketplace.listing-fee-lock-self-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.listing-inventory-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-list-self-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.listing-stock-location-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.offer-match-accept-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |

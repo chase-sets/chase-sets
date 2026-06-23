@@ -164,6 +164,7 @@ function createServices(): MarketplaceListingServices {
       total: 1,
     })),
     listSellerInventoryItemSupply: vi.fn(async () => ({ items: [], total: 0 })),
+    getInventoryItemSupply: vi.fn(async () => null),
     projectors: [],
   } as unknown as MarketplaceListingServices;
 }
@@ -205,6 +206,73 @@ const validInventorySnapshot = {
 };
 
 describe("marketplace listing routes", () => {
+  it("loads a seller-owned available inventory item by exact listing-inventory id", async () => {
+    const services = createServices();
+    vi.mocked(services.getInventoryItemSupply).mockResolvedValue({
+      item_id: "inv_1",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::form:raw",
+      item_language_code: "en",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Form: Raw",
+      product_measure_snapshot: null,
+      graded_card: null,
+      storage_location_name: "Listing stock",
+      ship_from_code: "CHI-1",
+      ship_from_address: validShipFromAddress,
+      available_quantity: 3,
+    });
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.request("/account/listing-inventory?inventoryItemId=inv_1");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(services.getInventoryItemSupply).toHaveBeenCalledWith("inv_1", "acc_seller");
+    expect(body).toMatchObject({
+      total: 1,
+      count: 1,
+      items: [{ item_id: "inv_1", available_quantity: 3 }],
+    });
+  });
+
+  it("does not expose exact listing-inventory items without available quantity", async () => {
+    const services = createServices();
+    vi.mocked(services.getInventoryItemSupply).mockResolvedValue({
+      item_id: "inv_1",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::form:raw",
+      item_language_code: "en",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Form: Raw",
+      product_measure_snapshot: null,
+      graded_card: null,
+      storage_location_name: "Listing stock",
+      ship_from_code: "CHI-1",
+      ship_from_address: validShipFromAddress,
+      available_quantity: 0,
+    });
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.request("/account/listing-inventory?inventoryItemId=inv_1");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ total: 0, count: 0, items: [] });
+  });
+
   it("returns display-safe public standard terms without requiring a signed-in actor", async () => {
     const services = createServices();
     const app = buildApp({

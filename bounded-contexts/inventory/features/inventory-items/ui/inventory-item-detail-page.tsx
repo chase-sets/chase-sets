@@ -19,23 +19,22 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryItemDetail } from "./contracts";
+import { inventoryListingHref } from "./listing-handoff";
 
 function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
-}
-
-function listingHref(item: InventoryItemDetail) {
-  return `/account/listings?inventoryItemId=${encodeURIComponent(item.item_id)}`;
 }
 
 export function InventoryItemDetailPage({
   item,
   errorMessage,
   feedbackPrompt,
+  currentPath,
 }: {
   item: InventoryItemDetail;
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
+  currentPath?: string | null;
 }) {
   return (
     <Page>
@@ -48,7 +47,7 @@ export function InventoryItemDetailPage({
         actions={
           <Stack gap={2}>
             {item.available_quantity > 0 ? (
-              <LinkButton href={listingHref(item)}>
+              <LinkButton href={inventoryListingHref(item.item_id, currentPath)}>
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.listing")}
               </LinkButton>
             ) : null}
