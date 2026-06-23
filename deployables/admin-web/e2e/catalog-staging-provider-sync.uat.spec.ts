@@ -192,7 +192,7 @@ async function signInThroughVisibleForm(page: Page): Promise<void> {
     if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await passwordInput.fill(catalogAdminPassword);
       await page.getByRole("button", { name: /^sign in$/i }).click();
-      await expectImporterVisible(page);
+      await openCatalogImporter(page);
       return;
     }
 

@@ -27,6 +27,7 @@ describe("durable job store", () => {
 
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_jobs");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_job_events");
+    expect(sql).toContain("ON inventory_import_batch_jobs USING GIN (event_context)");
     expect(sql).toContain("PRIMARY KEY (job_id, sequence)");
   });
 
@@ -391,6 +392,62 @@ describe("durable job store", () => {
     expect(calls[0].sql).toContain("status IN ('completed', 'failed')");
     expect(calls[0].sql).toContain("DELETE FROM inventory_import_batch_jobs");
     expect(calls[0].values[1]).toBe(2);
+  });
+
+  it("lists recent jobs for an event context without dropping terminal records", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const eventContext = {
+      tenantId: "tnt_1",
+      audit: {
+        performedByUserId: "usr_1",
+        forAccountId: "acc_1",
+      },
+    } as const;
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return {
+            rows: [
+              {
+                job_id: "job_1",
+                job_kind: "commit",
+                status: "completed",
+                payload: { batchId: "imb_1" },
+                progress: { phase: "completed" },
+                result: { committed: 1 },
+                error_message: null,
+                event_context: eventContext,
+                claim_owner_id: null,
+                claimed_until: null,
+                created_at: "2026-05-28T00:00:00.000Z",
+                started_at: "2026-05-28T00:00:01.000Z",
+                completed_at: "2026-05-28T00:00:02.000Z",
+                updated_at: "2026-05-28T00:00:02.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    await expect(
+      store.listRecent({
+        jobKinds: ["commit"],
+        eventContext,
+        limit: 12,
+      }),
+    ).resolves.toMatchObject([{ jobId: "job_1", status: "completed", result: { committed: 1 } }]);
+
+    expect(calls[0].sql).not.toContain("status IN ('queued', 'running')");
+    expect(calls[0].sql).toContain("event_context @> $2::jsonb");
+    expect(calls[0].sql).toContain("ORDER BY updated_at DESC");
+    expect(calls[0].values).toEqual([["commit"], JSON.stringify(eventContext), 12]);
   });
 
   it("falls back to polling when notification LISTEN cannot be established", async () => {

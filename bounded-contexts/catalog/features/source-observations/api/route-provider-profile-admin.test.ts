@@ -425,7 +425,7 @@ describe("source observation routes: integration discovery and profile administr
         },
       ],
     }));
-    const listActiveIntegrationJobs = vi.fn(async () => [
+    const listRecentIntegrationJobs = vi.fn(async () => [
       integrationJobFixture({
         jobId: "job_import_base",
         action: "import",
@@ -439,12 +439,13 @@ describe("source observation routes: integration discovery and profile administr
           connectorSourceVersion: null,
           sourceMappingFingerprint: "fingerprint",
         },
-        operatorStatus: "running",
+        status: "completed",
+        operatorStatus: "completed",
         progress: {
-          phase: "processing",
-          completed: 1,
+          phase: "completed",
+          completed: 2,
           total: 2,
-          currentName: "Base Set",
+          currentName: null,
           status: "imported",
         },
         result: {
@@ -476,11 +477,12 @@ describe("source observation routes: integration discovery and profile administr
           ],
         },
         startedAt: "2026-06-05T00:01:00.000Z",
+        completedAt: "2026-06-05T00:01:05.000Z",
       }),
     ]);
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
-      listActiveIntegrationJobs,
+      listRecentIntegrationJobs,
     } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
@@ -517,8 +519,8 @@ describe("source observation routes: integration discovery and profile administr
               {
                 jobId: "job_import_base",
                 action: "import",
-                operatorStatus: "running",
-                completed: 1,
+                operatorStatus: "completed",
+                completed: 2,
                 total: 2,
                 result: {
                   requested: 2,
@@ -562,7 +564,7 @@ describe("source observation routes: integration discovery and profile administr
       },
     });
     expect(json.unitActivity.units[0].recentJobs[0].result).not.toHaveProperty("outcomes");
-    expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+    expect(listRecentIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 
   it("keeps active TCGplayer jobs scoped to their selected profile unit", async () => {
@@ -617,7 +619,7 @@ describe("source observation routes: integration discovery and profile administr
         },
       ],
     }));
-    const listActiveIntegrationJobs = vi.fn(async () => [
+    const listRecentIntegrationJobs = vi.fn(async () => [
       integrationJobFixture({
         jobId: "job_running_mtg_scope",
         action: "import",
@@ -645,7 +647,7 @@ describe("source observation routes: integration discovery and profile administr
     ]);
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
-      listActiveIntegrationJobs,
+      listRecentIntegrationJobs,
     } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
@@ -703,7 +705,7 @@ describe("source observation routes: integration discovery and profile administr
         },
       ],
     }));
-    const listActiveIntegrationJobs = vi.fn(async () => [
+    const listRecentIntegrationJobs = vi.fn(async () => [
       integrationJobFixture({
         jobId: "job_import_base",
         action: "import",
@@ -724,7 +726,7 @@ describe("source observation routes: integration discovery and profile administr
     ]);
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
-      listActiveIntegrationJobs,
+      listRecentIntegrationJobs,
     } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
