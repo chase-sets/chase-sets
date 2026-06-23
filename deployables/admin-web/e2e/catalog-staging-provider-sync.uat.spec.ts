@@ -85,6 +85,12 @@ const tcgplayerOnePieceSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: {},
 };
 
+const mtgjsonMtgSetChoice: SelectChoice = {
+  labels: ["Fifth Dawn", "Time Spiral"],
+  values: ["5DN", "TSP"],
+  fallbackToFirstAvailableOption: { valuePattern: /^[A-Z0-9]+$/ },
+};
+
 const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "One Piece card set through Scrydex bulk-first shared importer",
@@ -146,13 +152,10 @@ const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
     requiresTerminalSync: true,
   },
   {
-    name: "MTG set regression through the shared TCGplayer provider",
-    providerKey: "tcgplayer",
-    unitKey: "tcgplayer:mtg:single-card:source-observation-import",
-    scope: [
-      { label: "Product Line", choice: { labels: ["Magic"], values: ["1"] } },
-      { label: "Set Name", choice: { labels: ["Time Spiral", "Classic Sixth Edition"] } },
-    ],
+    name: "MTG set regression through MTGJSON shared importer",
+    providerKey: "mtgjson",
+    unitKey: "mtgjson:mtg:set:reference-data",
+    scope: [{ label: "Set", choice: mtgjsonMtgSetChoice }],
     requiresTerminalSync: true,
   },
 ];
