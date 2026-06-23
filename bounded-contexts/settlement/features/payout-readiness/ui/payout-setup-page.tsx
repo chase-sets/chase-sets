@@ -411,7 +411,7 @@ export function PayoutSetupPage({
       </PageSection>
 
       <PageSection title={providerPanelTitle(mode)}>
-        <Card>
+        <Card overflow="visible">
           <Stack gap={3}>
             {providerErrorMessage ? (
               <Banner

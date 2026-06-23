@@ -10,9 +10,18 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNa
   interactive?: boolean;
   variant?: "default" | "product" | "feature" | "stat";
   glow?: boolean;
+  overflow?: "hidden" | "visible";
 }
 
-function CardSurface({ children, media, interactive = false, variant = "default", glow = false, ...rest }: CardProps) {
+function CardSurface({
+  children,
+  media,
+  interactive = false,
+  variant = "default",
+  glow = false,
+  overflow = "hidden",
+  ...rest
+}: CardProps) {
   const motionSettings = useChaseMotion();
   const interactiveMotion =
     interactive && !motionSettings.reducedMotion
@@ -29,7 +38,8 @@ function CardSurface({ children, media, interactive = false, variant = "default"
       {...nativeProps}
       {...interactiveMotion}
       className={cx(
-        "glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm",
+        "glass-surface rounded-tokenLg border border-muted shadow-tokenSm",
+        overflow === "visible" ? "overflow-visible" : "overflow-hidden",
         variant === "product" && "bg-surface",
         variant === "feature" && "bg-surface-2",
         variant === "stat" && "bg-surface-2",

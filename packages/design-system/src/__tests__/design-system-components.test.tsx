@@ -1483,6 +1483,16 @@ describe("design system components", () => {
     expect(markup).toContain('alt="Card"');
   });
 
+  it("keeps Card overflow clipped by default while allowing provider overlays to escape", () => {
+    const defaultMarkup = renderToString(<Card>Default card</Card>);
+    const providerMarkup = renderToString(<Card overflow="visible">Provider card</Card>);
+
+    expect(defaultMarkup).toContain("overflow-hidden");
+    expect(defaultMarkup).not.toContain("overflow-visible");
+    expect(providerMarkup).toContain("overflow-visible");
+    expect(providerMarkup).not.toContain("overflow-hidden");
+  });
+
   it("exposes a compound Card slot API for header, body, and footer composition", () => {
     expect(typeof Card.Header).toBe("function");
     expect(typeof Card.Title).toBe("function");
