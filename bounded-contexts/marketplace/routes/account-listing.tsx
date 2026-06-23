@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
   appendFreshWriteToken,
   loadFreshlyWrittenResource,
@@ -17,19 +17,15 @@ import {
   type MarketplaceListingFeeHistoryEntry,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
-import { ListingDetailErrorBoundary } from "../features/listings/ui/listing-detail-error-boundary";
+import {
+  ListingDetailErrorBoundary,
+  ListingDetailRecoveryPage,
+} from "../features/listings/ui/listing-detail-error-boundary";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 
 export { ListingDetailErrorBoundary as ErrorBoundary };
-
-function listingPreparingResponse() {
-  return new Response(t("marketplace.routes.accountListing.listing.preparing.description"), {
-    status: 503,
-    statusText: t("marketplace.routes.accountListing.listing.preparing"),
-  });
-}
 
 function staleQuoteFromError(error: MarketplaceApiError) {
   if (error.status !== 409) {
@@ -84,10 +80,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const freshWriteRecovery = recoverFreshWriteReadError({
       request,
       error,
-      recoverTransient: listingPreparingResponse,
+      recoverTransient: () => ({
+        listing: null,
+        feeHistory: { items: [], total: 0, count: 0 },
+        recovery: "fresh-write-preparing" as const,
+      }),
     });
     if (freshWriteRecovery) {
-      throw freshWriteRecovery;
+      return freshWriteRecovery;
     }
 
     if (error instanceof MarketplaceApiError && error.status === 404) {
@@ -196,7 +196,13 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountListingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  if (!data.listing) {
+    return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
+  }
+
   const feedbackWorkflow = searchParams.get("feedbackWorkflow");
   const listingFeedbackWorkflow: PlatformFeedbackWorkflow | null =
     feedbackWorkflow === "listing-publish" || feedbackWorkflow === "listing-update" ? feedbackWorkflow : null;

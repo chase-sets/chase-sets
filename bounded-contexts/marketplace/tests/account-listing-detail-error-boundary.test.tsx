@@ -2,7 +2,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
-import { ListingDetailErrorBoundary } from "../features/listings/ui/listing-detail-error-boundary";
+import {
+  ListingDetailErrorBoundary,
+  ListingDetailRecoveryPage,
+} from "../features/listings/ui/listing-detail-error-boundary";
 
 afterEach(() => {
   cleanup();
@@ -34,6 +37,19 @@ function renderListingRecovery(
 }
 
 describe("Marketplace listing detail recovery boundary", () => {
+  it("renders listing freshness recovery as normal route content", () => {
+    render(
+      <ListingDetailRecoveryPage currentPath="/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh" />,
+    );
+
+    expect(screen.getAllByText("Preparing listing")).not.toHaveLength(0);
+    expect(screen.getAllByText("We're preparing your listing details. Try again in a moment.")).not.toHaveLength(0);
+    expect(screen.getByText("Your listing action is saved while these details finish updating.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toBe(
+      "/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh",
+    );
+  });
+
   it("renders listing freshness recovery instead of falling through to the root 503 page", async () => {
     renderListingRecovery();
 

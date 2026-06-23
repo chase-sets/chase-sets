@@ -92,7 +92,7 @@ describe("marketplace listing detail route", () => {
     expect(listingReads).toBe(2);
   });
 
-  it("returns temporary recovery when a fresh listing read hits projection freshness timeout", async () => {
+  it("returns route-owned recovery data when a fresh listing read hits projection freshness timeout", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -116,20 +116,17 @@ describe("marketplace listing detail route", () => {
       }),
     );
 
-    let response: Response | null = null;
-    try {
-      await listingLoader({
-        request: freshListingRequest(),
-        params: { listingId: "lst_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      response = error as Response;
-    }
+    const result = await listingLoader({
+      request: freshListingRequest(),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
 
-    expect(response?.status).toBe(503);
-    expect(response?.statusText).toBe("Preparing listing");
-    await expect(response?.text()).resolves.toContain("preparing your listing details");
+    expect(result).toEqual({
+      listing: null,
+      feeHistory: { items: [], total: 0, count: 0 },
+      recovery: "fresh-write-preparing",
+    });
   });
 
   it("returns the current quote when a confirmed price update is stale", async () => {

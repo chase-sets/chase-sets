@@ -33,27 +33,11 @@ function recoveryCopy(kind: OfferDetailRecoveryKind): OfferDetailRecoveryCopy {
   }
 }
 
-export function MarketplaceOfferDetailErrorBoundary({ kind }: Readonly<{ kind: OfferDetailRecoveryKind }>) {
-  const error = useRouteError();
-  const location = useLocation();
+export function MarketplaceOfferDetailRecoveryPage({
+  kind,
+  currentPath,
+}: Readonly<{ kind: OfferDetailRecoveryKind; currentPath: string }>) {
   const copy = recoveryCopy(kind);
-  const searchParams = new URLSearchParams(location.search);
-  const isFreshSubmittedOfferWrite =
-    kind === "submitted-offer" &&
-    searchParams.has("afterWrite") &&
-    searchParams.get("feedbackWorkflow") === "offer-submit";
-  const isPreparingOfferResponse =
-    isRouteErrorResponse(error) &&
-    error.status === 503 &&
-    (error.statusText === copy.preparingTitle ||
-      error.data === copy.preparingDescription ||
-      isFreshSubmittedOfferWrite);
-
-  if (!isPreparingOfferResponse) {
-    throw error;
-  }
-
-  const currentPath = `${location.pathname}${location.search}`;
 
   return (
     <Page>
@@ -77,6 +61,31 @@ export function MarketplaceOfferDetailErrorBoundary({ kind }: Readonly<{ kind: O
       </PageSection>
     </Page>
   );
+}
+
+export function MarketplaceOfferDetailErrorBoundary({ kind }: Readonly<{ kind: OfferDetailRecoveryKind }>) {
+  const error = useRouteError();
+  const location = useLocation();
+  const copy = recoveryCopy(kind);
+  const searchParams = new URLSearchParams(location.search);
+  const isFreshSubmittedOfferWrite =
+    kind === "submitted-offer" &&
+    searchParams.has("afterWrite") &&
+    searchParams.get("feedbackWorkflow") === "offer-submit";
+  const isPreparingOfferResponse =
+    isRouteErrorResponse(error) &&
+    error.status === 503 &&
+    (error.statusText === copy.preparingTitle ||
+      error.data === copy.preparingDescription ||
+      isFreshSubmittedOfferWrite);
+
+  if (!isPreparingOfferResponse) {
+    throw error;
+  }
+
+  const currentPath = `${location.pathname}${location.search}`;
+
+  return <MarketplaceOfferDetailRecoveryPage kind={kind} currentPath={currentPath} />;
 }
 
 export function SubmittedOfferDetailErrorBoundary() {
