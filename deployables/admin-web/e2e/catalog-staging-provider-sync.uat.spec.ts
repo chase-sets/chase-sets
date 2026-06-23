@@ -78,7 +78,16 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     name: "One Piece set through Scrydex bulk-first shared importer",
     providerKey: "scrydex",
     unitKey: "scrydex:one-piece:single-card:source-observation-import",
-    scope: [{ label: "Set", choice: { labels: ["Romance Dawn"], values: ["op-01"] } }],
+    scope: [
+      {
+        label: "Set",
+        choice: {
+          labels: ["Romance Dawn"],
+          values: ["op-01", "OP01", "OP-01"],
+          fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?\d+$/i },
+        },
+      },
+    ],
     preflight: {
       requestStrategy: "bulk-first",
       allowedUsageStates: ["checked", "not-configured", "unknown"],
@@ -88,7 +97,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
         "id, name, number, expansion",
         "Bulk-first",
         "Fetch Scrydex One Piece expansion cards with max page size",
-        "scrydex:one-piece:expansion:op-01:cards",
+        /scrydex:one-piece:expansion:[a-z0-9-]+:cards/i,
       ],
     },
     requiresTerminalSync: true,
