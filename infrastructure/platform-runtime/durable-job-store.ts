@@ -103,6 +103,11 @@ export type DurableJobStore<
   listActive: (input?: {
     jobKinds?: readonly string[];
   }) => Promise<readonly DurableJobRecord<TPayload, TProgress, TResult>[]>;
+  listRecent: (input?: {
+    jobKinds?: readonly string[];
+    eventContext?: EventStoreContext | null;
+    limit?: number;
+  }) => Promise<readonly DurableJobRecord<TPayload, TProgress, TResult>[]>;
   listEvents: (
     jobId: string,
     afterSequence?: number,
@@ -168,6 +173,9 @@ CREATE INDEX IF NOT EXISTS ${jobsTable}_status_created_idx
 
 CREATE INDEX IF NOT EXISTS ${jobsTable}_kind_status_idx
   ON ${jobsTable} (job_kind, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS ${jobsTable}_event_context_idx
+  ON ${jobsTable} USING GIN (event_context);
 
 CREATE TABLE IF NOT EXISTS ${eventsTable} (
   job_id text NOT NULL REFERENCES ${jobsTable}(job_id) ON DELETE CASCADE,
@@ -502,6 +510,21 @@ export function createPostgresDurableJobStore<
          ORDER BY created_at ASC
          LIMIT 50`,
         [jobKinds],
+      );
+      return result.rows.map(mapJobRow<TPayload, TProgress, TResult>);
+    },
+    listRecent: async (input = {}) => {
+      const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;
+      const eventContext = input.eventContext ? JSON.stringify(input.eventContext) : null;
+      const limit = Math.max(1, Math.min(input.limit ?? 50, 250));
+      const result = await db.query<DurableJobRow>(
+        `SELECT ${DURABLE_JOB_COLUMNS}
+         FROM ${jobsTable}
+         WHERE ($1::text[] IS NULL OR job_kind = ANY($1::text[]))
+           AND ($2::jsonb IS NULL OR event_context @> $2::jsonb)
+         ORDER BY updated_at DESC, created_at DESC, job_id ASC
+         LIMIT $3`,
+        [jobKinds, eventContext, limit],
       );
       return result.rows.map(mapJobRow<TPayload, TProgress, TResult>);
     },

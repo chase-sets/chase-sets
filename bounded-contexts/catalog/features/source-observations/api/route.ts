@@ -60,13 +60,15 @@ export function sourceObservationRoutes(
     // parameter and receive the full overview, including the lifecycle timeline their
     // evidence slices cite.
     const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));
-    const [readiness, profiles, activeJobs] = await Promise.all([
+    const [readiness, profiles, recentJobs] = await Promise.all([
       services.getCatalogIntegrationControlPlaneReadiness(),
       profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),
-      services.listActiveIntegrationJobs({ context: c.get("context") }),
+      services.listRecentIntegrationJobs({ context: c.get("context") }),
     ]);
 
-    return c.json(buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs, audience }));
+    return c.json(
+      buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs: recentJobs, audience }),
+    );
   });
 
   return app;

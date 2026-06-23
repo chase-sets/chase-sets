@@ -798,14 +798,20 @@ export function tcgplayerOnePieceProductDetail(input: {
 }
 
 export function createIntegrationJobDedupeHarness(
-  input: { existingJob?: Record<string, unknown>; reapplyObservationIds?: readonly string[] } = {},
+  input: {
+    existingJob?: Record<string, unknown>;
+    recentJobs?: readonly Record<string, unknown>[];
+    reapplyObservationIds?: readonly string[];
+  } = {},
 ) {
   let existingJob = input.existingJob ? { ...input.existingJob } : undefined;
+  const recentJobs = input.recentJobs ? input.recentJobs.map((job) => ({ ...job })) : [];
   const insertedJobs: Record<string, unknown>[] = [];
   const insertedWorkUnits: Array<Readonly<{ unitId: string; unitKind: string; payload: Record<string, unknown> }>> = [];
   const jobEvents: Record<string, unknown>[] = [];
   let queryCount = 0;
   let activeLookupValues: readonly unknown[] = [];
+  let recentLookupValues: readonly unknown[] = [];
 
   const deps = {
     db: {
@@ -820,6 +826,17 @@ export function createIntegrationJobDedupeHarness(
           return {
             rowCount: existingJob ? 1 : 0,
             rows: (existingJob ? [existingJob] : []) as T[],
+          };
+        }
+
+        if (
+          sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("ORDER BY updated_at DESC")
+        ) {
+          recentLookupValues = values;
+          return {
+            rowCount: recentJobs.length,
+            rows: recentJobs as T[],
           };
         }
 
@@ -946,6 +963,9 @@ export function createIntegrationJobDedupeHarness(
     jobEvents,
     get activeLookupValues() {
       return activeLookupValues;
+    },
+    get recentLookupValues() {
+      return recentLookupValues;
     },
     get queryCount() {
       return queryCount;

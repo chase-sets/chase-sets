@@ -1367,6 +1367,93 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.queryCount).toBe(0);
   });
 
+  it("lists recent terminal integration jobs for the current request context", async () => {
+    const terminalJob = {
+      ...integrationJobRow({
+        jobId: "job_completed_import",
+        action: "import",
+        scope: {
+          provider: "scrydex",
+          profileKey: "one-piece-card-print-source-observation",
+          ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+          language: "en",
+          setId: "op-01",
+        },
+        profileSnapshot: {
+          providerKey: "scrydex",
+          profileKey: "one-piece-card-print-source-observation",
+          profileVersion: "2026.06.22",
+          ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+          lifecycle: "active",
+          connectorKind: "scrydex-api",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "sha256:scrydex-one-piece",
+        },
+        eventContext: context,
+        progress: {
+          phase: "completed",
+          completed: 1,
+          total: 1,
+          currentName: null,
+          status: "imported",
+        },
+      }),
+      status: "completed",
+      result: {
+        requested: 1,
+        imported: 1,
+        observed: 1,
+        reapplied: 0,
+        skipped: 0,
+        failed: 0,
+        outcomes: [],
+      },
+      completed_at: "2026-06-23T05:32:42.000Z",
+      updated_at: "2026-06-23T05:32:42.000Z",
+    };
+    const harness = createIntegrationJobDedupeHarness({ recentJobs: [terminalJob] });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(services.listRecentIntegrationJobs({ context })).resolves.toMatchObject([
+      {
+        jobId: "job_completed_import",
+        status: "completed",
+        operatorStatus: "completed",
+        scope: {
+          provider: "scrydex",
+          language: "en",
+          setId: "op-01",
+        },
+      },
+    ]);
+    expect(harness.recentLookupValues).toEqual([["import", "reapply"], JSON.stringify(context), 50]);
+  });
+
+  it("returns an empty recent integration job list when request context is missing", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      recentJobs: [
+        integrationJobRow({
+          jobId: "job_completed_import",
+          action: "import",
+          scope: { provider: "scrydex", language: "en", setId: "op-01" },
+          eventContext: context,
+        }),
+      ],
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(services.listRecentIntegrationJobs({ context: null })).resolves.toEqual([]);
+    expect(harness.queryCount).toBe(0);
+  });
+
   it("propagates credential readiness separately from semantic readiness", async () => {
     const harness = createIntegrationJobDedupeHarness();
     const services = createSourceObservationRuntime(

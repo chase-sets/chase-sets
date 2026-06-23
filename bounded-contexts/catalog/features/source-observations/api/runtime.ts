@@ -853,6 +853,10 @@ export type IntegrationJobServices = Readonly<{
   listActiveIntegrationJobs: (input: {
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
+  listRecentIntegrationJobs: (input: {
+    context?: EventStoreContext | null;
+    limit?: number;
+  }) => Promise<readonly SourceObservationIntegrationJob[]>;
   processNextIntegrationJob: (
     input: {
       claimOwnerId: string;
@@ -4187,6 +4191,21 @@ export function createSourceObservationRuntime(
       }
 
       return (await integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }))
+        .filter((job) => jobMatchesContext(job, context))
+        .map(toSourceObservationIntegrationJob);
+    },
+    listRecentIntegrationJobs: async ({ context, limit }) => {
+      if (!context) {
+        return [];
+      }
+
+      return (
+        await integrationJobStore.listRecent({
+          jobKinds: ["import", "reapply"],
+          eventContext: context,
+          limit,
+        })
+      )
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationIntegrationJob);
     },
