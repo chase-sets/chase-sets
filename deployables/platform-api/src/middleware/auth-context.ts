@@ -21,6 +21,7 @@ export type TenantContextEnv = {
 };
 
 const ANONYMOUS_ROUTES = new Set([
+  "GET /api/auth/session",
   "POST /api/auth/register",
   "POST /api/auth/password-sign-in",
   "POST /api/auth/magic-link/request",

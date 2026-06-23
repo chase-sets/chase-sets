@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { module as authModule } from "@chase-sets/auth";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
@@ -150,6 +156,147 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "authentication_required" },
     });
+  });
+
+  it("lets the Auth session route wait for fresh session and membership projections before resolving the actor", async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    let membershipFresh = false;
+    const authServices = {
+      db: {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM identity_session_tokens")) {
+            return {
+              rows: [
+                {
+                  session_id: "ses_1",
+                  token_hash: "hashed_session_token",
+                  expires_at: expiresAt,
+                },
+              ],
+            };
+          }
+
+          throw new Error(`Unexpected auth db query: ${sql}`);
+        }),
+      },
+      auth: {
+        hashSecret: (secret: string) => `hashed_${secret}`,
+      },
+      identity: {
+        bootstrapTenantId: "tenant_auth",
+        getActiveMembershipForUserAccount: vi.fn(async () =>
+          membershipFresh
+            ? {
+                membership_id: "mem_1",
+                user_id: "usr_1",
+                account_id: "acc_1",
+                role_key: "owner",
+                role_permissions: ["accounts.view"],
+                status: "active",
+                updated_at: new Date().toISOString(),
+              }
+            : null,
+        ),
+      },
+      sessions: {
+        getSession: vi.fn(async () => ({
+          session_id: "ses_1",
+          user_id: "usr_1",
+          user_display_name: null,
+          user_primary_email: "seller@example.test",
+          account_id: "acc_1",
+          account_display_name: "Seller",
+          account_name: "Seller",
+          available_account_ids: ["acc_1"],
+          authentication_method: "password",
+          status: "active",
+          expires_at: expiresAt,
+          updated_at: new Date().toISOString(),
+        })),
+        getSessionState: vi.fn(async () => null),
+      },
+    };
+    const refreshAuthSession = vi.fn(async () => ({
+      lastGlobalPosition: "4735",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const refreshAuthMembership = vi.fn(async () => {
+      membershipFresh = true;
+      return {
+        lastGlobalPosition: "19853",
+        state: "caught-up",
+        lastError: null,
+      };
+    });
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [
+          {
+            contextName: "auth",
+            mountRole: "active",
+            module: authModule,
+            services: authServices,
+            pool: {},
+            projectionHandlerSets: [],
+          },
+        ],
+        mountedModules: [{ module: authModule, services: authServices }],
+        services: {
+          auth: authServices,
+          identity: {},
+        },
+        projectionGroups: [
+          {
+            targetContextName: "auth",
+            projectionName: "auth-session-projection",
+            ownedTables: ["identity_sessions", "identity_session_lookup"],
+            subscriptionRunners: [{ sourceContextName: "auth", refreshStatus: refreshAuthSession }],
+          },
+          {
+            targetContextName: "auth",
+            projectionName: "auth-identity-membership-projection",
+            ownedTables: ["auth_identity_memberships", "auth_identity_user_memberships"],
+            subscriptionRunners: [{ sourceContextName: "identity", refreshStatus: refreshAuthMembership }],
+          },
+        ],
+        subscriptionRunners: [],
+      } as never,
+      {
+        readConsistency: {
+          timeoutMs: 0,
+          pollIntervalMs: 1,
+        },
+      },
+    );
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        { sourceContextName: "auth", maxGlobalPosition: "4735", eventIds: ["evt_auth"] },
+        { sourceContextName: "identity", maxGlobalPosition: "19853", eventIds: ["evt_identity"] },
+      ],
+    });
+
+    const response = await app.request("/api/auth/session", {
+      headers: {
+        cookie: "chase_sets_session=session_token",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "auth",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actor: {
+        sessionId: "ses_1",
+        userId: "usr_1",
+        accountId: "acc_1",
+        membershipId: "mem_1",
+      },
+    });
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1);
+    expect(refreshAuthMembership).toHaveBeenCalledTimes(1);
+    expect(authServices.identity.getActiveMembershipForUserAccount).toHaveBeenCalledWith("usr_1", "acc_1");
   });
 
   it("mounts internal realtime status with platform-api context stores", async () => {

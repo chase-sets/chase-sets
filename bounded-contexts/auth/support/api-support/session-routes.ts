@@ -1,11 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { sessionRoutes } from "../../features/sessions/api/route";
 import { revokeSession, type AuthServices } from "../runtime-support/services";
+import { resolveActorFromRequest } from "../runtime-support/runtime";
 import { createPermissionGuard, getRequiredContext, type AuthApiApp } from "./support";
 
 export function registerSessionApiRoutes(app: AuthApiApp, services: AuthServices) {
   app.get("/session", async (c) => {
-    const actor = c.var.actor;
+    const actor = c.var.actor ?? (await resolveActorFromRequest(services, c.req.raw));
     if (!actor) {
       return c.json({ error: t("auth.support.apiSupport.sessionRoutes.authentication.required") }, 401);
     }
