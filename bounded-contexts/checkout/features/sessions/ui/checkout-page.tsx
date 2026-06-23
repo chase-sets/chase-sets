@@ -551,8 +551,9 @@ export function CheckoutSessionPage({
   const submittingCtaLabel = isOfferIntent
     ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent")
     : t("checkout.features.sessions.ui.checkoutPage.processing.payment");
-  const commitIntent = needsReviewRefresh ? "refresh-checkout-preview" : "confirm-checkout";
-  const commitIcon = needsReviewRefresh ? "refreshCcw" : "lock";
+  const shouldRefreshBeforeCommit = !isOfferIntent && needsReviewRefresh;
+  const commitIntent = shouldRefreshBeforeCommit ? "refresh-checkout-preview" : "confirm-checkout";
+  const commitIcon = shouldRefreshBeforeCommit ? "refreshCcw" : "lock";
 
   const orderSummary = (
     <Stack gap={4}>
