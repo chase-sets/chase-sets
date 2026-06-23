@@ -666,16 +666,68 @@ describe("checkout web routes: checkout session loader", () => {
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       kind?: string;
       description?: string;
+      postWriteResult?: { kind?: string; reason?: string; retryable?: boolean };
       primaryAction?: { href?: string; label?: string };
       recoveryKind?: string;
       trustCue?: string;
     };
     expect(recoveryBody.kind).toBe("request-validation");
     expect(recoveryBody.recoveryKind).toBe("action-required");
+    expect(recoveryBody.postWriteResult).toMatchObject({
+      kind: "source-readiness-disagreement",
+      reason: "readiness-snapshot-stale",
+      retryable: false,
+    });
     expect(recoveryBody.description).toContain("Review your Buy Cart or browse for another item.");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
     expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
     expect(recoveryBody.primaryAction?.label).toBe("View Buy Cart");
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not treat fresh-write readiness disagreement as checkout preparation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(400, {
+          error: {
+            code: "readiness_snapshot_stale",
+            message: "Cart readiness changed. Review your cart before checkout.",
+          },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: freshCheckoutRequest(),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(400);
+    expect(recoveryResponse?.statusText).toBe("Checkout needs attention");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      kind?: string;
+      postWriteResult?: { kind?: string; reason?: string; recoveryKind?: string; retryable?: boolean };
+      primaryAction?: { href?: string; label?: string };
+      recoveryKind?: string;
+    };
+    expect(recoveryBody.kind).toBe("request-validation");
+    expect(recoveryBody.recoveryKind).toBe("action-required");
+    expect(recoveryBody.postWriteResult).toEqual({
+      kind: "source-readiness-disagreement",
+      reason: "readiness-snapshot-stale",
+      recoveryKind: "action-required",
+      retryable: false,
+    });
+    expect(recoveryBody.primaryAction?.label).toBe("View Buy Cart");
+    expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
   });
@@ -775,11 +827,17 @@ describe("checkout web routes: checkout session loader", () => {
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
+      postWriteResult?: { kind?: string; reason?: string; retryable?: boolean };
       primaryAction?: { href?: string; label?: string };
       recoveryKind?: string;
       trustCue?: string;
     };
     expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
+    expect(recoveryBody.postWriteResult).toMatchObject({
+      kind: "bounded-pending",
+      reason: "projection-lag",
+      retryable: true,
+    });
     expect(recoveryBody.description).toContain("getting your checkout ready");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
     expect(recoveryBody.primaryAction?.href).toContain("/checkout/buy/session/chk_1?afterWrite=");

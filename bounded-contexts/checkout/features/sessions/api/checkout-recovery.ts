@@ -26,9 +26,48 @@ export type CheckoutRecoveryKind =
   | "session-not-found"
   | "wrong-account";
 
+export type CheckoutPostWriteResult =
+  | Readonly<{
+      kind: "bounded-pending";
+      reason: "projection-lag";
+      recoveryKind: "pending-projection" | "refreshable-catching-up";
+      retryable: true;
+    }>
+  | Readonly<{
+      kind: "source-readiness-disagreement";
+      reason: "readiness-snapshot-stale" | "split-group-handoff-stale";
+      recoveryKind: "action-required";
+      retryable: false;
+    }>
+  | Readonly<{
+      kind: "auth-blocker";
+      reason: "authentication-required" | "authorization-forbidden";
+      recoveryKind: "action-required";
+      retryable: false;
+    }>
+  | Readonly<{
+      kind: "validation-blocker";
+      reason: "validation-failed";
+      recoveryKind: "action-required";
+      retryable: false;
+    }>
+  | Readonly<{
+      kind: "domain-blocker";
+      reason: "cart-empty" | "unresolved-fulfillment" | "projection-lag-without-fresh-receipt";
+      recoveryKind: "action-required" | "stale-projection";
+      retryable: boolean;
+    }>
+  | Readonly<{
+      kind: "permanent-not-found";
+      reason: "session-not-found" | "expired-handoff";
+      recoveryKind: "terminal-failure" | "expired-handoff";
+      retryable: false;
+    }>;
+
 export type CheckoutRecovery = Readonly<{
   kind: CheckoutRecoveryKind;
   recoveryKind: PostWriteRecoveryKind;
+  postWriteResult: CheckoutPostWriteResult;
   status: number;
   title: string;
   description: string;
@@ -70,10 +109,77 @@ function recoveryKindForCheckoutRecoveryKind(kind: CheckoutRecoveryKind): PostWr
   }
 }
 
+function defaultPostWriteResultForRecoveryKind(
+  kind: CheckoutRecoveryKind,
+  recoveryKind: PostWriteRecoveryKind,
+): CheckoutPostWriteResult {
+  if (kind === "checkout-preparing") {
+    if (recoveryKind === "pending-projection" || recoveryKind === "refreshable-catching-up") {
+      return {
+        kind: "bounded-pending",
+        reason: "projection-lag",
+        recoveryKind,
+        retryable: true,
+      };
+    }
+
+    return {
+      kind: "domain-blocker",
+      reason: "projection-lag-without-fresh-receipt",
+      recoveryKind: "stale-projection",
+      retryable: true,
+    };
+  }
+
+  if (kind === "checkout-handoff-expired") {
+    return {
+      kind: "permanent-not-found",
+      reason: "expired-handoff",
+      recoveryKind: "expired-handoff",
+      retryable: false,
+    };
+  }
+
+  if (kind === "session-not-found") {
+    return {
+      kind: "permanent-not-found",
+      reason: "session-not-found",
+      recoveryKind: "terminal-failure",
+      retryable: false,
+    };
+  }
+
+  if (kind === "access-required" || kind === "guest-access-expired" || kind === "wrong-account") {
+    return {
+      kind: "auth-blocker",
+      reason: kind === "wrong-account" ? "authorization-forbidden" : "authentication-required",
+      recoveryKind: "action-required",
+      retryable: false,
+    };
+  }
+
+  if (kind === "cart-empty") {
+    return {
+      kind: "domain-blocker",
+      reason: "cart-empty",
+      recoveryKind: "action-required",
+      retryable: false,
+    };
+  }
+
+  return {
+    kind: "validation-blocker",
+    reason: "validation-failed",
+    recoveryKind: "action-required",
+    retryable: false,
+  };
+}
+
 export function checkoutRecoveryForKind(
   kind: CheckoutRecoveryKind,
   currentPath = "/checkout/buy/readiness",
   recoveryKind: PostWriteRecoveryKind = recoveryKindForCheckoutRecoveryKind(kind),
+  postWriteResult: CheckoutPostWriteResult = defaultPostWriteResultForRecoveryKind(kind, recoveryKind),
 ): CheckoutRecovery {
   const signInPath = `/sign-in?returnTo=${encodeURIComponent(currentPath)}`;
   const browseAction = checkoutRecoveryAction(
@@ -103,6 +209,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 401,
         title: t("checkout.routes.checkoutSession.checkout.access.required"),
         description: t("checkout.routes.checkoutSession.checkout.access.required.description"),
@@ -114,6 +221,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 400,
         title: t("checkout.routes.checkoutRecovery.buy.cart.empty"),
         description: t("checkout.routes.checkoutRecovery.buy.cart.empty.description"),
@@ -125,6 +233,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 202,
         title: t("checkout.routes.checkoutRecovery.checkout.preparing"),
         description: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
@@ -136,6 +245,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 410,
         title: t("checkout.routes.checkoutRecovery.checkout.handoff.expired"),
         description: t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description"),
@@ -147,6 +257,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 401,
         title: t("checkout.routes.checkoutSession.guest.checkout.access.expired"),
         description: t("checkout.routes.checkoutSession.guest.checkout.access.expired.description"),
@@ -158,6 +269,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 400,
         title: t("checkout.routes.checkoutRecovery.checkout.needs.attention"),
         description: t("checkout.routes.checkoutRecovery.checkout.needs.attention.description"),
@@ -169,6 +281,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 404,
         title: t("checkout.routes.checkoutSession.checkout.session.not.found"),
         description: t("checkout.routes.checkoutSession.checkout.session.not.found.description"),
@@ -180,6 +293,7 @@ export function checkoutRecoveryForKind(
       return {
         kind,
         recoveryKind,
+        postWriteResult,
         status: 403,
         title: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account"),
         description: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account.description"),
@@ -192,6 +306,17 @@ export function checkoutRecoveryForKind(
 
 function errorBodyCode(error: CheckoutApiError) {
   return readApiErrorCode(error.body);
+}
+
+function sourceReadinessPostWriteResult(
+  reason: Extract<CheckoutPostWriteResult, { kind: "source-readiness-disagreement" }>["reason"],
+): CheckoutPostWriteResult {
+  return {
+    kind: "source-readiness-disagreement",
+    reason,
+    recoveryKind: "action-required",
+    retryable: false,
+  };
 }
 
 export function checkoutRecoveryForError(
@@ -233,12 +358,34 @@ export function checkoutRecoveryForError(
       return checkoutRecoveryForKind("cart-empty", currentPath);
     }
 
-    if (
-      code === "validation_failed" ||
-      code === "readiness_snapshot_stale" ||
-      code === "split_group_handoff_stale" ||
-      code === "unresolved_fulfillment"
-    ) {
+    if (code === "readiness_snapshot_stale") {
+      return checkoutRecoveryForKind(
+        "request-validation",
+        currentPath,
+        "action-required",
+        sourceReadinessPostWriteResult("readiness-snapshot-stale"),
+      );
+    }
+
+    if (code === "split_group_handoff_stale") {
+      return checkoutRecoveryForKind(
+        "request-validation",
+        currentPath,
+        "action-required",
+        sourceReadinessPostWriteResult("split-group-handoff-stale"),
+      );
+    }
+
+    if (code === "unresolved_fulfillment") {
+      return checkoutRecoveryForKind("request-validation", currentPath, "action-required", {
+        kind: "domain-blocker",
+        reason: "unresolved-fulfillment",
+        recoveryKind: "action-required",
+        retryable: false,
+      });
+    }
+
+    if (code === "validation_failed") {
       return checkoutRecoveryForKind("request-validation", currentPath);
     }
   }
@@ -290,6 +437,20 @@ function isPostWriteRecoveryKind(value: unknown): value is PostWriteRecoveryKind
   return typeof value === "string" && (POST_WRITE_RECOVERY_KINDS as readonly string[]).includes(value);
 }
 
+function isCheckoutPostWriteResult(value: unknown): value is CheckoutPostWriteResult {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const result = value as Record<string, unknown>;
+  return (
+    typeof result.kind === "string" &&
+    typeof result.reason === "string" &&
+    isPostWriteRecoveryKind(result.recoveryKind) &&
+    typeof result.retryable === "boolean"
+  );
+}
+
 export function isCheckoutRecovery(value: unknown): value is CheckoutRecovery {
   if (!value || typeof value !== "object") {
     return false;
@@ -299,6 +460,7 @@ export function isCheckoutRecovery(value: unknown): value is CheckoutRecovery {
   return (
     typeof recovery.kind === "string" &&
     isPostWriteRecoveryKind(recovery.recoveryKind) &&
+    isCheckoutPostWriteResult(recovery.postWriteResult) &&
     typeof recovery.status === "number" &&
     typeof recovery.title === "string" &&
     typeof recovery.description === "string" &&

@@ -56,6 +56,14 @@ The snapshot records current cart revision, included line IDs, unresolved line I
 and optional fulfillment optimization accepted/declined state. Cart checkout session creation consumes that
 snapshot as the entry contract and fails closed when it is missing, stale, blocked, or unresolved.
 
+## Post-Write Readiness And Source Results
+
+Checkout post-write handoffs use the shared post-write recovery vocabulary while keeping readiness/source failures
+explicit. A valid fresh-write receipt with projection lag is a bounded pending result (`refreshable-catching-up` or
+`pending-projection`). Stale readiness snapshots, split-group handoff disagreement, auth failures, validation failures,
+domain blockers, and permanent not-found responses are explicit blocker or permanent results; they must not be shown as
+checkout preparation.
+
 ## Sell List Readiness
 
 Sell List produces a Checkout-owned `checkout.sell-list-readiness.v1` snapshot before seller checkout review can
