@@ -485,14 +485,21 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "settlement",
     owner: "Settlement",
-    rolloutState: "eligible",
+    rolloutState: "staging-enabled",
     phase: "phase-3-expansion",
     rolloutWave: "wave-3-platform-expansion",
     priorityLane: "standard",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
-    affectedProjectionNames: ["settlement:settlement-payout-projection"],
-    routeDependencyIds: ["settlement.payout-request-to-detail"],
+    affectedProjectionNames: [
+      "settlement:settlement-payout-projection",
+      "settlement:settlement-payout-readiness-projection",
+    ],
+    routeDependencyIds: ["settlement.payout-readiness-self-refresh", "settlement.payout-request-to-detail"],
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
   }),
 ] as const satisfies readonly SourceContextWakeRegistryEntry[];
 

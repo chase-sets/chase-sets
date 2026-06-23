@@ -531,6 +531,7 @@
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:accountId/shipping-addresses",
         "readModelTables": ["identity_shipping_addresses"],
+        "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."

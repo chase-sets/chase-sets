@@ -11,7 +11,7 @@ The registry lives in `@chase-sets/platform-runtime/source-context-wake-registry
 
 ## Current Runtime State
 
-The full wave-1 hot path — `checkout`, `marketplace`, `ordering`, `payments` — is `staging-enabled` with both runtime halves on (`checkout` since 2026-06-10; the wave-1 remainder since 2026-06-11 on the back of checkout's staging push-loop evidence in the [SLO/load proof](./push-wake-slo-load-proof.md)). `catalog` is also `staging-enabled` in wave 2 for Source Observation import/review freshness and Catalog-sourced consumer projections. Other entries remain non-emitting and non-listening:
+The full wave-1 hot path — `checkout`, `marketplace`, `ordering`, `payments` — is `staging-enabled` with both runtime halves on (`checkout` since 2026-06-10; the wave-1 remainder since 2026-06-11 on the back of checkout's staging push-loop evidence in the [SLO/load proof](./push-wake-slo-load-proof.md)). `catalog` is also `staging-enabled` in wave 2 for Source Observation import/review freshness and Catalog-sourced consumer projections. `settlement` is `staging-enabled` in wave 3 for payout-readiness projection freshness used by seller checkout readiness. Other entries remain non-emitting and non-listening:
 
 ```ts
 enablement: {
@@ -53,7 +53,7 @@ Tests compare the registry to bounded-context metadata so new contexts, projecti
 | --- | --- | --- |
 | `wave-1-checkout-hot-path` | `checkout`, `marketplace`, `ordering`, `payments` | Protect guest Buy Now, payment handoff, submitted-offer, and order/payment hot paths first. |
 | `wave-2-commerce-dependencies` | `catalog`, `fulfillment`, `identity`, `inventory` | Add high-fanout commerce dependencies after capacity and topology proof; `catalog` is staging-enabled for import/review freshness. |
-| `wave-3-platform-expansion` | `discovery`, `platform-operations`, `public-presence`, `settlement` | Expand lower-criticality or narrower fan-out contexts with owner approval. |
+| `wave-3-platform-expansion` | `discovery`, `platform-operations`, `public-presence`, `settlement` | Expand lower-criticality or narrower fan-out contexts with owner approval; `settlement` is staging-enabled for seller payout-readiness freshness. |
 | `wave-4-deferred-or-not-eligible` | `auth`, `commercial-terms`, `notifications`, `pricing` | Keep deferred or not-yet-eligible source contexts explicitly classified while their relay fan-out remains disabled. |
 
 Wave membership is a rollout control, not a scheduling hint. Runtime code must consume the enablement flags, and operator tooling must show the rollout state.
@@ -67,7 +67,7 @@ Production proof or production enabled states require evidence from:
 - #1246 durable wake-store capacity proof.
 - #1249 phase map and phase-gate evidence.
 
-High-volume contexts should not be enabled until the wake-store capacity evidence and dashboard/runbook evidence are linked from the owning issue. Catalog is the current staging exception because provider imports write high-fanout Source Observation events that must become reviewable without waiting on fallback projection polling.
+High-volume contexts should not be enabled until the wake-store capacity evidence and dashboard/runbook evidence are linked from the owning issue. Catalog is the current high-fanout staging exception because provider imports write Source Observation events that must become reviewable without waiting on fallback projection polling. Settlement is a low-volume staging exception for payout-readiness writes that directly gate seller checkout readiness.
 
 ## Runtime Consumers
 

@@ -231,6 +231,7 @@ export const identityEnglishTranslations = {
   "identity.support.shellSupport.ui.adminPages.unable.to.load.identity.record": "Unable to load identity record",
   "identity.support.shellSupport.ui.adminPages.view": "View",
   "identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses": "Manage shipping addresses",
+  "identity.features.accounts.ui.accountProfilePage.manage.ship.from.locations": "Manage ship-from locations",
   "identity.features.shippingAddresses.api.route.authentication.context.missing": "Authentication context missing.",
   "identity.features.shippingAddresses.api.route.forbidden": "Forbidden.",
   "identity.features.shippingAddresses.ui.shippingAddressPage.account": "Account",
@@ -270,6 +271,8 @@ export const identityEnglishTranslations = {
   "identity.features.shippingAddresses.ui.shippingAddressPage.state": "State",
   "identity.features.shippingAddresses.ui.shippingAddressPage.update.address": "Update address",
   "identity.routes.marketplace.accountShippingAddresses.request.failed": "Request failed.",
+  "identity.routes.marketplace.accountShippingAddresses.addresses.updating":
+    "Shipping addresses are still updating. Reload this page in a moment.",
   "identity.routes.marketplace.accountShippingAddresses.shipping.addresses.marketplace":
     "Shipping Addresses | Marketplace",
   "identity.routes.marketplace.accountShippingAddresses.unknown.action": "Unknown address action.",

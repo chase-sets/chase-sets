@@ -879,10 +879,10 @@ describe("design system components", () => {
       </ChaseRoot>,
     );
 
-    const sellSummary = screen.getByText("Sell").closest("summary");
-    const chevronWrapper = sellSummary?.querySelector("svg")?.parentElement?.parentElement;
+    const sellTrigger = screen.getByRole("button", { name: "Sell" });
+    const chevronWrapper = sellTrigger.querySelector("svg")?.parentElement?.parentElement;
 
-    expect(sellSummary).toBeTruthy();
+    expect(sellTrigger).toBeTruthy();
     expect(chevronWrapper?.className).toContain("relative z-10");
   });
 

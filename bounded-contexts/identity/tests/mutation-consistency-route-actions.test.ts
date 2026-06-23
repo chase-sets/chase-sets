@@ -17,7 +17,10 @@ import { action as membershipDetailAction } from "../routes/admin/memberships-de
 import { action as userDetailAction } from "../routes/admin/users-detail";
 import { action as accountAction } from "../routes/marketplace/account";
 import { action as accountSecurityAction } from "../routes/marketplace/account-security";
-import { action as accountShippingAddressesAction } from "../routes/marketplace/account-shipping-addresses";
+import {
+  action as accountShippingAddressesAction,
+  loader as accountShippingAddressesLoader,
+} from "../routes/marketplace/account-shipping-addresses";
 import { action as accountTeamAction } from "../routes/marketplace/account-team";
 
 const actor = {
@@ -259,5 +262,76 @@ describe("Identity mutation consistency route actions", () => {
       sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "88" })],
     });
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
+  });
+
+  it("forwards shipping-address fresh-read receipts into the address-book API read", async () => {
+    const observedHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/accounts/acc_identity/shipping-addresses")) {
+          observedHeaders.push(new Headers(init?.headers));
+          return jsonResponse({ items: [], total: 0, count: 0 });
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const nowMs = Date.now();
+    const path = appendFreshWriteToken("/account/shipping-addresses", identityCommit("89"), nowMs);
+    await accountShippingAddressesLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(observedHeaders).toHaveLength(1);
+    expect(decodeFreshWriteReceipt(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), nowMs)).toMatchObject({
+      commitPosition: "89",
+      sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "89" })],
+    });
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
+  });
+
+  it("keeps shipping-address management usable while the address projection catches up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/accounts/acc_identity/shipping-addresses")) {
+          return jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Projection read model did not catch up before the freshness timeout.",
+              },
+            },
+            503,
+          );
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const path = appendFreshWriteToken("/account/shipping-addresses", identityCommit("90"));
+    const data = await accountShippingAddressesLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data).toEqual({
+      addresses: [],
+      loadError: "Shipping addresses are still updating. Reload this page in a moment.",
+    });
   });
 });

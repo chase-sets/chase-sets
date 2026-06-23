@@ -1020,4 +1020,70 @@ describe("checkout web routes: checkout session action", () => {
       },
     ]);
   });
+
+  it("submits purchase intent instead of bouncing to review updated when shipping changed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("43", "evt_shipping_option"));
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "offer-intent", payment_id: null });
+    mockConfirmCheckoutSession.mockResolvedValue({
+      offer_id: "off_chk_1",
+      status: "purchase-intent-submitted",
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_marketplace_offer_submitted"],
+        },
+      ],
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "priority");
+    form.set("reviewedShippingOption", "standard");
+    form.set("reviewedShippingAddressSignature", "previous-preview");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/offers\/submitted\/off_chk_1\?feedbackWorkflow=offer-submit&afterWrite=/);
+    expect(readFreshWriteToken(location)?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "44",
+        eventIds: ["evt_marketplace_offer_submitted"],
+      },
+    ]);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        shippingAddress: expect.objectContaining({
+          name: "Jane Smith",
+          postalCode: "60601",
+        }),
+      }),
+    );
+  });
 });
