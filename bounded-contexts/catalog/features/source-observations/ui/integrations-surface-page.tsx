@@ -48,6 +48,7 @@ export function CatalogIntegrationsSurfacePage({
     >
       {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, {
         aliasVisibility,
+        commandFeedback,
         deferredSourceOptions,
         deferredImportPreview,
       })}

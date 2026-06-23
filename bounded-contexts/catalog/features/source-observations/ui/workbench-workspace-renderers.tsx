@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationIntegrationImportPreview } from "./contracts";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
@@ -16,6 +17,7 @@ import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-
 // workspace), so the IA render registry stays agnostic of their data sources.
 export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   aliasVisibility?: ReactElement | null;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
 }>;
@@ -35,6 +37,7 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
     <CatalogIntegrationImportToPromotionWorkspace
       readModel={readModel}
       aliasVisibility={slots.aliasVisibility}
+      commandFeedback={slots.commandFeedback}
       deferredSourceOptions={slots.deferredSourceOptions}
       deferredImportPreview={slots.deferredImportPreview}
     />

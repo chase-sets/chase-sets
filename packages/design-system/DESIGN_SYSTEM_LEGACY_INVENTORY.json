@@ -30,7 +30,7 @@
       "file": "bounded-contexts/catalog/features/source-observations/ui/workbench-workspace-renderers.tsx",
       "owner": "Catalog",
       "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 62, "column": 13, "detail": "div" }],
+      "details": [{ "category": "rawStructuralElement", "line": 65, "column": 13, "detail": "div" }],
       "phase": "Phase G3",
       "issueTargets": ["#1666"],
       "outcome": "migrate-or-promote-to-design-system",

@@ -335,6 +335,7 @@ async function syncSelectedProviderUnit(
 }
 
 async function expectImportPreflight(page: Page, expectation: ImportPreflightExpectation): Promise<void> {
+  await expandWorkflowStage(page, /^Run sync\b/i);
   const panel = page.locator('[data-catalog-import-preview="ready"]').first();
   await expect(panel).toBeVisible({ timeout: sourceOptionTimeoutMs });
   if (expectation.requestStrategy) {
@@ -351,6 +352,15 @@ async function expectImportPreflight(page: Page, expectation: ImportPreflightExp
   for (const text of expectation.visibleText) {
     await expect(panel.getByText(text).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
   }
+}
+
+async function expandWorkflowStage(page: Page, name: RegExp): Promise<void> {
+  const trigger = page.getByRole("button", { name }).first();
+  await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
+  if ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true") {
+    await trigger.click();
+  }
+  await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
 }
 
 async function expectImportJobSettledForSelectedUnit(
@@ -472,11 +482,17 @@ async function visibleImportJobRowTexts(
 }
 
 function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
-  const segments = selectedScope.displayLabel.split(" / ").filter(Boolean);
-  const labels = Array.from({ length: segments.length }, (_, index) =>
-    segments.slice(0, segments.length - index).join(" / "),
-  );
+  const labels = selectedProviderScopeDisplayLabelCandidates(
+    selectedScope.providerKey,
+    selectedScope.importScope,
+    selectedScope.fields,
+  ).flatMap(scopeLabelPrefixes);
   return [...new Set(labels.filter(Boolean))];
+}
+
+function scopeLabelPrefixes(label: string): readonly string[] {
+  const segments = label.split(" / ").filter(Boolean);
+  return Array.from({ length: segments.length }, (_, index) => segments.slice(0, segments.length - index).join(" / "));
 }
 
 function scopeLabelPattern(labels: readonly string[]): RegExp {
@@ -537,20 +553,30 @@ function selectedProviderScopeDisplayLabel(
   importScope: string | null,
   fields: readonly SelectedProviderScopeField[],
 ): string {
-  if (importScope) {
-    return scopeDisplayLabelFromImportScope(providerKey, importScope);
-  }
+  return selectedProviderScopeDisplayLabelCandidates(providerKey, importScope, fields)[0] ?? providerKey;
+}
 
+function selectedProviderScopeDisplayLabelCandidates(
+  providerKey: string,
+  importScope: string | null,
+  fields: readonly SelectedProviderScopeField[],
+): readonly string[] {
   const value = (name: string) => fields.find((field) => field.name === name)?.value;
-  const segments = [
+  const structured = [
     providerKey,
     value("languageCode"),
     value("productLineName") ?? value("productLineId"),
     value("seriesName") ?? value("seriesId"),
     value("expansionName") ?? value("expansionId"),
-  ].filter((segment): segment is string => Boolean(segment));
+  ]
+    .filter((segment): segment is string => Boolean(segment))
+    .join(" / ");
+  const importScopeLabel = importScope ? scopeDisplayLabelFromImportScope(providerKey, importScope) : null;
+  const candidates = [structured, importScopeLabel]
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .sort((left, right) => right.split(" / ").length - left.split(" / ").length);
 
-  return segments.join(" / ");
+  return [...new Set(candidates)];
 }
 
 function scopeDisplayLabelFromImportScope(providerKey: string, importScope: string): string {
