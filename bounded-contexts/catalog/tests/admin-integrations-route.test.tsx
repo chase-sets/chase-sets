@@ -4261,7 +4261,7 @@ function scrydexOnePieceProfileReview(unitKey: string) {
     lifecycle: "active",
     active: true,
     status: "active",
-    connectorKind: "scrydex-one-piece-json",
+    connectorKind: "scrydex-json",
     profile: {
       providerKey: "scrydex",
       supportedScopes: ["set-name", "product/card"],

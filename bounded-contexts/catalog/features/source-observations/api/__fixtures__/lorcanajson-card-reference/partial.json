@@ -1,0 +1,26 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_card_en_partial",
+  "externalKey": "card:partial",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+  "sourceUpdatedAt": "2026-05-26T19:11:58",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58"
+  },
+  "externalCatalogItemReferences": [],
+  "externalProductReferences": [],
+  "rarity": null,
+  "cardType": null,
+  "inkColor": null,
+  "releaseDate": null,
+  "releaseYear": null,
+  "cardId": "partial",
+  "cardNumber": "41",
+  "setId": "1",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "imageUrls": []
+}

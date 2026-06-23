@@ -1,0 +1,12 @@
+{
+  "kind": "lorcana-set-reference",
+  "expansion": {
+    "id": "unknown-option",
+    "name": "Unknown Lorcana Set",
+    "code": "UNK",
+    "total": 1,
+    "release_date": "2023-08-18",
+    "language_code": "en"
+  },
+  "sourceUrl": "https://api.scrydex.com/lorcana/v1/expansions/unknown-option"
+}

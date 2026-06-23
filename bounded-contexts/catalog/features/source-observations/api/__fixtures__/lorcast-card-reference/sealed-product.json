@@ -1,0 +1,42 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_card_en_first_chapter_booster_pack_reference",
+  "externalKey": "card:lorcast-first-chapter-booster-pack-reference",
+  "sourceUrl": "fixture://lorcast/sets/1/cards/sealed-product",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": { "provider": "lorcast", "fixtureFlow": "sealed-product" },
+  "catalogHashMaterial": {
+    "provider": "lorcast",
+    "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "cardId": "lorcast-first-chapter-booster-pack-reference",
+    "cardNumber": "PACK",
+    "name": "The First Chapter Booster Pack"
+  },
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "The First Chapter Booster Pack",
+    "collectorNumber": "PACK",
+    "languageCode": "en",
+    "productForm": "single-card"
+  },
+  "externalCatalogItemReferences": [],
+  "externalProductReferences": [],
+  "imageUrls": [],
+  "cardId": "lorcast-first-chapter-booster-pack-reference",
+  "name": "The First Chapter Booster Pack",
+  "cardNumber": "PACK",
+  "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "rarity": null,
+  "cardType": "Sealed",
+  "inkColor": null,
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "tcgplayerProductId": null
+}

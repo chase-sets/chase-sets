@@ -20,6 +20,14 @@ import {
   mtgjsonMtgSetReferenceSourceObservationMappingContract,
 } from "./mtgjson-executable-mapping-contract";
 import {
+  lorcanajsonLorcanaCardReferenceSourceObservationMappingContract,
+  lorcanajsonLorcanaSetReferenceSourceObservationMappingContract,
+} from "./lorcanajson-executable-mapping-contract";
+import {
+  lorcastLorcanaCardReferenceSourceObservationMappingContract,
+  lorcastLorcanaSetReferenceSourceObservationMappingContract,
+} from "./lorcast-executable-mapping-contract";
+import {
   ygoprodeckYugiohCardReferenceProviderProfile,
   ygoprodeckYugiohCardReferenceSourceObservationMappingContract,
   ygoprodeckYugiohSetReferenceProviderProfile,
@@ -36,12 +44,22 @@ import {
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
 import {
+  SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+  scrydexLorcanaCardPrintSourceObservationMappingContract,
+  scrydexLorcanaSealedProductSourceObservationMappingContract,
+  scrydexLorcanaSetReferenceSourceObservationMappingContract,
+} from "./scrydex-lorcana-executable-mapping-contract";
+import {
   SCRYDEX_ONE_PIECE_PROFILE_VERSION,
   scrydexOnePieceCardPrintSourceObservationMappingContract,
   scrydexOnePieceSealedProductSourceObservationMappingContract,
   scrydexOnePieceSetReferenceSourceObservationMappingContract,
 } from "./scrydex-one-piece-executable-mapping-contract";
 import {
+  TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract,
+  tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
@@ -107,12 +125,19 @@ export type CatalogProviderOptionQueryOperation =
   | "tcgplayer-list-skus"
   | "mtgjson-list-sets"
   | "mtgjson-list-cards"
+  | "lorcanajson-list-sets"
+  | "lorcanajson-list-cards"
+  | "lorcast-list-sets"
+  | "lorcast-list-cards"
   | "scryfall-list-sets"
   | "scryfall-list-cards"
   | "scrydex-list-sets"
   | "scrydex-one-piece-list-sets"
   | "scrydex-one-piece-list-cards"
   | "scrydex-one-piece-list-sealed-products"
+  | "scrydex-lorcana-list-sets"
+  | "scrydex-lorcana-list-cards"
+  | "scrydex-lorcana-list-sealed-products"
   | "ygoprodeck-list-sets"
   | "ygoprodeck-list-cards"
   | "ygojson-list-sets"
@@ -208,8 +233,8 @@ export type ScrydexScryfallJsonConnectorProfile = Readonly<{
   excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality")[];
 }>;
 
-export type ScrydexOnePieceJsonConnectorProfile = Readonly<{
-  kind: "scrydex-one-piece-json";
+export type ScrydexJsonConnectorProfile = Readonly<{
+  kind: "scrydex-json";
   sourceContractDocument: string;
   transportMode: "live-credentialed";
   fixtureEvidence: "required-for-active-profile-validation";
@@ -258,6 +283,7 @@ export type ScrydexOnePieceJsonConnectorProfile = Readonly<{
     | "set-code"
     | "set-name"
     | "card-number"
+    | "ink-color"
     | "language"
     | "image-url"
     | "tcgplayer-id"
@@ -322,6 +348,68 @@ export type MtgjsonJsonConnectorProfile = Readonly<{
     | "card-count"
   )[];
   excludedEvidence: readonly ("price" | "legality" | "ruling" | "deck" | "format")[];
+}>;
+
+export type LorcanajsonJsonConnectorProfile = Readonly<{
+  kind: "lorcanajson-json";
+  baseUrl: "https://lorcanajson.org/files/current/en";
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-json";
+    credentialsRequired: false;
+  }>;
+  bulkPolicy: Readonly<{
+    freshnessDocument: "metadata.json";
+    optionDiscoveryDocument: "allCards.json";
+    selectedSetDocumentPattern: "sets/setdata.{setCode}.json";
+    normalImportStrategy: "bulk-first";
+  }>;
+  acceptedEvidence: readonly (
+    | "lorcanajson-card-id"
+    | "set-code"
+    | "set-name"
+    | "collector-number"
+    | "rarity"
+    | "ink-color"
+    | "card-type"
+    | "image-url"
+    | "tcgplayer-id"
+    | "release-date"
+    | "card-count"
+  )[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality" | "unapproved-scrape")[];
+}>;
+
+export type LorcastJsonConnectorProfile = Readonly<{
+  kind: "lorcast-json";
+  baseUrl: "https://api.lorcast.com/v0";
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-api";
+    credentialsRequired: false;
+  }>;
+  requestPolicy: Readonly<{
+    normalImportStrategy: "bulk-set-scoped";
+    optionDiscoveryEndpoint: "/sets";
+    selectedSetCardsEndpoint: "/sets/{setCode}/cards";
+    selectedSetEndpoint: "/sets/{setCode}";
+    cacheProviderDataForAtLeastHours: 24;
+    recommendedDelayMilliseconds: "50-100";
+  }>;
+  acceptedEvidence: readonly (
+    | "lorcast-card-id"
+    | "lorcast-set-id"
+    | "set-code"
+    | "set-name"
+    | "collector-number"
+    | "rarity"
+    | "ink-color"
+    | "card-type"
+    | "image-url"
+    | "tcgplayer-id"
+    | "release-date"
+  )[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality")[];
 }>;
 
 export type YgoprodeckJsonConnectorProfile = Readonly<{
@@ -400,9 +488,11 @@ export type CatalogProviderConnectorProfile =
   | TcgdexJsonConnectorProfile
   | TcgplayerAutomationClientConnectorProfile
   | MtgjsonJsonConnectorProfile
+  | LorcanajsonJsonConnectorProfile
+  | LorcastJsonConnectorProfile
   | ScryfallJsonConnectorProfile
   | ScrydexScryfallJsonConnectorProfile
-  | ScrydexOnePieceJsonConnectorProfile
+  | ScrydexJsonConnectorProfile
   | YgoprodeckJsonConnectorProfile
   | YgojsonJsonConnectorProfile
   | YamlYugiJsonConnectorProfile;
@@ -651,7 +741,10 @@ export type CatalogProviderIntegrationProfile = Readonly<{
       | "yugioh-pack-reference"
       | "one-piece-card-print"
       | "one-piece-set-reference"
-      | "one-piece-sealed-product";
+      | "one-piece-sealed-product"
+      | "lorcana-card-print"
+      | "lorcana-set-reference"
+      | "lorcana-sealed-product";
     variantRules: readonly CatalogProviderVariantRule[];
     unknownVariantLabelPrefix: string;
     duplicateReferenceRule: "drop-repeated-across-variants";
@@ -1992,9 +2085,182 @@ export const tcgplayerOnePieceSealedProductProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
-export const scrydexOnePieceConnectorProfile = {
-  kind: "scrydex-one-piece-json",
-  sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
+export const tcgplayerLorcanaSingleCardProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Lorcana Single Cards",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Lorcana Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-card-print",
+    categoryKey: "lorcana-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_tcgplayer_lorcana",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "tcgplayer-product-line-id" },
+      { typeKey: "set", providerAttributeKey: "tcgplayer-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "tcgplayer-product-line-id"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Disney Lorcana release group.",
+        attributeKeys: ["tcgplayer-set-name", "tcgplayer-set-id"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "lorcana-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "provider",
+          typeKey: "product-line",
+          providerValuePaths: ["productLineId", "productLineName"],
+        },
+        key: { kind: "static", value: "disney-lorcana" },
+        name: { kind: "path", path: "productLineName" },
+        description: { kind: "static", value: "Disney Lorcana trading card game." },
+        requiredPaths: ["productLineName"],
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "path", path: "productLineName" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Lorcana" } },
+          { attributeKey: "tcgplayer-product-line-id", value: { kind: "path", path: "productLineId" }, optional: true },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setNameId", "setName"] },
+        key: { kind: "path", path: "setName" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} Disney Lorcana set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setName"],
+        attributes: [
+          { attributeKey: "tcgplayer-set-name", value: { kind: "path", path: "setName" } },
+          { attributeKey: "tcgplayer-set-id", value: { kind: "path", path: "setNameId" }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "lorcana-product-line" }],
+      },
+    ],
+  },
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: tcgplayerAutomationClientProviderProfile.selectedOptionMapping.dimensions.map((dimension) =>
+      dimension.dimensionKey === "printing"
+        ? {
+            ...dimension,
+            valueSynonyms: [
+              { optionKey: "normal", providerValues: ["Normal", "Standard"] },
+              { optionKey: "foil", providerValues: ["Foil", "Cold Foil", "Holofoil"] },
+              { optionKey: "enchanted", providerValues: ["Enchanted", "Alternate Art", "Alt Art"] },
+            ],
+          }
+        : dimension,
+    ),
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["lorcanajson", "lorcast", "scrydex", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const tcgplayerLorcanaSealedProductProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Lorcana Sealed Products",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Lorcana Sealed Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-sealed-product",
+    categoryKey: "lorcana-sealed-products",
+    fieldKeys: {
+      cardNumber: "sealed-product-number",
+      cardName: "sealed-product-name",
+      set: "set",
+      expansion: "set",
+      rarity: "product-kind",
+      cardVariant: "sealed-product-form",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+      packCount: "pack-count",
+    },
+  },
+  referenceHierarchyMapping: tcgplayerLorcanaSingleCardProviderProfile.referenceHierarchyMapping,
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: [
+      {
+        dimensionKey: "product-form",
+        providerValue: { source: "payload", path: "sealed" },
+        required: true,
+        unknownPolicy: "review-evidence",
+        valueMappings: [{ from: true, value: "unopened" }],
+        valueSynonyms: [{ optionKey: "unopened", providerValues: ["unopened", "sealed", "Sealed"] }],
+      },
+      {
+        dimensionKey: "language",
+        providerValue: { source: "record", path: "language" },
+        required: false,
+        unknownPolicy: "review-evidence",
+        valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["lorcanajson", "lorcast", "scrydex", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const scrydexConnectorProfile = {
+  kind: "scrydex-json",
+  sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
   transportMode: "live-credentialed",
   fixtureEvidence: "required-for-active-profile-validation",
   authentication: {
@@ -2038,6 +2304,7 @@ export const scrydexOnePieceConnectorProfile = {
     "set-code",
     "set-name",
     "card-number",
+    "ink-color",
     "language",
     "image-url",
     "tcgplayer-id",
@@ -2055,7 +2322,9 @@ export const scrydexOnePieceConnectorProfile = {
     "message",
     "unapproved-price-history",
   ],
-} as const satisfies ScrydexOnePieceJsonConnectorProfile;
+} as const satisfies ScrydexJsonConnectorProfile;
+
+export const scrydexOnePieceConnectorProfile = scrydexConnectorProfile;
 
 const scrydexOnePieceOptionQueries = [
   {
@@ -2298,6 +2567,233 @@ export const scrydexOnePieceSealedProductProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+const scrydexLorcanaOptionQueries = [
+  {
+    queryKind: "sets",
+    queryKeySynonyms: ["set"],
+    displayName: "Set",
+    scope: "set-name",
+    parentScope: null,
+    operation: "scrydex-lorcana-list-sets",
+    output: {
+      valuePath: "expansionId",
+      labelPath: "name",
+      description: { kind: "path", path: "releaseDate" },
+      metadataPaths: {
+        expansionId: "expansionId",
+        code: "code",
+        releaseDate: "releaseDate",
+        total: "total",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+  {
+    queryKind: "cards",
+    queryKeySynonyms: ["card"],
+    displayName: "Card",
+    scope: "product/card",
+    parentScope: "set-name",
+    operation: "scrydex-lorcana-list-cards",
+    parentValue: {
+      required: true,
+      valueKind: "set-id",
+      diagnosticText: "Scrydex Lorcana card option queries require a selected set.",
+    },
+    output: {
+      valuePath: "cardId",
+      labelPath: "name",
+      parentValuePath: "expansionId",
+      metadataPaths: {
+        cardId: "cardId",
+        expansionId: "expansionId",
+        number: "number",
+        printedNumber: "printedNumber",
+        rarity: "rarity",
+        rarityCode: "rarityCode",
+        type: "type",
+        inkColor: "inkColor",
+        tcgplayerProductId: "tcgplayerProductId",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+  {
+    queryKind: "sealed-products",
+    queryKeySynonyms: ["sealed-product", "products", "product"],
+    displayName: "Sealed Product",
+    scope: "product",
+    parentScope: "set-name",
+    operation: "scrydex-lorcana-list-sealed-products",
+    parentValue: {
+      required: true,
+      valueKind: "set-id",
+      diagnosticText: "Scrydex Lorcana sealed-product option queries require a selected set.",
+    },
+    output: {
+      valuePath: "sealedProductId",
+      labelPath: "name",
+      parentValuePath: "expansionId",
+      metadataPaths: {
+        sealedProductId: "sealedProductId",
+        expansionId: "expansionId",
+        type: "type",
+        language: "language",
+        languageCode: "languageCode",
+      },
+    },
+  },
+] as const satisfies readonly CatalogProviderOptionQuery[];
+
+export const scrydexLorcanaCardPrintProviderProfile = {
+  providerKey: "scrydex",
+  displayName: "Scrydex Lorcana Cards",
+  status: "active",
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "catalog-item-promotion",
+    "external-reference-extraction",
+  ],
+  supportedScopes: ["set-name", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: [scrydexLorcanaOptionQueries[0], scrydexLorcanaOptionQueries[1]],
+  connector: scrydexConnectorProfile,
+  normalizedObservationMapping: {
+    kind: "lorcana-card-print",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified Scrydex Lorcana Card Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-card-print",
+    categoryKey: "lorcana-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: scrydexLorcanaReferenceHierarchyMapping({
+    setIdPath: "card.expansion.id",
+    setNamePath: "card.expansion.name",
+    setCodePath: "card.expansion.code",
+    setReleaseDatePath: "card.expansion.release_date",
+  }),
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "tcgplayer",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "product:",
+        containerKeys: [],
+        valueKeys: ["tcgplayerProductId", "card.tcgplayer_id"],
+        recordIdKeys: ["tcgplayerProductId", "card.tcgplayer_id"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+    ],
+  },
+  duplicatePreventionMapping: scrydexLorcanaDuplicatePreventionMapping({
+    bridgeReferenceProviderKeys: ["lorcanajson", "lorcast", "tcgplayer"],
+  }),
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const scrydexLorcanaSetReferenceProviderProfile = {
+  ...scrydexLorcanaCardPrintProviderProfile,
+  displayName: "Scrydex Lorcana Set Reference",
+  capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+  supportedScopes: ["set-name"],
+  optionQueries: [scrydexLorcanaOptionQueries[0]],
+  normalizedObservationMapping: {
+    ...scrydexLorcanaCardPrintProviderProfile.normalizedObservationMapping,
+    kind: "lorcana-set-reference",
+    unknownVariantLabelPrefix: "Unclassified Scrydex Lorcana Set Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-set-reference",
+    categoryKey: "lorcana-sets",
+    fieldKeys: {
+      cardNumber: "set-code",
+      cardName: "set-name",
+      set: "set",
+      expansion: "set",
+      rarity: "set-type",
+      cardVariant: "set-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: scrydexLorcanaReferenceHierarchyMapping({
+    setIdPath: "expansion.id",
+    setNamePath: "expansion.name",
+    setCodePath: "expansion.code",
+    setReleaseDatePath: "expansion.release_date",
+  }),
+  externalReferenceExtractionRules: { referenceTarget: "catalog-item-reference", rules: [] },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const scrydexLorcanaSealedProductProviderProfile = {
+  ...scrydexLorcanaCardPrintProviderProfile,
+  displayName: "Scrydex Lorcana Sealed Products",
+  supportedScopes: ["set-name", "product"],
+  optionQueries: [scrydexLorcanaOptionQueries[0], scrydexLorcanaOptionQueries[2]],
+  normalizedObservationMapping: {
+    ...scrydexLorcanaCardPrintProviderProfile.normalizedObservationMapping,
+    kind: "lorcana-sealed-product",
+    unknownVariantLabelPrefix: "Unclassified Scrydex Lorcana Sealed Product Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-sealed-product",
+    categoryKey: "lorcana-sealed-products",
+    fieldKeys: {
+      cardNumber: "sealed-product-number",
+      cardName: "sealed-product-name",
+      set: "set",
+      expansion: "set",
+      rarity: "product-kind",
+      cardVariant: "sealed-product-form",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+      packCount: "pack-count",
+    },
+  },
+  referenceHierarchyMapping: scrydexLorcanaReferenceHierarchyMapping({
+    setIdPath: "sealedProduct.expansion.id",
+    setNamePath: "sealedProduct.expansion.name",
+    setCodePath: "sealedProduct.expansion.code",
+    setReleaseDatePath: "sealedProduct.expansion.release_date",
+  }),
+  externalReferenceExtractionRules: { referenceTarget: "catalog-item-reference", rules: [] },
+  duplicatePreventionMapping: scrydexLorcanaDuplicatePreventionMapping({
+    bridgeReferenceProviderKeys: ["tcgplayer"],
+  }),
+} as const satisfies CatalogProviderIntegrationProfile;
+
 function scrydexOnePieceReferenceHierarchyMapping(
   input: Readonly<{
     setIdPath: string;
@@ -2412,6 +2908,113 @@ function scrydexOnePieceDuplicatePreventionMapping(): CatalogProviderIntegration
         ruleKey: "future-provider-bridge-review",
         matchKind: "future-provider-bridge-match",
         bridgeReferenceProviderKeys: ["tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  };
+}
+
+function scrydexLorcanaReferenceHierarchyMapping(
+  input: Readonly<{
+    setIdPath: string;
+    setNamePath: string;
+    setCodePath: string;
+    setReleaseDatePath: string;
+  }>,
+): CatalogProviderIntegrationProfile["referenceHierarchyMapping"] {
+  return {
+    providerReferenceIdPrefix: "ref_scrydex_lorcana",
+    providerAttributes: [
+      { typeKey: "set", providerAttributeKey: "scrydex-lorcana-set-id" },
+      { typeKey: "set", providerAttributeKey: "scrydex-lorcana-set-code" },
+      { typeKey: "set", providerAttributeKey: "scrydex-lorcana-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "publisher"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Disney Lorcana release group.",
+        attributeKeys: [
+          "scrydex-lorcana-set-id",
+          "scrydex-lorcana-set-code",
+          "scrydex-lorcana-set-name",
+          "release-date",
+        ],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "lorcana-product-line",
+        typeKey: "product-line",
+        recordId: { kind: "static", referenceRecordId: "ref_scrydex_lorcana_product_line" },
+        key: { kind: "static", value: "disney-lorcana" },
+        name: { kind: "static", value: "Disney Lorcana" },
+        description: { kind: "static", value: "Disney Lorcana trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Disney Lorcana" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Lorcana" } },
+          { attributeKey: "publisher", value: { kind: "static", value: "Ravensburger" } },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: [input.setIdPath, input.setCodePath] },
+        key: { kind: "path", path: input.setIdPath },
+        name: { kind: "path", path: input.setNamePath },
+        description: {
+          kind: "template",
+          template: "{setName} Disney Lorcana set.",
+          values: { setName: { kind: "path", path: input.setNamePath } },
+        },
+        requiredPaths: [input.setIdPath, input.setNamePath],
+        attributes: [
+          { attributeKey: "scrydex-lorcana-set-id", value: { kind: "path", path: input.setIdPath } },
+          {
+            attributeKey: "scrydex-lorcana-set-code",
+            value: { kind: "path", path: input.setCodePath },
+            optional: true,
+          },
+          { attributeKey: "scrydex-lorcana-set-name", value: { kind: "path", path: input.setNamePath } },
+          { attributeKey: "release-date", value: { kind: "path", path: input.setReleaseDatePath }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "lorcana-product-line" }],
+      },
+    ],
+  };
+}
+
+function scrydexLorcanaDuplicatePreventionMapping(input: {
+  bridgeReferenceProviderKeys: readonly string[];
+}): CatalogProviderIntegrationProfile["duplicatePreventionMapping"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: input.bridgeReferenceProviderKeys,
         candidatePolicy: "review-only",
       },
     ],
@@ -2842,6 +3445,509 @@ export const mtgjsonMtgSetReferenceProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+const lorcanajsonLorcanaSetOptionQuery = {
+  queryKind: "sets",
+  queryKeySynonyms: ["set"],
+  displayName: "Set",
+  scope: "set-name",
+  parentScope: null,
+  operation: "lorcanajson-list-sets",
+  output: {
+    valuePath: "setCode",
+    labelPath: "name",
+    description: { kind: "path", path: "releaseDate" },
+    metadataPaths: {
+      setId: "setId",
+      setCode: "setCode",
+      releaseDate: "releaseDate",
+      prereleaseDate: "prereleaseDate",
+      type: "type",
+      setNumber: "setNumber",
+      cardCount: "cardCount",
+      formatVersion: "formatVersion",
+      generatedOn: "generatedOn",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
+const lorcanajsonLorcanaCardOptionQuery = {
+  queryKind: "cards",
+  queryKeySynonyms: ["card"],
+  displayName: "Card",
+  scope: "product/card",
+  parentScope: "set-name",
+  operation: "lorcanajson-list-cards",
+  parentValue: {
+    required: true,
+    valueKind: "set-code",
+    diagnosticText: "LorcanaJSON card option queries require a selected set code.",
+  },
+  output: {
+    valuePath: "cardId",
+    labelPath: "name",
+    parentValuePath: "setCode",
+    imageUrlPath: "imageUrl",
+    metadataPaths: {
+      cardId: "cardId",
+      setCode: "setCode",
+      setName: "setName",
+      cardNumber: "cardNumber",
+      rarity: "rarity",
+      cardType: "cardType",
+      inkColor: "inkColor",
+      tcgplayerProductId: "tcgplayerProductId",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
+const lorcanajsonLorcanaOptionQueries = [
+  lorcanajsonLorcanaSetOptionQuery,
+  lorcanajsonLorcanaCardOptionQuery,
+] as const satisfies readonly CatalogProviderOptionQuery[];
+
+export const lorcanajsonLorcanaCardReferenceProviderProfile = {
+  providerKey: "lorcanajson",
+  displayName: "LorcanaJSON",
+  status: "active",
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "catalog-item-promotion",
+    "external-reference-extraction",
+  ],
+  supportedScopes: ["set-name", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: lorcanajsonLorcanaOptionQueries,
+  connector: {
+    kind: "lorcanajson-json",
+    baseUrl: "https://lorcanajson.org/files/current/en",
+    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-lorcana-production-signoff.md",
+    authentication: {
+      scheme: "public-json",
+      credentialsRequired: false,
+    },
+    bulkPolicy: {
+      freshnessDocument: "metadata.json",
+      optionDiscoveryDocument: "allCards.json",
+      selectedSetDocumentPattern: "sets/setdata.{setCode}.json",
+      normalImportStrategy: "bulk-first",
+    },
+    acceptedEvidence: [
+      "lorcanajson-card-id",
+      "set-code",
+      "set-name",
+      "collector-number",
+      "rarity",
+      "ink-color",
+      "card-type",
+      "image-url",
+      "tcgplayer-id",
+      "release-date",
+      "card-count",
+    ],
+    excludedEvidence: ["price", "seller", "inventory", "ruling", "legality", "unapproved-scrape"],
+  },
+  normalizedObservationMapping: {
+    kind: "lorcana-card-print",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified LorcanaJSON Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-card-print",
+    categoryKey: "lorcana-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_lorcanajson_lorcana",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "lorcanajson-product-line" },
+      { typeKey: "set", providerAttributeKey: "lorcanajson-set-code" },
+      { typeKey: "set", providerAttributeKey: "lorcanajson-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "lorcanajson-product-line"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Disney Lorcana release group.",
+        attributeKeys: ["lorcanajson-set-code", "lorcanajson-set-name"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "lorcana-product-line",
+        typeKey: "product-line",
+        recordId: { kind: "static", referenceRecordId: "ref_lorcanajson_lorcana_product_line" },
+        key: { kind: "static", value: "disney-lorcana" },
+        name: { kind: "static", value: "Disney Lorcana" },
+        description: { kind: "static", value: "Disney Lorcana trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Disney Lorcana" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Lorcana" } },
+          { attributeKey: "lorcanajson-product-line", value: { kind: "static", value: "lorcana" } },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setCode", "setName"] },
+        key: { kind: "path", path: "setCode" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} Disney Lorcana set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setCode", "setName"],
+        attributes: [
+          { attributeKey: "lorcanajson-set-code", value: { kind: "path", path: "setCode" } },
+          { attributeKey: "lorcanajson-set-name", value: { kind: "path", path: "setName" } },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "lorcana-product-line" }],
+      },
+    ],
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "tcgplayer",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "product:",
+        containerKeys: [],
+        valueKeys: ["tcgplayerProductId"],
+        recordIdKeys: ["tcgplayerProductId"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-tcgplayer-bridge-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["lorcast", "scrydex", "tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  },
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const lorcanajsonLorcanaSetReferenceProviderProfile = {
+  ...lorcanajsonLorcanaCardReferenceProviderProfile,
+  displayName: "LorcanaJSON Set Reference",
+  capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+  supportedScopes: ["set-name"],
+  optionQueries: [lorcanajsonLorcanaSetOptionQuery],
+  normalizedObservationMapping: {
+    ...lorcanajsonLorcanaCardReferenceProviderProfile.normalizedObservationMapping,
+    kind: "lorcana-set-reference",
+    unknownVariantLabelPrefix: "Unclassified LorcanaJSON Set Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "lorcana-set-reference",
+    categoryKey: "lorcana-sets",
+    fieldKeys: {
+      cardNumber: "set-code",
+      cardName: "set-name",
+      set: "set",
+      expansion: "set",
+      rarity: "set-type",
+      cardVariant: "set-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+const lorcastLorcanaSetOptionQuery = {
+  queryKind: "sets",
+  queryKeySynonyms: ["set"],
+  displayName: "Set",
+  scope: "set-name",
+  parentScope: null,
+  operation: "lorcast-list-sets",
+  output: {
+    valuePath: "setCode",
+    labelPath: "name",
+    description: { kind: "path", path: "releaseDate" },
+    metadataPaths: {
+      setId: "setId",
+      setCode: "setCode",
+      releaseDate: "releaseDate",
+      prereleaseDate: "prereleaseDate",
+      cacheGuidance: "cacheGuidance",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
+const lorcastLorcanaCardOptionQuery = {
+  queryKind: "cards",
+  queryKeySynonyms: ["card"],
+  displayName: "Card",
+  scope: "product/card",
+  parentScope: "set-name",
+  operation: "lorcast-list-cards",
+  parentValue: {
+    required: true,
+    valueKind: "set-code",
+    diagnosticText: "Lorcast card option queries require a selected set code.",
+  },
+  output: {
+    valuePath: "cardId",
+    labelPath: "name",
+    parentValuePath: "setCode",
+    imageUrlPath: "imageUrl",
+    metadataPaths: {
+      cardId: "cardId",
+      setId: "setId",
+      setCode: "setCode",
+      setName: "setName",
+      cardNumber: "cardNumber",
+      rarity: "rarity",
+      cardType: "cardType",
+      inkColor: "inkColor",
+      tcgplayerProductId: "tcgplayerProductId",
+      releaseDate: "releaseDate",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
+const lorcastLorcanaOptionQueries = [
+  lorcastLorcanaSetOptionQuery,
+  lorcastLorcanaCardOptionQuery,
+] as const satisfies readonly CatalogProviderOptionQuery[];
+
+export const lorcastLorcanaCardReferenceProviderProfile = {
+  providerKey: "lorcast",
+  displayName: "Lorcast",
+  status: "active",
+  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  supportedScopes: ["set-name", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: lorcastLorcanaOptionQueries,
+  connector: {
+    kind: "lorcast-json",
+    baseUrl: "https://api.lorcast.com/v0",
+    sourceContractDocument: "https://lorcast.com/docs/api",
+    authentication: {
+      scheme: "public-api",
+      credentialsRequired: false,
+    },
+    requestPolicy: {
+      normalImportStrategy: "bulk-set-scoped",
+      optionDiscoveryEndpoint: "/sets",
+      selectedSetCardsEndpoint: "/sets/{setCode}/cards",
+      selectedSetEndpoint: "/sets/{setCode}",
+      cacheProviderDataForAtLeastHours: 24,
+      recommendedDelayMilliseconds: "50-100",
+    },
+    acceptedEvidence: [
+      "lorcast-card-id",
+      "lorcast-set-id",
+      "set-code",
+      "set-name",
+      "collector-number",
+      "rarity",
+      "ink-color",
+      "card-type",
+      "image-url",
+      "tcgplayer-id",
+      "release-date",
+    ],
+    excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
+  },
+  normalizedObservationMapping: {
+    kind: "lorcana-card-print",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified Lorcast Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: lorcanajsonLorcanaCardReferenceProviderProfile.catalogFieldMapping,
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_lorcast_lorcana",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "lorcast-product-line" },
+      { typeKey: "set", providerAttributeKey: "lorcast-set-code" },
+      { typeKey: "set", providerAttributeKey: "lorcast-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "lorcast-product-line"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Disney Lorcana release group.",
+        attributeKeys: ["lorcast-set-code", "lorcast-set-name"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "lorcana-product-line",
+        typeKey: "product-line",
+        recordId: { kind: "static", referenceRecordId: "ref_lorcast_lorcana_product_line" },
+        key: { kind: "static", value: "disney-lorcana" },
+        name: { kind: "static", value: "Disney Lorcana" },
+        description: { kind: "static", value: "Disney Lorcana trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Disney Lorcana" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Lorcana" } },
+          { attributeKey: "lorcast-product-line", value: { kind: "static", value: "lorcana" } },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setCode", "setName"] },
+        key: { kind: "path", path: "setCode" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} Disney Lorcana set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setCode", "setName"],
+        attributes: [
+          { attributeKey: "lorcast-set-code", value: { kind: "path", path: "setCode" } },
+          { attributeKey: "lorcast-set-name", value: { kind: "path", path: "setName" } },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "lorcana-product-line" }],
+      },
+    ],
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "tcgplayer",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "product:",
+        containerKeys: [],
+        valueKeys: ["tcgplayerProductId"],
+        recordIdKeys: ["tcgplayerProductId"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-tcgplayer-bridge-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["lorcanajson", "scrydex", "tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  },
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const lorcastLorcanaSetReferenceProviderProfile = {
+  ...lorcastLorcanaCardReferenceProviderProfile,
+  displayName: "Lorcast Set Reference",
+  capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+  supportedScopes: ["set-name"],
+  optionQueries: [lorcastLorcanaSetOptionQuery],
+  normalizedObservationMapping: {
+    ...lorcastLorcanaCardReferenceProviderProfile.normalizedObservationMapping,
+    kind: "lorcana-set-reference",
+    unknownVariantLabelPrefix: "Unclassified Lorcast Set Variant",
+  },
+  catalogFieldMapping: lorcanajsonLorcanaSetReferenceProviderProfile.catalogFieldMapping,
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 const scryfallMtgOptionQueries = [
   {
     queryKind: "sets",
@@ -3076,11 +4182,18 @@ export const scryfallMtgImageEvidenceProviderProfile = {
 export const catalogProviderIntegrationProfiles = [
   mtgjsonMtgCardReferenceProviderProfile,
   mtgjsonMtgSetReferenceProviderProfile,
+  lorcanajsonLorcanaCardReferenceProviderProfile,
+  lorcanajsonLorcanaSetReferenceProviderProfile,
+  lorcastLorcanaCardReferenceProviderProfile,
+  lorcastLorcanaSetReferenceProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
   scrydexOnePieceCardPrintProviderProfile,
   scrydexOnePieceSetReferenceProviderProfile,
   scrydexOnePieceSealedProductProviderProfile,
+  scrydexLorcanaCardPrintProviderProfile,
+  scrydexLorcanaSetReferenceProviderProfile,
+  scrydexLorcanaSealedProductProviderProfile,
   ygoprodeckYugiohCardReferenceProviderProfile,
   ygoprodeckYugiohSetReferenceProviderProfile,
   ygojsonYugiohSetReferenceProviderProfile,
@@ -3091,6 +4204,8 @@ export const catalogProviderIntegrationProfiles = [
   tcgplayerYugiohSingleCardProviderProfile,
   tcgplayerOnePieceSingleCardProviderProfile,
   tcgplayerOnePieceSealedProductProviderProfile,
+  tcgplayerLorcanaSingleCardProviderProfile,
+  tcgplayerLorcanaSealedProductProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -3120,6 +4235,58 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: mtgjsonMtgSetReferenceSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: mtgjsonMtgSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "lorcanajson",
+    profileKey: "lorcana-card-reference-data",
+    profileVersion: lorcanajsonLorcanaCardReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: lorcanajsonLorcanaCardReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: lorcanajsonLorcanaCardReferenceProviderProfile,
+    sourceContract: lorcanajsonLorcanaCardReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: lorcanajsonLorcanaCardReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: lorcanajsonLorcanaCardReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "lorcanajson",
+    profileKey: "lorcana-set-reference-data",
+    profileVersion: lorcanajsonLorcanaSetReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: lorcanajsonLorcanaSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: lorcanajsonLorcanaSetReferenceProviderProfile,
+    sourceContract: lorcanajsonLorcanaSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: lorcanajsonLorcanaSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: lorcanajsonLorcanaSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "lorcast",
+    profileKey: "lorcana-card-reference-data",
+    profileVersion: lorcastLorcanaCardReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: lorcastLorcanaCardReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: lorcastLorcanaCardReferenceProviderProfile,
+    sourceContract: lorcastLorcanaCardReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: lorcastLorcanaCardReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: lorcastLorcanaCardReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "lorcast",
+    profileKey: "lorcana-set-reference-data",
+    profileVersion: lorcastLorcanaSetReferenceSourceObservationMappingContract.profileVersion,
+    ingestionUnitIdentity: lorcastLorcanaSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: lorcastLorcanaSetReferenceProviderProfile,
+    sourceContract: lorcastLorcanaSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: lorcastLorcanaSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: lorcastLorcanaSetReferenceSourceObservationMappingContract,
   },
   {
     providerKey: "scryfall",
@@ -3185,6 +4352,45 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: scrydexOnePieceSealedProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: scrydexOnePieceSealedProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "lorcana-card-print-source-observation",
+    profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexLorcanaCardPrintSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexLorcanaCardPrintProviderProfile,
+    sourceContract: scrydexLorcanaCardPrintSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexLorcanaCardPrintSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexLorcanaCardPrintSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "lorcana-set-reference-data",
+    profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexLorcanaSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexLorcanaSetReferenceProviderProfile,
+    sourceContract: scrydexLorcanaSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexLorcanaSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexLorcanaSetReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "scrydex",
+    profileKey: "lorcana-sealed-product-source-observation",
+    profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+    ingestionUnitIdentity: scrydexLorcanaSealedProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: scrydexLorcanaSealedProductProviderProfile,
+    sourceContract: scrydexLorcanaSealedProductSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexLorcanaSealedProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: scrydexLorcanaSealedProductSourceObservationMappingContract,
   },
   {
     providerKey: "ygoprodeck",
@@ -3317,6 +4523,34 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "lorcana-single-card-product-sku",
+    profileVersion: TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
+    ingestionUnitIdentity:
+      tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerLorcanaSingleCardProviderProfile,
+    sourceContract: tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "lorcana-sealed-product-sku",
+    profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+    ingestionUnitIdentity:
+      tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerLorcanaSealedProductProviderProfile,
+    sourceContract: tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",
@@ -3782,7 +5016,7 @@ function inferCatalogProviderIngestionUnitKey(
 
 function inferProductDomain(
   version: CatalogProviderIntegrationProfileVersionRecord,
-): "pokemon" | "mtg" | "yugioh" | "one-piece" {
+): "pokemon" | "mtg" | "yugioh" | "one-piece" | "lorcana" {
   const signals = [
     version.profileKey,
     version.profile.catalogFieldMapping.blueprintKey,
@@ -3810,6 +5044,9 @@ function inferProductDomain(
   if (signals.includes("one-piece") || signals.includes("one piece") || signals.includes("onepiece")) {
     return "one-piece";
   }
+  if (signals.includes("lorcana")) {
+    return "lorcana";
+  }
   return signals.includes("magic") || signals.includes("scryfall") || signals.includes("mtg") ? "mtg" : "pokemon";
 }
 
@@ -3836,7 +5073,8 @@ function inferProductForm(
     signals.includes("set") &&
     (version.executableMappingContract?.normalizedObservation.outputKind === "magic-set-reference" ||
       version.executableMappingContract?.normalizedObservation.outputKind === "yugioh-set-reference" ||
-      version.executableMappingContract?.normalizedObservation.outputKind === "one-piece-set-reference")
+      version.executableMappingContract?.normalizedObservation.outputKind === "one-piece-set-reference" ||
+      version.executableMappingContract?.normalizedObservation.outputKind === "lorcana-set-reference")
   ) {
     return "set";
   }

@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ProviderPayloadEnvelope } from "./provider-adapter";
 import {
   createScrydexOnePieceProviderAdapter,
+  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -41,6 +44,27 @@ describe("Scrydex One Piece provider adapter", () => {
         unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         providerKey: "scrydex",
         productDomain: "one-piece",
+        productForm: "sealed-product",
+        ingestionPurpose: "source-observation-import",
+      }),
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "scrydex",
+        productDomain: "lorcana",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "scrydex",
+        productDomain: "lorcana",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "scrydex",
+        productDomain: "lorcana",
         productForm: "sealed-product",
         ingestionPurpose: "source-observation-import",
       }),
@@ -96,6 +120,33 @@ describe("Scrydex One Piece provider adapter", () => {
         optionQueryBlocking: true,
         diagnosticCode: "credential-missing",
       }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        requirement: "required",
+        state: "missing",
+        importBlocking: true,
+        optionQueryBlocking: true,
+        diagnosticCode: "credential-missing",
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        requirement: "required",
+        state: "missing",
+        importBlocking: true,
+        optionQueryBlocking: true,
+        diagnosticCode: "credential-missing",
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        requirement: "required",
+        state: "missing",
+        importBlocking: true,
+        optionQueryBlocking: true,
+        diagnosticCode: "credential-missing",
+      }),
     ]);
   });
 
@@ -142,16 +193,41 @@ describe("Scrydex One Piece provider adapter", () => {
         importBlocking: false,
         optionQueryBlocking: false,
       }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        state: "configured",
+        importBlocking: false,
+        optionQueryBlocking: false,
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        state: "configured",
+        importBlocking: false,
+        optionQueryBlocking: false,
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        state: "configured",
+        importBlocking: false,
+        optionQueryBlocking: false,
+      }),
     ]);
     expect(diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          code: "scrydex-one-piece-credentials-configured",
+          code: "scrydex-credentials-configured",
           severity: "info",
         }),
         expect.objectContaining({
           code: "scrydex-one-piece-bulk-first-transport-configured",
           unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        }),
+        expect.objectContaining({
+          code: "scrydex-lorcana-bulk-first-transport-configured",
+          unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         }),
         expect.objectContaining({
           code: "scrydex-account-usage-checked",

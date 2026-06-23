@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
+import { seedLorcanaReferenceData, seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
 
 describe("reference data seed", () => {
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -199,6 +199,113 @@ describe("reference data seed", () => {
         type: "ProposeCatalogAlias",
         aliasText: "OP-01",
         targetId: catalogSeedIds.referenceRecords.sets.romanceDawn,
+        targetKey: "set",
+        reviewStatus: "auto-accepted",
+      }),
+    ]);
+  });
+
+  it("seeds Lorcana main chapter and promo/special set identity as reference data", async () => {
+    const harness = createReferenceSeedHarness({
+      existingReferenceTypeKeys: new Set(["manufacturer", "product-line"]),
+    });
+
+    const ids = await seedLorcanaReferenceData(harness.services as never);
+
+    expect(ids.sets["the-first-chapter"]).toBe(catalogSeedIds.referenceRecords.sets.lorcanaTheFirstChapter);
+    expect(ids.sets["d23-collection"]).toBe(catalogSeedIds.referenceRecords.sets.lorcanaD23Collection);
+    expect(harness.commands).toEqual([
+      {
+        streamId: `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`,
+        type: "CreateReferenceType",
+        key: "set",
+      },
+      {
+        streamId: `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`,
+        type: "PublishReferenceType",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.manufacturers.ravensburger}`,
+        type: "CreateReferenceRecord",
+        key: "ravensburger",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.manufacturers.ravensburger}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.disneyLorcana}`,
+        type: "CreateReferenceRecord",
+        key: "disney-lorcana",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.disneyLorcana}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.lorcanaTheFirstChapter}`,
+        type: "CreateReferenceRecord",
+        key: "the-first-chapter",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.lorcanaTheFirstChapter}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.lorcanaD23Collection}`,
+        type: "CreateReferenceRecord",
+        key: "d23-collection",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.lorcanaD23Collection}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+    ]);
+    expect(harness.details).toContainEqual(
+      expect.objectContaining({
+        key: "the-first-chapter",
+        attributes: expect.objectContaining({
+          "set-code": "1",
+          "chapter-number": 1,
+          "set-kind": "chapter",
+          "lorcanajson-set-code": "1",
+          "lorcast-set-code": "1",
+        }),
+        relationships: [
+          { relationshipType: "part-of", referenceId: catalogSeedIds.referenceRecords.productLines.disneyLorcana },
+        ],
+      }),
+    );
+    expect(harness.details).toContainEqual(
+      expect.objectContaining({
+        key: "d23-collection",
+        attributes: expect.objectContaining({
+          "set-code": "D23",
+          "set-kind": "promo-special",
+          "lorcast-set-code": "D23",
+          "tcgplayer-set-name": "D23 Promos",
+        }),
+      }),
+    );
+    expect(harness.aliasCommands).toEqual([
+      expect.objectContaining({
+        streamId: expect.stringMatching(/^catalog\.alias-/),
+        type: "ProposeCatalogAlias",
+        aliasText: "1",
+        targetId: catalogSeedIds.referenceRecords.sets.lorcanaTheFirstChapter,
+        targetKey: "set",
+        reviewStatus: "auto-accepted",
+      }),
+      expect.objectContaining({
+        streamId: expect.stringMatching(/^catalog\.alias-/),
+        type: "ProposeCatalogAlias",
+        aliasText: "D23",
+        targetId: catalogSeedIds.referenceRecords.sets.lorcanaD23Collection,
         targetKey: "set",
         reviewStatus: "auto-accepted",
       }),

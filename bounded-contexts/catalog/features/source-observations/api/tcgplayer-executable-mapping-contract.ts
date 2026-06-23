@@ -12,6 +12,8 @@ export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";
 export const TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION = "2026.06.20";
 export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION = "2026.06.22";
 export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
+export const TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION = "2026.06.23";
+export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -41,6 +43,13 @@ export const tcgplayerOnePieceSingleCardIngestionUnitIdentity = defineCatalogPro
   ingestionPurpose: "source-observation-import",
 });
 
+export const tcgplayerLorcanaSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "lorcana",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
 export const tcgplayerMtgSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "mtg",
@@ -51,6 +60,13 @@ export const tcgplayerMtgSealedProductIngestionUnitIdentity = defineCatalogProvi
 export const tcgplayerOnePieceSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
   productDomain: "one-piece",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerLorcanaSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "lorcana",
   productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
@@ -484,6 +500,63 @@ export const tcgplayerOnePieceSealedProductProviderProductSourceObservationMappi
     ...providerProductNormalizedObservation,
     fields: {
       tcg: constantExpression("one-piece", "catalog-truth", ["normalized-observation", "hash-material"]),
+      ...providerProductFields,
+    },
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "lorcana-single-card-product-sku",
+  displayName: "TCGplayer Lorcana Single-Card Product and SKU",
+  profileVersion: TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerLorcanaSingleCardIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-lorcana-single-card-production-v1",
+  },
+  fixtures: {
+    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-lorcana-single-card",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      tcg: constantExpression("lorcana", "catalog-truth", ["normalized-observation", "hash-material"]),
+      ...providerProductFields,
+    },
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "lorcana-sealed-product-sku",
+  displayName: "TCGplayer Lorcana Sealed Product and SKU",
+  profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerLorcanaSealedProductIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-lorcana-sealed-product-production-v1",
+  },
+  fixtures: {
+    fixtureRoot:
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-lorcana-sealed-product",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      tcg: constantExpression("lorcana", "catalog-truth", ["normalized-observation", "hash-material"]),
       ...providerProductFields,
     },
   },

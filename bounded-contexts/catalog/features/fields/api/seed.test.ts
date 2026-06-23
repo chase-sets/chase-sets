@@ -48,6 +48,32 @@ describe("field seed", () => {
     ]);
   });
 
+  it("reconciles Lorcana descriptive and sealed product fields additively", async () => {
+    const missingKeys = new Set([
+      "ink-color",
+      "card-type",
+      "card-classifications",
+      "card-properties",
+      "sealed-product-form",
+    ]);
+    const harness = createSeedFieldsHarness({ missingKeys });
+
+    const ids = await seedFields(harness.services);
+
+    expect(ids["ink-color"]).toBe(catalogSeedIds.fields.inkColor);
+    expect(ids["card-type"]).toBe(catalogSeedIds.fields.cardType);
+    expect(ids["card-classifications"]).toBe(catalogSeedIds.fields.cardClassifications);
+    expect(ids["card-properties"]).toBe(catalogSeedIds.fields.cardProperties);
+    expect(ids["sealed-product-form"]).toBe(catalogSeedIds.fields.sealedProductForm);
+    expect(harness.commands.filter((command) => command.type === "CreateField").map((command) => command.key)).toEqual([
+      "ink-color",
+      "card-type",
+      "card-classifications",
+      "card-properties",
+      "sealed-product-form",
+    ]);
+  });
+
   it("does not recreate active integration fields", async () => {
     const harness = createSeedFieldsHarness();
 
@@ -66,8 +92,20 @@ function createSeedFieldsHarness(input: { missingKeys?: Set<string> } = {}) {
     ["rarity", activeField(catalogSeedIds.fields.rarity, "rarity")],
     ["card-variant", activeField(catalogSeedIds.fields.cardVariant, "card-variant")],
     ["card-illustrator", activeField(catalogSeedIds.fields.cardIllustrator, "card-illustrator")],
+    ["ink-color", activeField(catalogSeedIds.fields.inkColor, "ink-color")],
+    ["card-type", activeField(catalogSeedIds.fields.cardType, "card-type")],
+    ["card-classifications", activeField(catalogSeedIds.fields.cardClassifications, "card-classifications")],
+    ["card-properties", activeField(catalogSeedIds.fields.cardProperties, "card-properties")],
+    ["publisher", activeField(catalogSeedIds.fields.publisher, "publisher")],
+    ["set-code", activeField(catalogSeedIds.fields.setCode, "set-code")],
+    ["set-name", activeField(catalogSeedIds.fields.setName, "set-name")],
+    ["set-type", activeField(catalogSeedIds.fields.setType, "set-type")],
     ["release-year", activeField(catalogSeedIds.fields.releaseYear, "release-year")],
     ["pack-count", activeField(catalogSeedIds.fields.packCount, "pack-count")],
+    ["sealed-product-number", activeField(catalogSeedIds.fields.sealedProductNumber, "sealed-product-number")],
+    ["sealed-product-name", activeField(catalogSeedIds.fields.sealedProductName, "sealed-product-name")],
+    ["product-kind", activeField(catalogSeedIds.fields.productKind, "product-kind")],
+    ["sealed-product-form", activeField(catalogSeedIds.fields.sealedProductForm, "sealed-product-form")],
   ]);
 
   for (const key of input.missingKeys ?? []) {

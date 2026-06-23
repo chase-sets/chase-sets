@@ -1,0 +1,70 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_card_en_lorcanajson-first-chapter-unknown-option-reference",
+  "externalKey": "card:lorcanajson-first-chapter-unknown-option-reference",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+  "sourceUpdatedAt": "2026-05-26T19:11:58",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "set": {
+      "provider": "lorcanajson",
+      "formatVersion": "2.3.2",
+      "generatedOn": "2026-05-26T19:11:58",
+      "setId": "1",
+      "setCode": "1",
+      "setName": "The First Chapter",
+      "releaseDate": "2023-08-18",
+      "cardCount": 204
+    },
+    "card": {
+      "id": "lorcanajson-first-chapter-unknown-option-reference",
+      "name": "Unclassified LorcanaJSON Variant",
+      "cardNumber": "204-star",
+      "rarity": "enchanted-unclassified",
+      "cardType": "Unknown",
+      "inkColor": "Amethyst",
+      "tcgplayerProductId": null,
+      "imageUrls": []
+    }
+  },
+  "catalogHashMaterial": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "setId": "1",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "cardId": "lorcanajson-first-chapter-unknown-option-reference",
+    "cardNumber": "204-star",
+    "name": "Unclassified LorcanaJSON Variant",
+    "rarity": "enchanted-unclassified",
+    "tcgplayerProductId": null
+  },
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "Unclassified LorcanaJSON Variant",
+    "collectorNumber": "204-star",
+    "languageCode": "en",
+    "productForm": "single-card"
+  },
+  "externalCatalogItemReferences": [],
+  "externalProductReferences": [],
+  "imageUrls": [],
+  "cardId": "lorcanajson-first-chapter-unknown-option-reference",
+  "name": "Unclassified LorcanaJSON Variant",
+  "cardNumber": "204-star",
+  "setId": "1",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "rarity": "enchanted-unclassified",
+  "cardType": "Unknown",
+  "inkColor": "Amethyst",
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "tcgplayerProductId": null
+}

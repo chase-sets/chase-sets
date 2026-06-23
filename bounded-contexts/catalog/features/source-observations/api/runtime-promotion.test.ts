@@ -5,6 +5,8 @@ import {
   context,
   createChangedObservationRefreshHarness,
   createReferencePreloadHarness,
+  lorcanaCardPrintObservation,
+  lorcanaSetReferenceObservation,
   magicCardPrintObservation,
   magicSetReferenceObservation,
   magicSealedProductObservation,
@@ -534,6 +536,44 @@ describe("source observation runtime: promotion and reapply", () => {
           referenceRecordId: "ref_op01",
           promotionProfileKey: "one-piece-set-reference-data",
           promotionProfileVersion: "2026.06.22",
+        }),
+      }),
+    );
+  });
+
+  it("promotes LorcanaJSON set-reference observations into Reference Records", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "set:TFC",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-set-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-set:2026.06.23",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: lorcanaSetReferenceObservation(),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: null,
+      referenceRecordId: "ref_tfc",
+    });
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promoted",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_tfc",
+          promotionProfileKey: "lorcana-set-reference-data",
+          promotionProfileVersion: "2026.06.23",
+          promotionPlanFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         }),
       }),
     );
@@ -1095,6 +1135,85 @@ describe("source observation runtime: promotion and reapply", () => {
     );
   });
 
+  it("promotes Lorcana card prints through the shared Catalog Item command pipeline", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "card:TFC:41",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-card-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-card:2026.06.23",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: lorcanaCardPrintObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+        externalProductReferences: [
+          {
+            providerKey: "lorcanajson",
+            externalKey: "card:TFC:41",
+            selectedOptions: [{ dimensionId: "dim_language", optionId: "opt_english" }],
+          },
+        ],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result.catalogItemId).toMatch(/^cat_/);
+    expect(harness.itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "AssignBlueprintToCatalogItem",
+            blueprintId: "bpr_lorcana-card-print",
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "AssignCatalogItemToCategory",
+            categoryId: "cat_lorcana-card-prints",
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "SetCatalogItemFieldValue",
+            fieldId: "fld_set",
+            value: { referenceId: "ref_tfc" },
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "LinkExternalCatalogItemReference",
+            providerKey: "tcgplayer",
+            externalKey: "product:1005010",
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "LinkExternalProductReference",
+            providerKey: "lorcanajson",
+            externalKey: "card:tfc:41",
+            selectedOptions: [{ dimensionId: "dim_language", optionId: "opt_english" }],
+          }),
+        }),
+      ]),
+    );
+    expect(harness.itemCommands.map((entry) => entry.command.type)).not.toContain("SetCatalogItemPrice");
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          promotionProfileKey: "lorcana-card-reference-data",
+          promotionProfileVersion: "2026.06.23",
+        }),
+      }),
+    );
+  });
+
   it("reapplies promoted One Piece sealed products without replacing the Catalog Item or SKU options", async () => {
     const harness = createChangedObservationRefreshHarness({
       providerKey: "scrydex",
@@ -1153,6 +1272,65 @@ describe("source observation runtime: promotion and reapply", () => {
         command: expect.objectContaining({ type: "CreateCatalogItem" }),
       }),
     );
+  });
+
+  it("reapplies promoted Lorcana card prints without replacing the Catalog Item", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "card:TFC:41",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-card-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-card:2026.06.23",
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing_lorcana_card",
+      normalized: lorcanaCardPrintObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "current-active-profile",
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      failed: 0,
+      outcomes: [{ observationId: "obs_changed", status: "reapplied", catalogItemId: "cat_existing_lorcana_card" }],
+    });
+    expect(harness.itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          streamId: "catalog.item-cat_existing_lorcana_card",
+          command: expect.objectContaining({
+            type: "ReviseCatalogItemMetadata",
+          }),
+        }),
+        expect.objectContaining({
+          streamId: "catalog.item-cat_existing_lorcana_card",
+          command: expect.objectContaining({
+            type: "SetCatalogItemFieldValue",
+            fieldId: "fld_set",
+            value: { referenceId: "ref_tfc" },
+          }),
+        }),
+      ]),
+    );
+    expect(harness.itemCommands.map((entry) => entry.command.type)).not.toContain("CreateCatalogItem");
+    expect(harness.appendedSourceEvents).toEqual([
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promotion-plan-recorded",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_lorcana_card",
+          promotionProfileKey: "lorcana-card-reference-data",
+          promotionProfileVersion: "2026.06.23",
+        }),
+      }),
+    ]);
   });
 
   it("reapplies promoted Magic sealed products without replacing the Catalog Item or SKU options", async () => {

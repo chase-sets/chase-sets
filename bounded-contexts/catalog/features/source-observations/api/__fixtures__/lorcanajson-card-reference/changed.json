@@ -1,0 +1,70 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_card_en_1-041",
+  "externalKey": "card:1-041",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+  "sourceUpdatedAt": "2026-06-01T00:00:00",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.3",
+    "generatedOn": "2026-06-01T00:00:00",
+    "set": {
+      "provider": "lorcanajson",
+      "formatVersion": "2.3.3",
+      "generatedOn": "2026-06-01T00:00:00",
+      "setId": "1",
+      "setCode": "1",
+      "setName": "The First Chapter",
+      "releaseDate": "2023-08-18",
+      "cardCount": 204
+    },
+    "card": {
+      "id": "1-041",
+      "name": "Elsa - Snow Queen",
+      "cardNumber": "41",
+      "rarity": "Legendary",
+      "cardType": "Storyborn Hero Queen",
+      "inkColor": "Amethyst",
+      "tcgplayerProductId": "1005010",
+      "imageUrls": ["https://images.lorcanajson.org/cards/en/1/041.webp"]
+    }
+  },
+  "catalogHashMaterial": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.3",
+    "generatedOn": "2026-06-01T00:00:00",
+    "setId": "1",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "cardId": "1-041",
+    "cardNumber": "41",
+    "name": "Elsa - Snow Queen",
+    "rarity": "Legendary",
+    "tcgplayerProductId": "1005010"
+  },
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "Elsa - Snow Queen",
+    "collectorNumber": "41",
+    "languageCode": "en",
+    "productForm": "single-card"
+  },
+  "externalCatalogItemReferences": [{ "providerKey": "tcgplayer", "externalKey": "product:1005010" }],
+  "externalProductReferences": [],
+  "imageUrls": ["https://images.lorcanajson.org/cards/en/1/041.webp"],
+  "cardId": "1-041",
+  "name": "Elsa - Snow Queen",
+  "cardNumber": "41",
+  "setId": "1",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "rarity": "Legendary",
+  "cardType": "Storyborn Hero Queen",
+  "inkColor": "Amethyst",
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "tcgplayerProductId": "1005010"
+}

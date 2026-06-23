@@ -1,0 +1,48 @@
+{
+  "observationId": "tcgplayer_lorcana_product_1005020_sealed",
+  "externalKey": "1005020",
+  "sourceUrl": "https://www.tcgplayer.com/product/1005020",
+  "sourceUpdatedAt": "2026-06-23T00:00:00.000Z",
+  "productId": 1005020,
+  "productName": "The First Chapter Booster Box",
+  "setName": "The First Chapter",
+  "productLineId": 82,
+  "productLineName": "Disney Lorcana",
+  "productTypeName": "Sealed Products",
+  "customAttributes": { "number": "BOX" },
+  "productForm": "sealed",
+  "barcode": "4050368981234",
+  "skuReferences": ["sku:9001005020"],
+  "externalCatalogItemReferences": [{ "providerKey": "tcgplayer", "externalKey": "product:1005020" }],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:9001005020",
+      "selectedOptions": [{ "dimensionKey": "product-form", "optionKey": "unopened", "providerValue": "Sealed" }]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "The First Chapter Booster Box",
+    "collectorNumber": "BOX",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": "4050368981234"
+  },
+  "catalogHashMaterial": {
+    "productId": 1005020,
+    "productName": "The First Chapter Booster Box",
+    "setName": "The First Chapter",
+    "productLineName": "Disney Lorcana",
+    "productForm": "sealed",
+    "skuIds": [9001005020]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "sealed-product",
+    "excludedEvidence": { "price": "redacted fixture boundary", "inventory": "redacted fixture boundary" }
+  }
+}

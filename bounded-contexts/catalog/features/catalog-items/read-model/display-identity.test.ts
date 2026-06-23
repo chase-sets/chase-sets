@@ -55,6 +55,63 @@ describe("resolveCatalogItemDisplayIdentity", () => {
     });
   });
 
+  it("resolves Lorcana card display copy from set reference, variant, ink, and rarity fields", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_name", key: "card-name" },
+        { field_id: "fld_number", key: "card-number" },
+        { field_id: "fld_set", key: "set" },
+        { field_id: "fld_variant", key: "card-variant" },
+        { field_id: "fld_ink", key: "ink-color" },
+        { field_id: "fld_rarity", key: "rarity" },
+      ],
+      references: [
+        {
+          reference_record_id: "ref_tfc",
+          type_key: "set",
+          key: "the-first-chapter",
+          name: "The First Chapter",
+          attributes: { "set-code": "1", "chapter-number": 1 },
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "lorcana-card-print-default",
+          target_kind: "blueprint",
+          target_id: "bpr_lorcana",
+          priority: 10,
+          title_template: "{field.card-name} {field.card-number}",
+          subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
+          required_field_keys: ["card-name", "card-number", "set"],
+        },
+      ],
+    });
+
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, {
+        catalog_item_id: "cat_elsa",
+        title: "Elsa - Snow Queen",
+        subtitle: null,
+        blueprint_id: "bpr_lorcana",
+        category_ids: [],
+        field_values: [
+          { fieldId: "fld_name", value: { defaultLocale: "en", values: { en: "Elsa - Snow Queen" } } },
+          { fieldId: "fld_number", value: "41/204" },
+          { fieldId: "fld_set", value: { referenceId: "ref_tfc" } },
+          { fieldId: "fld_variant", value: "Standard" },
+          { fieldId: "fld_ink", value: "Amethyst" },
+          { fieldId: "fld_rarity", value: "Super Rare" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      title: "Elsa - Snow Queen 41/204",
+      subtitle: "The First Chapter Standard Amethyst Super Rare",
+      templateKey: "lorcana-card-print-default",
+    });
+  });
+
   it("prefers reference-record templates over blueprint templates for promo exceptions", async () => {
     const db = displayIdentityDb({
       fields: [

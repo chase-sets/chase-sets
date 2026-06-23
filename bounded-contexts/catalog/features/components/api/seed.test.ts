@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedOnePieceComponents } from "./seed";
+import { seedLorcanaComponents, seedOnePieceComponents } from "./seed";
 
 describe("component seed", () => {
   it("seeds One Piece card and sealed components from shared card product dimensions", async () => {
@@ -44,6 +44,63 @@ describe("component seed", () => {
         command: expect.objectContaining({
           type: "AddFieldRuleToComponent",
           fieldId: "fld_pack-count",
+          required: true,
+        }),
+      }),
+    );
+  });
+
+  it("seeds Lorcana card fields and sealed product form from the existing component model", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      db: { query: async <T>() => ({ rows: [] as T[] }) },
+      components: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+
+    const ids = await seedLorcanaComponents(services as never, dimensions() as never, keyBackedIds("fld") as never);
+
+    expect(ids["lorcana-card-print-identity"]).toBe(catalogSeedIds.components.lorcanaCardPrintIdentity);
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.component-${catalogSeedIds.components.lorcanaCardPrintIdentity}`,
+        command: expect.objectContaining({
+          type: "AddFieldRuleToComponent",
+          fieldId: "fld_ink-color",
+          required: false,
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.component-${catalogSeedIds.components.lorcanaCardPrintIdentity}`,
+        command: expect.objectContaining({
+          type: "AddFieldRuleToComponent",
+          fieldId: "fld_card-classifications",
+          required: false,
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.component-${catalogSeedIds.components.lorcanaCardProductResolution}`,
+        command: expect.objectContaining({
+          type: "AddDimensionRuleToComponent",
+          dimensionId: "dim_condition",
+          required: true,
+          appliesWhen: [{ dimensionId: "dim_form", optionIds: ["chc_raw"] }],
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.component-${catalogSeedIds.components.lorcanaSealedProductIdentity}`,
+        command: expect.objectContaining({
+          type: "AddFieldRuleToComponent",
+          fieldId: "fld_sealed-product-form",
           required: true,
         }),
       }),

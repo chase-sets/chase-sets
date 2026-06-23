@@ -337,7 +337,7 @@ export function catalogIntegrationProviderDataSignoffChecklist(): readonly strin
     "Confirm sampled payload, fixture body, and dry-run body retention has policy/legal signoff, owner, reason, removal criteria, and deletion/rotation plan.",
     "Confirm Admin UI surfaces show normalized facts, hashes, references, diagnostic codes, or redacted previews instead of raw provider bodies.",
     "Confirm logs, metrics, traces, screenshots, CI artifacts, and launch evidence exclude provider secrets, account/seller data, and raw provider bodies.",
-    "Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, and future providers are documented before live sampling.",
+    "Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, LorcanaJSON, Lorcast, and future providers are documented before live sampling.",
   ];
 }
 
@@ -608,6 +608,379 @@ function onePieceAuthorityPolicy(
 function onePieceValidationCheck(
   check: CatalogIntegrationOnePieceValidationCheck,
 ): CatalogIntegrationOnePieceValidationCheck {
+  return check;
+}
+
+// ---------------------------------------------------------------------------
+// Lorcana provider authority and Scrydex credit-aware import policy (#2464,
+// #2466, #2472, #2473).
+// ---------------------------------------------------------------------------
+
+export const CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV =
+  "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE";
+
+export type CatalogIntegrationLorcanaProviderAuthorityKey =
+  | "lorcanajson-lorcana"
+  | "lorcast-lorcana"
+  | "tcgplayer-lorcana"
+  | "scrydex-lorcana"
+  | "ravensburger-lorcana-official";
+
+export type CatalogIntegrationLorcanaProviderAuthorityPolicy = Readonly<{
+  key: CatalogIntegrationLorcanaProviderAuthorityKey;
+  providerKey: string;
+  displayName: string;
+  productionRole: string;
+  catalogAuthority: readonly string[];
+  notCatalogTruth: readonly string[];
+  activationRequirement: string;
+}>;
+
+export type CatalogIntegrationLorcanaValidationTarget = "card" | "set" | "sealed-product" | "official-deck";
+
+export type CatalogIntegrationLorcanaValidationCheck = Readonly<{
+  key: string;
+  target: CatalogIntegrationLorcanaValidationTarget;
+  validationSource: "ravensburger-lorcana-official";
+  comparedProviders: readonly ("lorcanajson-lorcana" | "lorcast-lorcana" | "tcgplayer-lorcana" | "scrydex-lorcana")[];
+  comparedFieldClasses: readonly string[];
+  allowedEvidence: readonly string[];
+  forbiddenEvidence: readonly string[];
+  operatorEvidenceRequirement: string;
+  fallbackSourcePolicy: string;
+}>;
+
+export type CatalogIntegrationLorcanaOfficialValidationScope = Readonly<{
+  key: string;
+  releasePosition: "current-or-most-recent-main-set" | "older-main-set";
+  displayName: string;
+  setCode: string | null;
+  requiredTargets: readonly CatalogIntegrationLorcanaValidationTarget[];
+  requiredFactClasses: readonly string[];
+  evidenceDataClass: CatalogIntegrationGovernedDataClassKey;
+  evidenceRequirement: string;
+}>;
+
+export const catalogIntegrationLorcanaProviderAuthorityPolicies = [
+  lorcanaAuthorityPolicy({
+    key: "lorcanajson-lorcana",
+    providerKey: "lorcanajson",
+    displayName: "LorcanaJSON",
+    productionRole:
+      "Preferred free bulk-first Disney Lorcana reference provider for sets, cards, languages, variants, image URI evidence, metadata, and official deck files where source authority approves the data class.",
+    catalogAuthority: [
+      "set/chapter identifiers",
+      "card print identifiers",
+      "collector numbers",
+      "printed names and versions",
+      "rarity, ink, classification, franchise/property, and language facts",
+      "image URI evidence when retention policy permits it",
+      "bulk metadata, generated-on, checksum, and freshness evidence",
+    ],
+    notCatalogTruth: [
+      "marketplace product ids as canonical Catalog identity",
+      "prices",
+      "seller or account facts",
+      "raw provider bodies",
+      "unapproved provider imagery copies",
+    ],
+    activationRequirement:
+      "Requires Lorcana provider-data signoff, fixture-backed mapping coverage, bulk-first runtime proof, and interface-only staging UAT.",
+  }),
+  lorcanaAuthorityPolicy({
+    key: "lorcast-lorcana",
+    providerKey: "lorcast",
+    displayName: "Lorcast",
+    productionRole:
+      "Free supplemental Disney Lorcana provider for set/card option queries, image URIs, TCGplayer ids, legalities, and lightweight price evidence where approved.",
+    catalogAuthority: [
+      "set-scoped card lookup evidence",
+      "supplemental image URI evidence",
+      "TCGplayer id bridge candidates",
+      "legality and lightweight price reference diagnostics when approved",
+      "cache and pacing diagnostics",
+    ],
+    notCatalogTruth: [
+      "canonical winner when LorcanaJSON or official validation disagrees",
+      "prices as Catalog identity",
+      "raw provider bodies",
+      "provider imagery copies without retained-data approval",
+    ],
+    activationRequirement:
+      "Requires set-scoped option query proof, cache/pacing evidence, fixture-backed mapping coverage, and interface-only staging UAT.",
+  }),
+  lorcanaAuthorityPolicy({
+    key: "tcgplayer-lorcana",
+    providerKey: "tcgplayer",
+    displayName: "TCGplayer Lorcana",
+    productionRole:
+      "Marketplace-aligned source for Disney Lorcana product ids, group/set identity, SKU mapping, condition/language/printing variants, sealed products, and price-reference evidence through the existing Chase Sets automation path.",
+    catalogAuthority: [
+      "product id external-reference candidates",
+      "SKU external-product-reference candidates after selected options validate",
+      "group and set-name matching evidence",
+      "condition, language, printing, and sealed-form evidence",
+      "marketplace product image URI evidence when retention policy permits it",
+    ],
+    notCatalogTruth: [
+      "prices as Catalog identity",
+      "market prices as Catalog truth",
+      "latest sales",
+      "seller or account facts",
+      "inventory",
+      "listings",
+      "orders",
+      "messages",
+      "session material",
+      "TCGCSV as a production provider",
+    ],
+    activationRequirement:
+      "Requires existing TCGplayer credential posture, Lorcana unit/profile approval, redacted automation evidence, and interface-only staging UAT.",
+  }),
+  lorcanaAuthorityPolicy({
+    key: "scrydex-lorcana",
+    providerKey: "scrydex",
+    displayName: "Scrydex Lorcana",
+    productionRole:
+      "Paid supplemental Disney Lorcana source where Scrydex coverage is better for cards, sets, variants, sealed products, image evidence, price-reference evidence, and freshness signals.",
+    catalogAuthority: [
+      "card and variant identifiers",
+      "set identifiers",
+      "sealed product identifiers and packaging labels",
+      "image URI evidence when retention policy permits it",
+      "provider freshness, usage, credit, and cache diagnostics",
+    ],
+    notCatalogTruth: [
+      "API keys or team ids",
+      "per-game Scrydex credential settings",
+      "seller facts",
+      "inventory quantities",
+      "listings",
+      "orders",
+      "raw provider bodies",
+      "unapproved price history bodies",
+    ],
+    activationRequirement:
+      "Requires shared Scrydex credential readiness, bulk-first call-budget evidence, source-authority approval, and interface-only staging UAT.",
+  }),
+  lorcanaAuthorityPolicy({
+    key: "ravensburger-lorcana-official",
+    providerKey: "ravensburger-official",
+    displayName: "Disney Lorcana/Ravensburger official",
+    productionRole:
+      "Canonical validation reference for set names, release dates, product lineup, pack counts, official card-gallery presence, and official app references; not an ingestion source unless legal/source-authority approval explicitly changes that role.",
+    catalogAuthority: [
+      "manual validation reference",
+      "source-disagreement evidence after redaction",
+      "operator checklist evidence that imported provider records align with official release information",
+    ],
+    notCatalogTruth: [
+      "raw official page text",
+      "official imagery copies",
+      "scraped payload bodies",
+      "automated ingestion facts without explicit approval",
+    ],
+    activationRequirement:
+      "May be used for validation checklists before ingestion; automated ingestion requires separate approval and retained-data policy.",
+  }),
+] as const satisfies readonly CatalogIntegrationLorcanaProviderAuthorityPolicy[];
+
+export const catalogIntegrationLorcanaValidationChecks = [
+  lorcanaValidationCheck({
+    key: "lorcana-card-gallery-validation",
+    target: "card",
+    validationSource: "ravensburger-lorcana-official",
+    comparedProviders: ["lorcanajson-lorcana", "lorcast-lorcana", "scrydex-lorcana", "tcgplayer-lorcana"],
+    comparedFieldClasses: [
+      "card name",
+      "collector number",
+      "rarity",
+      "ink color",
+      "classification and property",
+      "set membership",
+      "official card-gallery presence",
+    ],
+    allowedEvidence: [
+      "redacted official card-gallery reference label",
+      "normalized provider fact path",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official card text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate at least one current-set and one older-set card through the Admin interface without retaining Ravensburger payload bodies or imagery.",
+    fallbackSourcePolicy:
+      "Fallback or community card sources are comparison-only after named approval and cannot resolve Catalog truth automatically.",
+  }),
+  lorcanaValidationCheck({
+    key: "lorcana-set-release-validation",
+    target: "set",
+    validationSource: "ravensburger-lorcana-official",
+    comparedProviders: ["lorcanajson-lorcana", "lorcast-lorcana", "scrydex-lorcana", "tcgplayer-lorcana"],
+    comparedFieldClasses: [
+      "set name",
+      "set code",
+      "release date",
+      "prerelease date",
+      "printed total",
+      "card count",
+      "official app reference",
+    ],
+    allowedEvidence: [
+      "redacted official release reference",
+      "normalized set reference record",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official release text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate one current Lorcana set and one older set from the Admin interface and keep only redacted disagreement evidence.",
+    fallbackSourcePolicy:
+      "Fallback or community set sources are comparison-only after named approval and cannot become the default production authority.",
+  }),
+  lorcanaValidationCheck({
+    key: "lorcana-sealed-product-lineup-validation",
+    target: "sealed-product",
+    validationSource: "ravensburger-lorcana-official",
+    comparedProviders: ["tcgplayer-lorcana", "scrydex-lorcana", "lorcanajson-lorcana"],
+    comparedFieldClasses: [
+      "sealed product name",
+      "product form",
+      "contained set or release family",
+      "pack count",
+      "official product lineup membership",
+      "marketplace product/SKU bridge evidence",
+    ],
+    allowedEvidence: [
+      "redacted official product reference",
+      "normalized sealed-product Source Observation",
+      "TCGplayer product/SKU reference candidate",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official product text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "Before production signoff, validate at least one sealed product through the Admin interface and keep TCGplayer commerce facts out of Catalog truth.",
+    fallbackSourcePolicy:
+      "Fallback or community sealed-product sources are comparison-only after named approval and cannot bypass Scrydex or TCGplayer authority.",
+  }),
+  lorcanaValidationCheck({
+    key: "lorcana-official-deck-validation",
+    target: "official-deck",
+    validationSource: "ravensburger-lorcana-official",
+    comparedProviders: ["lorcanajson-lorcana", "scrydex-lorcana", "tcgplayer-lorcana"],
+    comparedFieldClasses: [
+      "official deck name",
+      "deck release family",
+      "included cards or product lineup evidence",
+      "sealed product bridge evidence",
+    ],
+    allowedEvidence: [
+      "redacted official deck reference",
+      "normalized official deck reference",
+      "source-disagreement diagnostic",
+      "operator checklist result",
+    ],
+    forbiddenEvidence: ["raw official deck list text", "official imagery copies", "scraped official payload bodies"],
+    operatorEvidenceRequirement:
+      "If official decks are enabled for the LorcanaJSON import unit, validate at least one deck through the Admin interface before production signoff.",
+    fallbackSourcePolicy:
+      "Fallback or community deck lists are comparison-only after named approval and cannot become default Catalog truth.",
+  }),
+] as const satisfies readonly CatalogIntegrationLorcanaValidationCheck[];
+
+export const catalogIntegrationLorcanaOfficialValidationScopes = [
+  {
+    key: "lorcana-current-main-set-official-validation",
+    releasePosition: "current-or-most-recent-main-set",
+    displayName: "Operator-selected current or most recent main Lorcana set",
+    setCode: null,
+    requiredTargets: ["card", "set", "sealed-product"],
+    requiredFactClasses: ["set name", "release date", "card-gallery presence", "official product lineup", "pack count"],
+    evidenceDataClass: "audit-evidence",
+    evidenceRequirement:
+      "Before production signoff, operators must validate one current or most recent main Lorcana set through the Admin interface using redacted official-reference labels only.",
+  },
+  {
+    key: "lorcana-the-first-chapter-official-validation",
+    releasePosition: "older-main-set",
+    displayName: "The First Chapter",
+    setCode: "TFC",
+    requiredTargets: ["card", "set", "sealed-product", "official-deck"],
+    requiredFactClasses: [
+      "set name",
+      "release date",
+      "printed total",
+      "card-gallery presence",
+      "starter deck or official deck evidence",
+    ],
+    evidenceDataClass: "audit-evidence",
+    evidenceRequirement:
+      "Before production signoff, operators must validate The First Chapter as the older stable Lorcana set through the Admin interface using redacted official-reference labels only.",
+  },
+] as const satisfies readonly CatalogIntegrationLorcanaOfficialValidationScope[];
+
+export type CatalogIntegrationScrydexLorcanaBulkImportPolicy = Readonly<{
+  providerKey: "scrydex";
+  productLineKey: "lorcana";
+  requestStrategy: "bulk-first";
+  pageSizePolicy: string;
+  fieldSelectionPolicy: string;
+  allowedRequestShapes: readonly string[];
+  forbiddenNormalPatterns: readonly string[];
+  perRecordFallbackRequirement: string;
+  requiredPreflightEvidence: readonly string[];
+  requiredPostRunEvidence: readonly string[];
+  evidenceDataClass: CatalogIntegrationGovernedDataClassKey;
+}>;
+
+export const catalogIntegrationScrydexLorcanaBulkImportPolicy = {
+  providerKey: "scrydex",
+  productLineKey: "lorcana",
+  requestStrategy: "bulk-first",
+  pageSizePolicy:
+    "Use the highest safe Scrydex-supported page size for the selected Lorcana import unit unless measured response size, provider behavior, or documented rate/credit guidance requires a smaller page.",
+  fieldSelectionPolicy:
+    "Use provider field selection to request only fields needed by the selected Lorcana cards, variants, sets, sealed products, approved price-reference, or freshness import unit.",
+  allowedRequestShapes: ["paginated-list", "paginated-search", "bulk-filtered-search", "usage-check"],
+  forbiddenNormalPatterns: [
+    "one Scrydex card request per card",
+    "one Scrydex variant request per variant",
+    "one Scrydex sealed-product request per sealed product",
+    "per-game Scrydex credential lookup",
+    "repeat live option queries when a safe fresh or stale cache page exists",
+  ],
+  perRecordFallbackRequirement:
+    "A per-record Scrydex Lorcana call is allowed only when no bulk/list/search endpoint can supply the required field or relationship; the fallback must be documented, tested, preflighted with call impact, and surfaced to the operator before execution.",
+  requiredPreflightEvidence: [
+    "shared credential readiness",
+    "team readiness",
+    "credit or usage readiness",
+    "cache freshness",
+    "estimated request count or estimate-unavailable diagnostic",
+    "selected unit key and source scope",
+  ],
+  requiredPostRunEvidence: [
+    "actual request count",
+    "page count",
+    "cache hit count",
+    "cache miss count",
+    "usage-check result",
+    "credit or degraded diagnostic",
+    "bulk-first confirmation or per-record fallback reason",
+  ],
+  evidenceDataClass: "provider-usage-summary",
+} as const satisfies CatalogIntegrationScrydexLorcanaBulkImportPolicy;
+
+function lorcanaAuthorityPolicy(
+  policy: CatalogIntegrationLorcanaProviderAuthorityPolicy,
+): CatalogIntegrationLorcanaProviderAuthorityPolicy {
+  return policy;
+}
+
+function lorcanaValidationCheck(
+  check: CatalogIntegrationLorcanaValidationCheck,
+): CatalogIntegrationLorcanaValidationCheck {
   return check;
 }
 

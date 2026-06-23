@@ -38,10 +38,15 @@ export type OnePieceReferenceIds = Readonly<{
   sets: Readonly<Record<string, ReferenceRecordId>>;
 }>;
 
+export type LorcanaReferenceIds = Readonly<{
+  sets: Readonly<Record<string, ReferenceRecordId>>;
+}>;
+
 export type CatalogReferenceIds = PokemonReferenceIds &
   Readonly<{
     magic: MagicReferenceIds;
     onePiece: OnePieceReferenceIds;
+    lorcana: LorcanaReferenceIds;
   }>;
 
 const referenceTypes: readonly ReferenceTypeDef[] = [
@@ -92,6 +97,12 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
       "mtgjson-set-code",
       "scryfall-set-code",
       "scrydex-set-id",
+      "chapter-number",
+      "set-kind",
+      "lorcanajson-set-code",
+      "lorcanajson-set-name",
+      "lorcast-set-code",
+      "lorcast-set-name",
       "tcgplayer-set-name",
     ],
   },
@@ -100,9 +111,11 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
 const manufacturerId = catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational;
 const magicManufacturerId = catalogSeedIds.referenceRecords.manufacturers.wizardsOfTheCoast;
 const onePieceManufacturerId = catalogSeedIds.referenceRecords.manufacturers.bandai;
+const lorcanaManufacturerId = catalogSeedIds.referenceRecords.manufacturers.ravensburger;
 const productLineId = catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame;
 const magicProductLineId = catalogSeedIds.referenceRecords.productLines.magicTheGathering;
 const onePieceProductLineId = catalogSeedIds.referenceRecords.productLines.onePieceCardGame;
+const lorcanaProductLineId = catalogSeedIds.referenceRecords.productLines.disneyLorcana;
 const seriesIds = catalogSeedIds.referenceRecords.series;
 const expansionIds = catalogSeedIds.referenceRecords.expansions;
 const setIds = catalogSeedIds.referenceRecords.sets;
@@ -173,6 +186,28 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "short-name": "One Piece",
     },
     relationships: [{ relationshipType: "published-by", referenceId: onePieceManufacturerId }],
+  },
+  {
+    referenceRecordId: lorcanaManufacturerId,
+    typeKey: "manufacturer",
+    key: "ravensburger",
+    name: "Ravensburger",
+    description: "Publisher of the Disney Lorcana trading card game.",
+    attributes: {
+      "homepage-url": "https://www.ravensburger.us",
+    },
+  },
+  {
+    referenceRecordId: lorcanaProductLineId,
+    typeKey: "product-line",
+    key: "disney-lorcana",
+    name: "Disney Lorcana",
+    description: "The Disney Lorcana trading card game product line.",
+    attributes: {
+      "official-name": "Disney Lorcana",
+      "short-name": "Lorcana",
+    },
+    relationships: [{ relationshipType: "published-by", referenceId: lorcanaManufacturerId }],
   },
   {
     referenceRecordId: seriesIds.base,
@@ -267,6 +302,27 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
     "scrydex-set-id": "op-01",
     "tcgplayer-set-name": "Romance Dawn",
   }),
+  lorcanaSet("the-first-chapter", "The First Chapter", setIds.lorcanaTheFirstChapter, {
+    "set-code": "1",
+    "chapter-number": 1,
+    "set-kind": "chapter",
+    "printed-card-count": 204,
+    "release-date": "2023-08-18",
+    "lorcanajson-set-code": "1",
+    "lorcanajson-set-name": "The First Chapter",
+    "lorcast-set-code": "1",
+    "lorcast-set-name": "The First Chapter",
+    "tcgplayer-set-name": "The First Chapter",
+  }),
+  lorcanaSet("d23-collection", "D23 Collection", setIds.lorcanaD23Collection, {
+    "set-code": "D23",
+    "set-kind": "promo-special",
+    "printed-card-count": 9,
+    "release-date": "2024-08-09",
+    "lorcast-set-code": "D23",
+    "lorcast-set-name": "D23 Collection",
+    "tcgplayer-set-name": "D23 Promos",
+  }),
 ];
 
 const magicReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
@@ -281,6 +337,13 @@ const onePieceReferenceRecordIds = new Set<ReferenceRecordId>([
   onePieceProductLineId,
   setIds.romanceDawn,
 ]);
+const lorcanaReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
+const lorcanaReferenceRecordIds = new Set<ReferenceRecordId>([
+  lorcanaManufacturerId,
+  lorcanaProductLineId,
+  setIds.lorcanaTheFirstChapter,
+  setIds.lorcanaD23Collection,
+]);
 
 export async function seedReferenceData(services: CatalogServices): Promise<CatalogReferenceIds> {
   console.log("Seeding reference data...");
@@ -294,6 +357,7 @@ export async function seedReferenceData(services: CatalogServices): Promise<Cata
   }
 
   await seedOnePieceReferenceAliases(services);
+  await seedLorcanaReferenceAliases(services);
 
   return staticReferenceIds();
 }
@@ -336,6 +400,28 @@ export async function seedOnePieceReferenceData(services: CatalogServices): Prom
   await seedOnePieceReferenceAliases(services);
 
   return staticReferenceIds().onePiece;
+}
+
+export async function seedLorcanaReferenceData(services: CatalogServices): Promise<LorcanaReferenceIds> {
+  console.log("Reconciling Lorcana reference data...");
+
+  for (const def of referenceTypes.filter((candidate) => lorcanaReferenceTypeKeys.has(candidate.key))) {
+    if (!(await referenceTypeExists(services, def))) {
+      await createReferenceType(services, def);
+    }
+  }
+
+  for (const def of referenceRecords.filter((candidate) =>
+    lorcanaReferenceRecordIds.has(candidate.referenceRecordId),
+  )) {
+    if (!(await referenceRecordExists(services, def))) {
+      await createReferenceRecord(services, def);
+    }
+  }
+
+  await seedLorcanaReferenceAliases(services);
+
+  return staticReferenceIds().lorcana;
 }
 
 async function createReferenceType(services: CatalogServices, def: ReferenceTypeDef): Promise<void> {
@@ -397,6 +483,12 @@ function staticReferenceIds(): CatalogReferenceIds {
     onePiece: {
       sets: {
         "romance-dawn": setIds.romanceDawn,
+      },
+    },
+    lorcana: {
+      sets: {
+        "the-first-chapter": setIds.lorcanaTheFirstChapter,
+        "d23-collection": setIds.lorcanaD23Collection,
       },
     },
   };
@@ -499,6 +591,23 @@ function onePieceSet(
   };
 }
 
+function lorcanaSet(
+  key: string,
+  name: string,
+  referenceRecordId: ReferenceRecordId,
+  attributes: Readonly<Record<string, CatalogValue>>,
+): ReferenceRecordDef {
+  return {
+    referenceRecordId,
+    typeKey: "set",
+    key,
+    name,
+    description: `${name} Disney Lorcana set.`,
+    attributes,
+    relationships: [{ relationshipType: "part-of", referenceId: lorcanaProductLineId }],
+  };
+}
+
 async function seedOnePieceReferenceAliases(services: CatalogServices): Promise<void> {
   const aliases = [
     buildCatalogAliasCandidate({
@@ -521,6 +630,71 @@ async function seedOnePieceReferenceAliases(services: CatalogServices): Promise<
         source: "catalog-seed",
         setKey: "romance-dawn",
         setCode: "OP-01",
+      },
+    }),
+  ];
+
+  for (const candidate of aliases) {
+    if (await referenceAliasExists(services, candidate.aliasHash)) {
+      continue;
+    }
+
+    await sendSeedCommand(
+      services.catalogAliases.catalogAliasCommandHandler,
+      catalogAliasStreamId(candidate.aliasHash),
+      {
+        type: "ProposeCatalogAlias",
+        candidate,
+        actor: "system",
+      },
+    );
+  }
+}
+
+async function seedLorcanaReferenceAliases(services: CatalogServices): Promise<void> {
+  const aliases = [
+    buildCatalogAliasCandidate({
+      target: { kind: "reference-record", targetId: setIds.lorcanaTheFirstChapter, targetKey: "set" },
+      aliasText: "1",
+      aliasLanguageCode: "en",
+      sourceLanguageCode: "en",
+      aliasType: "set-equivalent",
+      confidence: "exact",
+      reviewStatus: "auto-accepted",
+      provenance: {
+        providerKey: "catalog-seed",
+        observationId: null,
+        sourceCategory: "curated-operator-mapping",
+        sourceProfileKey: "catalog-seed-lorcana-reference-aliases",
+        sourceProfileVersion: "2026.06.23",
+        mappingFingerprint: "catalog-seed-lorcana-reference-aliases-v1",
+      },
+      evidence: {
+        source: "catalog-seed",
+        setKey: "the-first-chapter",
+        setCode: "1",
+      },
+    }),
+    buildCatalogAliasCandidate({
+      target: { kind: "reference-record", targetId: setIds.lorcanaD23Collection, targetKey: "set" },
+      aliasText: "D23",
+      aliasLanguageCode: "en",
+      sourceLanguageCode: "en",
+      aliasType: "set-equivalent",
+      confidence: "exact",
+      reviewStatus: "auto-accepted",
+      provenance: {
+        providerKey: "catalog-seed",
+        observationId: null,
+        sourceCategory: "curated-operator-mapping",
+        sourceProfileKey: "catalog-seed-lorcana-reference-aliases",
+        sourceProfileVersion: "2026.06.23",
+        mappingFingerprint: "catalog-seed-lorcana-reference-aliases-v1",
+      },
+      evidence: {
+        source: "catalog-seed",
+        setKey: "d23-collection",
+        setCode: "D23",
       },
     }),
   ];

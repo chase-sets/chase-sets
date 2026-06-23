@@ -169,6 +169,10 @@ export async function seedBlueprints(
     result,
     await seedOnePieceBlueprints(services, components, dimensions, fields, { reconcileExisting: false }),
   );
+  Object.assign(
+    result,
+    await seedLorcanaBlueprints(services, components, dimensions, fields, { reconcileExisting: false }),
+  );
 
   return result;
 }
@@ -449,6 +453,153 @@ export async function seedOnePieceBlueprints(
     }
 
     result["one-piece-sealed-product"] = blueprintId;
+  }
+
+  return result;
+}
+
+export async function seedLorcanaBlueprints(
+  services: CatalogServices,
+  components: ComponentIds,
+  dimensions: DimensionIds,
+  fields: FieldIds,
+  options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
+): Promise<BlueprintIds> {
+  const result: BlueprintIds = {};
+
+  {
+    const blueprintId = catalogSeedIds.blueprints.lorcanaCardPrint as BlueprintId;
+    const streamId = `catalog.blueprint-${blueprintId}`;
+    const formDimension = dimensions.form;
+
+    if (!(options.reconcileExisting && (await blueprintExists(services, blueprintId, "lorcana-card-print")))) {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "CreateBlueprint",
+        blueprintId,
+        key: "lorcana-card-print",
+        name: localizedTextMapFromEnglish("Lorcana Card Print"),
+        description: localizedTextMapFromEnglish(
+          "Template for a specific printed Disney Lorcana card with raw and graded Products",
+        ),
+      });
+
+      for (const compKey of ["lorcana-card-print-identity", "lorcana-card-product-resolution"] as const) {
+        await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+          type: "AttachComponentToBlueprint",
+          componentId: components[compKey],
+        });
+      }
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintFields",
+        fieldRules: [
+          { fieldId: fields["card-number"], required: true },
+          { fieldId: fields["card-name"], required: true },
+          { fieldId: fields.set, required: true },
+          { fieldId: fields.rarity, required: false },
+          { fieldId: fields["card-variant"], required: false },
+          { fieldId: fields["ink-color"], required: false },
+          { fieldId: fields["card-type"], required: false },
+          { fieldId: fields["card-classifications"], required: false },
+          { fieldId: fields["card-properties"], required: false },
+          { fieldId: fields["card-illustrator"], required: false },
+          { fieldId: fields["release-year"], required: false },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintDimensions",
+        dimensionRules: [
+          {
+            dimensionId: formDimension.dimensionId,
+            required: true,
+            allowedOptionIds: formDimension.orderedOptionIds,
+          },
+          {
+            dimensionId: dimensions.condition.dimensionId,
+            required: true,
+            allowedOptionIds: dimensions.condition.orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.raw] }],
+          },
+          {
+            dimensionId: dimensions["grading-company"].dimensionId,
+            required: true,
+            allowedOptionIds: dimensions["grading-company"].orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.graded] }],
+          },
+          {
+            dimensionId: dimensions.grade.dimensionId,
+            required: true,
+            allowedOptionIds: dimensions.grade.orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.graded] }],
+          },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintProductResolutionRules",
+        canonicalDimensionOrder: [
+          formDimension.dimensionId,
+          dimensions.condition.dimensionId,
+          dimensions["grading-company"].dimensionId,
+          dimensions.grade.dimensionId,
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "PublishBlueprint",
+      });
+    }
+
+    result["lorcana-card-print"] = blueprintId;
+  }
+
+  {
+    const blueprintId = catalogSeedIds.blueprints.lorcanaSealedProduct as BlueprintId;
+    const streamId = `catalog.blueprint-${blueprintId}`;
+
+    if (!(options.reconcileExisting && (await blueprintExists(services, blueprintId, "lorcana-sealed-product")))) {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "CreateBlueprint",
+        blueprintId,
+        key: "lorcana-sealed-product",
+        name: localizedTextMapFromEnglish("Lorcana Sealed Product"),
+        description: localizedTextMapFromEnglish(
+          "Template for Disney Lorcana sealed products such as booster packs, troves, gift sets, and starter decks",
+        ),
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "AttachComponentToBlueprint",
+        componentId: components["lorcana-sealed-product-identity"],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintFields",
+        fieldRules: [
+          { fieldId: fields.set, required: true },
+          { fieldId: fields["sealed-product-form"], required: true },
+          { fieldId: fields["pack-count"], required: false },
+          { fieldId: fields["release-year"], required: false },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintDimensions",
+        dimensionRules: [],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintProductResolutionRules",
+        canonicalDimensionOrder: [],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "PublishBlueprint",
+      });
+    }
+
+    result["lorcana-sealed-product"] = blueprintId;
   }
 
   return result;

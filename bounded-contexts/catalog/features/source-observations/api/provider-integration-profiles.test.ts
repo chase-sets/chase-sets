@@ -8,6 +8,10 @@ import {
   getCatalogProviderSourceObservationMappingContract,
   getCatalogProviderIntegrationProfile,
   getCatalogProviderIntegrationProfileVersion,
+  lorcanajsonLorcanaCardReferenceProviderProfile,
+  lorcanajsonLorcanaSetReferenceProviderProfile,
+  lorcastLorcanaCardReferenceProviderProfile,
+  lorcastLorcanaSetReferenceProviderProfile,
   listCatalogProviderIntegrationProfiles,
   listCatalogProviderIntegrationProfileVersions,
   mtgjsonMtgCardReferenceProviderProfile,
@@ -17,8 +21,13 @@ import {
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
+  scrydexLorcanaCardPrintProviderProfile,
+  scrydexLorcanaSealedProductProviderProfile,
+  scrydexLorcanaSetReferenceProviderProfile,
   scrydexOnePieceCardPrintProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  tcgplayerLorcanaSingleCardProviderProfile,
+  tcgplayerLorcanaSealedProductProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerOnePieceSingleCardProviderProfile,
@@ -173,6 +182,56 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("registers TCGplayer Lorcana single cards and sealed products as active marketplace-evidence units", () => {
+    const singleCard = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
+      profileKey: "lorcana-single-card-product-sku",
+    });
+    const sealedProduct = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
+      profileKey: "lorcana-sealed-product-sku",
+    });
+
+    expect(singleCard?.profile).toBe(tcgplayerLorcanaSingleCardProviderProfile);
+    expect(sealedProduct?.profile).toBe(tcgplayerLorcanaSealedProductProviderProfile);
+    expect(catalogProviderProfileVersionIngestionUnitKey(singleCard!)).toBe(
+      "tcgplayer:lorcana:single-card:source-observation-import",
+    );
+    expect(catalogProviderProfileVersionIngestionUnitKey(sealedProduct!)).toBe(
+      "tcgplayer:lorcana:sealed-product:source-observation-import",
+    );
+    expect(singleCard?.profile).toMatchObject({
+      providerKey: "tcgplayer",
+      displayName: "TCGplayer Lorcana Single Cards",
+      status: "active",
+      normalizedObservationMapping: { kind: "provider-product" },
+      catalogFieldMapping: {
+        blueprintKey: "lorcana-card-print",
+        categoryKey: "lorcana-card-prints",
+      },
+    });
+    expect(sealedProduct?.profile).toMatchObject({
+      providerKey: "tcgplayer",
+      displayName: "TCGplayer Lorcana Sealed Products",
+      status: "active",
+      normalizedObservationMapping: { kind: "provider-product" },
+      catalogFieldMapping: {
+        blueprintKey: "lorcana-sealed-product",
+        categoryKey: "lorcana-sealed-products",
+      },
+      selectedOptionMapping: {
+        dimensions: [
+          expect.objectContaining({
+            dimensionKey: "product-form",
+            valueMappings: [{ from: true, value: "unopened" }],
+          }),
+          expect.objectContaining({
+            dimensionKey: "language",
+            valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+          }),
+        ],
+      },
+    });
+  });
+
   it("registers Scrydex One Piece as live credentialed transport with fixture-backed activation evidence", () => {
     const profile = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
       profileKey: "one-piece-card-print-source-observation",
@@ -180,7 +239,7 @@ describe("catalog provider integration profiles", () => {
 
     expect(profile).toBe(scrydexOnePieceCardPrintProviderProfile);
     expect(profile?.connector).toMatchObject({
-      kind: "scrydex-one-piece-json",
+      kind: "scrydex-json",
       transportMode: "live-credentialed",
       fixtureEvidence: "required-for-active-profile-validation",
       authentication: {
@@ -198,6 +257,43 @@ describe("catalog provider integration profiles", () => {
       excludedEvidence: expect.arrayContaining(["unapproved-price-history"]),
     });
     expect(profile?.connector).not.toHaveProperty("fixtureBackedOnly");
+  });
+
+  it("registers Scrydex Lorcana units against the shared Scrydex credentialed connector", () => {
+    const card = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+      profileKey: "lorcana-card-print-source-observation",
+    });
+    const set = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+      profileKey: "lorcana-set-reference-data",
+    });
+    const sealed = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+      profileKey: "lorcana-sealed-product-source-observation",
+    });
+
+    expect(card?.profile).toBe(scrydexLorcanaCardPrintProviderProfile);
+    expect(set?.profile).toBe(scrydexLorcanaSetReferenceProviderProfile);
+    expect(sealed?.profile).toBe(scrydexLorcanaSealedProductProviderProfile);
+    expect(card).toMatchObject({
+      ingestionUnitIdentity: {
+        unitKey: "scrydex:lorcana:single-card:source-observation-import",
+        productDomain: "lorcana",
+      },
+      profile: {
+        connector: { kind: "scrydex-json", authentication: { scheme: "scrydex-api-key" } },
+        normalizedObservationMapping: { kind: "lorcana-card-print" },
+      },
+    });
+    expect(set).toMatchObject({
+      ingestionUnitIdentity: { unitKey: "scrydex:lorcana:set:reference-data", productDomain: "lorcana" },
+      profile: { normalizedObservationMapping: { kind: "lorcana-set-reference" } },
+    });
+    expect(sealed).toMatchObject({
+      ingestionUnitIdentity: {
+        unitKey: "scrydex:lorcana:sealed-product:source-observation-import",
+        productDomain: "lorcana",
+      },
+      profile: { normalizedObservationMapping: { kind: "lorcana-sealed-product" } },
+    });
   });
 
   it("keeps TCGplayer pricing and seller workflow evidence outside Catalog truth", () => {
@@ -352,6 +448,117 @@ describe("catalog provider integration profiles", () => {
     });
     expect(mtgjsonMtgSetReferenceProviderProfile.optionQueries).toHaveLength(1);
     expect(mtgjsonMtgSetReferenceProviderProfile.optionQueries).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ queryKind: "cards" })]),
+    );
+  });
+
+  it("registers LorcanaJSON as active Disney Lorcana set and card reference profiles", () => {
+    const profile = getCatalogProviderIntegrationProfile("LORCANAJSON");
+
+    expect(profile).toBe(lorcanajsonLorcanaCardReferenceProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "lorcanajson",
+      status: "active",
+      capabilities: [
+        "provider-option-query",
+        "source-observation-import",
+        "catalog-item-promotion",
+        "external-reference-extraction",
+      ],
+      supportedScopes: ["set-name", "product/card"],
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", operation: "lorcanajson-list-sets" }),
+        expect.objectContaining({ queryKind: "cards", operation: "lorcanajson-list-cards" }),
+      ],
+      normalizedObservationMapping: { kind: "lorcana-card-print" },
+      connector: {
+        kind: "lorcanajson-json",
+        bulkPolicy: {
+          freshnessDocument: "metadata.json",
+          optionDiscoveryDocument: "allCards.json",
+          selectedSetDocumentPattern: "sets/setdata.{setCode}.json",
+          normalImportStrategy: "bulk-first",
+        },
+        acceptedEvidence: expect.arrayContaining(["lorcanajson-card-id", "set-code", "tcgplayer-id"]),
+        excludedEvidence: ["price", "seller", "inventory", "ruling", "legality", "unapproved-scrape"],
+      },
+      externalReferenceExtractionRules: {
+        referenceTarget: "catalog-item-reference",
+        rules: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            target: "catalog-item-reference",
+            externalKeyPrefix: "product:",
+            valueKeys: ["tcgplayerProductId"],
+          }),
+        ],
+      },
+    });
+    expect(lorcanajsonLorcanaSetReferenceProviderProfile).toMatchObject({
+      providerKey: "lorcanajson",
+      displayName: "LorcanaJSON Set Reference",
+      status: "active",
+      capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+      normalizedObservationMapping: { kind: "lorcana-set-reference" },
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", scope: "set-name", operation: "lorcanajson-list-sets" }),
+      ],
+    });
+    expect(lorcanajsonLorcanaSetReferenceProviderProfile.optionQueries).toHaveLength(1);
+    expect(lorcanajsonLorcanaSetReferenceProviderProfile.optionQueries).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ queryKind: "cards" })]),
+    );
+  });
+
+  it("registers Lorcast as active Disney Lorcana set and card reference profiles", () => {
+    const profile = getCatalogProviderIntegrationProfile("LORCAST");
+
+    expect(profile).toBe(lorcastLorcanaCardReferenceProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "lorcast",
+      status: "active",
+      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+      supportedScopes: ["set-name", "product/card"],
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", operation: "lorcast-list-sets" }),
+        expect.objectContaining({ queryKind: "cards", operation: "lorcast-list-cards" }),
+      ],
+      normalizedObservationMapping: { kind: "lorcana-card-print" },
+      connector: {
+        kind: "lorcast-json",
+        authentication: { scheme: "public-api", credentialsRequired: false },
+        requestPolicy: {
+          normalImportStrategy: "bulk-set-scoped",
+          cacheProviderDataForAtLeastHours: 24,
+          recommendedDelayMilliseconds: "50-100",
+        },
+        acceptedEvidence: expect.arrayContaining(["lorcast-card-id", "lorcast-set-id", "tcgplayer-id"]),
+        excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
+      },
+      externalReferenceExtractionRules: {
+        referenceTarget: "catalog-item-reference",
+        rules: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            target: "catalog-item-reference",
+            externalKeyPrefix: "product:",
+            valueKeys: ["tcgplayerProductId"],
+          }),
+        ],
+      },
+    });
+    expect(lorcastLorcanaSetReferenceProviderProfile).toMatchObject({
+      providerKey: "lorcast",
+      displayName: "Lorcast Set Reference",
+      status: "active",
+      capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
+      normalizedObservationMapping: { kind: "lorcana-set-reference" },
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", scope: "set-name", operation: "lorcast-list-sets" }),
+      ],
+    });
+    expect(lorcastLorcanaSetReferenceProviderProfile.optionQueries).toHaveLength(1);
+    expect(lorcastLorcanaSetReferenceProviderProfile.optionQueries).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ queryKind: "cards" })]),
     );
   });
@@ -663,14 +870,23 @@ describe("catalog provider integration profiles", () => {
 
   it("lists active and planned providers through the same provider catalog", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
+      ["lorcanajson", "active"],
+      ["lorcanajson", "active"],
+      ["lorcast", "active"],
+      ["lorcast", "active"],
       ["mtgjson", "active"],
       ["mtgjson", "active"],
+      ["scrydex", "active"],
+      ["scrydex", "active"],
+      ["scrydex", "active"],
       ["scrydex", "active"],
       ["scrydex", "active"],
       ["scrydex", "active"],
       ["scryfall", "active"],
       ["scryfall", "active"],
       ["tcgdex", "active"],
+      ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
@@ -688,14 +904,23 @@ describe("catalog provider integration profiles", () => {
     const versions = listCatalogProviderIntegrationProfileVersions();
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
+      ["lorcanajson", "2026.06.23", "active"],
+      ["lorcanajson", "2026.06.23", "active"],
+      ["lorcast", "2026.06.23", "active"],
+      ["lorcast", "2026.06.23", "active"],
       ["mtgjson", "2026.06.19", "active"],
       ["mtgjson", "2026.06.19", "active"],
+      ["scrydex", "2026.06.23", "active"],
+      ["scrydex", "2026.06.23", "active"],
+      ["scrydex", "2026.06.23", "active"],
       ["scrydex", "2026.06.22", "active"],
       ["scrydex", "2026.06.22", "active"],
       ["scrydex", "2026.06.22", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.23", "active"],
+      ["tcgplayer", "2026.06.23", "active"],
       ["tcgplayer", "2026.06.23", "active"],
       ["tcgplayer", "2026.06.22", "active"],
       ["tcgplayer", "2026.06.20", "active"],
@@ -733,6 +958,44 @@ describe("catalog provider integration profiles", () => {
     ).toMatchObject({
       providerKey: "mtgjson",
       profileKey: "mtg-set-reference-data",
+    });
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("LORCANAJSON")).toThrow(
+      /multiple active profile units/,
+    );
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("LORCANAJSON", {
+        ingestionUnitKey: "lorcanajson:lorcana:set:reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "lorcanajson",
+      profileKey: "lorcana-set-reference-data",
+      sourceContract: {
+        repository: "chase-sets/chase-sets",
+        fixtureSetVersion: "lorcanajson-lorcana-set-reference-production-v1",
+      },
+      executableMappingContract: expect.objectContaining({
+        providerKey: "lorcanajson",
+        profileKey: "lorcana-set-reference-data",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("LORCAST")).toThrow(/multiple active profile units/);
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("LORCAST", {
+        ingestionUnitKey: "lorcast:lorcana:set:reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "lorcast",
+      profileKey: "lorcana-set-reference-data",
+      sourceContract: {
+        repository: null,
+        fixtureSetVersion: "lorcast-lorcana-set-reference-production-v1",
+      },
+      executableMappingContract: expect.objectContaining({
+        providerKey: "lorcast",
+        profileKey: "lorcana-set-reference-data",
+        sourceObservation: expect.any(Object),
+      }),
     });
     expect(getCatalogProviderIntegrationProfileVersion("scryfall")).toMatchObject({
       providerKey: "scryfall",
@@ -912,6 +1175,44 @@ describe("catalog provider integration profiles", () => {
         matchingCases.map((fixtureCase) => fixtureCase.flow),
         version.profileKey,
       ).toEqual(catalogProviderRequiredFixtureFlows);
+    }
+  });
+
+  it("gates every active Lorcana profile version on executable fixture-backed mapping coverage", () => {
+    const fixtureCases = catalogProviderProfileFixtureCases();
+    const activeLorcanaVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.active &&
+        version.lifecycle === "active" &&
+        executableContractProductDomain(version.executableMappingContract) === "lorcana" &&
+        ["lorcanajson", "lorcast", "tcgplayer"].includes(version.providerKey),
+    );
+
+    expect(activeLorcanaVersions.map((version) => version.profileKey)).toEqual([
+      "lorcana-card-reference-data",
+      "lorcana-set-reference-data",
+      "lorcana-card-reference-data",
+      "lorcana-set-reference-data",
+      "lorcana-single-card-product-sku",
+      "lorcana-sealed-product-sku",
+    ]);
+
+    for (const version of activeLorcanaVersions) {
+      expect(version.executableMappingContract, version.profileKey).toBeDefined();
+      expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
+      expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);
+      expect(validateCatalogProviderIntegrationProfileVersion(version), version.profileKey).toEqual([]);
+
+      const matchingCases = fixtureCases.filter(
+        (fixtureCase) =>
+          fixtureCase.providerKey === version.providerKey &&
+          fixtureCase.profileVersion === version.profileVersion &&
+          fixtureCase.profileKey === version.profileKey,
+      );
+      expect(
+        new Set(matchingCases.map((fixtureCase) => fixtureCase.flow)),
+        `${version.providerKey}/${version.profileKey}`,
+      ).toEqual(new Set(catalogProviderRequiredFixtureFlows));
     }
   });
 

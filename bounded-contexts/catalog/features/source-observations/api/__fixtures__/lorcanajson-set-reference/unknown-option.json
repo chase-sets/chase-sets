@@ -1,0 +1,36 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_set_en_1X",
+  "externalKey": "set:1X",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1X.json",
+  "sourceUpdatedAt": "2026-05-26T19:11:58",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "setId": "1X",
+    "setCode": "1X",
+    "setName": "The First Chapter Unknown Option",
+    "releaseDate": "2023-08-18",
+    "cardCount": 0
+  },
+  "catalogHashMaterial": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "setId": "1X",
+    "setCode": "1X",
+    "setName": "The First Chapter Unknown Option",
+    "releaseDate": "2023-08-18",
+    "cardCount": 0
+  },
+  "externalCatalogItemReferences": [],
+  "setId": "1X",
+  "setCode": "1X",
+  "setName": "The First Chapter Unknown Option",
+  "name": "The First Chapter Unknown Option",
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "cardCount": 0
+}

@@ -118,6 +118,62 @@ describe("Catalog source-scope workset", () => {
     expect(within(form!).queryByDisplayValue(/api\//i)).toBeNull();
   });
 
+  it("uses the same source-scope workset for a Lorcana set without a Lorcana-only area", () => {
+    const profiles = lorcanaProfiles();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&languageCode=en&productLineId=lorcana&productLineName=Disney%20Lorcana&expansionId=TFC&expansionName=The%20First%20Chapter&profileVersion=2026.06.23",
+      scopes: { items: lorcanaSetScopes(), total: 3, count: 3 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: overviewForProfiles(profiles, "lorcana"),
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceScopeWorkset.status).toBe("ready");
+    expect(readModel.sourceScopeWorkset.selectedScope).toMatchObject({
+      importScope: "en:lorcana:TFC",
+      hasConcreteScope: true,
+    });
+    expect(readModel.sourceScopeWorkset.units.map((unit) => unit.providerKey)).toEqual([
+      "lorcanajson",
+      "lorcast",
+      "tcgplayer",
+    ]);
+    expect(readModel.sourceScopeWorkset.units.every((unit) => unit.actions.import.state === "available")).toBe(true);
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    expect(screen.getAllByText("Selected source scope").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Lorcana set sync")).toBeNull();
+    expect(screen.getAllByText("LorcanaJSON").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Lorcast Lorcana cards").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("TCGplayer Lorcana Single Cards").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Sync LorcanaJSON" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Sync Lorcast Lorcana cards" }).length).toBeGreaterThan(0);
+
+    const lorcanajsonForm = sourceScopeCommandForm(
+      "start-provider-import",
+      "lorcanajson:lorcana:single-card:reference-data",
+    );
+    expect(formPathname(lorcanajsonForm)).toBe("/catalog/integrations");
+    expect(lorcanajsonForm?.getAttribute("action")).not.toContain("/api/");
+    expect(hiddenValue(lorcanajsonForm, "providerKey")).toBe("lorcanajson");
+    expect(hiddenValue(lorcanajsonForm, "unitKey")).toBe("lorcanajson:lorcana:single-card:reference-data");
+    expect(hiddenValue(lorcanajsonForm, "importScope")).toBe("en:lorcana:TFC");
+    expect(hiddenValue(lorcanajsonForm, "productLineName")).toBe("Disney Lorcana");
+    expect(hiddenValue(lorcanajsonForm, "expansionName")).toBe("The First Chapter");
+
+    const tcgplayerForm = sourceScopeCommandForm(
+      "start-provider-import",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+    );
+    expect(hiddenValue(tcgplayerForm, "providerKey")).toBe("tcgplayer");
+    expect(hiddenValue(tcgplayerForm, "productLineId")).toBe("71");
+    expect(hiddenValue(tcgplayerForm, "expansionName")).toBe("The First Chapter");
+    expect(hiddenValue(tcgplayerForm, "importScope")).toBe("en:71:TFC");
+    expect(within(tcgplayerForm!).queryByDisplayValue(/api\//i)).toBeNull();
+  });
+
   it("does not project a TCGplayer MTG scope into the Yu-Gi-Oh unit", () => {
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
@@ -546,6 +602,19 @@ function magicProfiles(): CatalogProviderProfileVersionReview[] {
   ];
 }
 
+function lorcanaProfiles(): CatalogProviderProfileVersionReview[] {
+  return [
+    lorcanaSetNameProfile("lorcanajson", "LorcanaJSON", "lorcanajson:lorcana:single-card:reference-data"),
+    lorcanaSetNameProfile("lorcast", "Lorcast Lorcana cards", "lorcast:lorcana:single-card:reference-data"),
+    tcgplayerUnitProfile(
+      "lorcana-single-card-product-sku",
+      "TCGplayer Lorcana Single Cards",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+      "2026.06.23",
+    ),
+  ];
+}
+
 function magicProfile(
   providerKey: "mtgjson" | "scryfall" | "tcgplayer",
   displayName: string,
@@ -574,6 +643,40 @@ function magicProfile(
         parentRequired: providerKey === "tcgplayer",
         parentValueKind: providerKey === "tcgplayer" ? "product-line-id" : null,
         parentDiagnosticText: providerKey === "tcgplayer" ? "Select Product Line before Set Name." : null,
+      },
+    ],
+  });
+}
+
+function lorcanaSetNameProfile(
+  providerKey: "lorcanajson" | "lorcast",
+  displayName: string,
+  ingestionUnitKey: string,
+): CatalogProviderProfileVersionReview {
+  return profileReview({
+    providerKey,
+    profileKey: `${providerKey}-lorcana-card`,
+    profileVersion: "2026.06.23",
+    ingestionUnitKey,
+    displayName,
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    connectorKind: `${providerKey}-json`,
+    profile: { providerKey, supportedScopes: ["set-name", "product/card"] },
+    supportedScopes: ["set-name", "product/card"],
+    mappingOutputKind: "lorcana-card-print",
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
       },
     ],
   });
@@ -611,6 +714,41 @@ function magicScope(
     latest_source_updated_at: "2026-06-19T12:00:00.000Z",
     latest_observed_at: "2026-06-19T12:05:00.000Z",
     first_observed_at: "2026-06-19T12:00:00.000Z",
+  });
+}
+
+function lorcanaSetScopes(): SourceObservationIntegrationScope[] {
+  return [
+    lorcanaScope("lorcanajson", { observed_observations: 204, changed_observations: 18, promoted_observations: 40 }),
+    lorcanaScope("lorcast", { observed_observations: 204, changed_observations: 10, promoted_observations: 0 }),
+    lorcanaScope("tcgplayer", { observed_observations: 80, changed_observations: 7, promoted_observations: 48 }),
+  ];
+}
+
+function lorcanaScope(
+  providerKey: "lorcanajson" | "lorcast" | "tcgplayer",
+  counts: Partial<SourceObservationIntegrationScope>,
+): SourceObservationIntegrationScope {
+  const providerScope =
+    providerKey === "tcgplayer"
+      ? { product_line_id: "71", expansion_id: "" }
+      : { product_line_id: "lorcana", expansion_id: "TFC" };
+
+  return sourceObservationScope({
+    provider_key: providerKey,
+    language_code: "en",
+    product_line_id: providerScope.product_line_id,
+    product_line_name: "Disney Lorcana",
+    series_id: "",
+    series_name: "",
+    expansion_id: providerScope.expansion_id,
+    expansion_name: "The First Chapter",
+    total_observations: 204,
+    rejected_observations: 0,
+    ...counts,
+    latest_source_updated_at: "2026-06-23T12:00:00.000Z",
+    latest_observed_at: "2026-06-23T12:05:00.000Z",
+    first_observed_at: "2026-06-23T12:00:00.000Z",
   });
 }
 
@@ -656,7 +794,7 @@ function scrydexOnePieceSetNameProfile(): CatalogProviderProfileVersionReview {
     active: true,
     lifecycle: "active",
     status: "active",
-    connectorKind: "scrydex-one-piece-json",
+    connectorKind: "scrydex-json",
     profile: { providerKey: "scrydex", supportedScopes: ["set-name", "product/card"] },
     supportedScopes: ["set-name", "product/card"],
     languageOptions: ["en"],

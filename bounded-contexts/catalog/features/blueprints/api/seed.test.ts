@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedOnePieceBlueprints } from "./seed";
+import { seedLorcanaBlueprints, seedOnePieceBlueprints } from "./seed";
 
 describe("blueprint seed", () => {
   it("seeds One Piece card and sealed blueprints with deterministic product resolution", async () => {
@@ -48,6 +48,77 @@ describe("blueprint seed", () => {
     expect(commands).toContainEqual(
       expect.objectContaining({
         streamId: `catalog.blueprint-${catalogSeedIds.blueprints.onePieceSealedProduct}`,
+        command: expect.objectContaining({
+          type: "SetBlueprintProductResolutionRules",
+          canonicalDimensionOrder: [],
+        }),
+      }),
+    );
+  });
+
+  it("seeds Lorcana card and sealed blueprints without schema changes", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      db: { query: async <T>() => ({ rows: [] as T[] }) },
+      blueprints: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+
+    const ids = await seedLorcanaBlueprints(
+      services as never,
+      keyBackedIds("cmp") as never,
+      dimensions() as never,
+      keyBackedIds("fld") as never,
+    );
+
+    expect(ids["lorcana-card-print"]).toBe(catalogSeedIds.blueprints.lorcanaCardPrint);
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaCardPrint}`,
+        command: expect.objectContaining({
+          type: "SetBlueprintProductResolutionRules",
+          canonicalDimensionOrder: ["dim_form", "dim_condition", "dim_grading_company", "dim_grade"],
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaCardPrint}`,
+        command: expect.objectContaining({
+          type: "SetBlueprintFields",
+          fieldRules: expect.arrayContaining([
+            { fieldId: "fld_card-number", required: true },
+            { fieldId: "fld_card-name", required: true },
+            { fieldId: "fld_set", required: true },
+            { fieldId: "fld_card-variant", required: false },
+            { fieldId: "fld_ink-color", required: false },
+            { fieldId: "fld_card-type", required: false },
+            { fieldId: "fld_card-classifications", required: false },
+            { fieldId: "fld_card-properties", required: false },
+            { fieldId: "fld_card-illustrator", required: false },
+          ]),
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaSealedProduct}`,
+        command: expect.objectContaining({
+          type: "SetBlueprintFields",
+          fieldRules: expect.arrayContaining([
+            { fieldId: "fld_set", required: true },
+            { fieldId: "fld_sealed-product-form", required: true },
+            { fieldId: "fld_pack-count", required: false },
+          ]),
+        }),
+      }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({
+        streamId: `catalog.blueprint-${catalogSeedIds.blueprints.lorcanaSealedProduct}`,
         command: expect.objectContaining({
           type: "SetBlueprintProductResolutionRules",
           canonicalDimensionOrder: [],
