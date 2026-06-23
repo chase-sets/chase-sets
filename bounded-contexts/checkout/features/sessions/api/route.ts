@@ -10,6 +10,7 @@ import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
   normalizeRequestedBalanceCreditAmount,
+  previewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
@@ -352,6 +353,34 @@ function checkoutEntrySessionId(params: {
   return `chk_${digest}` as CheckoutSessionId;
 }
 
+function buyNowPreflightSessionId(params: {
+  accountId: AccountId;
+  source: CheckoutEntryIdempotencySource;
+  shippingOption: string;
+  optimizationGoal: ReturnType<typeof parseOptimizationGoal>;
+}) {
+  const digest = createHash("sha256")
+    .update(
+      stableStringify({
+        schema: "checkout.buy-now-preflight.v1",
+        accountId: params.accountId,
+        source: params.source,
+        shippingOption: params.shippingOption,
+        optimizationGoal: params.optimizationGoal,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `chk_${digest}`;
+}
+
+function buyNowOrderingPreflightMessage(reason: string | null | undefined) {
+  const normalized = reason?.trim();
+  return normalized && normalized !== "Locked listing is unavailable."
+    ? normalized
+    : "This listing is still becoming available for checkout. Try again shortly.";
+}
+
 export function createAccountCheckoutSessionRoutes(
   services: CheckoutSessionServices,
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
@@ -485,7 +514,11 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       const selectedOptions = parseSelectedOptions(source.selectedOptions);
-      const shippingOption = String(body.shippingOption ?? "standard");
+      const requestedShippingOption = String(body.shippingOption ?? "standard");
+      const shippingOption =
+        requestedShippingOption === "expedited" || requestedShippingOption === "priority"
+          ? requestedShippingOption
+          : "standard";
       const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
       const listingId = String(source.listingId ?? "");
       const catalogItemId = String(source.catalogItemId ?? "");
@@ -495,43 +528,76 @@ export function createAccountCheckoutSessionRoutes(
         source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
           ? null
           : String(source.sellerPreferenceId || "") || null;
+      const buyNowSource = {
+        type: "buy-now",
+        listingId,
+        catalogItemId,
+        productId,
+        selectedOptions,
+        quantity,
+        fulfillmentMode: "locked-listing" as const,
+        lockedListingId,
+        sellerPreferenceId,
+      } satisfies CheckoutEntryIdempotencySource;
+      const sessionIdOverride = checkoutEntrySessionId({
+        accountId: access.actor.accountId as AccountId,
+        entryAttemptKey,
+        source: buyNowSource,
+        shippingOption,
+        optimizationGoal,
+      });
+      const buyNowLine = {
+        listingId,
+        cartLineId: null,
+        catalogItemId,
+        productId,
+        itemTitle: String(source.itemTitle ?? ""),
+        itemSubtitle:
+          source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
+        selectedOptions,
+        productSummary:
+          source.productSummary === null || source.productSummary === undefined ? null : String(source.productSummary),
+        quantity,
+        fulfillmentMode: "locked-listing" as const,
+        lockedListingId,
+        sellerPreferenceId,
+      };
+      const supplyPreview = await previewBuyNowCheckoutSupplyThroughOrdering(c.req.raw, {
+        checkoutSessionId:
+          sessionIdOverride ??
+          buyNowPreflightSessionId({
+            accountId: access.actor.accountId as AccountId,
+            source: buyNowSource,
+            shippingOption,
+            optimizationGoal,
+          }),
+        shippingOption,
+        optimizationGoal,
+        line: buyNowLine,
+      });
+      if (supplyPreview.readyLineKeys.length === 0) {
+        throw new CheckoutDomainError(
+          buyNowOrderingPreflightMessage(supplyPreview.unavailableLines[0]?.reason),
+          "unresolved_fulfillment",
+        );
+      }
       const result = await services.createBuyNow(
         {
           accountId: access.actor.accountId as AccountId,
           listingId,
           catalogItemId,
           productId,
-          itemTitle: String(source.itemTitle ?? ""),
-          itemSubtitle:
-            source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
+          itemTitle: buyNowLine.itemTitle,
+          itemSubtitle: buyNowLine.itemSubtitle,
           selectedOptions,
-          productSummary:
-            source.productSummary === null || source.productSummary === undefined
-              ? null
-              : String(source.productSummary),
+          productSummary: buyNowLine.productSummary,
           quantity,
           fulfillmentMode: "locked-listing",
           lockedListingId,
           sellerPreferenceId,
           optimizationGoal,
           shippingOption,
-          sessionIdOverride: checkoutEntrySessionId({
-            accountId: access.actor.accountId as AccountId,
-            entryAttemptKey,
-            source: {
-              type: "buy-now",
-              listingId,
-              catalogItemId,
-              productId,
-              selectedOptions,
-              quantity,
-              fulfillmentMode: "locked-listing",
-              lockedListingId,
-              sellerPreferenceId,
-            },
-            shippingOption,
-            optimizationGoal,
-          }),
+          sessionIdOverride,
         },
         context,
       );
@@ -848,7 +914,7 @@ export function createAccountCheckoutSessionRoutes(
         session = ordersResult.session;
       }
 
-      const paymentId = await createCheckoutPaymentThroughPayments(
+      const payment = await createCheckoutPaymentThroughPayments(
         c.req.raw,
         sessionId,
         orderIds,
@@ -859,6 +925,7 @@ export function createAccountCheckoutSessionRoutes(
         savePaymentMethodForFuture,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
       );
+      const paymentId = payment.payment_id;
       const paymentResult = await services.recordPaymentStarted(
         {
           sessionId,
@@ -875,6 +942,7 @@ export function createAccountCheckoutSessionRoutes(
         order_ids: orderIds,
         status: "confirmed",
         session,
+        ...checkoutCommitMetadataFromSources([payment, paymentResult]),
       });
     } catch (error) {
       const code = errorCode(error);

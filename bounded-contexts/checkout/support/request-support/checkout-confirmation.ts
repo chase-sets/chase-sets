@@ -56,6 +56,25 @@ export async function createCheckoutOrdersThroughOrdering(
   };
 }
 
+export async function previewBuyNowCheckoutSupplyThroughOrdering(
+  request: Request,
+  params: Readonly<{
+    checkoutSessionId: string;
+    shippingOption: CheckoutSessionRow["shipping_option"];
+    optimizationGoal: CheckoutSessionRow["optimization_goal"];
+    line: CheckoutSessionRow["lines"][number];
+  }>,
+) {
+  const orderingApi = createOrderingRequestApiClient(request);
+  return orderingApi.previewCheckoutFulfillment({
+    checkoutSessionId: params.checkoutSessionId,
+    sourceType: "buy-now",
+    shippingOption: params.shippingOption,
+    optimizationGoal: params.optimizationGoal,
+    lines: [params.line],
+  });
+}
+
 export async function createCheckoutPaymentThroughPayments(
   request: Request,
   sessionId: string,
@@ -74,7 +93,7 @@ export async function createCheckoutPaymentThroughPayments(
     throw new Error("Review the payment quote before creating checkout payment.");
   }
 
-  const payment = await paymentsApi.createAccountPayment({
+  return paymentsApi.createAccountPayment({
     orderIds,
     sourceContext: "checkout",
     sourceReferenceId: sessionId,
@@ -86,8 +105,6 @@ export async function createCheckoutPaymentThroughPayments(
     returnUrlPath,
     agenticPayment,
   });
-
-  return payment.payment_id;
 }
 
 function offerIdForCheckoutSession(sessionId: string) {
