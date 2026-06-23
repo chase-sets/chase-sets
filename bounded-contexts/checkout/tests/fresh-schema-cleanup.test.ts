@@ -94,7 +94,7 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_receipt_pages (");
   });
 
-  it("declares the guest Sell List API route as a fresh read of Sell List line pages", () => {
+  it("declares Sell List API routes as fresh reads of Sell List pages", () => {
     const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
       apiMounts?: Array<{
         mountPath?: string;
@@ -109,6 +109,14 @@ describe("fresh checkout read-model schemas", () => {
 
     expect(marketplaceApi?.readFreshnessRoutes).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          routePath: "/account/sell-list",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            { readModelTable: "checkout_sell_list_line_pages" },
+            { readModelTable: "checkout_sell_list_confirmation_pages" },
+          ],
+        }),
         expect.objectContaining({
           routePath: "/guest/sell-list",
           methods: ["GET", "HEAD"],
