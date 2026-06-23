@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 
 const { mockCreateSettlementRequestApiClient, mockGetPayout, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockCreateSettlementRequestApiClient: vi.fn(),
@@ -49,7 +49,15 @@ function settlementCommit(position = "42", eventId = "evt_settlement_payout") {
 
 function freshPayoutRequest() {
   return new Request(
-    `http://localhost${appendFreshWriteToken("/account/payouts/pyo_test?requested=1", settlementCommit())}`,
+    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/payouts/pyo_test?requested=1")}`,
+  );
+}
+
+function expiredPayoutRequest() {
+  return new Request(
+    `http://localhost${navigateAfterWrite(settlementCommit(), "/account/payouts/pyo_test?requested=1", {
+      nowMs: Date.now() - 31_000,
+    })}`,
   );
 }
 
@@ -74,20 +82,44 @@ describe("settlement account payout route loader", () => {
     );
     mockCreateSettlementRequestApiClient.mockReturnValue({ getPayout: mockGetPayout });
 
-    let response: Response | null = null;
-    try {
-      await accountPayoutLoader({
-        request: freshPayoutRequest(),
-        params: { payoutId: "pyo_test" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      response = error as Response;
-    }
+    const result = await accountPayoutLoader({
+      request: freshPayoutRequest(),
+      params: { payoutId: "pyo_test" },
+      context: undefined,
+    } as never);
 
-    expect(response?.status).toBe(503);
-    expect(response?.statusText).toBe("Preparing payout");
-    await expect(response?.text()).resolves.toContain("preparing your payout details");
+    expect(result).toMatchObject({
+      payout: null,
+      recovery: "fresh-write-preparing",
+      requestSuccess: true,
+      showSupportDetails: false,
+    });
+  });
+
+  it("returns temporary recovery when a fresh payout detail read is not found during projection catch-up", async () => {
+    const { SettlementApiError } = await import("../../support/request-support/api-client");
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["payouts.view"],
+    });
+    mockGetPayout.mockRejectedValue(
+      new SettlementApiError(404, {
+        error: { code: "not_found", message: "Payout not found." },
+      }),
+    );
+    mockCreateSettlementRequestApiClient.mockReturnValue({ getPayout: mockGetPayout });
+
+    const result = await accountPayoutLoader({
+      request: freshPayoutRequest(),
+      params: { payoutId: "pyo_test" },
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      payout: null,
+      recovery: "fresh-write-preparing",
+    });
+    expect(mockGetPayout).toHaveBeenCalledTimes(6);
   });
 
   it("keeps manual missing payout links on the permanent not-found path", async () => {
@@ -116,5 +148,34 @@ describe("settlement account payout route loader", () => {
 
     expect(response?.status).toBe(404);
     await expect(response?.text()).resolves.toBe("Payout not found.");
+  });
+
+  it("keeps expired payout receipts on the permanent not-found path", async () => {
+    const { SettlementApiError } = await import("../../support/request-support/api-client");
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["payouts.view"],
+    });
+    mockGetPayout.mockRejectedValue(
+      new SettlementApiError(404, {
+        error: { code: "not_found", message: "Payout not found." },
+      }),
+    );
+    mockCreateSettlementRequestApiClient.mockReturnValue({ getPayout: mockGetPayout });
+
+    let response: Response | null = null;
+    try {
+      await accountPayoutLoader({
+        request: expiredPayoutRequest(),
+        params: { payoutId: "pyo_test" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(404);
+    await expect(response?.text()).resolves.toBe("Payout not found.");
+    expect(mockGetPayout).toHaveBeenCalledTimes(1);
   });
 });

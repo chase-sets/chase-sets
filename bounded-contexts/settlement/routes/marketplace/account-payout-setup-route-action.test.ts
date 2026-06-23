@@ -171,4 +171,80 @@ describe("settlement account payout setup route action", () => {
       setupNotice: expect.any(String),
     });
   });
+
+  it("keeps not-ready provider refresh snapshots on the setup page instead of redirecting to return targets", async () => {
+    const refreshPayoutSetup = vi.fn(async () => ({
+      ...readyPayoutReadiness(),
+      status: "pending",
+      missing_requirements: ["external_account"],
+      onboarding_status: "pending",
+      payout_destination_status: "missing",
+      commandReceipt: {
+        mode: "eventual",
+        commitEventIds: ["evt_payout_pending"],
+        commitPositions: [
+          {
+            sourceContextName: "settlement",
+            maxGlobalPosition: "41",
+            eventIds: ["evt_payout_pending"],
+          },
+        ],
+      },
+    }));
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: ["payouts.setup"] });
+    mockCreateSettlementRequestApiClient.mockReturnValue({ refreshPayoutSetup });
+
+    const result = await accountPayoutSetupAction({
+      request: formRequest(
+        new URLSearchParams({
+          intent: "refresh-payout-setup",
+          mode: "setup",
+        }),
+        "http://localhost/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      payoutReadiness: {
+        account_id: "acc_seller",
+        status: "pending",
+        missing_requirements: ["external_account"],
+      },
+      setupNotice: expect.any(String),
+    });
+    expect(result).not.toBeInstanceOf(Response);
+  });
+
+  it("keeps provider refresh failures as action errors instead of redirect freshness recovery", async () => {
+    const { SettlementApiError } = await import("../../support/request-support/api-client");
+    const refreshPayoutSetup = vi.fn(async () => {
+      throw new SettlementApiError(400, {
+        error: {
+          code: "provider_readiness_failed",
+          message: "Provider onboarding is still pending.",
+        },
+      });
+    });
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: ["payouts.setup"] });
+    mockCreateSettlementRequestApiClient.mockReturnValue({ refreshPayoutSetup });
+
+    const result = await accountPayoutSetupAction({
+      request: formRequest(
+        new URLSearchParams({
+          intent: "refresh-payout-setup",
+          mode: "setup",
+        }),
+        "http://localhost/account/payouts/setup?returnTo=%2Faccount%2Fsell-list",
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      error: expect.any(String),
+    });
+    expect(result).not.toBeInstanceOf(Response);
+  });
 });

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -29,6 +29,13 @@ type PayoutActionData = Readonly<{
   refreshedPayoutReadiness?: SettlementPayoutReadinessRow;
   setupNotice?: string;
 }>;
+
+const ACCOUNT_PAYOUTS_POST_WRITE_TELEMETRY = {
+  boundedContextName: "settlement",
+  surface: "account-payouts",
+  routeId: "account-payouts",
+  routeTemplate: "/account/payouts",
+} as const satisfies PlatformPostWriteTelemetry;
 
 function normalizeQuickAmount(formData: FormData) {
   return resolvePayoutAmountSelection({
@@ -122,7 +129,11 @@ export async function action({ request }: ActionFunctionArgs) {
         note: formData.get("note") || null,
       })) as Readonly<{ id: string }>;
 
-      return redirect(appendFreshWriteToken(`/account/payouts/${result.id}?requested=1`, result));
+      return redirect(
+        navigateAfterWrite(result, `/account/payouts/${result.id}?requested=1`, {
+          telemetry: ACCOUNT_PAYOUTS_POST_WRITE_TELEMETRY,
+        }),
+      );
     }
 
     if (intent === "start-payout-setup") {

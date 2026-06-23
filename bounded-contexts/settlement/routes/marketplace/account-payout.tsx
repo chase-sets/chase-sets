@@ -1,19 +1,22 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { loadAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { SettlementApiError, type SettlementPayoutRow } from "../../support/request-support/api-client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
-import { SettlementPayoutDetailPage } from "../../features/payouts/ui/payout-detail-page";
+import {
+  SettlementPayoutDetailPage,
+  SettlementPayoutDetailRecoveryPage,
+} from "../../features/payouts/ui/payout-detail-page";
 
-function payoutPreparingResponse() {
-  return new Response(t("settlement.routes.marketplace.accountPayout.payout.preparing.description"), {
-    status: 503,
-    statusText: t("settlement.routes.marketplace.accountPayout.payout.preparing"),
-  });
-}
+const PAYOUT_DETAIL_POST_WRITE_TELEMETRY = {
+  boundedContextName: "settlement",
+  surface: "account-payout",
+  routeId: "account-payout",
+  routeTemplate: "/account/payouts/:payoutId",
+} as const satisfies PlatformPostWriteTelemetry;
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -22,32 +25,40 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   });
   const settlementApi = createSettlementRequestApiClient(request);
 
-  try {
-    return await loadFreshlyWrittenResource({
-      request,
-      isNotFound: (error) => error instanceof SettlementApiError && error.status === 404,
-      load: async () => ({
-        payout: await settlementApi.getPayout(params.payoutId!),
-        requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
-        showSupportDetails: actor.permissions.includes("payouts.reconcile"),
-      }),
-    });
-  } catch (error) {
-    const freshWriteRecovery = recoverFreshWriteReadError({
-      request,
-      error,
-      recoverTransient: payoutPreparingResponse,
-    });
-    if (freshWriteRecovery) {
-      throw freshWriteRecovery;
-    }
+  const payoutRead = await loadAfterWrite<SettlementPayoutRow>({
+    request,
+    isNotFound: (error) => error instanceof SettlementApiError && error.status === 404,
+    load: () => settlementApi.getPayout(params.payoutId!),
+    telemetry: PAYOUT_DETAIL_POST_WRITE_TELEMETRY,
+  });
 
+  if (payoutRead.kind === "pending") {
+    return {
+      payout: null,
+      recovery: "fresh-write-preparing" as const,
+      requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+      showSupportDetails: actor.permissions.includes("payouts.reconcile"),
+    };
+  }
+
+  if (payoutRead.kind === "permanent-failure") {
+    const error = "error" in payoutRead ? payoutRead.error : null;
     if (error instanceof SettlementApiError && error.status === 404) {
       throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });
     }
 
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });
   }
+
+  return {
+    payout: payoutRead.data,
+    requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+    showSupportDetails: actor.permissions.includes("payouts.reconcile"),
+  };
 }
 
 export const meta: MetaFunction = () =>
@@ -55,6 +66,10 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountPayoutRoute() {
   const data = useLoaderData<typeof loader>();
+
+  if (!data.payout) {
+    return <SettlementPayoutDetailRecoveryPage />;
+  }
 
   return (
     <SettlementPayoutDetailPage

@@ -291,3 +291,27 @@ export function SettlementPayoutDetailPage({
     </Page>
   );
 }
+
+export function SettlementPayoutDetailRecoveryPage() {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("settlement.features.payouts.ui.payoutDetailPage.settlement")}
+        title={t("settlement.routes.marketplace.accountPayout.payout.preparing")}
+        description={t("settlement.routes.marketplace.accountPayout.payout.preparing.description")}
+        actions={
+          <LinkButton href="/account/payouts" tone="secondary">
+            {t("settlement.features.payouts.ui.payoutDetailPage.back.to.payouts")}
+          </LinkButton>
+        }
+      />
+      <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.summary")}>
+        <MarketplaceNotice
+          tone="info"
+          title={t("settlement.routes.marketplace.accountPayout.payout.preparing")}
+          description={t("settlement.routes.marketplace.accountPayout.payout.preparing.description")}
+        />
+      </PageSection>
+    </Page>
+  );
+}
