@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { User } from "../../support/request-support/api-client";
 import { UserDetailPage } from "../../features/users/ui/user-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -37,7 +37,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     result = await api.reactivateUser(userId);
   }
 
-  return redirect(appendFreshWriteToken(`/access/users/${userId}`, result));
+  return redirect(navigateAfterWrite(result, `/access/users/${userId}`));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.usersDetail.user.detail.identity.admin") }];

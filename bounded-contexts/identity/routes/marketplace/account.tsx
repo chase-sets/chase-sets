@@ -2,11 +2,11 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
-  appendFreshWriteToken,
   classifyFreshWriteReadError,
   postWriteRecoveryKindForFreshWriteReadError,
   type PostWriteRecoveryKind,
 } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { requestWithoutFreshWrite, requireActorFromIdentityApi } from "../../support/route-support/identity-request";
@@ -112,7 +112,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect(appendFreshWriteToken("/account", result));
+  return redirect(navigateAfterWrite(result, "/account"));
 }
 
 export const meta: MetaFunction = () =>

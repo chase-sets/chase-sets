@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { ApiKey } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { ApiKeyListPage } from "../../features/api-keys/ui/api-key-list-page";
@@ -25,7 +25,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect(appendFreshWriteToken("/access/api-keys", result));
+  return redirect(navigateAfterWrite(result, "/access/api-keys"));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKeys.api.keys.identity.admin") }];

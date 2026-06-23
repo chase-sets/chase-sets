@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
+import type { ListResponse } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
@@ -63,7 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
     result = await api.cancelInvitation(String(formData.get("invitationId") ?? ""));
   }
 
-  return redirect(appendFreshWriteToken("/account/team", result));
+  return redirect(navigateAfterWrite(result, "/account/team"));
 }
 
 export const meta: MetaFunction = () =>
