@@ -389,6 +389,52 @@ describe("representative commerce state seed helpers", () => {
     expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
     expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_offer_demand_matches"))).toBe(true);
   });
+
+  it("repairs existing representative marketplace facts when no untouched catalog candidates remain", async () => {
+    const discoveryQueries: QueryCall[] = [];
+    const discoveryDb = queryRecorder(discoveryQueries);
+    const marketplaceQueries: QueryCall[] = [];
+    const marketplaceDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        marketplaceQueries.push([sql, values]);
+        if (sql.includes("WHERE listing.listing_id LIKE")) {
+          return { rows: [{ listing_id: "lst_repr_existing" }] as Row[] };
+        }
+        if (sql.includes("WHERE offer.offer_id LIKE")) {
+          return { rows: [{ offer_id: "off_repr_existing" }] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_listing_pages")) {
+          return { rows: [marketplaceListing()] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_offer_pages")) {
+          return { rows: [marketplaceOffer()] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_account_pages")) {
+          return {
+            rows: [
+              marketplaceAccount("acc_seller", "Representative Seller"),
+              marketplaceAccount("acc_buyer", "Representative Buyer"),
+            ] as Row[],
+          };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+
+    const result = await reconcileRepresentativeDiscoveryMarketState(
+      { discoveryDb, marketplaceDb },
+      { listingIds: [], offerIds: [], existingRepresentativeLimit: 25 },
+    );
+
+    expect(result).toEqual({ accountCount: 2, listingCount: 1, offerCount: 1 });
+    expect(String(marketplaceQueries[0]?.[0])).toContain("listing.listing_id LIKE 'lst$_repr$_%' ESCAPE '$'");
+    expect(marketplaceQueries[0]?.[1]).toEqual([25]);
+    expect(String(marketplaceQueries[1]?.[0])).toContain("offer.offer_id LIKE 'off$_repr$_%' ESCAPE '$'");
+    expect(marketplaceQueries[1]?.[1]).toEqual([25]);
+    expect(marketplaceQueries[2]?.[1]).toEqual([["lst_repr_existing"]]);
+    expect(marketplaceQueries[3]?.[1]).toEqual([["off_repr_existing"]]);
+    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
+  });
 });
 
 function queryRecorder(queries: QueryCall[]): RepresentativeQueryable {
