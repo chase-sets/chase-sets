@@ -15,6 +15,7 @@ import {
   isBuyReadinessUrl,
   isBuySessionUrl,
   parseGuestBuyNowCanaryArgs,
+  resolveGuestBuyNowItemCandidates,
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessCanary,
   validateGuestBuyNowCanaryOptions,
@@ -513,7 +514,7 @@ describe("guest Buy Now freshness canary", () => {
     );
   });
 
-  it("discovers the first active buyable item from marketplace search", async () => {
+  it("discovers active buyable item candidates from marketplace search and pins the exact listing", async () => {
     const requestedUrls = [];
     const responses = [
       {
@@ -543,6 +544,11 @@ describe("guest Buy Now freshness canary", () => {
                 status: "active",
                 price_amount: "350.00",
                 visible_quantity: 2,
+                catalog_catalog_item_id: "cat_1",
+                product_id: "prd_1",
+                item_title: "Buyable Card",
+                item_subtitle: null,
+                product_summary: "Form: raw | Condition: near-mint",
                 selected_options: [
                   { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
                   { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_near_mint" },
@@ -573,6 +579,97 @@ describe("guest Buy Now freshness canary", () => {
     expect(requestedUrls[1]).toBe("https://marketplace.staging.chasesets.com/api/marketplace/items/buyable-card");
   });
 
+  it("can require checkout-ready fixture candidates for authenticated account canary discovery", async () => {
+    const requested = [];
+    const itemSearchResponse = {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          items: [{ slug: "buyable-card", market_summary: { active_listing_count: 2, total_visible_quantity: 2 } }],
+        };
+      },
+    };
+    const itemDetailResponse = {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          market_listings: [
+            {
+              listing_id: "lst_stale",
+              status: "active",
+              visible_quantity: 1,
+              catalog_catalog_item_id: "cat_1",
+              product_id: "prd_stale",
+              item_title: "Stale card",
+              item_subtitle: null,
+              product_summary: "Condition: stale",
+              selected_options: [{ dimensionId: "condition", optionId: "stale" }],
+            },
+            {
+              listing_id: "lst_ready",
+              status: "active",
+              visible_quantity: 1,
+              catalog_catalog_item_id: "cat_1",
+              product_id: "prd_ready",
+              item_title: "Ready card",
+              item_subtitle: null,
+              product_summary: "Condition: ready",
+              selected_options: [{ dimensionId: "condition", optionId: "ready" }],
+            },
+          ],
+        };
+      },
+    };
+    const itemPath = await resolveGuestBuyNowItemPath(
+      {
+        baseUrl: "https://marketplace.staging.chasesets.com",
+        searchQuery: "charizard",
+        requireCheckoutReady: true,
+      },
+      async (url, init = {}) => {
+        requested.push({
+          url: String(url),
+          method: init.method ?? "GET",
+          body: init.body ? JSON.parse(init.body) : null,
+        });
+        if (String(url).includes("/api/marketplace/items?")) {
+          return itemSearchResponse;
+        }
+        if (String(url).includes("/api/marketplace/items/buyable-card")) {
+          return itemDetailResponse;
+        }
+        const listingId = JSON.parse(init.body).lines[0].lockedListingId;
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { readyLineKeys: listingId === "lst_ready" ? ["lst_ready"] : [] };
+          },
+        };
+      },
+    );
+
+    expect(itemPath).toBe("/items/buyable-card?market=buy&listing=lst_ready&dimension.condition=ready");
+    expect(requested.filter((request) => request.method === "POST")).toEqual([
+      expect.objectContaining({
+        url: "https://marketplace.staging.chasesets.com/api/marketplace/account/purchases/checkout/preview",
+        body: expect.objectContaining({
+          sourceType: "buy-now",
+          lines: [expect.objectContaining({ lockedListingId: "lst_stale", fulfillmentMode: "locked-listing" })],
+        }),
+      }),
+      expect.objectContaining({
+        url: "https://marketplace.staging.chasesets.com/api/marketplace/account/purchases/checkout/preview",
+        body: expect.objectContaining({
+          sourceType: "buy-now",
+          lines: [expect.objectContaining({ lockedListingId: "lst_ready", sellerPreferenceId: "lst_ready" })],
+        }),
+      }),
+    ]);
+  });
+
   it("fails clearly when search cannot find a buyable item", async () => {
     await expect(
       resolveGuestBuyNowItemPath(
@@ -587,6 +684,61 @@ describe("guest Buy Now freshness canary", () => {
             return { items: [{ slug: "catalog-only", market_summary: null }] };
           },
         }),
+      ),
+    ).rejects.toThrow("found no active buyable marketplace item");
+  });
+
+  it("fails clearly when active marketplace items have no checkout-ready candidates", async () => {
+    await expect(
+      resolveGuestBuyNowItemCandidates(
+        {
+          baseUrl: "https://marketplace.staging.chasesets.com",
+          searchQuery: "blocked",
+        },
+        async (url, init = {}) => {
+          if (String(url).includes("/api/marketplace/items?")) {
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return {
+                  items: [
+                    { slug: "blocked-card", market_summary: { active_listing_count: 1, total_visible_quantity: 1 } },
+                  ],
+                };
+              },
+            };
+          }
+          if (String(url).includes("/api/marketplace/items/blocked-card")) {
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return {
+                  market_listings: [
+                    {
+                      listing_id: "lst_blocked",
+                      status: "active",
+                      visible_quantity: 1,
+                      catalog_catalog_item_id: "cat_blocked",
+                      product_id: "prd_blocked",
+                      selected_options: [],
+                    },
+                  ],
+                };
+              },
+            };
+          }
+          expect(init.method).toBe("POST");
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { readyLineKeys: [] };
+            },
+          };
+        },
+        { requireCheckoutReady: true },
       ),
     ).rejects.toThrow("found no active buyable marketplace item");
   });
