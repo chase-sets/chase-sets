@@ -137,7 +137,11 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
     affectedProjectionNames: ["auth:auth-session-projection"],
-    routeDependencyIds: ["auth.browser-registration-identity-freshness-carrier", "auth.session-detail-self-refresh"],
+    routeDependencyIds: [
+      "auth.browser-registration-identity-freshness-carrier",
+      "auth.current-session-fresh-read",
+      "auth.session-detail-self-refresh",
+    ],
   }),
   registryEntry({
     sourceContextName: "catalog",
