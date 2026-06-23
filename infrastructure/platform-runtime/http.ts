@@ -2,13 +2,66 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeFreshWriteReceipt,
+  loadAfterWrite as loadAfterWriteWithContract,
+  navigateAfterWrite as navigateAfterWriteWithContract,
+  navigateAfterWriteFromSources as navigateAfterWriteFromSourcesWithContract,
   readFreshWriteToken,
+  type LoadAfterWriteOptions,
+  type LoadAfterWriteResult,
+  type NavigateAfterWriteOptions,
 } from "@chase-sets/http/responses";
+import {
+  recordPlatformPostWriteConsistencyEvent,
+  type PlatformPostWriteConsistencyEvent,
+  type PlatformPostWriteConsistencyOutcome,
+} from "./post-write-consistency";
 
 export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
 const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
+
+export type PlatformPostWriteTelemetry = Readonly<
+  Omit<PlatformPostWriteConsistencyEvent, "outcome" | "strategy"> & {
+    strategy?: string;
+  }
+>;
+
+export type PlatformNavigateAfterWriteOptions = NavigateAfterWriteOptions &
+  Readonly<{
+    telemetry?: PlatformPostWriteTelemetry;
+  }>;
+
+export type PlatformLoadAfterWriteOptions<T> = LoadAfterWriteOptions<T> &
+  Readonly<{
+    telemetry?: PlatformPostWriteTelemetry;
+  }>;
+
+function recordPostWriteTelemetry(
+  telemetry: PlatformPostWriteTelemetry | undefined,
+  outcome: PlatformPostWriteConsistencyOutcome,
+  extra: Partial<PlatformPostWriteConsistencyEvent> = {},
+) {
+  if (!telemetry) {
+    return;
+  }
+
+  const { strategy = "fresh-read", ...base } = telemetry;
+  recordPlatformPostWriteConsistencyEvent({
+    ...base,
+    ...extra,
+    strategy,
+    outcome,
+  });
+}
+
+function postWriteReadOutcome<T>(result: LoadAfterWriteResult<T>): PlatformPostWriteConsistencyOutcome {
+  if (result.kind === "data") {
+    return "read_data";
+  }
+
+  return result.kind === "pending" ? "read_pending" : "read_permanent";
+}
 
 export function resolvePlatformInternalAuthSecret(options: Readonly<{ requireExplicitInProduction?: boolean }> = {}) {
   const configured = process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]?.trim();
@@ -17,6 +70,53 @@ export function resolvePlatformInternalAuthSecret(options: Readonly<{ requireExp
   }
 
   return configured || DEFAULT_DEV_INTERNAL_AUTH_SECRET;
+}
+
+export function navigateAfterWrite(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: PlatformNavigateAfterWriteOptions = {},
+): string {
+  const destination = navigateAfterWriteWithContract(commandResult, destinationRoute, options);
+  recordPostWriteTelemetry(
+    options.telemetry,
+    readFreshWriteToken(destination, options.nowMs) ? "navigation_encoded" : "navigation_missing_receipt",
+    options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
+  );
+  return destination;
+}
+
+export function navigateAfterWriteFromSources(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: PlatformNavigateAfterWriteOptions = {},
+): string {
+  const destination = navigateAfterWriteFromSourcesWithContract(commandResults, destinationRoute, options);
+  recordPostWriteTelemetry(
+    options.telemetry,
+    readFreshWriteToken(destination, options.nowMs) ? "navigation_encoded" : "navigation_missing_receipt",
+    options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
+  );
+  return destination;
+}
+
+export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {
+  const result = await loadAfterWriteWithContract(options);
+  const recoveryAction = result.kind === "data" ? "none" : "recoveryKind" in result ? result.recoveryKind : "unknown";
+  const correctionSource =
+    "handoff" in result && result.handoff && result.handoff.kind !== "not-applicable"
+      ? `semantic-handoff:${result.handoff.handoff.kind}`
+      : "state" in result && result.state.handoff
+        ? `semantic-handoff:${result.state.handoff.kind}`
+        : options.telemetry?.correctionSource;
+
+  recordPostWriteTelemetry(options.telemetry, postWriteReadOutcome(result), {
+    correctionSource,
+    recoveryAction,
+    freshnessOutcome: result.kind === "data" ? "fresh" : result.reason,
+  });
+
+  return result;
 }
 
 export function createPlatformInternalAuthHeaders(

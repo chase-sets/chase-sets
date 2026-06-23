@@ -13,6 +13,9 @@ import {
   getMutationResultCommandReceipt,
   getResponseMetadata,
   isBoundedTemporaryPostWriteRecoveryKind,
+  loadAfterWrite,
+  navigateAfterWrite,
+  navigateAfterWriteFromSources,
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
   readFreshWriteToken,
@@ -475,6 +478,168 @@ describe("response consistency metadata", () => {
     ).toMatchObject({
       kind: "not-applicable",
       state: { kind: "missing" },
+    });
+  });
+
+  it("builds default-safe post-write destinations without leaking command details", () => {
+    const href = navigateAfterWrite(
+      {
+        commitPositions: [source],
+        commitEventIds: ["evt_1"],
+        email: "seller@example.com",
+      },
+      "/account/listings/lst_1?feedbackWorkflow=listing-publish",
+      {
+        nowMs: 1234,
+        handoff: {
+          kind: "marketplace.listing.publish",
+          expectation: "resource-updated",
+          surface: "account-listing",
+        },
+      },
+    );
+
+    expect(readFreshWriteToken(href, 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [source],
+    });
+    expect(readPostWriteHandoff(href, 1234)).toEqual({
+      kind: "marketplace.listing.publish",
+      expectation: "resource-updated",
+      surface: "account-listing",
+    });
+
+    const token = new URL(href, "https://chase-sets.local").searchParams.get("afterWrite");
+    const parsed = JSON.parse(decodeURIComponent(String(token))) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty("email");
+    expect(href).toContain("feedbackWorkflow=listing-publish");
+  });
+
+  it("combines multiple command receipts through the default-safe source primitive", () => {
+    const href = navigateAfterWriteFromSources(
+      [
+        { commitPositions: [source], commitEventIds: ["evt_1"] },
+        { commitPositions: [checkoutSource], commitEventIds: ["evt_checkout"] },
+      ],
+      "/checkout/chk_1",
+      { nowMs: 1234 },
+    );
+
+    expect(readFreshWriteToken(href, 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [checkoutSource, source],
+    });
+    expect(readPostWriteHandoff(href, 1234)).toBeNull();
+  });
+
+  it("returns typed data or semantic pending results for default-safe destination reads", async () => {
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/account/cart", {
+      nowMs: 1234,
+      handoff: {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      },
+    });
+    const request = new Request(`https://marketplace.chasesets.test${href}`);
+    const isHandoffSatisfied = (cart: { items: readonly unknown[] }, handoff: { expectation: string }) =>
+      handoff.expectation === "collection-non-empty" && cart.items.length > 0;
+
+    await expect(
+      loadAfterWrite({
+        request,
+        load: async () => ({ items: [], count: 0 }),
+        isNotFound: () => false,
+        isHandoffSatisfied,
+        nowMs: () => 1234,
+      }),
+    ).resolves.toMatchObject({
+      kind: "pending",
+      reason: "semantic-handoff-pending",
+      recoveryKind: "pending-projection",
+      data: { items: [], count: 0 },
+      handoff: { handoff: { kind: "checkout.cart.add-line" } },
+    });
+
+    await expect(
+      loadAfterWrite({
+        request,
+        load: async () => ({ items: [{ id: "line_1" }], count: 1 }),
+        isNotFound: () => false,
+        isHandoffSatisfied,
+        nowMs: () => 1234,
+      }),
+    ).resolves.toMatchObject({
+      kind: "data",
+      data: { items: [{ id: "line_1" }], count: 1 },
+      handoff: { kind: "satisfied" },
+    });
+  });
+
+  it("returns typed pending and permanent failures for default-safe destination read errors", async () => {
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/checkout/chk_1", {
+      nowMs: 1,
+    });
+    const notFoundError = { status: 404, body: { error: { code: "not_found", message: "Not found." } } };
+
+    await expect(
+      loadAfterWrite({
+        request: new Request(`https://marketplace.chasesets.test${href}`),
+        load: async () => {
+          throw notFoundError;
+        },
+        isNotFound: () => true,
+        retryDelaysMs: [],
+        nowMs: () => 1,
+      }),
+    ).resolves.toMatchObject({
+      kind: "pending",
+      reason: "fresh-write-read-transient",
+      recoveryKind: "refreshable-catching-up",
+      classification: { kind: "transient-not-found" },
+    });
+
+    await expect(
+      loadAfterWrite({
+        request: new Request("https://marketplace.chasesets.test/checkout/chk_1"),
+        load: async () => {
+          throw notFoundError;
+        },
+        isNotFound: () => true,
+        retryDelaysMs: [],
+        nowMs: () => 1,
+      }),
+    ).resolves.toMatchObject({
+      kind: "permanent-failure",
+      reason: "fresh-write-read-permanent",
+      recoveryKind: "terminal-failure",
+      classification: { kind: "permanent-not-found" },
+    });
+  });
+
+  it("treats expired semantic handoffs as permanent destination results", async () => {
+    const href = navigateAfterWrite({ commitPositions: [checkoutSource], commitEventIds: [] }, "/account/cart", {
+      nowMs: 1,
+      handoff: {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      },
+    });
+
+    await expect(
+      loadAfterWrite({
+        request: new Request(`https://marketplace.chasesets.test${href}`),
+        load: async () => ({ items: [], count: 0 }),
+        isNotFound: () => false,
+        isHandoffSatisfied: (cart, handoff) => handoff.expectation === "collection-non-empty" && cart.items.length > 0,
+        nowMs: () => 40_000,
+      }),
+    ).resolves.toMatchObject({
+      kind: "permanent-failure",
+      reason: "semantic-handoff-expired",
+      recoveryKind: "expired-handoff",
+      state: { kind: "not-fresh-write", freshWrite: { kind: "expired" } },
     });
   });
 

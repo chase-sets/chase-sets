@@ -366,6 +366,7 @@ export const sourceContextWakeRegistry = [
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
+      "marketplace.import-listing-inventory-handoff",
       "marketplace.listing-availability-self-refresh",
       "marketplace.listing-create-from-list-to-detail",
       "marketplace.listing-create-to-detail",

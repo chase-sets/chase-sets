@@ -14,7 +14,12 @@ export type PlatformPostWriteConsistencyOutcome =
   | "handoff_expired"
   | "handoff_invalid"
   | "handoff_malformed"
-  | "handoff_permanent";
+  | "handoff_permanent"
+  | "navigation_encoded"
+  | "navigation_missing_receipt"
+  | "read_data"
+  | "read_pending"
+  | "read_permanent";
 
 export type PlatformPostWriteConsistencyEvent = Readonly<{
   boundedContextName: string;
