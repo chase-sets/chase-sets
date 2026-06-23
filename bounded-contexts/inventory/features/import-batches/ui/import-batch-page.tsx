@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
   HiddenInput,
@@ -25,6 +26,7 @@ import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportB
 import type { InventoryImportBatchJobStatus } from "../api/runtime";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
+import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
 
 function statusTone(status: string) {
   switch (status) {
@@ -42,23 +44,44 @@ function money(amount: string | null) {
   return amount ? `$${amount}` : t("inventory.features.importBatches.ui.importBatchPage.not.set");
 }
 
-function rowOutcome(row: InventoryImportBatchRow) {
-  const outcomes = [
-    row.committed_inventory_item_id
-      ? t("inventory.features.importBatches.ui.importBatchPage.inventory.item.created", {
-          id: row.committed_inventory_item_id,
-        })
-      : null,
-    row.committed_listing_id
-      ? t("inventory.features.importBatches.ui.importBatchPage.draft.listing.created", {
-          id: row.committed_listing_id,
-        })
-      : null,
-  ].filter((entry): entry is string => Boolean(entry));
+function rowOutcome(row: InventoryImportBatchRow, currentPath?: string | null): ReactNode {
+  if (!row.committed_inventory_item_id && !row.committed_listing_id) {
+    return (
+      <Text size="sm" tone="secondary">
+        {t("inventory.features.importBatches.ui.importBatchPage.no.outcome.yet")}
+      </Text>
+    );
+  }
 
-  return outcomes.length > 0
-    ? outcomes.join(" ")
-    : t("inventory.features.importBatches.ui.importBatchPage.no.outcome.yet");
+  return (
+    <Stack gap={1}>
+      {row.committed_inventory_item_id ? (
+        <Inline>
+          <Text size="sm" tone="secondary">
+            {t("inventory.features.importBatches.ui.importBatchPage.inventory.item.created", {
+              id: row.committed_inventory_item_id,
+            })}
+          </Text>
+          {!row.committed_listing_id ? (
+            <LinkButton
+              href={inventoryListingHref(row.committed_inventory_item_id, currentPath)}
+              tone="ghost"
+              size="sm"
+            >
+              {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}
+            </LinkButton>
+          ) : null}
+        </Inline>
+      ) : null}
+      {row.committed_listing_id ? (
+        <Text size="sm" tone="secondary">
+          {t("inventory.features.importBatches.ui.importBatchPage.draft.listing.created", {
+            id: row.committed_listing_id,
+          })}
+        </Text>
+      ) : null}
+    </Stack>
+  );
 }
 
 const importSourceOptions = listInventoryImportSources().map((source) => ({
@@ -71,12 +94,14 @@ export function InventoryImportBatchPage({
   storageLocations,
   detail,
   activeJobId,
+  currentPath,
   errorMessage,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
   detail: InventoryImportBatchDetail | null;
   activeJobId?: string | null;
+  currentPath?: string | null;
   errorMessage?: string | null;
 }) {
   const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
@@ -91,7 +116,7 @@ export function InventoryImportBatchPage({
         description={t("inventory.features.importBatches.ui.importBatchPage.upload.review.and.commit.csv")}
         actions={
           <Inline>
-            <LinkButton href="/account/inventory" tone="secondary">
+            <LinkButton href={appendInventoryHandoffSearch("/account/inventory", currentPath)} tone="secondary">
               {t("inventory.features.importBatches.ui.importBatchPage.inventory")}
             </LinkButton>
             <LinkButton href="/account/listings" tone="secondary">
@@ -354,17 +379,13 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      {row.validation_errors.length > 0 ? (
-                        row.validation_errors.map((message) => (
-                          <Text key={message} size="sm">
-                            {message}
-                          </Text>
-                        ))
-                      ) : (
-                        <Text size="sm" tone="secondary">
-                          {rowOutcome(row)}
-                        </Text>
-                      )}
+                      {row.validation_errors.length > 0
+                        ? row.validation_errors.map((message) => (
+                            <Text key={message} size="sm">
+                              {message}
+                            </Text>
+                          ))
+                        : rowOutcome(row, currentPath)}
                     </Stack>
                   ),
                 },
@@ -443,9 +464,10 @@ function useInventoryImportBatchJob(jobId?: string | null) {
       onTerminal: (nextJob) => {
         if (nextJob.status === "completed") {
           const batchId = nextJob.result?.batch.batch_id;
-          window.location.replace(
-            batchId ? `/account/inventory/imports/${encodeURIComponent(batchId)}` : "/account/inventory/imports",
-          );
+          const destination = batchId
+            ? `/account/inventory/imports/${encodeURIComponent(batchId)}`
+            : "/account/inventory/imports";
+          window.location.replace(nextJob.result ? appendFreshWriteToken(destination, nextJob.result) : destination);
         }
       },
     });

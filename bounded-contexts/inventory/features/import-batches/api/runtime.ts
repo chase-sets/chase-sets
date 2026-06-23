@@ -1,5 +1,7 @@
+import { getEventCommitMetadata, runWithEventCommitMetadata, type EventCommitMetadata } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CommandReceiptMetadata } from "@chase-sets/http/responses";
 import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
@@ -182,6 +184,7 @@ export type InventoryImportBatchJobProgress = Readonly<{
 
 export type InventoryImportBatchJobResult = Readonly<{
   batch: InventoryImportBatchDetail;
+  commandReceipt?: CommandReceiptMetadata | null;
 }>;
 
 export type InventoryImportBatchJob = DurableJobRecord<
@@ -1437,38 +1440,43 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
                 claimed.payload.accountId as AccountId,
               )
             : null;
-        const batch = stagedInput
-          ? await createBatchRows(
-              {
-                accountId: stagedInput.accountId,
-                csvText: stagedInput.csvText,
-                parsedRows: stagedInput.parsedRows,
-                sourceKey: stagedInput.sourceKey,
-                quantityMode: stagedInput.quantityMode,
-                defaultStorageLocationId: stagedInput.defaultStorageLocationId,
-                sourceFilename: stagedInput.sourceFilename,
-              },
-              async (progress) => {
-                await progressCheckpoint.checkpoint(progress);
-              },
-              {
-                batchId: requireCreateBatchId(claimed.payload),
-                throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
-              },
-            )
-          : await commitBatchRows(
-              {
-                batchId: requireBatchId(claimed.payload),
-                accountId: claimed.payload.accountId as AccountId,
-              },
-              context,
-              async (progress) => {
-                await progressCheckpoint.checkpoint(progress);
-              },
-              {
-                throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
-              },
-            );
+        let commandReceipt: CommandReceiptMetadata | null = null;
+        const batch = await runWithEventCommitMetadata(async () => {
+          const result = stagedInput
+            ? await createBatchRows(
+                {
+                  accountId: stagedInput.accountId,
+                  csvText: stagedInput.csvText,
+                  parsedRows: stagedInput.parsedRows,
+                  sourceKey: stagedInput.sourceKey,
+                  quantityMode: stagedInput.quantityMode,
+                  defaultStorageLocationId: stagedInput.defaultStorageLocationId,
+                  sourceFilename: stagedInput.sourceFilename,
+                },
+                async (progress) => {
+                  await progressCheckpoint.checkpoint(progress);
+                },
+                {
+                  batchId: requireCreateBatchId(claimed.payload),
+                  throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
+                },
+              )
+            : await commitBatchRows(
+                {
+                  batchId: requireBatchId(claimed.payload),
+                  accountId: claimed.payload.accountId as AccountId,
+                },
+                context,
+                async (progress) => {
+                  await progressCheckpoint.checkpoint(progress);
+                },
+                {
+                  throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
+                },
+              );
+          commandReceipt = commandReceiptFromEventMetadata(getEventCommitMetadata());
+          return result;
+        });
         await requireImportBatchJobClaim(
           jobStore.complete({
             jobId: claimed.jobId,
@@ -1480,7 +1488,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
               null,
               claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? "Import validation completed." : "Commit completed.",
             ),
-            result: { batch },
+            result: {
+              batch,
+              ...(commandReceipt ? { commandReceipt } : {}),
+            },
           }),
         );
         if (stagedInput) {
@@ -1656,6 +1667,19 @@ function importBatchJobProgress(
     total,
     currentRowId,
     message,
+  };
+}
+
+function commandReceiptFromEventMetadata(metadata: EventCommitMetadata): CommandReceiptMetadata | null {
+  if (metadata.eventIds.length === 0) {
+    return null;
+  }
+
+  return {
+    mode: "eventual",
+    ...(metadata.maxGlobalPosition ? { commitPosition: metadata.maxGlobalPosition } : {}),
+    commitEventIds: metadata.eventIds,
+    commitPositions: metadata.sources,
   };
 }
 

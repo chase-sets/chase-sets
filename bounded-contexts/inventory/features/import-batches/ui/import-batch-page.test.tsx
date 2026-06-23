@@ -151,6 +151,27 @@ describe("InventoryImportBatchPage", () => {
     expect(allRejected).toContain("Storage location is archived.");
     expect(allRejected).not.toContain("Commit accepted rows");
     expect(committed).toContain("Inventory item inv_1 created.");
+    expect(committed).toContain("/account/listings?inventoryItemId=inv_1");
     expect(committed).not.toContain("Commit accepted rows");
+  });
+
+  it("preserves import freshness metadata in inventory and listing handoff links", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[batch({ status: "committed" })]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1?afterWrite=fresh&postWriteHandoff=handoff"
+        detail={detail([
+          row({
+            status: "committed",
+            committed_inventory_item_id: "inv_1",
+            committed_at: timestamp,
+          }),
+        ])}
+      />,
+    );
+
+    expect(html).toContain("/account/inventory?afterWrite=fresh&amp;postWriteHandoff=handoff");
+    expect(html).toContain("/account/listings?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff");
   });
 });
