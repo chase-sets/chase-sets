@@ -99,7 +99,7 @@ const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
         "250",
         "id, name, number, printed_number, rarity, rarity_code, type, images, language, language_code, expansion, printings, variants",
         "Bulk-first",
-        "Fetch Scrydex One Piece expansion cards with max page size",
+        /Scrydex One Piece cards .*max page size/i,
         /scrydex:one-piece:expansion:[a-z0-9-]+:cards/i,
       ],
     },
