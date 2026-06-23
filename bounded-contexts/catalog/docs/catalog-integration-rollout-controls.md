@@ -26,19 +26,29 @@ Operational controls default to open outside production-like environments. Produ
 | `dry-run-only` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=dry-run-only` | open | Catalog Source Observations | Blocks import, promotion, reapply, activation; dry runs and reads remain available |
 | `rollback-ready-release-mode` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=rollback-ready` | open | Ops/Release | Degraded release posture; operators should avoid broad changes and keep rollback evidence current |
 | `provider-adapter-disabled` | `CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS=<provider list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports for the scoped provider |
+| `provider-adapter-disabled` | `CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS=<unit list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports for the scoped ingestion unit |
 | `provider-api-emergency-stop` | `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=<provider list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports during provider API/rate-limit incidents |
+| `provider-api-emergency-stop` | `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports during provider API/rate-limit incidents for the scoped ingestion unit |
 | `provider-option-queries-disabled` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=disabled` | open | Catalog Source Observations | Blocks live option queries |
 | `provider-option-queries-cache-only` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=cache-only` | open | Catalog Source Observations | Blocks live option queries and serves only fresh or stale cached options |
+| `provider-option-queries-disabled` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_DISABLED=<provider list or all>` or `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED=<unit list or all>` | open | Catalog Source Observations | Blocks live option queries for the scoped provider or ingestion unit |
+| `provider-option-queries-cache-only` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_CACHE_ONLY=<provider list or all>` or `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit list or all>` | open | Catalog Source Observations | Blocks live option queries and serves only cached options for the scoped provider or ingestion unit |
 | `imports-disabled` | `CATALOG_INTEGRATION_IMPORTS_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks import enqueue and import worker turns for the scoped provider |
+| `imports-disabled` | `CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED=<unit list or all>` | open | Catalog Source Observations | Blocks import enqueue and import worker turns for the scoped ingestion unit |
 | `promotion-disabled` | `CATALOG_INTEGRATION_PROMOTION_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks single and bulk Source Observation promotion for the scoped provider |
+| `promotion-disabled` | `CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED=<unit list or all>` | open | Catalog Source Observations | Blocks single and bulk Source Observation promotion for the scoped ingestion unit |
 | `reapply-disabled` | `CATALOG_INTEGRATION_REAPPLY_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks explicit and scoped reapply for the scoped provider |
+| `reapply-disabled` | `CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED=<unit list or all>` | open | Catalog Source Observations | Blocks explicit and scoped reapply for the scoped ingestion unit |
 | `activation-disabled` | `CATALOG_INTEGRATION_ACTIVATION_MODE=disabled` | open | Catalog Source Observations | Blocks provider profile activation |
 | `activation-test-profiles-only` | `CATALOG_INTEGRATION_ACTIVATION_MODE=test-profiles-only` | open | Catalog Source Observations | Blocks activation unless the candidate profile lifecycle is `test` |
 | `magic-production-signoff-required` | `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE=<approval and #2039 UAT evidence>` | open outside production-like envs; blocked for production-like Magic writes when missing | Catalog Source Observations | Blocks MTGJSON, Scryfall, and TCGplayer import, promotion, reapply, and activation until provider-data signoff and interface-only staging UAT evidence are recorded |
 | `worker-processing-disabled` | `CATALOG_INTEGRATION_WORKER_MODE=disabled` | open | Catalog Source Observations | Blocks integration worker job processing |
 | `worker-lane-limited` | `CATALOG_INTEGRATION_WORKER_MODE=lane-limited` | open | Ops/Release | Degrades worker throughput; lane counts remain platform-worker config |
 
-Provider-scoped env values accept comma-separated provider keys, `all`, `true`, or `*`. Empty means unset. `none`, `false`, and `open` mean no provider scope is disabled, and in production-like environments they explicitly open that control only after the Magic production signoff gate is also satisfied.
+Provider-scoped and unit-scoped env values accept comma-separated keys, `all`,
+`true`, or `*`. Empty means unset. `none`, `false`, and `open` mean no scope is
+disabled, and in production-like environments they explicitly open that control
+only after the applicable production signoff gate is also satisfied.
 
 ## Magic Provider Rollout Behavior
 
@@ -118,6 +128,11 @@ count, page count, cache hit/miss count, usage-check state, and bulk-first
 confirmation or per-record fallback reason. Because TCGplayer is shared by
 Magic and One Piece, One Piece enablement must be unit-aware and must not open
 TCGplayer One Piece imports merely because a Magic TCGplayer signoff exists.
+Use unit-scoped env values for product-line stops whenever a shared provider is
+healthy for other lines, for example
+`CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED=tcgplayer:one-piece:sealed-product:source-observation-import`
+or
+`CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=scrydex:one-piece:single-card:source-observation-import`.
 
 ## Rollback And Emergency Stops
 

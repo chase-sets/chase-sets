@@ -206,6 +206,147 @@ describe("Catalog integration rollout controls", () => {
     ).toMatchObject({ allowed: true });
   });
 
+  it("stops One Piece provider units without stopping shared provider product lines", () => {
+    const policy = createCatalogIntegrationRolloutControlPolicy({
+      providerApiEmergencyStopUnits: ["scrydex:one-piece:single-card:source-observation-import"],
+      disabledImportUnits: ["tcgplayer:one-piece:sealed-product:source-observation-import"],
+      disabledPromotionUnits: ["scrydex:one-piece:sealed-product:source-observation-import"],
+      disabledReapplyUnits: ["tcgplayer:one-piece:single-card:source-observation-import"],
+      disabledProviderOptionQueryUnits: ["scrydex:one-piece:sealed-product:source-observation-import"],
+      cacheOnlyProviderOptionQueryUnits: ["tcgplayer:one-piece:single-card:source-observation-import"],
+    });
+
+    expect(
+      policy.decide({
+        capability: "provider-transport",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({
+          controlId: "provider-api-emergency-stop",
+          unitKeys: ["scrydex:one-piece:single-card:source-observation-import"],
+        }),
+      ],
+    });
+    expect(
+      policy.decide({
+        capability: "provider-transport",
+        providerKey: "scrydex",
+        unitKey: "scrydex:pokemon:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+
+    expect(
+      policy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "imports-disabled" })],
+    });
+    expect(
+      policy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+    expect(
+      policy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+      }),
+    ).toMatchObject({ allowed: true });
+
+    expect(
+      policy.decide({
+        capability: "promotion",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "promotion-disabled" })],
+    });
+    expect(
+      policy.decide({
+        capability: "reapply",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "reapply-disabled" })],
+    });
+    expect(
+      policy.decide({
+        capability: "provider-option-query",
+        providerKey: "scrydex",
+        unitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "provider-option-queries-disabled" })],
+    });
+    expect(
+      policy.decide({
+        capability: "provider-option-query",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "provider-option-queries-cache-only" })],
+    });
+  });
+
+  it("parses unit-scoped rollout stops from env", () => {
+    const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS: "scrydex:one-piece:single-card:source-observation-import",
+      CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS:
+        "scrydex:one-piece:sealed-product:source-observation-import",
+      CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED: "tcgplayer:one-piece:sealed-product:source-observation-import",
+      CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED: "scrydex:one-piece:sealed-product:source-observation-import",
+      CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED: "tcgplayer:one-piece:single-card:source-observation-import",
+      CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED:
+        "scrydex:one-piece:sealed-product:source-observation-import",
+      CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY:
+        "tcgplayer:one-piece:single-card:source-observation-import",
+    });
+
+    expect(
+      policy.snapshot().controls.filter((control) => control.unitKeys.some((unitKey) => unitKey.includes("one-piece"))),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ controlId: "provider-adapter-disabled" }),
+        expect.objectContaining({ controlId: "provider-api-emergency-stop" }),
+        expect.objectContaining({ controlId: "imports-disabled" }),
+        expect.objectContaining({ controlId: "promotion-disabled" }),
+        expect.objectContaining({ controlId: "reapply-disabled" }),
+        expect.objectContaining({ controlId: "provider-option-queries-disabled" }),
+        expect.objectContaining({ controlId: "provider-option-queries-cache-only" }),
+      ]),
+    );
+    expect(
+      policy.decide({
+        capability: "import",
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({ unitKeys: ["tcgplayer:one-piece:sealed-product:source-observation-import"] }),
+      ],
+    });
+  });
+
   it("blocks provider transport and option queries when a provider adapter is disabled", () => {
     const policy = createCatalogIntegrationRolloutControlPolicy({
       disabledProviderAdapters: ["tcgdex"],

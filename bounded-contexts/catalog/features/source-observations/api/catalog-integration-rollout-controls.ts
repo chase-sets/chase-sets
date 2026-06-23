@@ -69,11 +69,20 @@ export type CatalogIntegrationRolloutDecision = Readonly<{
 export type CatalogIntegrationRolloutControlConfig = Readonly<{
   controlPlaneMode?: "open" | "read-only" | "dry-run-only" | "rollback-ready" | null;
   disabledProviderAdapters?: readonly string[] | "all" | null;
+  disabledProviderAdapterUnits?: readonly string[] | "all" | null;
   providerApiEmergencyStop?: readonly string[] | "all" | null;
+  providerApiEmergencyStopUnits?: readonly string[] | "all" | null;
   providerOptionQueries?: "open" | "disabled" | "cache-only" | null;
+  disabledProviderOptionQueryProviders?: readonly string[] | "all" | null;
+  disabledProviderOptionQueryUnits?: readonly string[] | "all" | null;
+  cacheOnlyProviderOptionQueryProviders?: readonly string[] | "all" | null;
+  cacheOnlyProviderOptionQueryUnits?: readonly string[] | "all" | null;
   disabledImports?: readonly string[] | "all" | null;
+  disabledImportUnits?: readonly string[] | "all" | null;
   disabledPromotion?: readonly string[] | "all" | null;
+  disabledPromotionUnits?: readonly string[] | "all" | null;
   disabledReapply?: readonly string[] | "all" | null;
+  disabledReapplyUnits?: readonly string[] | "all" | null;
   activationMode?: "open" | "disabled" | "test-profiles-only" | null;
   magicProductionSignoffReference?: string | null;
   onePieceProductionSignoffReference?: string | null;
@@ -156,11 +165,26 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
   return createCatalogIntegrationRolloutControlPolicy({
     controlPlaneMode: defaultWhenEnvUnset(controlPlaneMode, productionLike ? "dry-run-only" : null),
     disabledProviderAdapters: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS),
+    disabledProviderAdapterUnits: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS),
     providerApiEmergencyStop: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP),
+    providerApiEmergencyStopUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS),
     providerOptionQueries: parseOptionQueryMode(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES),
+    disabledProviderOptionQueryProviders: parseProviderScope(
+      env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_DISABLED,
+    ),
+    disabledProviderOptionQueryUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED),
+    cacheOnlyProviderOptionQueryProviders: parseProviderScope(
+      env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_CACHE_ONLY,
+    ),
+    cacheOnlyProviderOptionQueryUnits: parseProviderScope(
+      env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY,
+    ),
     disabledImports: defaultWhenEnvUnset(disabledImports, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    disabledImportUnits: parseProviderScope(env.CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED),
     disabledPromotion: defaultWhenEnvUnset(disabledPromotion, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    disabledPromotionUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED),
     disabledReapply: defaultWhenEnvUnset(disabledReapply, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    disabledReapplyUnits: parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED),
     activationMode: defaultWhenEnvUnset(activationMode, productionLike ? "test-profiles-only" : null),
     ...(productionLike
       ? {
@@ -209,18 +233,60 @@ function buildCatalogIntegrationRolloutControlSnapshot(
       config.disabledProviderAdapters,
       "Provider adapter access is disabled for the configured provider scope.",
     ),
+    unitScopeControl(
+      "provider-adapter-disabled",
+      ["provider-transport", "provider-option-query", "import"],
+      config.disabledProviderAdapterUnits,
+      "Provider adapter access is disabled for the configured ingestion-unit scope.",
+    ),
     providerScopeControl(
       "provider-api-emergency-stop",
       ["provider-transport", "provider-option-query", "import"],
       config.providerApiEmergencyStop,
       "Provider API emergency stop is active for the configured provider scope.",
     ),
+    unitScopeControl(
+      "provider-api-emergency-stop",
+      ["provider-transport", "provider-option-query", "import"],
+      config.providerApiEmergencyStopUnits,
+      "Provider API emergency stop is active for the configured ingestion-unit scope.",
+    ),
     optionQueryControl(config.providerOptionQueries ?? "open"),
+    providerScopeControl(
+      "provider-option-queries-disabled",
+      ["provider-option-query"],
+      config.disabledProviderOptionQueryProviders,
+      "Provider option queries are disabled for the configured provider scope.",
+    ),
+    unitScopeControl(
+      "provider-option-queries-disabled",
+      ["provider-option-query"],
+      config.disabledProviderOptionQueryUnits,
+      "Provider option queries are disabled for the configured ingestion-unit scope.",
+    ),
+    providerScopeControl(
+      "provider-option-queries-cache-only",
+      ["provider-option-query"],
+      config.cacheOnlyProviderOptionQueryProviders,
+      "Provider option queries are restricted to cache-only mode for the configured provider scope.",
+    ),
+    unitScopeControl(
+      "provider-option-queries-cache-only",
+      ["provider-option-query"],
+      config.cacheOnlyProviderOptionQueryUnits,
+      "Provider option queries are restricted to cache-only mode for the configured ingestion-unit scope.",
+    ),
     providerScopeControl(
       "imports-disabled",
       ["import"],
       config.disabledImports,
       "Catalog integration imports are disabled for the configured provider scope.",
+    ),
+    unitScopeControl(
+      "imports-disabled",
+      ["import"],
+      config.disabledImportUnits,
+      "Catalog integration imports are disabled for the configured ingestion-unit scope.",
     ),
     providerScopeControl(
       "promotion-disabled",
@@ -228,11 +294,23 @@ function buildCatalogIntegrationRolloutControlSnapshot(
       config.disabledPromotion,
       "Catalog integration promotion is disabled for the configured provider scope.",
     ),
+    unitScopeControl(
+      "promotion-disabled",
+      ["promotion"],
+      config.disabledPromotionUnits,
+      "Catalog integration promotion is disabled for the configured ingestion-unit scope.",
+    ),
     providerScopeControl(
       "reapply-disabled",
       ["reapply"],
       config.disabledReapply,
       "Catalog integration reapply is disabled for the configured provider scope.",
+    ),
+    unitScopeControl(
+      "reapply-disabled",
+      ["reapply"],
+      config.disabledReapplyUnits,
+      "Catalog integration reapply is disabled for the configured ingestion-unit scope.",
     ),
     activationControl(config.activationMode ?? "open"),
     magicProductionSignoffControl(config),
@@ -349,6 +427,23 @@ function providerScopeControl(
     capabilities,
     providerKeys: normalizedProviderKeys,
     message: normalizedProviderKeys.length > 0 ? message : `${message} Default state is open.`,
+  });
+}
+
+function unitScopeControl(
+  controlId: CatalogIntegrationRolloutControlId,
+  capabilities: readonly CatalogIntegrationRolloutCapability[],
+  unitKeys: readonly string[] | "all" | null | undefined,
+  message: string,
+) {
+  const normalizedUnitKeys = normalizeScope(unitKeys);
+  return control({
+    controlId,
+    status: normalizedUnitKeys.length > 0 ? "blocked" : "open",
+    severity: normalizedUnitKeys.length > 0 ? "error" : "info",
+    capabilities,
+    unitKeys: normalizedUnitKeys,
+    message: normalizedUnitKeys.length > 0 ? message : `${message} Default state is open.`,
   });
 }
 

@@ -98,7 +98,9 @@ items below are complete:
   operators.
 - [ ] Rollout controls can independently block provider transport, option
   queries, import, promotion, reapply, activation, worker processing, and broad
-  read/write access for Scrydex and TCGplayer.
+  read/write access for Scrydex and TCGplayer, including unit-scoped stops that
+  block Scrydex One Piece or TCGplayer One Piece without blocking TCGplayer
+  Pokemon or Magic units.
 - [ ] Conflict policy explains Scrydex, TCGplayer, Bandai validation, and
   fallback source authority, losing evidence retention, duplicate-prevention
   order, and manual-review blockers.
@@ -169,7 +171,8 @@ Evidence must include:
 - conflict and duplicate-prevention outcomes;
 - screenshots or operator-visible artifacts for emergency stop, imports
   disabled, promotion disabled, reapply disabled, dry-run-only, and cache-only
-  option-query controls;
+  option-query controls, including provider-scoped and unit-scoped One Piece
+  stop evidence;
 - proof that One Piece, Pokemon, and MTG are selected from the shared
   source-scope interface without a product-line-specific sync area.
 
