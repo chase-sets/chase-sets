@@ -40,6 +40,14 @@ import {
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
+import {
+  runScrydexOnePieceSealedProductSourceObservationImportProofDryRun,
+  runScrydexOnePieceSetReferenceValidationDryRun,
+  runScrydexOnePieceSingleCardSourceObservationImportProofDryRun,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./provider-adapters/scrydex-one-piece";
 
 export type CatalogIntegrationDryRunProofRunner = () => Promise<CatalogIntegrationDryRunResult>;
 
@@ -74,6 +82,15 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [
       TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runTcgplayerYugiohSingleCardSourceObservationImportProofDryRun,
+    ],
+    [
+      SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runScrydexOnePieceSingleCardSourceObservationImportProofDryRun,
+    ],
+    [SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY, runScrydexOnePieceSetReferenceValidationDryRun],
+    [
+      SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runScrydexOnePieceSealedProductSourceObservationImportProofDryRun,
     ],
   ],
 ): CatalogIntegrationDryRunProofRegistry {
