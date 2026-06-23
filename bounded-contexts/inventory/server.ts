@@ -4,6 +4,7 @@ export type { InventoryImportBatchMcpHandlers } from "./features/import-batches/
 export type {
   InventoryCatalogItemSnapshot,
   InventoryEnsuredListingStock,
+  InventoryItemDetail,
   InventoryItemListItem,
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";

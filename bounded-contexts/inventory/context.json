@@ -94,7 +94,7 @@
   "hostPorts": [
     {
       "portName": "draftListingCreator",
-      "providedBy": "platform-api",
+      "providedBy": "platform-api, platform-worker",
       "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
     }
   ],

@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { GradedCardDetails } from "../domain/domain";
 import type { InventoryHoldRow } from "../../holds/read-model/queries";
 import {
@@ -21,6 +22,7 @@ export type InventoryItemListRow = Readonly<{
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
+  ship_from_address: AddressSnapshot;
   total_quantity: number;
   held_quantity: number;
   available_quantity: number;
@@ -44,6 +46,7 @@ type BaseInventoryItemRow = Readonly<{
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
+  ship_from_address: unknown;
   total_quantity: number;
   held_quantity: number;
   available_quantity: number;
@@ -113,6 +116,17 @@ function enrichInventoryItemRows(
       product_summary: summarizeSelectedOptions(productSchema, selectedOptions) || null,
       graded_card:
         typeof row.graded_card === "object" && row.graded_card !== null ? (row.graded_card as GradedCardDetails) : null,
+      ship_from_address:
+        typeof row.ship_from_address === "object" && row.ship_from_address !== null
+          ? (row.ship_from_address as AddressSnapshot)
+          : {
+              name: "",
+              line1: "",
+              city: "",
+              state: "",
+              postalCode: "",
+              country: "US",
+            },
     };
   });
 }
@@ -146,6 +160,7 @@ export async function listInventoryItems(
          item.storage_location_id,
          location.name AS storage_location_name,
          location.ship_from_code,
+         location.ship_from_address,
          item.total_quantity,
          COALESCE(active_holds.held_quantity, 0) AS held_quantity,
          item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
@@ -193,6 +208,7 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        item.storage_location_id,
        location.name AS storage_location_name,
        location.ship_from_code,
+       location.ship_from_address,
        item.total_quantity,
        COALESCE(active_holds.held_quantity, 0) AS held_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,

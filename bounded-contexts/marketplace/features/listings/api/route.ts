@@ -106,6 +106,14 @@ function validationError(error: unknown) {
     );
   }
 
+  const message = errorMessage(error);
+  if (message === "Inventory item not found.") {
+    return new Response(JSON.stringify({ error: { code: "inventory_item_not_found", message } }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   return null;
 }
 
@@ -178,6 +186,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     shipFromCode: String(source.shipFromCode ?? ""),
     shipFromAddress,
     totalQuantity: Number(source.totalQuantity ?? 0),
+    availableQuantity: Number(source.availableQuantity ?? source.totalQuantity ?? 0),
     acquisitionCostAmount: source.acquisitionCostAmount == null ? null : String(source.acquisitionCostAmount),
   };
 }
@@ -599,6 +608,11 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
         201,
       );
     } catch (error) {
+      const response = validationError(error);
+      if (response) {
+        return response;
+      }
+
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });

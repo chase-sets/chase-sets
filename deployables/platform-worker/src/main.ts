@@ -14,6 +14,7 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
+import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
 import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
@@ -153,6 +154,21 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
+const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
+  const marketplaceServices = runtime?.services.marketplace as
+    | {
+        listings?: {
+          createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
+        };
+      }
+    | undefined;
+  const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
+  if (!createDraft) {
+    throw new Error("Marketplace draft listing service is unavailable.");
+  }
+
+  return createDraft(params, context);
+};
 
 runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
@@ -166,6 +182,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+    draftListingCreator,
   },
 });
 
