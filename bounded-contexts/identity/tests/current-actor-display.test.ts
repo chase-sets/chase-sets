@@ -36,7 +36,7 @@ function buildApp(services: IdentityServices, resolvedActor: ResolvedActor | nul
 function buildServices(overrides: Partial<IdentityServices> = {}) {
   return {
     accounts: {
-      getAccount: vi.fn(async () => ({
+      getAccountForRead: vi.fn(async () => ({
         account_id: "acc_1",
         badges: ["founding-account"],
         display_name: "Card Vault",
@@ -48,6 +48,7 @@ function buildServices(overrides: Partial<IdentityServices> = {}) {
         membership_id: "mbr_1",
         role_key: "manager",
       })),
+      getMembershipState: vi.fn(async () => null),
     },
     users: {
       getUser: vi.fn(async () => ({
@@ -84,7 +85,7 @@ describe("current actor display", () => {
         primary_email: "alex@example.com",
       },
     });
-    expect(services.accounts.getAccount).toHaveBeenCalledWith("acc_1");
+    expect(services.accounts.getAccountForRead).toHaveBeenCalledWith("acc_1");
     expect(services.memberships.getActiveMembershipForUserAccount).toHaveBeenCalledWith("usr_1", "acc_1");
     expect(services.users.getUser).toHaveBeenCalledWith("usr_1");
     expect(services.users.getUserState).toHaveBeenCalledWith("usr_1");
@@ -123,11 +124,52 @@ describe("current actor display", () => {
     expect(services.users.getUserState).toHaveBeenCalledWith("usr_1");
   });
 
-  it("falls back to actor ids when identity projections have not caught up", async () => {
+  it("uses command-side account and membership state when fresh actor projections have not caught up", async () => {
     const services = buildServices({
-      accounts: { getAccount: vi.fn(async () => null) } as never,
+      accounts: {
+        getAccountForRead: vi.fn(async () => ({
+          account_id: "acc_1",
+          account_type: "personal",
+          badges: [],
+          display_name: "Fresh Seller",
+          name: "Fresh Seller",
+          status: "active",
+          updated_at: "",
+        })),
+      } as never,
       memberships: {
         getActiveMembershipForUserAccount: vi.fn(async () => null),
+        getMembershipState: vi.fn(async () => ({
+          id: "mbr_1",
+          userId: "usr_1",
+          accountId: "acc_1",
+          roleKey: "owner",
+          status: "active",
+        })),
+      } as never,
+    });
+    const response = await buildApp(services).request("/current-actor-display");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      account: {
+        account_id: "acc_1",
+        display_name: "Fresh Seller",
+        name: "Fresh Seller",
+      },
+      membership: {
+        membership_id: "mbr_1",
+        role_key: "owner",
+      },
+    });
+  });
+
+  it("falls back to actor ids when identity projections have not caught up", async () => {
+    const services = buildServices({
+      accounts: { getAccountForRead: vi.fn(async () => null) } as never,
+      memberships: {
+        getActiveMembershipForUserAccount: vi.fn(async () => null),
+        getMembershipState: vi.fn(async () => null),
       } as never,
       users: { getUser: vi.fn(async () => null), getUserState: vi.fn(async () => null) } as never,
     });

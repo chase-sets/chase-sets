@@ -176,7 +176,7 @@ export function accountRoutes(services: AccountServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     if (actor && actor.roleKey !== "platform-admin") {
-      const account = await services.getAccount(actor.accountId);
+      const account = await services.getAccountForRead(actor.accountId);
       const items = account ? [account] : [];
       return c.json({ items, total: items.length, count: items.length });
     }
@@ -197,7 +197,7 @@ export function accountRoutes(services: AccountServices) {
       return c.json(forbidden(), 403);
     }
 
-    const account = await services.getAccount(accountId);
+    const account = await services.getAccountForRead(accountId);
     if (!account) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.accounts.api.route.account.not.found") } },

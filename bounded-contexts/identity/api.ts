@@ -479,6 +479,29 @@ function requirePermission(readPermission: PermissionKey, writePermission = read
   };
 }
 
+async function getCurrentActorMembershipDisplay(services: IdentityServices, actor: ResolvedActor) {
+  const projected = await services.memberships.getActiveMembershipForUserAccount(actor.userId, actor.accountId);
+  if (projected) {
+    return projected;
+  }
+
+  const state = await services.memberships.getMembershipState(actor.membershipId);
+  if (
+    state?.status !== "active" ||
+    state.userId !== actor.userId ||
+    state.accountId !== actor.accountId ||
+    !state.id ||
+    !state.roleKey
+  ) {
+    return null;
+  }
+
+  return {
+    membership_id: state.id,
+    role_key: state.roleKey,
+  };
+}
+
 export function buildIdentityApi(services: IdentityServices) {
   const app = new Hono<IdentityApiEnv>();
 
@@ -644,8 +667,8 @@ export function buildIdentityApi(services: IdentityServices) {
     }
 
     const [account, membership, projectedUser, userState] = await Promise.all([
-      services.accounts.getAccount(actor.accountId),
-      services.memberships.getActiveMembershipForUserAccount(actor.userId, actor.accountId),
+      services.accounts.getAccountForRead(actor.accountId),
+      getCurrentActorMembershipDisplay(services, actor),
       services.users.getUser(actor.userId),
       services.users.getUserState(actor.userId),
     ]);

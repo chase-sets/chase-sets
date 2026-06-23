@@ -3,8 +3,8 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useLoaderData } from "react-router";
 import {
   appendFreshWriteToken,
+  classifyFreshWriteReadError,
   postWriteRecoveryKindForFreshWriteReadError,
-  recoverFreshWriteReadError,
   type PostWriteRecoveryKind,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -41,6 +41,12 @@ function identityApiErrorBody(error: unknown) {
   return error instanceof IdentityApiError ? error.body : null;
 }
 
+function requestWithoutFreshWrite(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  return new Request(url, request);
+}
+
 async function getAccountOrActorFallback(
   request: Request,
   api: ReturnType<typeof createIdentityRequestApiClient>,
@@ -53,22 +59,26 @@ async function getAccountOrActorFallback(
       accountRecovery: null,
     };
   } catch (error) {
-    const recovery = recoverFreshWriteReadError({
+    const classification = classifyFreshWriteReadError({
       request,
       error,
       getStatus: identityApiErrorStatus,
       getBody: identityApiErrorBody,
-      recoverTransient: (classification): { account: Account; accountRecovery: AccountLoaderRecovery } => ({
-        account: buildActorAccountFallback(actor, actorDisplay),
+    });
+
+    if (classification.transient) {
+      const recoveryApi = createIdentityRequestApiClient(requestWithoutFreshWrite(request));
+      const account = await recoveryApi
+        .getAccount<Account>(actor.accountId)
+        .catch(() => buildActorAccountFallback(actor, actorDisplay));
+
+      return {
+        account,
         accountRecovery: {
           kind: "temporary-actor-account-fallback",
           recoveryKind: postWriteRecoveryKindForFreshWriteReadError(classification),
         },
-      }),
-    });
-
-    if (recovery) {
-      return recovery;
+      };
     }
 
     throw error;

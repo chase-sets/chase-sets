@@ -11,16 +11,33 @@ import {
   type AccountEvent,
   type AccountState,
 } from "../domain/domain";
-import { getAccount, listAccounts } from "../read-model/queries";
+import { getAccount, listAccounts, type AccountRow } from "../read-model/queries";
 import { buildAccountProjectionHandlers } from "../read-model/projection";
 
 export type AccountServices = Readonly<{
   commandHandler: CommandHandler<AccountCommand, AccountState, AccountEvent>;
   listAccounts: (params?: Parameters<typeof listAccounts>[1]) => ReturnType<typeof listAccounts>;
   getAccount: (accountId: string) => ReturnType<typeof getAccount>;
+  getAccountForRead: (accountId: string) => Promise<AccountRow | null>;
   getAccountState: (accountId: string) => Promise<AccountState | null>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+function accountRowFromState(state: AccountState): AccountRow | null {
+  if (!state.id || !state.accountType) {
+    return null;
+  }
+
+  return {
+    account_id: state.id,
+    account_type: state.accountType,
+    badges: [...state.badges],
+    display_name: state.displayName,
+    name: state.name ?? state.displayName,
+    status: state.status,
+    updated_at: "",
+  };
+}
 
 export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices {
   const { commandHandler, repository } = createAggregateCommandHandler({
@@ -35,9 +52,17 @@ export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices
     commandHandler,
     listAccounts: (params) => listAccounts(deps.db, params),
     getAccount: (accountId) => getAccount(deps.db, accountId),
+    getAccountForRead: async (accountId) => {
+      const projected = await getAccount(deps.db, accountId);
+      if (projected) {
+        return projected;
+      }
+
+      return accountRowFromState(await loadAccountState(accountId));
+    },
     getAccountState: async (accountId) => {
-      const aggregate = await repository.load(`identity.account-${accountId}`);
-      return aggregate.state.id ? aggregate.state : null;
+      const state = await loadAccountState(accountId);
+      return state.id ? state : null;
     },
     projectors: [
       createProjectionHandlerSet({
@@ -46,4 +71,9 @@ export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices
       }),
     ],
   };
+
+  async function loadAccountState(accountId: string) {
+    const aggregate = await repository.load(`identity.account-${accountId}`);
+    return aggregate.state;
+  }
 }

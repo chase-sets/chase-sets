@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, appendFreshWriteToken } from "@chase-sets/http/responses";
 import { loader } from "../routes/marketplace/account";
 
 const actor = {
@@ -64,10 +64,10 @@ function requestUrl(input: RequestInfo | URL) {
   return input instanceof Request ? input.url : String(input);
 }
 
-function stubAccountLoaderFetch(accountResponse: () => Response) {
+function stubAccountLoaderFetch(accountResponse: (input: RequestInfo | URL, init?: RequestInit) => Response) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
 
       if (url.includes("/api/auth/session")) {
@@ -79,7 +79,7 @@ function stubAccountLoaderFetch(accountResponse: () => Response) {
       }
 
       if (url.includes("/api/identity/accounts/acc_identity")) {
-        return accountResponse();
+        return accountResponse(input, init);
       }
 
       throw new Error(`Unexpected request: ${url}`);
@@ -183,6 +183,52 @@ describe("marketplace account route loader", () => {
       recoveryKind: "refreshable-catching-up",
     });
     expect(data.account.account_id).toBe("acc_identity");
+  });
+
+  it("uses the command-side account fallback when a fresh account projection timeout hides a committed account", async () => {
+    let accountCalls = 0;
+    stubAccountLoaderFetch((_input, init) => {
+      accountCalls += 1;
+      const hasFreshWriteHeader = new Headers(init?.headers).has(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+      if (hasFreshWriteHeader) {
+        return jsonResponse(
+          {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+          503,
+        );
+      }
+
+      return jsonResponse({
+        account_id: "acc_identity",
+        account_type: "personal",
+        badges: [],
+        display_name: "Fresh Seller",
+        name: "Fresh Seller",
+        status: "active",
+        updated_at: "",
+      });
+    });
+
+    const path = appendFreshWriteToken("/account?authPrompt=add-passkey", identityCommit("56"));
+    const data = await loader({
+      request: accountRequest(path),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data.account).toMatchObject({
+      account_id: "acc_identity",
+      display_name: "Fresh Seller",
+    });
+    expect(data.accountRecovery).toEqual({
+      kind: "temporary-actor-account-fallback",
+      recoveryKind: "refreshable-catching-up",
+    });
+    expect(accountCalls).toBe(2);
   });
 
   it("uses the shared temporary fallback for fresh bounded gateway timeout reads", async () => {

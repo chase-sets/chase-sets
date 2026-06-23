@@ -230,7 +230,7 @@
         "readModelTables": ["identity_accounts"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Marketplace account profile redirects carry the Identity account command receipt. While the receipt is valid, 404, projection_freshness_timeout, and bounded gateway timeout account reads return a temporary actor account fallback with refreshable-catching-up recovery metadata; missing or expired receipts and unclassified failures surface normally."
+          "behavior": "Marketplace account profile redirects carry the Identity account command receipt. While the receipt is valid, projection_freshness_timeout and bounded gateway timeout account reads retry through Identity's command-side account state before using a temporary actor account fallback with refreshable-catching-up recovery metadata. Plain account reads can also recover from committed Account aggregate state when the account projection is absent; missing Account aggregates and unclassified failures surface normally."
         }
       },
       "proof": {
@@ -261,7 +261,7 @@
         "readModelTables": ["identity_accounts", "identity_users", "identity_memberships"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Registration redirects carry the Identity account creation receipt. The marketplace shell forwards that receipt to current-actor-display so the account, user, and membership projections catch up before rendering human-readable account and user labels; without a fresh receipt, the endpoint keeps the existing id fallback."
+          "behavior": "Registration redirects carry the Identity account creation receipt. The marketplace shell forwards that receipt to current-actor-display so the account, user, and membership projections catch up before rendering human-readable account and user labels. If those projections are still unavailable, current-actor-display uses Identity's committed Account, User, and Membership aggregate state before falling back to actor ids."
         }
       },
       "proof": {
