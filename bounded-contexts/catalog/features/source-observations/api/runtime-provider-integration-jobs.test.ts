@@ -221,6 +221,15 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       }),
       expect.objectContaining({
+        providerKey: "mtgjson",
+        value: "mtgjson",
+        label: "MTGJSON Set Reference",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "mtgjson-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "scrydex",
         value: "scrydex",
         label: "Scrydex One Piece Cards",
@@ -500,10 +509,12 @@ describe("source observation runtime: provider integration jobs", () => {
       const sets = await services.listIntegrationOptions({
         providerKey: "mtgjson",
         queryKind: "sets",
+        ingestionUnitKey: "mtgjson:mtg:set:reference-data",
       });
       const cards = await services.listIntegrationOptions({
         providerKey: "mtgjson",
         queryKind: "cards",
+        ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
         parentValue: "TSP",
       });
 

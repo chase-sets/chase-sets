@@ -13,7 +13,11 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "./primary-workbench-source-option-refresh";
-import type { SourceObservationIntegrationOption, SourceObservationIntegrationOptionResponse } from "./contracts";
+import type {
+  CatalogProviderSourceOptionKind,
+  SourceObservationIntegrationOption,
+  SourceObservationIntegrationOptionResponse,
+} from "./contracts";
 
 const requestUrl =
   "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
@@ -461,6 +465,89 @@ describe("Catalog primary workbench source options", () => {
     expect(setNameHref.searchParams.get("profileKey")).toBe("mtg-sealed-product-sku");
     expect(setNameHref.searchParams.get("ingestionUnitKey")).toBe(sealedProductUnit);
     expect(setNameHref.searchParams.get("parentValue")).toBe("1");
+  });
+
+  it("keeps MTGJSON set option queries pinned to the selected active set-reference unit", () => {
+    const cardUnit = "mtgjson:mtg:single-card:reference-data";
+    const setUnit = "mtgjson:mtg:set:reference-data";
+    const setOptionKind = {
+      queryKind: "sets",
+      queryKeySynonyms: ["set"],
+      displayName: "Set",
+      scope: "set-name",
+      parentScope: null,
+      parentRequired: false,
+      parentValueKind: null,
+      parentDiagnosticText: null,
+    } satisfies CatalogProviderSourceOptionKind;
+    const cardOptionKind = {
+      queryKind: "cards",
+      queryKeySynonyms: ["card"],
+      displayName: "Card",
+      scope: "product/card",
+      parentScope: "set-name",
+      parentRequired: true,
+      parentValueKind: "set-code",
+      parentDiagnosticText: "MTGJSON card option queries require a selected set code.",
+    } satisfies CatalogProviderSourceOptionKind;
+    const cardProfile = profileReview({
+      providerKey: "mtgjson",
+      profileKey: "mtg-card-reference-data",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: cardUnit,
+      displayName: "MTGJSON Magic card reference data",
+      active: true,
+      lifecycle: "active",
+      connectorKind: "mtgjson-json",
+      supportedScopes: ["set-name", "product/card"],
+      sourceOptionKinds: [setOptionKind, cardOptionKind],
+    });
+    const setProfile = profileReview({
+      providerKey: "mtgjson",
+      profileKey: "mtg-set-reference-data",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: setUnit,
+      displayName: "MTGJSON Set Reference",
+      active: true,
+      lifecycle: "active",
+      connectorKind: "mtgjson-json",
+      supportedScopes: ["set-name"],
+      sourceOptionKinds: [setOptionKind],
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:mtg:set:reference-data";
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [cardProfile, setProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [],
+      profiles: [cardProfile, setProfile],
+      routeContext: readModel.routeContext,
+      cacheOnly: true,
+    });
+    const setsHref = new URL(requests[0]!.queryHref, "https://admin.example");
+
+    expect(readModel.routeContext.profileVersion).toBe("2026.06.19");
+    expect(readModel.sourceOptions.selectedProfile).toMatchObject({
+      providerKey: "mtgjson",
+      profileKey: "mtg-set-reference-data",
+      profileVersion: "2026.06.19",
+    });
+    expect(readModel.sourceOptions.selectedUnitKey).toBe(setUnit);
+    expect(readModel.sourceOptions.optionKinds.map((kind) => kind.queryKind)).toEqual(["sets"]);
+    expect(readModel.sourceOptions.pages.map((page) => page.queryKind)).toEqual(["sets"]);
+    expect(requests.map((request) => request.queryKind)).toEqual(["sets"]);
+    expect(requests.every((request) => request.profileKey === "mtg-set-reference-data")).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey === setUnit)).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey !== cardUnit)).toBe(true);
+    expect(setsHref.searchParams.get("profileKey")).toBe("mtg-set-reference-data");
+    expect(setsHref.searchParams.get("ingestionUnitKey")).toBe(setUnit);
   });
 
   it("does not infer an arbitrary TCGplayer profile for provider-only multi-unit routes", () => {

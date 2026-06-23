@@ -344,10 +344,16 @@ describe("catalog provider integration profiles", () => {
       providerKey: "mtgjson",
       displayName: "MTGJSON Set Reference",
       status: "active",
-      capabilities: ["source-observation-import", "reference-data-promotion"],
+      capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
       normalizedObservationMapping: { kind: "magic-set-reference" },
-      optionQueries: [],
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", scope: "set-name", operation: "mtgjson-list-sets" }),
+      ],
     });
+    expect(mtgjsonMtgSetReferenceProviderProfile.optionQueries).toHaveLength(1);
+    expect(mtgjsonMtgSetReferenceProviderProfile.optionQueries).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ queryKind: "cards" })]),
+    );
   });
 
   it("declares ordered duplicate-prevention identity rules in provider profiles", () => {
