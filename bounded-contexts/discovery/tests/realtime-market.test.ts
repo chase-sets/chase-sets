@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { applyDiscoveryItemPatch, applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
-import { createDiscoveryOfferPatch } from "../support/realtime-support/patches";
+import { createDiscoveryListingPatch, createDiscoveryOfferPatch } from "../support/realtime-support/patches";
 import type { DiscoveryItemDetail, DiscoverySearchResponse } from "../support/client-support/contracts";
 
 describe("discovery realtime market patches", () => {
@@ -88,6 +88,57 @@ describe("discovery realtime market patches", () => {
         id: "offer_1",
       },
     ]);
+  });
+
+  it("requires complete checkout-readiness evidence before realtime upserts public listings", () => {
+    const readyPatch = createDiscoveryListingPatch(
+      ["item:item_1"],
+      {
+        listing_id: "listing_1",
+        catalog_catalog_item_id: "item_1",
+        status: "active",
+        seller_listing_availability_status: "available",
+        product_measure_snapshot: { unit: "item", quantity: 1 },
+        supply_total_quantity: 3,
+        active_held_quantity: 1,
+        visible_quantity: 2,
+      },
+      { active_listing_count: 1, lowest_price_amount: "10.00", total_visible_quantity: 2 },
+    );
+    const missingSellerAvailabilityPatch = createDiscoveryListingPatch(
+      ["item:item_1"],
+      {
+        listing_id: "listing_1",
+        catalog_catalog_item_id: "item_1",
+        status: "active",
+        product_measure_snapshot: { unit: "item", quantity: 1 },
+        visible_quantity: 2,
+      },
+      { active_listing_count: 0, lowest_price_amount: null, total_visible_quantity: 0 },
+    );
+
+    expect(readyPatch.changes[0]).toMatchObject({
+      op: "upsert",
+      entity: "discovery.marketListing",
+      id: "listing_1",
+      value: {
+        listing_id: "listing_1",
+        catalog_catalog_item_id: "item_1",
+        visible_quantity: 2,
+      },
+    });
+    expect(readyPatch.changes[0]).not.toMatchObject({
+      value: expect.objectContaining({
+        product_measure_snapshot: expect.anything(),
+        supply_total_quantity: expect.anything(),
+        active_held_quantity: expect.anything(),
+      }),
+    });
+    expect(missingSellerAvailabilityPatch.changes[0]).toEqual({
+      op: "remove",
+      entity: "discovery.marketListing",
+      id: "listing_1",
+    });
   });
 
   it("patches search rows already present", () => {

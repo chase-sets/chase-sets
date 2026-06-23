@@ -35,7 +35,7 @@ export function createDiscoveryListingPatch(
 
   const isPubliclyBuyable =
     listing.status === "active" &&
-    (listing.seller_listing_availability_status ?? "available") === "available" &&
+    listing.seller_listing_availability_status === "available" &&
     typeof product_measure_snapshot === "object" &&
     product_measure_snapshot !== null &&
     Number(listing.visible_quantity ?? 0) > 0;
