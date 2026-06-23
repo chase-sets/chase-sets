@@ -69,10 +69,7 @@ function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchD
       accepted_count: acceptedCount,
       rejected_count: rejectedCount,
       committed_count: committedCount,
-      status:
-        rows.length > 0 && rejectedCount === 0 && acceptedCount > 0 && acceptedCount === committedCount
-          ? "committed"
-          : "uploaded",
+      status: rows.length > 0 && acceptedCount > 0 && acceptedCount === committedCount ? "committed" : "uploaded",
     }),
     rows,
   };
@@ -153,6 +150,53 @@ describe("InventoryImportBatchPage", () => {
     expect(committed).toContain("Inventory item inv_1 created.");
     expect(committed).toContain("/account/listings?inventoryItemId=inv_1");
     expect(committed).not.toContain("Commit accepted rows");
+  });
+
+  it("renders mixed committed import outcomes with inventory and listing handoffs", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[
+          batch({ status: "committed", total_count: 2, accepted_count: 1, rejected_count: 1, committed_count: 1 }),
+        ]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1?afterWrite=fresh&postWriteHandoff=handoff"
+        detail={detail([
+          row({
+            status: "committed",
+            committed_inventory_item_id: "inv_1",
+            committed_at: timestamp,
+          }),
+          row({
+            row_id: "imr_2",
+            row_number: 3,
+            status: "rejected",
+            validation_errors: ["Catalog item was not found."],
+            catalog_item_id: "cat_missing",
+            product_id: null,
+          }),
+        ])}
+      />,
+    );
+
+    expect(html).toContain("Inventory item inv_1 created.");
+    expect(html).toContain("Catalog item was not found.");
+    expect(html).toContain("/account/inventory?afterWrite=fresh&amp;postWriteHandoff=handoff");
+    expect(html).toContain("/account/listings?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff");
+    expect(html).not.toContain("Commit accepted rows");
+  });
+
+  it("renders a route-owned import updating notice", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={null}
+        detailLoadMessage="The import batch is still updating. Reload this page in a moment."
+      />,
+    );
+
+    expect(html).toContain("Import still updating");
+    expect(html).toContain("The import batch is still updating. Reload this page in a moment.");
   });
 
   it("preserves import freshness metadata in inventory and listing handoff links", () => {

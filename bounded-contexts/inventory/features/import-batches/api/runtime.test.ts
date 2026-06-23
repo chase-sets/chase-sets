@@ -230,10 +230,7 @@ class ImportBatchDb implements PgQueryable {
       accepted_count: acceptedCount,
       rejected_count: rejectedCount,
       committed_count: committedCount,
-      status:
-        rows.length > 0 && rejectedCount === 0 && acceptedCount > 0 && committedCount === acceptedCount
-          ? "committed"
-          : "uploaded",
+      status: rows.length > 0 && acceptedCount > 0 && committedCount === acceptedCount ? "committed" : "uploaded",
       updated_at: now,
     });
   }
@@ -482,6 +479,45 @@ describe("inventory import batch runtime", () => {
     expect(firstCommit.rows[0]?.committed_inventory_item_id).toBe(itemIds[0]);
     expect(firstCommit.rows[0]?.committed_listing_id).toBeDefined();
     expect(secondCommit.rows[0]).toMatchObject(firstCommit.rows[0] ?? {});
+  });
+
+  it("marks mixed imports committed after accepted rows commit while preserving rejected rows", async () => {
+    const itemIds: InventoryItemId[] = [];
+    const db = dbWithLocations();
+    const services = runtime(db, itemIds);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingQuantityCap",
+          "cat_active,loc_active,2,near_mint,4.44,1",
+          "cat_unknown,loc_active,2,near_mint,,",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    const committed = await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+
+    expect(itemIds).toHaveLength(1);
+    expect(committed).toMatchObject({
+      status: "committed",
+      total_count: 2,
+      accepted_count: 1,
+      rejected_count: 1,
+      committed_count: 1,
+    });
+    expect(committed.rows).toEqual([
+      expect.objectContaining({
+        status: "committed",
+        committed_inventory_item_id: itemIds[0],
+      }),
+      expect.objectContaining({
+        status: "rejected",
+        validation_errors: ["Catalog item was not found."],
+        committed_inventory_item_id: null,
+      }),
+    ]);
   });
 
   it("resolves mapped TCGplayer rows and rejects unmapped external references", async () => {

@@ -494,7 +494,6 @@ async function refreshBatchCounts(db: PgQueryable, batchId: string) {
          committed_count = counts.committed_count,
          status = CASE
            WHEN counts.total_count > 0
-            AND counts.rejected_count = 0
             AND counts.accepted_count > 0
             AND counts.committed_count = counts.accepted_count THEN 'committed'
            ELSE 'uploaded'

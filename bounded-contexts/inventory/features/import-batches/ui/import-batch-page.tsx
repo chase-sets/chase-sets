@@ -96,6 +96,7 @@ export function InventoryImportBatchPage({
   activeJobId,
   currentPath,
   errorMessage,
+  detailLoadMessage,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
@@ -103,6 +104,7 @@ export function InventoryImportBatchPage({
   activeJobId?: string | null;
   currentPath?: string | null;
   errorMessage?: string | null;
+  detailLoadMessage?: string | null;
 }) {
   const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
@@ -134,6 +136,14 @@ export function InventoryImportBatchPage({
           tone="danger"
           title={t("inventory.features.importBatches.ui.importBatchPage.import.failed")}
           description={errorMessage}
+        />
+      ) : null}
+
+      {detailLoadMessage ? (
+        <MarketplaceNotice
+          tone="info"
+          title={t("inventory.features.importBatches.ui.importBatchPage.import.still.updating")}
+          description={detailLoadMessage}
         />
       ) : null}
 

@@ -75,7 +75,6 @@ type RawImportBatchRow = Omit<
 
 const IMPORT_BATCH_STATUS_SQL = `CASE
   WHEN total_count > 0
-   AND rejected_count = 0
    AND accepted_count > 0
    AND committed_count = accepted_count
     THEN 'committed'
