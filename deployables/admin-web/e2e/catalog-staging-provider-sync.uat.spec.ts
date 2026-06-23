@@ -94,7 +94,7 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
       visibleText: [
         "Import preflight",
         "250",
-        "id, name, number, expansion",
+        "id, name, number, printed_number, rarity, rarity_code, type, language, language_code, expansion",
         "Bulk-first",
         "Fetch Scrydex One Piece expansion cards with max page size",
         /scrydex:one-piece:expansion:[a-z0-9-]+:cards/i,
