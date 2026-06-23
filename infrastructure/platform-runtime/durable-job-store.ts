@@ -177,6 +177,14 @@ CREATE INDEX IF NOT EXISTS ${jobsTable}_kind_status_idx
 CREATE INDEX IF NOT EXISTS ${jobsTable}_event_context_idx
   ON ${jobsTable} USING GIN (event_context);
 
+CREATE INDEX IF NOT EXISTS ${jobsTable}_event_context_actor_idx
+  ON ${jobsTable} (
+    (event_context->>'tenantId'),
+    (event_context->'audit'->>'forAccountId'),
+    (event_context->'audit'->>'performedByUserId'),
+    updated_at DESC
+  );
+
 CREATE TABLE IF NOT EXISTS ${eventsTable} (
   job_id text NOT NULL REFERENCES ${jobsTable}(job_id) ON DELETE CASCADE,
   sequence integer NOT NULL CHECK (sequence >= 1),
@@ -515,16 +523,20 @@ export function createPostgresDurableJobStore<
     },
     listRecent: async (input = {}) => {
       const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;
-      const eventContext = input.eventContext ? JSON.stringify(input.eventContext) : null;
+      const tenantId = input.eventContext?.tenantId ?? null;
+      const forAccountId = input.eventContext?.audit?.forAccountId ?? null;
+      const performedByUserId = input.eventContext?.audit?.performedByUserId ?? null;
       const limit = Math.max(1, Math.min(input.limit ?? 50, 250));
       const result = await db.query<DurableJobRow>(
         `SELECT ${DURABLE_JOB_COLUMNS}
          FROM ${jobsTable}
          WHERE ($1::text[] IS NULL OR job_kind = ANY($1::text[]))
-           AND ($2::jsonb IS NULL OR event_context @> $2::jsonb)
+           AND ($2::text IS NULL OR event_context->>'tenantId' = $2::text)
+           AND ($3::text IS NULL OR event_context->'audit'->>'forAccountId' = $3::text)
+           AND ($4::text IS NULL OR event_context->'audit'->>'performedByUserId' = $4::text)
          ORDER BY updated_at DESC, created_at DESC, job_id ASC
-         LIMIT $3`,
-        [jobKinds, eventContext, limit],
+         LIMIT $5`,
+        [jobKinds, tenantId, forAccountId, performedByUserId, limit],
       );
       return result.rows.map(mapJobRow<TPayload, TProgress, TResult>);
     },

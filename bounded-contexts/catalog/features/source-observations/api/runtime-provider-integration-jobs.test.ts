@@ -1430,7 +1430,13 @@ describe("source observation runtime: provider integration jobs", () => {
         },
       },
     ]);
-    expect(harness.recentLookupValues).toEqual([["import", "reapply"], JSON.stringify(context), 50]);
+    expect(harness.recentLookupValues).toEqual([
+      ["import", "reapply"],
+      context.tenantId,
+      context.audit?.forAccountId,
+      context.audit?.performedByUserId,
+      50,
+    ]);
   });
 
   it("returns an empty recent integration job list when request context is missing", async () => {

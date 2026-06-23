@@ -28,6 +28,7 @@ describe("durable job store", () => {
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_jobs");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_job_events");
     expect(sql).toContain("ON inventory_import_batch_jobs USING GIN (event_context)");
+    expect(sql).toContain("(event_context->>'tenantId')");
     expect(sql).toContain("PRIMARY KEY (job_id, sequence)");
   });
 
@@ -402,6 +403,11 @@ describe("durable job store", () => {
         performedByUserId: "usr_1",
         forAccountId: "acc_1",
       },
+      requestId: "req_enqueue",
+    } as const;
+    const requestContext = {
+      ...eventContext,
+      requestId: "req_overview",
     } as const;
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
@@ -439,15 +445,17 @@ describe("durable job store", () => {
     await expect(
       store.listRecent({
         jobKinds: ["commit"],
-        eventContext,
+        eventContext: requestContext,
         limit: 12,
       }),
     ).resolves.toMatchObject([{ jobId: "job_1", status: "completed", result: { committed: 1 } }]);
 
     expect(calls[0].sql).not.toContain("status IN ('queued', 'running')");
-    expect(calls[0].sql).toContain("event_context @> $2::jsonb");
+    expect(calls[0].sql).toContain("event_context->>'tenantId' = $2::text");
+    expect(calls[0].sql).toContain("event_context->'audit'->>'forAccountId' = $3::text");
+    expect(calls[0].sql).toContain("event_context->'audit'->>'performedByUserId' = $4::text");
     expect(calls[0].sql).toContain("ORDER BY updated_at DESC");
-    expect(calls[0].values).toEqual([["commit"], JSON.stringify(eventContext), 12]);
+    expect(calls[0].values).toEqual([["commit"], "tnt_1", "acc_1", "usr_1", 12]);
   });
 
   it("falls back to polling when notification LISTEN cannot be established", async () => {
