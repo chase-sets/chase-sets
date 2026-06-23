@@ -172,14 +172,14 @@
         "routeId": "account-payouts",
         "actions": ["Request payout"],
         "command": "Settlement payout request command",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-payout",
         "apiContextName": "settlement",
         "apiRoutePath": "/payouts/:id",
         "readModelTables": ["settlement_payout_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payout detail redirects carry the Settlement payout request receipt; the API waits on settlement_payout_pages and the loader treats fresh 404 or projection freshness timeout as temporary payout preparation."
@@ -194,7 +194,7 @@
         "routeId": "account-payout-setup",
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
         "command": "RecordPayoutReadiness",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-sell-list",
@@ -423,7 +423,7 @@
         "description": "The account payouts action returns payout preview, draft, or refreshed readiness snapshots for same-page controls; confirmed payout requests redirect with the original fresh-write receipt to payout detail recovery; start/manage setup intents are navigation-only and do not run a Settlement mutation."
       },
       "proof": {
-        "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, refresh-payout-setup returns and renders the refreshed readiness snapshot, confirm-payout preserves the createPayout commit receipt via appendFreshWriteToken, and start/manage setup branches only redirect to setup routes.",
+        "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, refresh-payout-setup returns and renders the refreshed readiness snapshot, confirm-payout preserves the createPayout commit receipt via navigateAfterWrite, and start/manage setup branches only redirect to setup routes.",
         "tests": [
           "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
           "bounded-contexts/settlement/features/payouts/api/route.test.ts",

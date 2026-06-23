@@ -3,7 +3,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SettlementPayoutRow } from "../read-model/queries";
-import { SettlementPayoutDetailPage } from "./payout-detail-page";
+import { SettlementPayoutDetailPage, SettlementPayoutDetailRecoveryPage } from "./payout-detail-page";
 
 function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutRow {
   return {
@@ -47,5 +47,13 @@ describe("payout detail recovery paths", () => {
     expect(html).not.toContain("account_closed");
     expect(html).not.toContain("Bank account is closed.");
     expect(html).not.toContain("Express Dashboard");
+  });
+
+  it("renders fresh-write payout preparation as a local recovery state", () => {
+    const html = renderToStaticMarkup(<SettlementPayoutDetailRecoveryPage />);
+
+    expect(html).toContain("Preparing payout");
+    expect(html).toContain("preparing your payout details");
+    expect(html).toContain('href="/account/payouts"');
   });
 });

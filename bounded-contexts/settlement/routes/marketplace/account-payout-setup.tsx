@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useCallback, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -27,6 +27,13 @@ type MarketplaceRootData = Readonly<{
     } | null;
   } | null;
 }>;
+
+const ACCOUNT_PAYOUT_SETUP_POST_WRITE_TELEMETRY = {
+  boundedContextName: "settlement",
+  surface: "account-payout-setup",
+  routeId: "account-payout-setup",
+  routeTemplate: "/account/payouts/setup",
+} as const satisfies PlatformPostWriteTelemetry;
 
 export const CONNECT_EMBEDDED_COMPONENT_CSP = [
   "default-src 'self'",
@@ -95,7 +102,9 @@ function returnToWithPayoutFreshness(
     return null;
   }
 
-  return appendFreshWriteToken(returnTo, refreshResult);
+  return navigateAfterWrite(refreshResult, returnTo, {
+    telemetry: ACCOUNT_PAYOUT_SETUP_POST_WRITE_TELEMETRY,
+  });
 }
 
 export function resolvePayoutSetupMode(
