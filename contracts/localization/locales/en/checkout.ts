@@ -894,6 +894,8 @@ export const checkoutEnglishTranslations = {
     "Your account keeps the purchase intent and seller response traceable.",
   "checkout.routes.checkoutStart.buy.now": "Buy Now",
   "checkout.routes.checkoutStart.cart": "Buy cart",
+  "checkout.routes.checkoutStart.cart.needs.review": "Buy Cart needs review",
+  "checkout.routes.checkoutStart.cart.needs.review.description": "Review your Buy Cart before starting checkout.",
   "checkout.routes.checkoutStart.checkout.status": "Checkout status",
   "checkout.routes.checkoutStart.checkout.summary": "Checkout summary",
   "checkout.routes.checkoutStart.confirm.shipping.so.the.seller.can.review":
@@ -924,6 +926,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.item.count": "{count} {itemLabel}",
   "checkout.routes.checkoutStart.items": "items",
   "checkout.routes.checkoutStart.marketplace.seller": "Marketplace seller",
+  "checkout.routes.checkoutStart.needs.review": "Needs review",
   "checkout.routes.checkoutStart.not.charged.yet": "Not charged yet",
   "checkout.routes.checkoutStart.no.payment.today": "No payment today",
   "checkout.routes.checkoutStart.payment": "Payment",
@@ -948,6 +951,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.registration.purchase.intent.copy":
     "Create an account with a passkey, or switch to magic link, so sellers can trust the offer and your reputation can follow the purchase.",
   "checkout.routes.checkoutStart.recoverable.checkout": "Recoverable checkout",
+  "checkout.routes.checkoutStart.review.buy.cart": "Review Buy Cart",
   "checkout.routes.checkoutStart.secure.checkout": "Secure checkout",
   "checkout.routes.checkoutStart.secure.payment": "Secure payment",
   "checkout.routes.checkoutStart.sellers.review.purchase.intent.before.payment":

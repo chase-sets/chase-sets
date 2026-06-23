@@ -20,6 +20,7 @@ import {
   MockMarketplaceApiError,
   mockMergeGuestCartToAccount,
   mockPreviewCheckoutStatus,
+  readyCartReadinessResponse,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockStartGuestCheckout,
@@ -217,6 +218,7 @@ describe("checkout web routes: checkout start", () => {
       isSignedIn: false,
       isGuestBuyer: false,
       source: null,
+      cartReadiness: null,
       cartCount: 2,
       entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
@@ -237,6 +239,7 @@ describe("checkout web routes: checkout start", () => {
       isSignedIn: false,
       isGuestBuyer: true,
       source: null,
+      cartReadiness: null,
       cartCount: 0,
       entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
@@ -406,9 +409,11 @@ describe("checkout web routes: checkout start", () => {
     );
   });
 
-  it("shows a signed-in continuation state after sign-in returns to checkout start", async () => {
+  it("loads current signed-in cart readiness after sign-in returns to checkout start", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+    });
 
     const result = await checkoutStartLoader({
       request: new Request("http://localhost/checkout/buy/readiness"),
@@ -420,10 +425,55 @@ describe("checkout web routes: checkout start", () => {
       isSignedIn: true,
       isGuestBuyer: false,
       source: null,
-      cartCount: 0,
+      cartReadiness: {
+        status: "ready",
+        lineCount: 1,
+        customerSafeFacts: ["Ready for checkout."],
+      },
+      cartCount: 1,
       entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
+    expect(mockGetGuestCart).not.toHaveBeenCalled();
+  });
+
+  it("represents blocked signed-in cart readiness on the checkout start loader", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    mockCreateCartReadiness.mockResolvedValueOnce({
+      readiness: {
+        ...readyCartReadinessResponse().readiness,
+        snapshotId: "cr_blocked",
+        status: "blocked",
+        lineCount: 1,
+        includedLineIds: [],
+        unresolvedLineIds: ["cli_air_balloon"],
+        lineOutcomes: [{ lineId: "cli_air_balloon", outcome: "checkout", reason: "shipping-measure-missing" }],
+        customerSafeFacts: ["No cart items are ready for checkout."],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+    });
+
+    const result = await checkoutStartLoader({
+      request: new Request("http://localhost/checkout/buy/readiness"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        source: null,
+        cartCount: 1,
+        cartReadiness: {
+          status: "blocked",
+          lineCount: 1,
+          customerSafeFacts: ["No cart items are ready for checkout."],
+        },
+      }),
+    );
     expect(mockGetGuestCart).not.toHaveBeenCalled();
   });
 

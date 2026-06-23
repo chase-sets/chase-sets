@@ -9,6 +9,11 @@ type CheckoutStartLoaderData = {
   isSignedIn: boolean;
   isGuestBuyer: boolean;
   source: null;
+  cartReadiness: null | {
+    status: "ready" | "needs-resolution" | "blocked";
+    lineCount: number;
+    customerSafeFacts: readonly string[];
+  };
   cartCount: number;
   entryAttemptKey: string;
   signInPath: string;
@@ -18,6 +23,7 @@ const guestStartLoaderData: CheckoutStartLoaderData = {
   isSignedIn: false,
   isGuestBuyer: false,
   source: null,
+  cartReadiness: null,
   cartCount: 1,
   entryAttemptKey: "chkentry_test",
   signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
@@ -48,6 +54,32 @@ function renderGuestCheckoutStart() {
       path: "/checkout/buy/session/:sessionId",
       Component: () => <div>checkout-session-ready</div>,
       loader: () => null,
+    },
+  ]);
+
+  return render(<Stub initialEntries={["/checkout/buy/readiness"]} />);
+}
+
+function renderSignedInBlockedCartCheckoutStart() {
+  const Stub = createRoutesStub([
+    {
+      path: "/checkout/buy/readiness",
+      Component: CheckoutStartRoute,
+      loader: () =>
+        ({
+          isSignedIn: true,
+          isGuestBuyer: false,
+          source: null,
+          cartReadiness: {
+            status: "blocked",
+            lineCount: 1,
+            customerSafeFacts: ["No cart items are ready for checkout."],
+          },
+          cartCount: 1,
+          entryAttemptKey: "chkentry_test",
+          signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
+        }) satisfies CheckoutStartLoaderData,
+      action: () => null,
     },
   ]);
 
@@ -88,5 +120,16 @@ describe("guest checkout start: existing account email", () => {
     await waitFor(() => {
       expect(screen.getByText("checkout-session-ready")).toBeTruthy();
     });
+  });
+
+  it("shows blocked signed-in cart readiness without an empty ready checkout CTA", async () => {
+    renderSignedInBlockedCartCheckoutStart();
+
+    expect(await screen.findAllByText("1 item")).not.toHaveLength(0);
+    expect(screen.getAllByText("Needs review").length).toBeGreaterThan(0);
+    expect(screen.getByText("No cart items are ready for checkout.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review Buy Cart" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue to checkout" })).toBeNull();
+    expect(screen.queryByText("0 items")).toBeNull();
   });
 });
