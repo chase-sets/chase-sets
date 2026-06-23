@@ -298,6 +298,7 @@ check "worker_runner_capacity" {
     condition = (
       tonumber(local.worker_projection_concurrency) +
       tonumber(local.worker_job_concurrency) +
+      tonumber(local.worker_inventory_import_concurrency) +
       tonumber(local.worker_dispatch_concurrency) +
       tonumber(local.worker_scheduled_concurrency) +
       tonumber(local.worker_wake_concurrency)
@@ -1298,6 +1299,12 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT"
           value = local.inventory_import_batch_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_inventory_import_concurrency
           scope = "RUN_TIME"
         }
 

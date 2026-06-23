@@ -76,7 +76,8 @@ ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
   ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS quantity_mode text NOT NULL DEFAULT 'add',
-  ADD COLUMN IF NOT EXISTS default_storage_location_id text NULL;
+  ADD COLUMN IF NOT EXISTS default_storage_location_id text NULL,
+  ADD COLUMN IF NOT EXISTS source_filename text NULL;
 
 ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS external_reference jsonb NULL,
@@ -85,7 +86,21 @@ ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS quantity_delta integer NULL,
   ADD COLUMN IF NOT EXISTS set_quantity integer NULL,
   ADD COLUMN IF NOT EXISTS source_price_amount numeric(12, 2) NULL,
-  ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'native';
+  ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'native',
+  ADD COLUMN IF NOT EXISTS catalog_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS product_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS storage_location_id text NULL,
+  ADD COLUMN IF NOT EXISTS total_quantity integer NULL,
+  ADD COLUMN IF NOT EXISTS acquisition_cost_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS seller_sku text NULL,
+  ADD COLUMN IF NOT EXISTS listing_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS listing_quantity_cap integer NULL,
+  ADD COLUMN IF NOT EXISTS row_note text NULL,
+  ADD COLUMN IF NOT EXISTS validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS committed_inventory_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS committed_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS committed_at timestamptz NULL;
 
 ${durableJobSchemaSql({
   jobsTable: "inventory_import_batch_jobs",

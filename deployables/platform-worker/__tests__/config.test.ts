@@ -85,6 +85,7 @@ const envNames = [
   "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
+  "INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS",
   "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
@@ -379,6 +380,7 @@ describe("platform worker config", () => {
       sourceObservationIntegrationJobWorkflowMaxActiveClaims: 1,
       sourceObservationIntegrationJobMaxActiveClaimsPerJob: 1,
       inventoryImportBatchJobLaneCount: 1,
+      inventoryImportBatchJobMaxConcurrentRunners: 1,
       inventoryImportBatchJobWorkflowMaxActiveClaims: 1,
       inventoryImportBatchJobMaxActiveClaimsPerJob: 1,
       pricingRecommendationJobLaneCount: 1,
@@ -412,6 +414,7 @@ describe("platform worker config", () => {
     process.env.SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
     process.env.SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
     process.env.INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT = "4";
+    process.env.INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS = "2";
     process.env.INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
     process.env.INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
     process.env.PRICING_RECOMMENDATION_JOB_LANE_COUNT = "3";
@@ -442,6 +445,7 @@ describe("platform worker config", () => {
       sourceObservationIntegrationJobWorkflowMaxActiveClaims: 4,
       sourceObservationIntegrationJobMaxActiveClaimsPerJob: 2,
       inventoryImportBatchJobLaneCount: 4,
+      inventoryImportBatchJobMaxConcurrentRunners: 2,
       inventoryImportBatchJobWorkflowMaxActiveClaims: 4,
       inventoryImportBatchJobMaxActiveClaimsPerJob: 2,
       pricingRecommendationJobLaneCount: 3,

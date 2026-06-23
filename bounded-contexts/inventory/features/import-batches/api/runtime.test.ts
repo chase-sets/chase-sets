@@ -9,6 +9,7 @@ import type {
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
 import { createInventoryImportBatchRuntime, shouldDeferImportBatchParentClaimForCreateUnitMiss } from "./runtime";
+import { inventoryImportBatchSchemaSql } from "../read-model/schema";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -358,6 +359,15 @@ function dbWithLocations() {
 }
 
 describe("inventory import batch runtime", () => {
+  it("keeps import batch schema additive for existing staging databases", () => {
+    expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS source_filename text NULL");
+    expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS seller_sku text NULL");
+    expect(inventoryImportBatchSchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS listing_price_amount numeric(12, 2) NULL",
+    );
+    expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS committed_listing_id text NULL");
+  });
+
   it("only defers parent job reconciliation while create work-unit capacity is exhausted", () => {
     expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("workflow_budget_exhausted")).toBe(true);
     expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("job_budget_exhausted")).toBe(true);

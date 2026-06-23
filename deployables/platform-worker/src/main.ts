@@ -206,9 +206,9 @@ const projectionRunners = collectWorkerRunners(runtime, {
   workSignalStore,
   observer: createWorkerObserver("platform-worker"),
 });
+const inventoryImportJobRunners = createInventoryJobRunners(runtime.services, config);
 const bulkJobRunners = [
   ...createCatalogBulkJobRunners(runtime.services, config),
-  ...createInventoryJobRunners(runtime.services, config),
   ...createGoogleShoppingJobRunners(runtime.services, config),
   ...createPricingJobRunners(runtime.services, config),
   ...createSettlementJobRunners(runtime.services, config),
@@ -272,6 +272,7 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
+  createRunnerGroup("inventory-jobs", inventoryImportJobRunners, config.inventoryImportBatchJobMaxConcurrentRunners),
   createRunnerGroup("dispatch", notificationDispatchRunners, config.dispatchMaxConcurrentRunners),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
   createRunnerGroup(
