@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, CHASE_SETS_READ_AFTER_WRITE_HEADER } from "@chase-sets/http/responses";
 import { action as listingAction, loader as listingLoader } from "../routes/account-listing";
 import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
 
@@ -127,6 +127,42 @@ describe("marketplace listing detail route", () => {
       feeHistory: { items: [], total: 0, count: 0 },
       recovery: "fresh-write-preparing",
     });
+  });
+
+  it("does not forward listing afterWrite metadata to fee history reads", async () => {
+    const feeHistoryHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/fee-history")) {
+          feeHistoryHeaders.push(new Headers(init?.headers));
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            status: "active",
+          }),
+        );
+      }),
+    );
+
+    const result = await listingLoader({
+      request: freshListingRequest(),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.listing).toMatchObject({ listing_id: "lst_1" });
+    expect(feeHistoryHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
   });
 
   it("returns the current quote when a confirmed price update is stale", async () => {

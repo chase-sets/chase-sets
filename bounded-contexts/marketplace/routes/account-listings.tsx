@@ -30,6 +30,7 @@ const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
+const AVAILABILITY_ACTION_PARAM = "availabilityAction";
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
@@ -127,7 +128,10 @@ function emptyListResponse<T>(): ListResponse<T> {
   return { items: [], total: 0, count: 0 };
 }
 
-function createFreshWriteRecoveryPageReads(accountId: string): AccountListingsPageReads {
+function createFreshWriteRecoveryPageReads(
+  accountId: string,
+  availabilityStatus: MarketplaceSellerListingAvailability["status"] = "available",
+): AccountListingsPageReads {
   return {
     listings: emptyListResponse(),
     feeLockReport: emptyListResponse(),
@@ -135,7 +139,7 @@ function createFreshWriteRecoveryPageReads(accountId: string): AccountListingsPa
     hasListingStockLocation: false,
     listingAvailability: {
       account_id: accountId,
-      status: "available",
+      status: availabilityStatus,
       disabled_reason_category: null,
       available_again_on: null,
       disabled_at: null,
@@ -177,6 +181,16 @@ function hasMarketplaceFreshWriteSource(classification: ReturnType<typeof classi
   return classification.receipt?.sources.some((source) => source.sourceContextName === "marketplace") ?? false;
 }
 
+function availabilityStatusFromAction(value: string | null): MarketplaceSellerListingAvailability["status"] | null {
+  if (value === "disabled") {
+    return "unavailable";
+  }
+  if (value === "enabled") {
+    return "available";
+  }
+  return null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -186,6 +200,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const selectedOptions = parseSelectedOptions(searchParams.get("selectedOptions"));
   const recommendedPrice = searchParams.get("recommendedPrice") ?? "";
   const claimListingIntentId = searchParams.get("claimListingIntent")?.trim() ?? "";
+  const pendingAvailabilityStatus = availabilityStatusFromAction(searchParams.get(AVAILABILITY_ACTION_PARAM));
   let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
   let claimError: string | null = null;
   let inventoryHandoffError: string | null = null;
@@ -234,6 +249,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       !hasMarketplaceFreshWriteSource(classification)
     ) {
       pageReads = createFreshWriteRecoveryPageReads(actor.accountId);
+    } else if (
+      pendingAvailabilityStatus &&
+      classification.transient &&
+      hasMarketplaceFreshWriteSource(classification)
+    ) {
+      pageReads = createFreshWriteRecoveryPageReads(actor.accountId, pendingAvailabilityStatus);
     } else if (selectedInventoryItemId && classification.transient && !hasMarketplaceFreshWriteSource(classification)) {
       const [listings, feeLockReport, listingAvailability] = await Promise.all([
         marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
@@ -317,7 +338,7 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "disable-listing-availability") {
       return redirect(
         appendFreshWriteToken(
-          "/account/listings",
+          `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
           await api.disableSellerListingAvailability({
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
@@ -327,7 +348,12 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "enable-listing-availability") {
-      return redirect(appendFreshWriteToken("/account/listings", await api.enableSellerListingAvailability()));
+      return redirect(
+        appendFreshWriteToken(
+          `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
+          await api.enableSellerListingAvailability(),
+        ),
+      );
     }
 
     if (intent === "preview-listing") {
