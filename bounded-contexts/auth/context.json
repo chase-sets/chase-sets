@@ -533,7 +533,7 @@
         "reviewBy": "2026-09-30",
         "reason": "The shared Auth host carries browser authentication write receipts into the account redirect. Auth owns the current-session fresh read separately; Identity owns the projection-backed account and current-actor-display destination reads and declares their exact freshness dependencies.",
         "files": ["bounded-contexts/auth/support/route-support/auth-host.ts"],
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       }
     }
   ],
