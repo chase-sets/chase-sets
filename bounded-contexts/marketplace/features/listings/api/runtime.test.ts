@@ -986,4 +986,38 @@ describe("marketplace listing runtime", () => {
       ),
     ).rejects.toThrow("Listing quantity caps cannot exceed created available inventory.");
   });
+
+  it("rejects snapshot listing caps above Inventory-reported available quantity", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(),
+      } as never,
+    });
+
+    await expect(
+      services.createListingFromInventorySnapshot(
+        {
+          accountId: "acc_seller",
+          inventoryItemId: "inv_held",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          selectedOptions: [],
+          storageLocationId: "loc_1",
+          storageLocationName: "Held shelf",
+          shipFromCode: "CHI",
+          shipFromAddress,
+          totalQuantity: 3,
+          availableQuantity: 1,
+          acquisitionCostAmount: null,
+          priceAmount: "5.00",
+          quantityCap: 2,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Listing quantity caps cannot exceed available listing stock.");
+  });
 });

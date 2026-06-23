@@ -473,7 +473,33 @@
         "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings loads seller inventory options inside the fresh-write loader and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
+          "behavior": "Account Listings loads seller inventory options inside the fresh-write loader, merges an explicit Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item, and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
+        }
+      }
+    },
+    {
+      "id": "marketplace.import-listing-inventory-handoff",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-inventory-imports", "account-inventory-import"],
+        "actions": ["Create listing from committed import row"],
+        "command": "Inventory import commit handoff"
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listing-inventory",
+        "readModelTables": [
+          "marketplace_supply_items",
+          "marketplace_supply_locations",
+          "marketplace_supply_holds",
+          "marketplace_catalog_items"
+        ],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Committed import rows link to Account Listings with an explicit inventoryItemId; the loader preserves normal Marketplace supply options but merges the exact Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item."
         }
       }
     },

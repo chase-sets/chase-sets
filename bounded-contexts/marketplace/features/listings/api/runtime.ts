@@ -122,6 +122,7 @@ export type MarketplaceListingServices = Readonly<{
       shipFromCode: string;
       shipFromAddress: AddressSnapshot;
       totalQuantity: number;
+      availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
       quantityCap: number;
@@ -143,6 +144,7 @@ export type MarketplaceListingServices = Readonly<{
       shipFromCode: string;
       shipFromAddress: AddressSnapshot;
       totalQuantity: number;
+      availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
       quantityCap: number;
@@ -955,7 +957,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     createListingFromInventorySnapshot: async (params, context) => {
       assert(
-        params.quantityCap <= params.totalQuantity,
+        params.quantityCap <= (params.availableQuantity ?? params.totalQuantity),
         "Listing quantity caps cannot exceed available listing stock.",
       );
       await upsertBatchInventorySnapshot(params);

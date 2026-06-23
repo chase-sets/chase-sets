@@ -1,3 +1,5 @@
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+
 export type InventoryHold = Readonly<{
   hold_id: string;
   account_id: string;
@@ -38,6 +40,7 @@ export type InventoryItemListItem = Readonly<{
   storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
+  ship_from_address: AddressSnapshot;
   total_quantity: number;
   held_quantity: number;
   available_quantity: number;

@@ -22,7 +22,7 @@ import {
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
-import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
+import { createInventoryRequestApiClient, type InventoryItemDetail } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -35,6 +35,29 @@ const AVAILABILITY_ACTION_PARAM = "availabilityAction";
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
+}
+
+function apiErrorStatus(error: unknown) {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return null;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  return Number.isInteger(status) ? Number(status) : null;
+}
+
+function marketplaceApiErrorCode(error: unknown) {
+  if (!(error instanceof MarketplaceApiError) || typeof error.body !== "object" || error.body === null) {
+    return null;
+  }
+
+  const apiError = (error.body as { error?: unknown }).error;
+  if (typeof apiError !== "object" || apiError === null || !("code" in apiError)) {
+    return null;
+  }
+
+  const code = (apiError as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
 }
 
 function optionalLimit(value: FormDataEntryValue | null) {
@@ -117,6 +140,46 @@ function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftInten
   };
 }
 
+function inventoryOptionFromInventoryItem(item: InventoryItemDetail): MarketplaceListingInventoryItemOption | null {
+  if (item.available_quantity <= 0) {
+    return null;
+  }
+
+  return {
+    item_id: item.item_id,
+    catalog_catalog_item_id: item.catalog_catalog_item_id,
+    product_id: item.product_id,
+    item_language_code: item.language_code,
+    item_title: item.item_title,
+    item_subtitle: item.item_subtitle,
+    selected_options: item.selected_options,
+    product_summary: item.product_summary,
+    product_measure_snapshot: null,
+    graded_card: item.graded_card,
+    storage_location_name: item.storage_location_name,
+    ship_from_code: item.ship_from_code,
+    ship_from_address: item.ship_from_address,
+    available_quantity: item.available_quantity,
+  };
+}
+
+function inventorySnapshotFromInventoryItem(item: InventoryItemDetail) {
+  return {
+    inventoryItemId: item.item_id,
+    catalogItemId: item.catalog_catalog_item_id,
+    productId: item.product_id,
+    selectedOptions: item.selected_options,
+    gradedCard: item.graded_card,
+    storageLocationId: item.storage_location_id,
+    storageLocationName: item.storage_location_name,
+    shipFromCode: item.ship_from_code,
+    shipFromAddress: item.ship_from_address,
+    totalQuantity: item.total_quantity,
+    availableQuantity: item.available_quantity,
+    acquisitionCostAmount: item.acquisition_cost_amount,
+  };
+}
+
 type AccountListingsPageReads = Readonly<{
   listings: ListResponse<MarketplaceListingListItem>;
   feeLockReport: ListResponse<MarketplaceListingFeeLockReportEntry>;
@@ -152,6 +215,7 @@ function createFreshWriteRecoveryPageReads(
 
 async function loadListingInventoryOptions(
   marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
+  inventoryApi: ReturnType<typeof createInventoryRequestApiClient>,
   selectedInventoryItemId: string | null,
 ) {
   const inventoryItemsResponse = await marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY);
@@ -166,16 +230,65 @@ async function loadListingInventoryOptions(
     new URLSearchParams({ inventoryItemId: selectedInventoryItemId, limit: "1", offset: "0" }).toString(),
   );
   const selectedItem = selectedItemResponse.items.find((item) => item.item_id === selectedInventoryItemId);
-  if (!selectedItem) {
-    return inventoryItemsResponse;
+  if (selectedItem) {
+    return {
+      ...inventoryItemsResponse,
+      items: [selectedItem, ...inventoryItemsResponse.items],
+      total: Math.max(inventoryItemsResponse.total, inventoryItemsResponse.items.length + 1),
+      count: inventoryItemsResponse.count + 1,
+    };
   }
 
-  return {
-    ...inventoryItemsResponse,
-    items: [selectedItem, ...inventoryItemsResponse.items],
-    total: Math.max(inventoryItemsResponse.total, inventoryItemsResponse.items.length + 1),
-    count: inventoryItemsResponse.count + 1,
+  try {
+    const inventoryItem = inventoryOptionFromInventoryItem(await inventoryApi.getItem(selectedInventoryItemId));
+    if (!inventoryItem) {
+      return inventoryItemsResponse;
+    }
+
+    return {
+      ...inventoryItemsResponse,
+      items: [inventoryItem, ...inventoryItemsResponse.items],
+      total: Math.max(inventoryItemsResponse.total, inventoryItemsResponse.items.length + 1),
+      count: inventoryItemsResponse.count + 1,
+    };
+  } catch (error) {
+    if (apiErrorStatus(error) === 404) {
+      return inventoryItemsResponse;
+    }
+    throw error;
+  }
+}
+
+async function createListingFromInventorySnapshot(
+  api: ReturnType<typeof createMarketplaceRequestApiClient>,
+  inventoryApi: ReturnType<typeof createInventoryRequestApiClient>,
+  createForm: Readonly<{
+    inventoryItemId: string;
+    priceAmount: string;
+    quantityCap: string;
+  }>,
+  purchaseLimits: Readonly<{
+    maxUnitsPerOrder: number | null;
+    maxUnitsPerDay: number | null;
+    maxUnitsPerCustomerAccount: number | null;
+  }>,
+  listingPhotoFiles: readonly File[],
+) {
+  const quantityCap = Number(createForm.quantityCap ?? 0);
+  const inventoryItem = await inventoryApi.getItem(createForm.inventoryItemId);
+  const listingBody = {
+    inventoryItemId: createForm.inventoryItemId,
+    priceAmount: createForm.priceAmount,
+    quantityCap,
+    purchaseLimits,
+    inventorySnapshot: inventorySnapshotFromInventoryItem(inventoryItem),
   };
+
+  return (
+    listingPhotoFiles.length > 0
+      ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
+      : await api.createListing(listingBody)
+  ) as { id: string; feeQuoteFingerprint?: string };
 }
 
 function hasMarketplaceFreshWriteSource(classification: ReturnType<typeof classifyFreshWriteReadError>) {
@@ -195,6 +308,7 @@ function availabilityStatusFromAction(value: string | null): MarketplaceSellerLi
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request);
   const searchParams = new URL(request.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
@@ -230,7 +344,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           await Promise.all([
             marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
             marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-            loadListingInventoryOptions(marketplaceApi, selectedInventoryItemId),
+            loadListingInventoryOptions(marketplaceApi, inventoryApi, selectedInventoryItemId),
             marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
             marketplaceApi.getSellerListingAvailability(),
           ]);
@@ -395,11 +509,30 @@ export async function action({ request }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = (
-        listingPhotoFiles.length > 0
-          ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
-          : await api.createListing(listingBody)
-      ) as { id: string; feeQuoteFingerprint?: string };
+      let result: { id: string; feeQuoteFingerprint?: string };
+      try {
+        result = (
+          listingPhotoFiles.length > 0
+            ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
+            : await api.createListing(listingBody)
+        ) as { id: string; feeQuoteFingerprint?: string };
+      } catch (error) {
+        if (!createForm.inventoryItemId || marketplaceApiErrorCode(error) !== "inventory_item_not_found") {
+          throw error;
+        }
+
+        result = await createListingFromInventorySnapshot(
+          api,
+          inventoryApi,
+          {
+            inventoryItemId: createForm.inventoryItemId,
+            priceAmount: createForm.priceAmount,
+            quantityCap: createForm.quantityCap,
+          },
+          purchaseLimits,
+          listingPhotoFiles,
+        );
+      }
 
       const redirectReceipts =
         intent === "create-and-publish-listing"

@@ -522,6 +522,35 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it("returns a stable code when listing creation cannot find Marketplace inventory supply", async () => {
+    const services = createServices();
+    vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Inventory item not found."));
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryItemId: "inv_missing_from_marketplace",
+          priceAmount: "12.00",
+          quantityCap: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "inventory_item_not_found",
+        message: "Inventory item not found.",
+      },
+    });
+  });
+
   it("hydrates a valid inventory snapshot into seller listing creation", async () => {
     const services = createServices();
     const app = buildApp({
@@ -538,6 +567,7 @@ describe("marketplace listing routes", () => {
           quantityCap: 1,
           inventorySnapshot: {
             ...validInventorySnapshot,
+            availableQuantity: 1,
             gradedCard: {
               gradingCompany: "PSA",
               grade: "10",
@@ -558,6 +588,7 @@ describe("marketplace listing routes", () => {
     expect(response.status).toBe(201);
     expect(services.createListingFromInventorySnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
+        availableQuantity: 1,
         shipFromAddress: validShipFromAddress,
         gradedCard: expect.objectContaining({
           gradingCompany: "PSA",
