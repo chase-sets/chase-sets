@@ -42,6 +42,10 @@ export const reputationEnglishTranslations = {
     "Verified order feedback and marketplace trust signals.",
   "reputation.features.reviews.ui.reviewDetailPage.reviewed.account": "Reviewed account: ",
   "reputation.features.reviews.ui.reviewDetailPage.summary": "Summary",
+  "reputation.features.reviews.ui.reviewDetailRecoveryPage.recover.review": "Recover review",
+  "reputation.features.reviews.ui.reviewDetailRecoveryPage.refresh.review": "Refresh review",
+  "reputation.features.reviews.ui.reviewDetailRecoveryPage.review.submission.saved":
+    "Your review submission was saved.",
   "reputation.features.reviews.ui.reviewListPage.no.written.feedback": "No written feedback.",
   "reputation.features.reviews.ui.reviewListPage.open.review": "Open review",
   "reputation.features.reviews.ui.reviewListPage.order": "Order ",
@@ -78,6 +82,9 @@ export const reputationEnglishTranslations = {
   "reputation.routes.marketplace.accountReceivedReviews.written.reviews": "Written reviews",
   "reputation.routes.marketplace.accountReview.review.marketplace": "Review | Marketplace",
   "reputation.routes.marketplace.accountReview.review.not.found": "Review not found.",
+  "reputation.routes.marketplace.accountReview.review.preparing": "Review is preparing",
+  "reputation.routes.marketplace.accountReview.review.preparing.description":
+    "We saved the review and are waiting for it to appear in marketplace reputation.",
   "reputation.routes.marketplace.accountReviewSummary.received.reviews": "Received reviews",
   "reputation.routes.marketplace.accountReviewSummary.reviews.marketplace": "Reviews | Marketplace",
   "reputation.routes.marketplace.accountReviewSummary.written.reviews": "Written reviews",

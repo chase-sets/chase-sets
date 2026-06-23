@@ -1,11 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -24,6 +21,12 @@ import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-mat
 export { OfferMatchDetailErrorBoundary as ErrorBoundary };
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
+const OFFER_MATCH_POST_WRITE_TELEMETRY = {
+  boundedContextName: "marketplace",
+  surface: "account-offer-match",
+  routeId: "account-offer-match",
+  routeTemplate: "/account/offers/matches/:offerId",
+} as const satisfies PlatformPostWriteTelemetry;
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -36,39 +39,44 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const api = createMarketplaceRequestApiClient(request);
 
-  try {
-    return await loadFreshlyWrittenResource({
-      request,
-      isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
-      load: async () => {
-        const offerMatch = await api.getOfferMatch(params.offerId!);
-        return {
-          offerMatch,
-          acceptanceTerms:
-            offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
-        };
-      },
-    });
-  } catch (error) {
-    const freshWriteRecovery = recoverFreshWriteReadError({
-      request,
-      error,
-      recoverTransient: () => ({
-        offerMatch: null,
-        acceptanceTerms: null,
-        recovery: "fresh-write-preparing" as const,
-      }),
-    });
-    if (freshWriteRecovery) {
-      return freshWriteRecovery;
-    }
+  const offerMatchRead = await loadAfterWrite({
+    request,
+    isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
+    load: async () => {
+      const offerMatch = await api.getOfferMatch(params.offerId!);
+      return {
+        offerMatch,
+        acceptanceTerms:
+          offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
+      };
+    },
+    telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+  });
+  const offerMatchDestination = classifyPostWriteDestinationResult(offerMatchRead);
+
+  if (offerMatchDestination.kind === "recover") {
+    return {
+      offerMatch: null,
+      acceptanceTerms: null,
+      recovery: "fresh-write-preparing" as const,
+    };
+  }
+
+  if (offerMatchDestination.kind === "pass-through") {
+    const error = "error" in offerMatchDestination.result ? offerMatchDestination.result.error : null;
 
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
     }
 
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
   }
+
+  return offerMatchDestination.data;
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -90,7 +98,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
       return redirect(
-        appendFreshWriteToken(`/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`, result),
+        navigateAfterWrite(result, `/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`, {
+          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
+        }),
       );
     }
 

@@ -4,13 +4,13 @@ import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "reac
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
+import { type FreshWriteReadErrorClassification, type ListResponse } from "@chase-sets/http/responses";
 import {
-  appendFreshWriteToken,
-  appendFreshWriteTokenFromSources,
-  classifyFreshWriteReadError,
-  loadFreshlyWrittenResource,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+  loadAfterWrite,
+  navigateAfterWrite,
+  navigateAfterWriteFromSources,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -32,6 +32,12 @@ const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 const AVAILABILITY_ACTION_PARAM = "availabilityAction";
+const ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY = {
+  boundedContextName: "marketplace",
+  surface: "account-listings",
+  routeId: "account-listings",
+  routeTemplate: "/account/listings",
+} as const satisfies PlatformPostWriteTelemetry;
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
@@ -291,7 +297,7 @@ async function createListingFromInventorySnapshot(
   ) as { id: string; feeQuoteFingerprint?: string };
 }
 
-function hasMarketplaceFreshWriteSource(classification: ReturnType<typeof classifyFreshWriteReadError>) {
+function hasMarketplaceFreshWriteSource(classification: FreshWriteReadErrorClassification) {
   return classification.receipt?.sources.some((source) => source.sourceContextName === "marketplace") ?? false;
 }
 
@@ -334,29 +340,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
-  let pageReads: AccountListingsPageReads;
-  try {
-    pageReads = await loadFreshlyWrittenResource({
-      request,
-      isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
-      load: async () => {
-        const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
-          await Promise.all([
-            marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-            marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-            loadListingInventoryOptions(marketplaceApi, inventoryApi, selectedInventoryItemId),
-            marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
-            marketplaceApi.getSellerListingAvailability(),
-          ]);
+  const pageRead = await loadAfterWrite<AccountListingsPageReads>({
+    request,
+    isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
+    load: async () => {
+      const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
+        await Promise.all([
+          marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
+          marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+          loadListingInventoryOptions(marketplaceApi, inventoryApi, selectedInventoryItemId),
+          marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
+          marketplaceApi.getSellerListingAvailability(),
+        ]);
 
-        return { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability };
-      },
-    });
-  } catch (error) {
-    const classification = classifyFreshWriteReadError({
-      request,
-      error,
-    });
+      return { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability };
+    },
+    telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
+  });
+
+  let pageReads: AccountListingsPageReads;
+  if (pageRead.kind === "data") {
+    pageReads = pageRead.data;
+  } else if (pageRead.kind === "pending" && "classification" in pageRead) {
+    const { classification } = pageRead;
     if (
       claimListingIntentId &&
       claimedDraft &&
@@ -385,8 +391,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       };
       inventoryHandoffError = t("marketplace.routes.accountListings.inventory.item.preparing");
     } else {
-      throw error;
+      throw pageRead.error;
     }
+  } else if ("error" in pageRead) {
+    throw pageRead.error;
+  } else {
+    throw new Response(t("marketplace.routes.accountListings.listings.marketplace"), { status: 500 });
   }
 
   const { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability } = pageReads;
@@ -452,21 +462,23 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "disable-listing-availability") {
       return redirect(
-        appendFreshWriteToken(
-          `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
+        navigateAfterWrite(
           await api.disableSellerListingAvailability({
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
           }),
+          `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
+          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }
 
     if (intent === "enable-listing-availability") {
       return redirect(
-        appendFreshWriteToken(
-          `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
+        navigateAfterWrite(
           await api.enableSellerListingAvailability(),
+          `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
+          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }
@@ -545,11 +557,12 @@ export async function action({ request }: ActionFunctionArgs) {
           : [result];
 
       return redirect(
-        appendFreshWriteTokenFromSources(
+        navigateAfterWriteFromSources(
+          redirectReceipts,
           intent === "create-and-publish-listing"
             ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
             : `/account/listings/${result.id}`,
-          redirectReceipts,
+          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }
