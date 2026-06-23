@@ -1,12 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import { type ListResponse } from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { InventoryApiError, type InventoryStorageLocation } from "../../support/request-support/api-client";
@@ -49,33 +45,36 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "inventory.view",
   });
   const api = createInventoryRequestApiClient(request);
-  try {
+  const locationsRead = await loadAfterWrite({
+    request,
+    load: () => api.listStorageLocations("includeArchived=true"),
+    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+    getStatus: inventoryApiErrorStatus,
+    getErrorCode: inventoryApiErrorCode,
+    getBody: inventoryApiErrorBody,
+  });
+
+  if (locationsRead.kind === "data") {
     return {
-      locations: await loadFreshlyWrittenResource({
-        request,
-        load: () => api.listStorageLocations("includeArchived=true"),
-        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-      }),
+      locations: locationsRead.data,
       loadError: null,
     };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
-      getStatus: inventoryApiErrorStatus,
-      getErrorCode: inventoryApiErrorCode,
-      getBody: inventoryApiErrorBody,
-      recoverTransient: () => ({
-        locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
-        loadError: "Storage locations are still updating. Reload this page in a moment.",
-      }),
-    });
-    if (recovery) {
-      return recovery;
-    }
-
-    throw error;
   }
+
+  if (locationsRead.kind === "pending") {
+    return {
+      locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
+      loadError: "Storage locations are still updating. Reload this page in a moment.",
+    };
+  }
+
+  if (locationsRead.reason !== "fresh-write-read-permanent") {
+    throw new Response("Storage location update could not be verified. Reload this page and try again.", {
+      status: 409,
+    });
+  }
+
+  throw locationsRead.error;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -120,7 +119,7 @@ export async function action({ request }: ActionFunctionArgs) {
         break;
     }
 
-    return redirect(appendFreshWriteToken("/account/inventory/locations", result));
+    return redirect(navigateAfterWrite(result, "/account/inventory/locations"));
   } catch (error) {
     if (error instanceof InventoryApiError) {
       return {
