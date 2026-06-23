@@ -82,6 +82,7 @@ describe("payout setup page", () => {
     expect(html).toContain("Payout setup");
     expect(html).toContain("Add the required account and payout destination details without leaving Chase Sets.");
     expect(html).toContain("Loading secure payout setup");
+    expect(html).toContain("glass-surface rounded-tokenLg border border-muted shadow-tokenSm overflow-visible p-4");
     expect(html).not.toContain("Express");
     expect(html).not.toContain("hosted setup");
   });
