@@ -1126,7 +1126,7 @@ describe("source observation runtime: provider integration jobs", () => {
             planKey: "scrydex:one-piece:expansion:op-01:cards",
             estimatedPayloads: null,
             transportSteps: [
-              "Fetch Scrydex One Piece expansion cards with max page size",
+              "Search Scrydex One Piece cards by printings set with max page size",
               "Sanitize card payloads",
               "Attach payload provenance",
             ],
@@ -1134,15 +1134,16 @@ describe("source observation runtime: provider integration jobs", () => {
               requestStrategy: "bulk-first",
               estimateState: "estimate-unavailable",
               estimatedRequestCount: null,
-              usageCheckState: "not-configured",
+              usageCheckState: "checked",
               perRecordFallbackReason: null,
-              selectedFields: expect.arrayContaining(["id", "name", "number", "expansion"]),
+              selectedFields: expect.arrayContaining(["id", "name", "number", "expansion", "printings", "variants"]),
               pageSize: 250,
             }),
           }),
         ],
       });
-      expect(fetch).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(String(fetch.mock.calls[0]?.[0])).toBe("https://api.scrydex.com/account/v1/usage");
       expect(harness.appendedSourceEvents).toEqual([]);
     } finally {
       restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
@@ -1198,12 +1199,13 @@ describe("source observation runtime: provider integration jobs", () => {
             requestStrategy: "bulk-first",
             estimateState: "estimate-unavailable",
             estimatedRequestCount: null,
-            estimateReason: "Card page count is available only after the first Scrydex paged response.",
+            estimateReason:
+              "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
             actualRequestCount: 1,
             pageCount: 1,
             cacheHitCount: 0,
             cacheMissCount: 1,
-            usageCheckState: "not-configured",
+            usageCheckState: "checked",
             bulkFirstConfirmed: true,
             perRecordFallbackReason: null,
             selectedFields: [
@@ -1217,6 +1219,8 @@ describe("source observation runtime: provider integration jobs", () => {
               "language",
               "language_code",
               "expansion",
+              "printings",
+              "variants",
             ],
             pageSize: 250,
           }),
@@ -1617,7 +1621,17 @@ function mtgjsonFetch(): typeof globalThis.fetch {
 function scrydexOnePieceFetch(): typeof globalThis.fetch {
   return (async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
-    if (url.includes("/onepiece/v1/expansions/op-01/cards")) {
+    if (url.includes("/account/v1/usage")) {
+      return jsonResponse({
+        total_credits: 1000,
+        remaining_credits: 900,
+        used_credits: 100,
+        overage_credit_rate: "0.01",
+        updated_at: "2026-06-22T00:00:00.000Z",
+      });
+    }
+
+    if (url.includes("/onepiece/v1/cards") && url.includes("q=printings%3Aop-01")) {
       return jsonResponse({
         data: [
           {
@@ -1637,6 +1651,8 @@ function scrydexOnePieceFetch(): typeof globalThis.fetch {
               release_date: "2022-12-02",
               language_code: "en",
             },
+            printings: ["OP-01", "PRB01"],
+            variants: [{ name: "normal", printings: ["OP-01"] }],
           },
         ],
         total_pages: 1,
