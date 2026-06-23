@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { t } from "@chase-sets/localization";
+import { appendFreshWriteToken, getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import {
   hasPermission as hasActorPermission,
   requireActorFromAuthApi,
@@ -104,6 +105,7 @@ export type AuthHost = Readonly<{
     options?: Readonly<{
       defaultSuccessPath?: string;
       accountSelectionPath?: string;
+      freshWriteSource?: unknown;
     }>,
   ) => Response;
   signOutActor: (
@@ -227,6 +229,22 @@ function addReturnPrompt(path: string, prompt: "add-passkey") {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function hasReceiptSource(source: unknown, contextName: string) {
+  return (
+    getMutationResultCommandReceipt(source)?.commitPositions.some(
+      (position) => position.sourceContextName === contextName,
+    ) ?? false
+  );
+}
+
+function identityFreshWriteSource(source: unknown) {
+  return hasReceiptSource(source, "identity") ? source : undefined;
+}
+
+function applyFreshWriteToken(path: string, source: unknown | undefined) {
+  return source ? appendFreshWriteToken(path, source) : path;
+}
+
 function requireAccountSelectionTokenOrRedirect(
   request: Request,
   options: Readonly<{
@@ -252,23 +270,26 @@ export function completeBrowserAuthentication(
   options: Readonly<{
     defaultSuccessPath: string;
     accountSelectionPath: string;
+    freshWriteSource?: unknown;
   }>,
 ) {
   const headers = new Headers();
   clearAccountSelectionCookie(headers, request);
+  const successPath = applyFreshWriteToken(
+    getSafeReturnTo(request, options.defaultSuccessPath),
+    options.freshWriteSource,
+  );
 
   if (result.type === "account-selection-required") {
     appendAccountSelectionCookie(headers, result.selectionToken, request);
     return createRedirectResponse(
-      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(
-        getSafeReturnTo(request, options.defaultSuccessPath),
-      )}`,
+      `${options.accountSelectionPath}?returnTo=${encodeURIComponent(successPath)}`,
       headers,
     );
   }
 
   appendSessionCookie(headers, result.sessionToken, request);
-  return createRedirectResponse(getSafeReturnTo(request, options.defaultSuccessPath), headers);
+  return createRedirectResponse(successPath, headers);
 }
 
 async function signOutActorViaAuthApi(
@@ -332,11 +353,13 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
     overrides: Readonly<{
       defaultSuccessPath?: string;
       accountSelectionPath?: string;
+      freshWriteSource?: unknown;
     }> = {},
   ) {
     return completeBrowserAuthentication(request, result, {
       defaultSuccessPath: overrides.defaultSuccessPath ?? options.defaultSuccessPath,
       accountSelectionPath: overrides.accountSelectionPath ?? options.accountSelectionPath,
+      ...(overrides.freshWriteSource ? { freshWriteSource: overrides.freshWriteSource } : {}),
     });
   }
 
@@ -420,7 +443,9 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                       }),
                     );
 
-          return completeAuthentication(request, result);
+          return completeAuthentication(request, result, {
+            freshWriteSource: identityFreshWriteSource(result),
+          });
         } catch (error) {
           return toActionError(error);
         }
@@ -446,32 +471,37 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             };
           }
 
-          const result =
-            intent === "passkey-register"
-              ? (
-                  await api.registerPasskey<PasskeyRegistrationResult>({
-                    displayName: formData.get("displayName"),
-                    email: formData.get("email"),
-                    challengeId: formData.get("challengeId"),
-                    challenge: formData.get("challenge"),
-                    externalCredentialId: formData.get("externalCredentialId"),
-                    label: formData.get("label"),
-                    publicKey: formData.get("publicKey"),
-                  })
-                ).authResult
-              : intent === "phone-code-consume"
-                ? await api.consumePhoneCode<InteractiveAuthResult>({
-                    displayName: formData.get("displayName"),
-                    phone: formData.get("phone"),
-                    code: formData.get("code"),
-                  })
-                : await api.register<InteractiveAuthResult>({
-                    displayName: formData.get("displayName"),
-                    email: formData.get("email"),
-                    password: formData.get("password"),
-                  });
+          let freshWriteSource: unknown;
+          let authResult: InteractiveAuthResult | null;
+          if (intent === "passkey-register") {
+            const passkeyRegistration = await api.registerPasskey<PasskeyRegistrationResult>({
+              displayName: formData.get("displayName"),
+              email: formData.get("email"),
+              challengeId: formData.get("challengeId"),
+              challenge: formData.get("challenge"),
+              externalCredentialId: formData.get("externalCredentialId"),
+              label: formData.get("label"),
+              publicKey: formData.get("publicKey"),
+            });
+            freshWriteSource = identityFreshWriteSource(passkeyRegistration);
+            authResult = passkeyRegistration.authResult;
+          } else if (intent === "phone-code-consume") {
+            authResult = await api.consumePhoneCode<InteractiveAuthResult>({
+              displayName: formData.get("displayName"),
+              phone: formData.get("phone"),
+              code: formData.get("code"),
+            });
+            freshWriteSource = identityFreshWriteSource(authResult);
+          } else {
+            authResult = await api.register<InteractiveAuthResult>({
+              displayName: formData.get("displayName"),
+              email: formData.get("email"),
+              password: formData.get("password"),
+            });
+            freshWriteSource = identityFreshWriteSource(authResult);
+          }
 
-          if (!result) {
+          if (!authResult) {
             return {
               status: "passkey-recovery",
               message: "The passkey was added. Sign in with it to continue.",
@@ -480,11 +510,14 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
           return completeAuthentication(
             request,
-            result,
+            authResult,
             intent === "passkey-register"
-              ? undefined
+              ? {
+                  ...(freshWriteSource ? { freshWriteSource } : {}),
+                }
               : {
                   defaultSuccessPath: addReturnPrompt(options.defaultSuccessPath, "add-passkey"),
+                  ...(freshWriteSource ? { freshWriteSource } : {}),
                 },
           );
         } catch (error) {

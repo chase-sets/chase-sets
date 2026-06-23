@@ -4,9 +4,11 @@ import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  decodeCommitReceipt,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
   type FreshWriteReceipt,
+  type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
@@ -309,28 +311,86 @@ export function attachWriteConsistencyMiddleware(
           return;
         }
 
-        setResponseHeaders(context, writeConsistencyHeaders(metadata));
+        setResponseHeaders(context, writeConsistencyHeaders(metadata, currentResponseHeaders(context)));
       });
     });
   }
 }
 
-function writeConsistencyHeaders(metadata: EventCommitMetadata): readonly [string, string][] {
+function maxCommitPosition(left: string | undefined, right: string | undefined) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return BigInt(right) > BigInt(left) ? right : left;
+}
+
+function mergeSourceCommitPositions(sources: readonly SourceCommitPosition[]) {
+  const byContext = new Map<string, SourceCommitPosition>();
+
+  for (const source of sources) {
+    const current = byContext.get(source.sourceContextName);
+    if (!current) {
+      byContext.set(source.sourceContextName, source);
+      continue;
+    }
+
+    byContext.set(source.sourceContextName, {
+      sourceContextName: source.sourceContextName,
+      maxGlobalPosition:
+        maxCommitPosition(current.maxGlobalPosition, source.maxGlobalPosition) ?? source.maxGlobalPosition,
+      eventIds: [...new Set([...current.eventIds, ...source.eventIds])],
+    });
+  }
+
+  return [...byContext.values()].sort((left, right) => left.sourceContextName.localeCompare(right.sourceContextName));
+}
+
+function commaSeparatedHeaderValues(value: string | null | undefined) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function writeConsistencyHeaders(
+  metadata: EventCommitMetadata,
+  existingHeaders?: Headers | null,
+): readonly [string, string][] {
   const headers: [string, string][] = [["Chase-Sets-Consistency", "eventual"]];
-  if (metadata.maxGlobalPosition) {
-    headers.push(["Chase-Sets-Commit-Position", metadata.maxGlobalPosition]);
+  const commitPosition = maxCommitPosition(
+    existingHeaders?.get("Chase-Sets-Commit-Position") ?? undefined,
+    metadata.maxGlobalPosition,
+  );
+  if (commitPosition) {
+    headers.push(["Chase-Sets-Commit-Position", commitPosition]);
   }
 
-  if (metadata.sources.length > 0) {
-    headers.push([CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(metadata.sources)]);
+  const commitPositions = mergeSourceCommitPositions([
+    ...decodeCommitReceipt(existingHeaders?.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    ...metadata.sources,
+  ]);
+  if (commitPositions.length > 0) {
+    headers.push([CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(commitPositions)]);
   }
 
-  const compactEventIds = metadata.eventIds.join(",");
+  const compactEventIds = [
+    ...new Set([
+      ...commaSeparatedHeaderValues(existingHeaders?.get("Chase-Sets-Commit-Event-Ids")),
+      ...metadata.eventIds,
+    ]),
+  ].join(",");
   if (compactEventIds.length <= 4_000) {
     headers.push(["Chase-Sets-Commit-Event-Ids", compactEventIds]);
   }
 
   return headers;
+}
+
+function currentResponseHeaders(context: unknown): Headers | null {
+  return (context as { res?: Response }).res?.headers ?? null;
 }
 
 function setResponseHeaders(context: unknown, headers: readonly [string, string][]) {

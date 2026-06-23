@@ -6,6 +6,11 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  decodeCommitReceipt,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import type { AuthServices } from "../runtime-support/services";
 import { registerRegistrationRoutes } from "./register-routes";
 import type { AuthApiEnv } from "./support";
@@ -57,18 +62,54 @@ function createServices() {
   };
 }
 
+function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosition): T {
+  Object.defineProperty(body, "commandReceipt", {
+    value: {
+      mode: "eventual",
+      commitEventIds: source.eventIds,
+      commitPositions: [source],
+    },
+    enumerable: false,
+  });
+  return body;
+}
+
 useMockReset();
 
 describe("registration auth routes", () => {
   it("writes the registered identity into the Auth mirrors before returning a session", async () => {
     const services = createServices();
+    const identitySource = {
+      sourceContextName: "identity",
+      maxGlobalPosition: "51",
+      eventIds: ["evt_identity_51"],
+    } as const satisfies SourceCommitPosition;
+    const credentialSource = {
+      sourceContextName: "identity",
+      maxGlobalPosition: "53",
+      eventIds: ["evt_identity_53"],
+    } as const satisfies SourceCommitPosition;
     mockCreateIdentityAuthRequestClient.mockReturnValue({
-      createPersonalIdentity: vi.fn(async () => ({
-        userId: "usr_new",
-        accountId: "acc_new",
-        membershipId: "mbr_new",
-      })),
-      enablePasswordCredential: vi.fn(async () => undefined),
+      createPersonalIdentity: vi.fn(async () =>
+        withCommandReceipt(
+          {
+            userId: "usr_new",
+            accountId: "acc_new",
+            membershipId: "mbr_new",
+          },
+          identitySource,
+        ),
+      ),
+      enablePasswordCredential: vi.fn(async () =>
+        withCommandReceipt(
+          {
+            ok: true,
+            userId: "usr_new",
+            snapshots: [],
+          },
+          credentialSource,
+        ),
+      ),
     });
     mockStartInteractiveAuth.mockResolvedValue({
       type: "session-started",
@@ -91,11 +132,21 @@ describe("registration auth routes", () => {
     });
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
+      {
+        sourceContextName: "identity",
+        maxGlobalPosition: "53",
+        eventIds: ["evt_identity_51", "evt_identity_53"],
+      },
+    ]);
+    const body = await response.json();
+    expect(body).toMatchObject({
       type: "session-started",
       sessionToken: "session_token",
       accountId: "acc_new",
     });
+    expect(body).not.toHaveProperty("commandReceipt");
+    expect(JSON.stringify(body)).not.toContain("commandReceipt");
 
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO auth_identity_users"),

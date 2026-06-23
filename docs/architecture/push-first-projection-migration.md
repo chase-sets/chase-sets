@@ -114,12 +114,13 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (52)
+## Read-After-Write Route Inventory (54)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
 | Route entry | Owning context | Risk | Freshness contract | Wave posture (staging) |
 | --- | --- | --- | --- | --- |
+| `auth.browser-registration-identity-freshness-carrier` | auth | important | accepted exception (auth, review 2026-07-31) | deferred until wave 4 |
 | `auth.session-detail-self-refresh` | auth | important | exact wait | deferred until wave 4 |
 | `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-cart-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
@@ -153,6 +154,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `identity.admin-user-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `identity.shipping-addresses-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | poll-bounded until wave 2 |
 | `inventory.item-adjust-to-detail` | inventory | critical | exact wait | poll-bounded until wave 2 |

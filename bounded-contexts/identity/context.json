@@ -92,6 +92,21 @@
           ]
         },
         {
+          "routePath": "/current-actor-display",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "identity_accounts"
+            },
+            {
+              "readModelTable": "identity_users"
+            },
+            {
+              "readModelTable": "identity_memberships"
+            }
+          ]
+        },
+        {
           "routePath": "/users/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -222,6 +237,37 @@
         "tests": [
           "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
           "bounded-contexts/identity/tests/account-route-loader.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "identity.registration-current-actor-display-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeIds": ["register", "sign-in"],
+        "actions": [
+          "Complete password registration",
+          "Complete passkey registration",
+          "Complete first magic-link authentication",
+          "Complete first phone-code authentication"
+        ],
+        "command": "Auth browser authentication that creates Identity account state"
+      },
+      "destination": {
+        "routeId": "account",
+        "apiContextName": "identity",
+        "apiRoutePath": "/current-actor-display",
+        "readModelTables": ["identity_accounts", "identity_users", "identity_memberships"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Registration redirects carry the Identity account creation receipt. The marketplace shell forwards that receipt to current-actor-display so the account, user, and membership projections catch up before rendering human-readable account and user labels; without a fresh receipt, the endpoint keeps the existing id fallback."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/auth/support/route-support/auth-host.test.ts",
+          "deployables/platform-api/__tests__/read-after-write-live-waits.test.ts"
         ]
       }
     },

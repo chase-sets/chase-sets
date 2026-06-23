@@ -6,6 +6,11 @@ import {
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  decodeCommitReceipt,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import type { AuthServices } from "../runtime-support/services";
 import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
 import type { AuthApiEnv } from "./support";
@@ -89,6 +94,18 @@ function createServices() {
   } as unknown as AuthServices;
 }
 
+function withCommandReceipt<T extends object>(body: T, source: SourceCommitPosition): T {
+  Object.defineProperty(body, "commandReceipt", {
+    value: {
+      mode: "eventual",
+      commitEventIds: source.eventIds,
+      commitPositions: [source],
+    },
+    enumerable: false,
+  });
+  return body;
+}
+
 useMockReset(mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockRegisterPasskeyCredential);
 
 describe("passkey route security", () => {
@@ -120,6 +137,16 @@ describe("passkey route security", () => {
 
   it("creates a personal identity, stores the passkey lookup, and starts the first session", async () => {
     const services = createServices();
+    const identitySource = {
+      sourceContextName: "identity",
+      maxGlobalPosition: "61",
+      eventIds: ["evt_identity_61"],
+    } as const satisfies SourceCommitPosition;
+    const credentialSource = {
+      sourceContextName: "identity",
+      maxGlobalPosition: "63",
+      eventIds: ["evt_identity_63"],
+    } as const satisfies SourceCommitPosition;
     const dbQuery = vi.mocked(services.db.query);
     dbQuery
       .mockResolvedValueOnce({
@@ -136,12 +163,26 @@ describe("passkey route security", () => {
         ],
       })
       .mockResolvedValue({ rows: [] });
-    mockCreatePersonalIdentity.mockResolvedValue({
-      userId: "usr_new",
-      accountId: "acc_new",
-      membershipId: "mbr_new",
-    });
-    mockRegisterPasskeyCredential.mockResolvedValue(undefined);
+    mockCreatePersonalIdentity.mockResolvedValue(
+      withCommandReceipt(
+        {
+          userId: "usr_new",
+          accountId: "acc_new",
+          membershipId: "mbr_new",
+        },
+        identitySource,
+      ),
+    );
+    mockRegisterPasskeyCredential.mockResolvedValue(
+      withCommandReceipt(
+        {
+          ok: true,
+          userId: "usr_new",
+          snapshots: [],
+        },
+        credentialSource,
+      ),
+    );
     mockCreateIdentityAuthRequestClient.mockReturnValue({
       createPersonalIdentity: mockCreatePersonalIdentity,
       registerPasskeyCredential: mockRegisterPasskeyCredential,
@@ -162,7 +203,15 @@ describe("passkey route security", () => {
     });
 
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual(
+    expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
+      {
+        sourceContextName: "identity",
+        maxGlobalPosition: "63",
+        eventIds: ["evt_identity_61", "evt_identity_63"],
+      },
+    ]);
+    const body = await response.json();
+    expect(body).toEqual(
       expect.objectContaining({
         userId: "usr_new",
         authResult: expect.objectContaining({
@@ -171,6 +220,7 @@ describe("passkey route security", () => {
         }),
       }),
     );
+    expect(body).not.toHaveProperty("commandReceipt");
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",
       displayName: "PokeBash TCG",

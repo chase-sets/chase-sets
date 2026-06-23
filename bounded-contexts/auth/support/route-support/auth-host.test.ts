@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  encodeCommitReceipt,
+  readFreshWriteToken,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import { defineAuthHost } from "./auth-host";
 
 const host = defineAuthHost({
@@ -15,6 +21,17 @@ afterEach(() => {
 });
 
 describe("auth host", () => {
+  const identitySource = {
+    sourceContextName: "identity",
+    maxGlobalPosition: "51",
+    eventIds: ["evt_identity_51"],
+  } as const satisfies SourceCommitPosition;
+  const authSource = {
+    sourceContextName: "auth",
+    maxGlobalPosition: "71",
+    eventIds: ["evt_auth_71"],
+  } as const satisfies SourceCommitPosition;
+
   function createTransientAuthFetchError() {
     return Object.assign(new TypeError("fetch failed"), {
       cause: { code: "ECONNREFUSED" },
@@ -35,6 +52,40 @@ describe("auth host", () => {
     });
   }
 
+  function createPasswordRegistrationRequest(returnTo = "") {
+    return new Request(`https://marketplace.test/register${returnTo}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        intent: "password",
+        displayName: "New Seller",
+        email: "seller@example.test",
+        password: "correct-password",
+      }),
+    });
+  }
+
+  function createPasskeyRegistrationRequest() {
+    return new Request("https://marketplace.test/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        intent: "passkey-register",
+        displayName: "New Seller",
+        email: "seller@example.test",
+        challengeId: "cmd_challenge",
+        challenge: "challenge",
+        externalCredentialId: "external_credential",
+        label: "Passkey",
+        publicKey: "public_key",
+      }),
+    });
+  }
+
   function createActionArgs(request: Request): ActionFunctionArgs {
     return {
       request,
@@ -43,6 +94,23 @@ describe("auth host", () => {
       url: new URL(request.url),
       pattern: "/sign-in",
     };
+  }
+
+  function authJsonResponse(body: object, sources: readonly SourceCommitPosition[]) {
+    return new Response(JSON.stringify(body), {
+      headers: {
+        "Content-Type": "application/json",
+        "Chase-Sets-Consistency": "eventual",
+        [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt(sources),
+      },
+    });
+  }
+
+  function redirectLocation(response: unknown) {
+    expect(response).toBeInstanceOf(Response);
+    const location = (response as Response).headers.get("Location");
+    expect(location).toBeTruthy();
+    return new URL(location!, "https://marketplace.test");
   }
 
   function createSessionStartedResult() {
@@ -102,6 +170,59 @@ describe("auth host", () => {
       error: "Sign-in is temporarily unavailable. Try again in a few seconds.",
     });
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("adds the identity fresh-write receipt to password registration account redirects", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [identitySource]));
+    vi.stubGlobal("fetch", fetch);
+
+    const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
+    const location = redirectLocation(response);
+
+    expect(location.pathname).toBe("/account");
+    expect(location.searchParams.get("authPrompt")).toBe("add-passkey");
+    expect(readFreshWriteToken(location)).toMatchObject({
+      sources: [identitySource],
+    });
+  });
+
+  it("adds the identity fresh-write receipt to passkey registration account redirects without prompting for another passkey", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      authJsonResponse(
+        {
+          credentialId: "crd_1",
+          userId: "usr_1",
+          authResult: createSessionStartedResult(),
+        },
+        [identitySource],
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const response = await host.createRegisterAction()(createActionArgs(createPasskeyRegistrationRequest()));
+    const location = redirectLocation(response);
+
+    expect(location.pathname).toBe("/account");
+    expect(location.searchParams.get("authPrompt")).toBeNull();
+    expect(readFreshWriteToken(location)).toMatchObject({
+      sources: [identitySource],
+    });
+  });
+
+  it("does not use Auth-only receipts as account freshness evidence during registration redirects", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [authSource]));
+    vi.stubGlobal("fetch", fetch);
+
+    const response = await host.createRegisterAction()(createActionArgs(createPasswordRegistrationRequest()));
+    const location = redirectLocation(response);
+
+    expect(location.pathname).toBe("/account");
+    expect(location.searchParams.get("authPrompt")).toBe("add-passkey");
+    expect(location.searchParams.get("afterWrite")).toBeNull();
   });
 
   it("clears and revokes guest checkout state alongside normal session sign-out", async () => {
