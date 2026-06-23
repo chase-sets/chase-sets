@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { isRouteErrorResponse, useLocation, useRouteError } from "react-router";
+import { classifyPostWriteRouteRecovery } from "@chase-sets/http/responses";
 import { LinkButton, MarketplaceEmptyState, Page, PageHeader, PageSection } from "@chase-sets/design-system";
 
 export function ListingDetailRecoveryPage({ currentPath }: Readonly<{ currentPath: string }>) {
@@ -37,22 +38,18 @@ export function ListingDetailRecoveryPage({ currentPath }: Readonly<{ currentPat
 export function ListingDetailErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
-  const preparingTitle = t("marketplace.routes.accountListing.listing.preparing");
-  const preparingDescription = t("marketplace.routes.accountListing.listing.preparing.description");
-  const searchParams = new URLSearchParams(location.search);
-  const isFreshListingWrite =
-    searchParams.has("afterWrite") &&
-    ["listing-publish", "listing-update"].includes(searchParams.get("feedbackWorkflow") ?? "");
-  const isPreparingListingResponse =
+  const currentPath = `${location.pathname}${location.search}`;
+  const recovery =
     isRouteErrorResponse(error) &&
-    error.status === 503 &&
-    (error.statusText === preparingTitle || error.data === preparingDescription || isFreshListingWrite);
+    classifyPostWriteRouteRecovery({
+      request: currentPath,
+      status: error.status,
+      body: error.data,
+    });
 
-  if (!isPreparingListingResponse) {
+  if (!recovery || recovery.kind !== "recover") {
     throw error;
   }
-
-  const currentPath = `${location.pathname}${location.search}`;
 
   return <ListingDetailRecoveryPage currentPath={currentPath} />;
 }

@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import {
   ListingDetailErrorBoundary,
   ListingDetailRecoveryPage,
@@ -11,11 +12,29 @@ afterEach(() => {
   cleanup();
 });
 
+function freshListingPath(nowMs = Date.now()) {
+  return appendFreshWriteToken(
+    "/account/listings/lst_pending?feedbackWorkflow=listing-publish",
+    {
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_listing"],
+        },
+      ],
+      commitEventIds: ["evt_listing"],
+    },
+    nowMs,
+  );
+}
+
 function renderListingRecovery(
   response: Response = new Response("We're preparing your listing details. Try again in a moment.", {
     status: 503,
     statusText: "Preparing listing",
   }),
+  initialEntry = freshListingPath(),
 ) {
   const router = createMemoryRouter(
     [
@@ -29,7 +48,7 @@ function renderListingRecovery(
       },
     ],
     {
-      initialEntries: ["/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh"],
+      initialEntries: [initialEntry],
     },
   );
 
@@ -38,16 +57,14 @@ function renderListingRecovery(
 
 describe("Marketplace listing detail recovery boundary", () => {
   it("renders listing freshness recovery as normal route content", () => {
-    render(
-      <ListingDetailRecoveryPage currentPath="/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh" />,
-    );
+    const currentPath = freshListingPath(1_000);
+
+    render(<ListingDetailRecoveryPage currentPath={currentPath} />);
 
     expect(screen.getAllByText("Preparing listing")).not.toHaveLength(0);
     expect(screen.getAllByText("We're preparing your listing details. Try again in a moment.")).not.toHaveLength(0);
     expect(screen.getByText("Your listing action is saved while these details finish updating.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toBe(
-      "/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh",
-    );
+    expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toBe(currentPath);
   });
 
   it("renders listing freshness recovery instead of falling through to the root 503 page", async () => {
@@ -56,9 +73,7 @@ describe("Marketplace listing detail recovery boundary", () => {
     expect(await screen.findAllByText("Preparing listing")).not.toHaveLength(0);
     expect(screen.getAllByText("We're preparing your listing details. Try again in a moment.")).not.toHaveLength(0);
     expect(screen.getByText("Your listing action is saved while these details finish updating.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toBe(
-      "/account/listings/lst_pending?feedbackWorkflow=listing-publish&afterWrite=fresh",
-    );
+    expect(screen.getByRole("link", { name: "Refresh listing" }).getAttribute("href")).toContain("afterWrite=");
     expect(screen.queryByText("Marketplace error")).toBeNull();
   });
 

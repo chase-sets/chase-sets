@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { isRouteErrorResponse, useLocation, useRouteError } from "react-router";
+import { classifyPostWriteRouteRecovery } from "@chase-sets/http/responses";
 import { LinkButton, MarketplaceEmptyState, Page, PageHeader, PageSection } from "@chase-sets/design-system";
 
 type OfferDetailRecoveryKind = "submitted-offer" | "offer-match";
@@ -66,24 +67,18 @@ export function MarketplaceOfferDetailRecoveryPage({
 export function MarketplaceOfferDetailErrorBoundary({ kind }: Readonly<{ kind: OfferDetailRecoveryKind }>) {
   const error = useRouteError();
   const location = useLocation();
-  const copy = recoveryCopy(kind);
-  const searchParams = new URLSearchParams(location.search);
-  const isFreshSubmittedOfferWrite =
-    kind === "submitted-offer" &&
-    searchParams.has("afterWrite") &&
-    searchParams.get("feedbackWorkflow") === "offer-submit";
-  const isPreparingOfferResponse =
+  const currentPath = `${location.pathname}${location.search}`;
+  const recovery =
     isRouteErrorResponse(error) &&
-    error.status === 503 &&
-    (error.statusText === copy.preparingTitle ||
-      error.data === copy.preparingDescription ||
-      isFreshSubmittedOfferWrite);
+    classifyPostWriteRouteRecovery({
+      request: currentPath,
+      status: error.status,
+      body: error.data,
+    });
 
-  if (!isPreparingOfferResponse) {
+  if (!recovery || recovery.kind !== "recover") {
     throw error;
   }
-
-  const currentPath = `${location.pathname}${location.search}`;
 
   return <MarketplaceOfferDetailRecoveryPage kind={kind} currentPath={currentPath} />;
 }

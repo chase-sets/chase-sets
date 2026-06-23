@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import {
   MarketplaceOfferDetailRecoveryPage,
   SubmittedOfferDetailErrorBoundary,
@@ -11,11 +12,46 @@ afterEach(() => {
   cleanup();
 });
 
+function freshSubmittedOfferPath(nowMs = Date.now()) {
+  return appendFreshWriteToken(
+    "/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit",
+    {
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_offer"],
+        },
+      ],
+      commitEventIds: ["evt_offer"],
+    },
+    nowMs,
+  );
+}
+
+function freshOfferMatchPath(nowMs = Date.now()) {
+  return appendFreshWriteToken(
+    "/account/offers/matches/off_pending?feedbackWorkflow=offer-accept",
+    {
+      commitPositions: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_offer_accepted"],
+        },
+      ],
+      commitEventIds: ["evt_offer_accepted"],
+    },
+    nowMs,
+  );
+}
+
 function renderSubmittedOfferRecovery(
   response: Response = new Response("We're preparing your submitted offer details. Try again in a moment.", {
     status: 503,
     statusText: "Preparing submitted offer",
   }),
+  initialEntry = freshSubmittedOfferPath(),
 ) {
   const router = createMemoryRouter(
     [
@@ -29,7 +65,7 @@ function renderSubmittedOfferRecovery(
       },
     ],
     {
-      initialEntries: ["/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit&afterWrite=fresh"],
+      initialEntries: [initialEntry],
     },
   );
 
@@ -38,35 +74,25 @@ function renderSubmittedOfferRecovery(
 
 describe("Marketplace offer detail recovery boundary", () => {
   it("renders submitted-offer freshness recovery as normal route content", () => {
-    render(
-      <MarketplaceOfferDetailRecoveryPage
-        kind="submitted-offer"
-        currentPath="/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit&afterWrite=fresh"
-      />,
-    );
+    const currentPath = freshSubmittedOfferPath(1_000);
+
+    render(<MarketplaceOfferDetailRecoveryPage kind="submitted-offer" currentPath={currentPath} />);
 
     expect(screen.getAllByText("Preparing submitted offer")).not.toHaveLength(0);
     expect(
       screen.getAllByText("We're preparing your submitted offer details. Try again in a moment."),
     ).not.toHaveLength(0);
-    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(
-      "/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit&afterWrite=fresh",
-    );
+    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(currentPath);
   });
 
   it("renders offer-match freshness recovery as normal route content", () => {
-    render(
-      <MarketplaceOfferDetailRecoveryPage
-        kind="offer-match"
-        currentPath="/account/offers/matches/off_pending?feedbackWorkflow=offer-accept&afterWrite=fresh"
-      />,
-    );
+    const currentPath = freshOfferMatchPath(1_000);
+
+    render(<MarketplaceOfferDetailRecoveryPage kind="offer-match" currentPath={currentPath} />);
 
     expect(screen.getAllByText("Preparing offer match")).not.toHaveLength(0);
     expect(screen.getAllByText("We're preparing your offer match details. Try again in a moment.")).not.toHaveLength(0);
-    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(
-      "/account/offers/matches/off_pending?feedbackWorkflow=offer-accept&afterWrite=fresh",
-    );
+    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(currentPath);
   });
 
   it("renders submitted-offer freshness recovery instead of falling through to the root 503 page", async () => {
@@ -76,9 +102,7 @@ describe("Marketplace offer detail recovery boundary", () => {
     expect(
       screen.getAllByText("We're preparing your submitted offer details. Try again in a moment."),
     ).not.toHaveLength(0);
-    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toBe(
-      "/account/offers/submitted/off_pending?feedbackWorkflow=offer-submit&afterWrite=fresh",
-    );
+    expect(screen.getByRole("link", { name: "Refresh offer" }).getAttribute("href")).toContain("afterWrite=");
     expect(screen.queryByText("Marketplace error")).toBeNull();
   });
 

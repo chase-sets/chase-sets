@@ -7,6 +7,8 @@ import {
   appendPostWriteHandoffFromSources,
   attachResponseMetadata,
   classifyFreshWriteReadError,
+  classifyPostWriteDestinationResult,
+  classifyPostWriteRouteRecovery,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
   evaluatePostWriteHandoff,
@@ -564,6 +566,21 @@ describe("response consistency metadata", () => {
     await expect(
       loadAfterWrite({
         request,
+        load: async () => ({ items: [], count: 0 }),
+        isNotFound: () => false,
+        isHandoffSatisfied,
+        nowMs: () => 1234,
+      }).then(classifyPostWriteDestinationResult),
+    ).resolves.toMatchObject({
+      kind: "recover",
+      reason: "semantic-handoff-pending",
+      recoveryKind: "pending-projection",
+      data: { items: [], count: 0 },
+    });
+
+    await expect(
+      loadAfterWrite({
+        request,
         load: async () => ({ items: [{ id: "line_1" }], count: 1 }),
         isNotFound: () => false,
         isHandoffSatisfied,
@@ -737,6 +754,91 @@ describe("response consistency metadata", () => {
     expect(
       isBoundedTemporaryPostWriteRecoveryKind(postWriteRecoveryKindForFreshWriteReadError(projectionTimeout)),
     ).toBe(true);
+  });
+
+  it("classifies browser route boundaries with valid post-write transient reads", () => {
+    const href = appendFreshWriteToken("/account/listings/lst_1", { commitPositions: [source], commitEventIds: [] }, 1);
+
+    expect(
+      classifyPostWriteRouteRecovery({
+        request: href,
+        status: 404,
+        body: { error: { code: "not_found", message: "Not found." } },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "recover",
+      recoveryKind: "refreshable-catching-up",
+      readError: { kind: "transient-not-found" },
+    });
+
+    expect(
+      classifyPostWriteRouteRecovery({
+        request: href,
+        status: 503,
+        body: {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "recover",
+      recoveryKind: "refreshable-catching-up",
+      readError: { kind: "transient-projection-timeout" },
+    });
+
+    expect(
+      classifyPostWriteRouteRecovery({
+        request: href,
+        status: 504,
+        body: null,
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "recover",
+      recoveryKind: "refreshable-catching-up",
+      readError: { kind: "transient-gateway-timeout" },
+    });
+  });
+
+  it("does not let route boundaries mask auth, validation, conflict, or expired handoff failures", () => {
+    const href = appendFreshWriteToken("/account/listings/lst_1", { commitPositions: [source], commitEventIds: [] }, 1);
+
+    for (const [status, code] of [
+      [401, "authentication_required"],
+      [403, "authorization_forbidden"],
+      [400, "validation_failed"],
+      [409, "conflict"],
+      [503, "provider_failed"],
+    ] as const) {
+      expect(
+        classifyPostWriteRouteRecovery({
+          request: href,
+          status,
+          body: { error: { code, message: code } },
+          nowMs: 1,
+        }),
+      ).toMatchObject({
+        kind: "pass-through",
+        readError: { kind: "fresh-write-unhandled", status, errorCode: code },
+      });
+    }
+
+    expect(
+      classifyPostWriteRouteRecovery({
+        request: href,
+        status: 404,
+        body: { error: { code: "not_found", message: "Not found." } },
+        nowMs: 40_000,
+      }),
+    ).toMatchObject({
+      kind: "pass-through",
+      recoveryKind: "terminal-failure",
+      readError: { kind: "permanent-not-found", receipt: null },
+    });
   });
 
   it("maps valid semantic handoffs to bounded temporary recovery only while the receipt is valid", () => {
