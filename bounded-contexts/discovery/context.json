@@ -473,25 +473,40 @@
     {
       "id": "discovery.item-detail-checkout-handoff",
       "owner": "discovery",
-      "risk": "important",
+      "risk": "critical",
       "source": {
         "routeId": "item-detail",
-        "actions": ["Add item detail product intent to Checkout"],
-        "command": "Checkout handoff from Discovery item detail"
+        "actions": ["Build View cart link after item detail add-to-cart", "Redirect best-match buyers to Buy Cart"],
+        "command": "Checkout addCartLine/addGuestCartLine semantic handoff"
       },
       "destination": {
-        "routeId": "item-detail",
+        "routeId": "account-cart",
         "transientRecovery": {
-          "kinds": "terminal-failure",
-          "behavior": "Discovery item detail helper use is a Checkout handoff token carrier, not a Discovery read-model destination."
+          "kinds": ["pending-projection", "refreshable-catching-up"],
+          "behavior": "Discovery carries the Checkout-owned add-line semantic handoff to /account/cart; Checkout owns the destination fresh-read wait, pending empty-cart state, and diagnostics in checkout.cart-self-refresh."
         }
       },
       "exception": {
         "status": "not-post-write-read",
         "owner": "discovery",
         "reviewBy": "2026-07-31",
-        "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here.",
-        "helperUses": ["appendFreshWriteToken"],
+        "reason": "Discovery builds the Buy Cart redirect or View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout. The same item-detail action also carries plain fresh-write tokens for Checkout session, Inventory setup, and Product Alert confirmation flows whose destination recovery or command-snapshot confirmation is owned outside this Discovery read-after-write entry.",
+        "helperUses": ["navigateAfterWrite", "appendFreshWriteToken"],
+        "postWriteHandoffs": [
+          {
+            "kind": "checkout.cart.add-line",
+            "expectation": "collection-non-empty",
+            "surface": "account-cart",
+            "sourceContextName": "checkout",
+            "receiptSourceContextName": "checkout",
+            "actorOwnership": "The Checkout add-line command receipt is scoped to the signed-in or anonymous cart actor that opens the cart destination.",
+            "destinationRead": {
+              "apiContextName": "checkout",
+              "apiRoutePath": "/account/cart",
+              "readModelTables": ["checkout_cart_line_pages"]
+            }
+          }
+        ],
         "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
       }
     },
@@ -544,7 +559,7 @@
         "owner": "discovery",
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout.",
-        "helperUses": ["appendPostWriteHandoff"],
+        "helperUses": ["navigateAfterWrite"],
         "postWriteHandoffs": [
           {
             "kind": "checkout.cart.add-line",

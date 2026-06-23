@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import {
   appendFreshWriteToken,
   appendPostWriteHandoff,
@@ -237,7 +238,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const anonymousCartId = ensureAnonymousCartId(request);
         const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
         if (intent === "buy-best-match") {
-          const response = redirect(appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF));
+          const response = redirect(
+            navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
+          );
           appendAnonymousCartCookie(response.headers, anonymousCartId, request);
           return response;
         }
@@ -247,7 +250,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           itemTitle: item.title,
           quantity: cartLine.quantity,
           cartLine: checkoutCommandSnapshot(result),
-          viewCartHref: appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF),
+          viewCartHref: navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
         } satisfies AddToCartActionData);
         appendAnonymousCartCookie(response.headers, anonymousCartId, request);
         return response;
@@ -255,7 +258,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const result = await checkoutApi.addCartLine(cartLine);
       if (intent === "buy-best-match") {
-        return redirect(appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF));
+        return redirect(navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }));
       }
 
       return Response.json({
@@ -263,7 +266,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemTitle: item.title,
         quantity: cartLine.quantity,
         cartLine: checkoutCommandSnapshot(result),
-        viewCartHref: appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF),
+        viewCartHref: navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
       } satisfies AddToCartActionData);
     }
 
