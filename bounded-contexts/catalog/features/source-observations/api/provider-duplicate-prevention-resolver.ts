@@ -4,6 +4,8 @@ import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationNormalized,
+  SourceObservationOnePieceCardPrintNormalized,
+  SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
 } from "../domain/domain";
 import type {
@@ -216,6 +218,34 @@ async function evaluateDuplicatePreventionRule(
       setReferenceId,
     });
     return reusableRuleEvaluation(rule, candidateCatalogItemIds, "deterministic Magic catalog item identity");
+  }
+
+  if (rule.matchKind === "deterministic-one-piece-catalog-item-field-match") {
+    if (input.normalized.kind !== rule.normalizedKind) {
+      return null;
+    }
+
+    const setName = stringAtPath(input.normalized, rule.referenceRecord.keyPath);
+    if (!setName) {
+      return null;
+    }
+
+    const setReferenceId = await findReferenceRecordByTypeAndKey(
+      input.db,
+      rule.referenceRecord.typeKey,
+      normalizeReferenceKey(setName),
+    );
+    if (!setReferenceId) {
+      return null;
+    }
+
+    const candidateCatalogItemIds = await findCatalogItemIdsForDeterministicOnePieceCatalogItemFields(input.db, {
+      normalized: input.normalized,
+      catalog: input.catalog,
+      rule,
+      setReferenceId,
+    });
+    return reusableRuleEvaluation(rule, candidateCatalogItemIds, "deterministic One Piece catalog item identity");
   }
 
   if (rule.matchKind === "partial-draft-pokemon-card-field-match") {
@@ -449,6 +479,47 @@ async function findCatalogItemIdsForDeterministicMagicCatalogItemFields(
   return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
 }
 
+async function findCatalogItemIdsForDeterministicOnePieceCatalogItemFields(
+  db: CatalogProviderDuplicatePreventionDb,
+  input: {
+    normalized: SourceObservationOnePieceCardPrintNormalized | SourceObservationOnePieceSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    rule: Extract<
+      CatalogProviderDuplicatePreventionIdentityRule,
+      { matchKind: "deterministic-one-piece-catalog-item-field-match" }
+    >;
+    setReferenceId: ReferenceRecordId;
+  },
+): Promise<readonly CatalogItemId[]> {
+  const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
+  if (fieldValues.length !== input.rule.fieldMatches.length) {
+    return [];
+  }
+  const setFieldId = input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey];
+  if (!setFieldId) {
+    return [];
+  }
+
+  const setField = [
+    {
+      fieldId: setFieldId,
+      value: { referenceId: input.setReferenceId },
+    },
+  ];
+  const fieldPredicates = [...fieldValues, setField];
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items AS item
+     WHERE item.status NOT IN ('archived', 'removed')
+       AND item.language_code = $1
+       ${fieldPredicates.map((_, index) => `AND item.field_values @> $${index + 2}::jsonb`).join("\n       ")}
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
+    [input.normalized.languageCode, ...fieldPredicates.map((fieldValue) => JSON.stringify(fieldValue))],
+  );
+
+  return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
+}
+
 async function findPartialDraftCatalogItemIdForPokemonCard(
   db: CatalogProviderDuplicatePreventionDb,
   input: {
@@ -622,6 +693,9 @@ function ambiguousDiagnosticText(rule: CatalogProviderDuplicatePreventionIdentit
   }
   if (rule.matchKind === "deterministic-magic-catalog-item-field-match") {
     return "Multiple Catalog Items match this Source Observation's deterministic Magic identity evidence.";
+  }
+  if (rule.matchKind === "deterministic-one-piece-catalog-item-field-match") {
+    return "Multiple Catalog Items match this Source Observation's deterministic One Piece identity evidence.";
   }
   return `Multiple Catalog Items match this Source Observation's duplicate-prevention rule '${rule.ruleKey}'.`;
 }

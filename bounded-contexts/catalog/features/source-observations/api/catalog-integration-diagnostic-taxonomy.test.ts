@@ -187,7 +187,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       severity: "warning",
       blockingBehavior: "advisory",
       evidencePolicy: "redacted-provider-evidence",
-      groupingKeys: ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass"],
+      groupingKeys: ["providerKey", "unitKey", "comparisonSourceKey", "externalId", "fieldClass", "decisionPath"],
     });
     expect(getCatalogIntegrationDiagnosticDefinition("one-piece-fallback-source-unapproved")).toMatchObject({
       source: "provider-comparison",
@@ -205,6 +205,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
         comparisonSourceKey: "bandai-one-piece-official",
         externalId: "redacted-card-id",
         fieldClass: "card number",
+        decisionPath: "one-piece-card-release-validation/card-number/manual-review",
       }),
     ).toMatchObject({
       source: "provider-comparison",
@@ -212,6 +213,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       remediation: "Review the redacted One Piece provider comparison before promotion.",
       comparisonSourceKey: "bandai-one-piece-official",
       fieldClass: "card number",
+      decisionPath: "one-piece-card-release-validation/card-number/manual-review",
     });
   });
 

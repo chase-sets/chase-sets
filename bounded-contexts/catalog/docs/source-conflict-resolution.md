@@ -89,6 +89,12 @@ External references:
 - Multiple valid external Catalog Item references are additive unless a policy marks them mutually exclusive.
 - Repeated provider identifiers across materially different observations block automatic promotion.
 
+One Piece cross-provider identity:
+
+- Scrydex and TCGplayer One Piece card or sealed-product observations reuse an existing Catalog Item when exactly one safe candidate is found by external Catalog Item reference or by deterministic One Piece identity. Card identity requires set, card number, printed name, language, and card type/variant. Sealed-product identity requires set, product name, language, and sealed-product form so booster packs, booster boxes, starter decks, and other packaging variants do not collapse into one Catalog Item.
+- Marketplace-only TCGplayer products remain review evidence until a Scrydex, TCGplayer, or operator-approved deterministic path resolves exactly one Catalog Item. Bridge evidence without a unique candidate must not create a new Catalog Item automatically.
+- Scrydex, TCGplayer, Bandai validation, or approved fallback disagreements are reviewable diagnostics. Admin-visible diagnostics identify provider/source, field class, and decision path, and use redacted provider-evidence summaries rather than raw provider payloads.
+
 Price, listing, inventory, order, seller, and message facts:
 
 - These are not Catalog truth. Catalog may retain safe evidence only when permitted by [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and must not include them in Source Observation hash material unless a future owner contract explicitly changes the boundary.
