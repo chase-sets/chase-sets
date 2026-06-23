@@ -157,6 +157,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.import.job.running": "Import job running",
   "inventory.features.importBatches.ui.importBatchPage.import.job.waiting":
     "Waiting for the worker to report progress.",
+  "inventory.features.importBatches.ui.importBatchPage.import.still.updating": "Import still updating",
   "inventory.features.importBatches.ui.importBatchPage.import.source": "Import source",
   "inventory.features.importBatches.ui.importBatchPage.inventory": "Inventory",
   "inventory.features.importBatches.ui.importBatchPage.inventory.import": "Inventory import",
@@ -211,6 +212,8 @@ export const inventoryEnglishTranslations = {
     "Upload, review, and commit seller stock rows before creating marketplace drafts.",
   "inventory.features.importBatches.ui.importBatchPage.validate.import": "Validate import",
   "inventory.routes.marketplace.accountInventoryImports.inventory.import.marketplace": "Inventory Import | Marketplace",
+  "inventory.routes.marketplace.accountInventoryImports.import.batch.still.updating":
+    "The import batch is still updating. Reload this page in a moment.",
   "inventory.routes.marketplace.accountInventoryImports.upload.review.and.commit.csv":
     "Upload, review, and commit CSV stock intake rows.",
   "inventory.features.storageLocations.ui.storageLocationPage.ship.from.name": "Ship-from name",

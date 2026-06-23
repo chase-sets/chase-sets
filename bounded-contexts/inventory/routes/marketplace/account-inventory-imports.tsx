@@ -1,13 +1,80 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import { loadFreshlyWrittenResource, readApiErrorCode, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createInventoryRequestApiClient, InventoryApiError } from "../../support/request-support/api-client";
+import {
+  createInventoryRequestApiClient,
+  InventoryApiError,
+  type InventoryImportBatchDetail,
+} from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
 
 const DEFAULT_IMPORT_QUERY = "limit=25&offset=0";
+const IMPORT_BATCH_UPDATING_MESSAGE = t(
+  "inventory.routes.marketplace.accountInventoryImports.import.batch.still.updating",
+);
+
+function requestWithoutFreshWrite(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
+
+  return new Request(url.toString(), {
+    headers: request.headers,
+    method: request.method,
+  });
+}
+
+function inventoryApiErrorStatus(error: unknown) {
+  return error instanceof InventoryApiError ? error.status : null;
+}
+
+function inventoryApiErrorBody(error: unknown) {
+  return error instanceof InventoryApiError ? error.body : null;
+}
+
+function inventoryApiErrorCode(error: unknown) {
+  return readApiErrorCode(inventoryApiErrorBody(error));
+}
+
+async function loadImportBatchDetail(
+  request: Request,
+  load: () => Promise<InventoryImportBatchDetail>,
+): Promise<Readonly<{ detail: InventoryImportBatchDetail | null; detailLoadMessage: string | null }>> {
+  try {
+    return {
+      detail: await loadFreshlyWrittenResource({
+        request,
+        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+        load,
+      }),
+      detailLoadMessage: null,
+    };
+  } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: inventoryApiErrorStatus,
+      getErrorCode: inventoryApiErrorCode,
+      getBody: inventoryApiErrorBody,
+      recoverTransient: () => ({
+        detail: null,
+        detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE,
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
+    if (inventoryApiErrorStatus(error) === 404) {
+      throw new Response(t("inventory.features.importBatches.api.route.import.batch.not.found"), { status: 404 });
+    }
+
+    throw error;
+  }
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
@@ -15,19 +82,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     permission: "inventory.view",
   });
   const api = createInventoryRequestApiClient(request);
+  const nonFreshApi = createInventoryRequestApiClient(requestWithoutFreshWrite(request));
   const batchId = params.batchId;
+  const detailResult = batchId
+    ? await loadImportBatchDetail(request, () => api.getImportBatch(batchId))
+    : { detail: null, detailLoadMessage: null };
 
   return {
-    batches: await api.listImportBatches(DEFAULT_IMPORT_QUERY),
-    storageLocations: await api.listStorageLocations("limit=100&offset=0"),
+    batches: await nonFreshApi.listImportBatches(DEFAULT_IMPORT_QUERY),
+    storageLocations: await nonFreshApi.listStorageLocations("limit=100&offset=0"),
     activeJobId: new URL(request.url).searchParams.get("jobId") ?? "",
-    detail: batchId
-      ? await loadFreshlyWrittenResource({
-          request,
-          isNotFound: (error) => error instanceof InventoryApiError && error.status === 404,
-          load: () => api.getImportBatch(batchId),
-        })
-      : null,
+    detail: detailResult.detail,
+    detailLoadMessage: detailResult.detailLoadMessage,
   };
 }
 
@@ -88,6 +154,7 @@ export default function MarketplaceInventoryImportsRoute() {
       batches={data.batches.items}
       storageLocations={data.storageLocations.items}
       detail={data.detail}
+      detailLoadMessage={data.detailLoadMessage}
       activeJobId={data.activeJobId}
       currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}

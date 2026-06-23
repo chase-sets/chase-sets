@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, encodeCommitReceipt, readFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  encodeCommitReceipt,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import { action as inventoryAction, loader as inventoryLoader } from "../routes/marketplace/account-inventory";
 import {
   action as inventoryImportsAction,
@@ -463,6 +468,218 @@ describe("marketplace inventory routes", () => {
 
     expect(result.batches.items).toHaveLength(1);
     expect(result.detail?.batch_id).toBe("imb_1");
+  });
+
+  it("renders a freshly committed mixed import batch without forwarding freshness to secondary reads", async () => {
+    const requests: { url: string; headers: Headers }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/import-batches/imb_mixed")) {
+          return Promise.resolve(
+            jsonResponse({
+              batch_id: "imb_mixed",
+              account_id: "acc_1",
+              status: "committed",
+              source_key: "native-csv",
+              adapter_version: 1,
+              quantity_mode: "add",
+              default_storage_location_id: "loc_1",
+              source_filename: "mixed.csv",
+              total_count: 2,
+              accepted_count: 1,
+              rejected_count: 1,
+              committed_count: 1,
+              created_at: "2026-05-09T00:00:00.000Z",
+              updated_at: "2026-05-09T00:00:00.000Z",
+              rows: [
+                {
+                  row_id: "imr_accepted",
+                  batch_id: "imb_mixed",
+                  row_number: 2,
+                  status: "committed",
+                  raw_row: {},
+                  external_reference: null,
+                  row_fingerprint: "native-csv|2|cat_1",
+                  quantity_mode: "add",
+                  quantity_delta: 2,
+                  set_quantity: null,
+                  source_price_amount: null,
+                  resolution_status: "native",
+                  catalog_item_id: "cat_1",
+                  product_id: "cat_1::condition:near_mint",
+                  selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+                  storage_location_id: "loc_1",
+                  total_quantity: 2,
+                  acquisition_cost_amount: null,
+                  seller_sku: null,
+                  listing_price_amount: "4.44",
+                  listing_quantity_cap: 1,
+                  row_note: null,
+                  validation_errors: [],
+                  committed_inventory_item_id: "inv_committed",
+                  committed_listing_id: null,
+                  committed_at: "2026-05-09T00:00:01.000Z",
+                  created_at: "2026-05-09T00:00:00.000Z",
+                  updated_at: "2026-05-09T00:00:01.000Z",
+                },
+                {
+                  row_id: "imr_rejected",
+                  batch_id: "imb_mixed",
+                  row_number: 3,
+                  status: "rejected",
+                  raw_row: {},
+                  external_reference: null,
+                  row_fingerprint: "native-csv|3|cat_missing",
+                  quantity_mode: "add",
+                  quantity_delta: null,
+                  set_quantity: null,
+                  source_price_amount: null,
+                  resolution_status: "unresolved",
+                  catalog_item_id: "cat_missing",
+                  product_id: null,
+                  selected_options: [],
+                  storage_location_id: "loc_1",
+                  total_quantity: 2,
+                  acquisition_cost_amount: null,
+                  seller_sku: null,
+                  listing_price_amount: null,
+                  listing_quantity_cap: null,
+                  row_note: "rejected",
+                  validation_errors: ["Catalog item was not found."],
+                  committed_inventory_item_id: null,
+                  committed_listing_id: null,
+                  committed_at: null,
+                  created_at: "2026-05-09T00:00:00.000Z",
+                  updated_at: "2026-05-09T00:00:00.000Z",
+                },
+              ],
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            items: [],
+            total: 0,
+            count: 0,
+          }),
+        );
+      }),
+    );
+
+    const result = await inventoryImportsLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_mixed", inventoryCommit("409"))}`,
+      ),
+      params: { batchId: "imb_mixed" },
+      context: undefined,
+    } as never);
+
+    expect(result.detail).toMatchObject({
+      batch_id: "imb_mixed",
+      status: "committed",
+      accepted_count: 1,
+      rejected_count: 1,
+      committed_count: 1,
+    });
+    expect(result.detail?.rows).toEqual([
+      expect.objectContaining({
+        status: "committed",
+        committed_inventory_item_id: "inv_committed",
+      }),
+      expect.objectContaining({
+        status: "rejected",
+        validation_errors: ["Catalog item was not found."],
+      }),
+    ]);
+
+    const detailRead = requests.find((request) => request.url.includes("/api/inventory/import-batches/imb_mixed"));
+    const importListRead = requests.find(
+      (request) => request.url.includes("/api/inventory/import-batches") && !request.url.includes("imb_mixed"),
+    );
+    const storageLocationRead = requests.find((request) => request.url.includes("/api/inventory/storage-locations"));
+
+    expect(detailRead?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(importListRead?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+    expect(storageLocationRead?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+  });
+
+  it("returns route-owned import recovery while fresh committed batch detail is catching up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/import-batches/imb_pending")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Inventory import projection is catching up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const result = await inventoryImportsLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/inventory/imports/imb_pending", inventoryCommit("410"))}`,
+      ),
+      params: { batchId: "imb_pending" },
+      context: undefined,
+    } as never);
+
+    expect(result.detail).toBeNull();
+    expect(result.detailLoadMessage).toBe("The import batch is still updating. Reload this page in a moment.");
+    expect(result.batches.items).toEqual([]);
+    expect(result.storageLocations.items).toEqual([]);
   });
 
   it("creates and commits import batches through route actions", async () => {
