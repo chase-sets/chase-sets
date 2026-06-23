@@ -137,7 +137,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
     affectedProjectionNames: ["auth:auth-session-projection"],
-    routeDependencyIds: ["auth.session-detail-self-refresh"],
+    routeDependencyIds: ["auth.browser-registration-identity-freshness-carrier", "auth.session-detail-self-refresh"],
   }),
   registryEntry({
     sourceContextName: "catalog",
@@ -301,6 +301,7 @@ export const sourceContextWakeRegistry = [
       "identity.admin-membership-detail-fresh-read",
       "identity.admin-user-detail-fresh-read",
       "identity.marketplace-account-profile-fresh-read",
+      "identity.registration-current-actor-display-fresh-read",
       "identity.shipping-addresses-fresh-read",
     ],
   }),
