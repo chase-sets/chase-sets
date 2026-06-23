@@ -7,7 +7,13 @@ import {
 } from "../auth-support/identity-projection";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, getBootstrapContext, readIdentityMutationConflict, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  getBootstrapContext,
+  jsonWithMutationReceipts,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/register", async (c) => {
@@ -38,9 +44,10 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
     }
 
     let passwordCredentialId: string | null = null;
+    let passwordCredentialResult: Awaited<ReturnType<typeof identityMutations.enablePasswordCredential>> | null = null;
     if (body.password) {
       passwordCredentialId = createId("crd");
-      await identityMutations.enablePasswordCredential({
+      passwordCredentialResult = await identityMutations.enablePasswordCredential({
         userId: identity.userId,
         credentialId: passwordCredentialId,
       });
@@ -87,12 +94,14 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
       ],
     });
 
-    return c.json(
+    return jsonWithMutationReceipts(
+      c,
       {
         ...authResult,
         accountId: identity.accountId,
       },
       201,
+      [identity, passwordCredentialResult],
     );
   });
 }

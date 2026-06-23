@@ -13,6 +13,7 @@ import {
   createIdentityMutations,
   createOwnedUserDisplayName,
   getBootstrapContext,
+  jsonWithMutationReceipts,
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
@@ -87,8 +88,8 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
     let userId = resolvedUser.userId;
     let accountId: string | undefined;
     let membershipId: string | undefined;
+    let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>> | null = null;
     if (!userId && challenge.email) {
-      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
       try {
         identity = await identityMutations.createPersonalIdentity({
           email: challenge.email,
@@ -118,7 +119,7 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
     }
 
     const credentialId = createId("crd");
-    await identityMutations.registerPasskeyCredential({
+    const passkeyCredential = await identityMutations.registerPasskeyCredential({
       userId,
       credentialId,
     });
@@ -151,7 +152,7 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
           })
         : null;
 
-    return c.json({ credentialId, userId, authResult }, 201);
+    return jsonWithMutationReceipts(c, { credentialId, userId, authResult }, 201, [identity, passkeyCredential]);
   });
 
   app.post("/passkeys/sign-in", async (c) => {

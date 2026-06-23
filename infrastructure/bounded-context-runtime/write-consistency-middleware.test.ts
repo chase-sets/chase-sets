@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { decodeCommitReceipt } from "@chase-sets/http/responses";
+import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt, encodeCommitReceipt } from "@chase-sets/http/responses";
 import { recordCommittedEvents, type StoredEvent } from "@chase-sets/event-core";
 import { attachWriteConsistencyMiddleware } from "./index";
 
@@ -64,5 +64,53 @@ describe("bounded context write consistency middleware", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Chase-Sets-Consistency")).toBeNull();
     expect(response.headers.get("Chase-Sets-Commit-Receipt")).toBeNull();
+  });
+
+  it("merges existing upstream commit receipts with local mutation metadata", async () => {
+    const app = new Hono();
+
+    attachWriteConsistencyMiddleware(app, [{ mountPath: "/api/auth" }]);
+    app.post("/api/auth/register", (context) => {
+      recordCommittedEvents([
+        storedEvent({
+          id: "evt_session_started",
+          streamId: "auth.session-ses_1",
+          globalPosition: "71",
+        }),
+      ]);
+
+      return context.json({ sessionId: "ses_1", status: "started" }, 201, {
+        "Chase-Sets-Consistency": "eventual",
+        "Chase-Sets-Commit-Event-Ids": "evt_identity_account_created",
+        [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+          {
+            sourceContextName: "identity",
+            maxGlobalPosition: "51",
+            eventIds: ["evt_identity_account_created"],
+          },
+        ]),
+      });
+    });
+
+    const response = await app.request("/api/auth/register", { method: "POST" });
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Chase-Sets-Consistency")).toBe("eventual");
+    expect(response.headers.get("Chase-Sets-Commit-Position")).toBe("71");
+    expect(response.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(
+      "evt_identity_account_created,evt_session_started",
+    );
+    expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
+      {
+        sourceContextName: "auth",
+        maxGlobalPosition: "71",
+        eventIds: ["evt_session_started"],
+      },
+      {
+        sourceContextName: "identity",
+        maxGlobalPosition: "51",
+        eventIds: ["evt_identity_account_created"],
+      },
+    ]);
   });
 });

@@ -1,6 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  encodeCommitReceipt,
+  getMutationResultCommandReceipt,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import { createIdentityAuthRequestClient } from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
@@ -38,6 +44,79 @@ export function getRequiredActor(c: AuthApiContext) {
 
 export function createIdentityMutations(c: AuthApiContext) {
   return createIdentityAuthRequestClient(c.req.raw);
+}
+
+function maxCommitPosition(left: string | undefined, right: string | undefined) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return BigInt(right) > BigInt(left) ? right : left;
+}
+
+function mergeSourceCommitPositions(sources: readonly SourceCommitPosition[]) {
+  const byContext = new Map<string, SourceCommitPosition>();
+
+  for (const source of sources) {
+    const current = byContext.get(source.sourceContextName);
+    if (!current) {
+      byContext.set(source.sourceContextName, source);
+      continue;
+    }
+
+    byContext.set(source.sourceContextName, {
+      sourceContextName: source.sourceContextName,
+      maxGlobalPosition:
+        maxCommitPosition(current.maxGlobalPosition, source.maxGlobalPosition) ?? source.maxGlobalPosition,
+      eventIds: [...new Set([...current.eventIds, ...source.eventIds])],
+    });
+  }
+
+  return [...byContext.values()].sort((left, right) => left.sourceContextName.localeCompare(right.sourceContextName));
+}
+
+export function mutationReceiptHeadersFromSources(sources: readonly unknown[]): Record<string, string> {
+  let commitPosition: string | undefined;
+  const commitEventIds = new Set<string>();
+  const commitPositions: SourceCommitPosition[] = [];
+
+  for (const source of sources) {
+    const receipt = getMutationResultCommandReceipt(source);
+    if (!receipt) {
+      continue;
+    }
+
+    commitPosition = maxCommitPosition(commitPosition, receipt.commitPosition);
+    for (const eventId of receipt.commitEventIds) {
+      commitEventIds.add(eventId);
+    }
+    commitPositions.push(...receipt.commitPositions);
+  }
+
+  const mergedCommitPositions = mergeSourceCommitPositions(commitPositions);
+  if (!commitPosition && commitEventIds.size === 0 && mergedCommitPositions.length === 0) {
+    return {};
+  }
+
+  return {
+    "Chase-Sets-Consistency": "eventual",
+    ...(commitPosition ? { "Chase-Sets-Commit-Position": commitPosition } : {}),
+    ...(mergedCommitPositions.length > 0
+      ? { [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt(mergedCommitPositions) }
+      : {}),
+    ...(commitEventIds.size > 0 ? { "Chase-Sets-Commit-Event-Ids": [...commitEventIds].join(",") } : {}),
+  };
+}
+
+export function jsonWithMutationReceipts(
+  c: AuthApiContext,
+  body: object,
+  status: 200 | 201,
+  sources: readonly unknown[],
+) {
+  return c.json(body, status, mutationReceiptHeadersFromSources(sources));
 }
 
 export function readIdentityMutationConflict(error: unknown) {

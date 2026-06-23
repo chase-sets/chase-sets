@@ -11,6 +11,7 @@ import {
   createIdentityMutations,
   createOwnedUserDisplayName,
   getBootstrapContext,
+  jsonWithMutationReceipts,
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
@@ -113,7 +114,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
         ],
       });
 
-      return c.json(authResult);
+      return jsonWithMutationReceipts(c, authResult, 200, [identity]);
     }
 
     if (!user.auth_methods.includes("sms-code")) {

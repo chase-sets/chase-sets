@@ -8,6 +8,7 @@ import {
   createIdentityMutations,
   createOwnedUserDisplayName,
   getBootstrapContext,
+  jsonWithMutationReceipts,
   readIdentityMutationConflict,
   type AuthApiApp,
 } from "./support";
@@ -93,7 +94,7 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
         ],
       });
 
-      return c.json(authResult);
+      return jsonWithMutationReceipts(c, authResult, 200, [identity]);
     }
 
     const authResult = await startInteractiveAuth(services, {
