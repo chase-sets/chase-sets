@@ -52,6 +52,7 @@ export const mockRemoveCartLine = vi.fn();
 export const mockRemoveGuestCartLine = vi.fn();
 export const mockGetGuestSellList = vi.fn();
 export const mockGetOfferMatch = vi.fn();
+export const mockGetPublicOffer = vi.fn();
 export const mockListOfferMatches = vi.fn();
 export const mockPreviewPublicStandardListingTerms = vi.fn();
 export const mockPreviewOfferAcceptanceTerms = vi.fn();

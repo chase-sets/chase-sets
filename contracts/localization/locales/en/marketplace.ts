@@ -281,6 +281,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.api.route.forbidden.3": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.4": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.5": "Forbidden.",
+  "marketplace.features.offers.api.route.offer.not.found": "Offer not found.",
   "marketplace.features.offers.api.route.offer.match.not.found": "Offer match not found.",
   "marketplace.features.offers.api.route.request.failed": "Request failed.",
   "marketplace.features.offers.api.route.submitted.offer.not.found": "Submitted offer not found.",

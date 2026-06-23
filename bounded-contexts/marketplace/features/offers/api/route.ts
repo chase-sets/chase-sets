@@ -222,6 +222,24 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
 export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
+  app.get("/offers/public/:id", async (c) => {
+    const access = requireOfferAccess(c, "offers.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const offer = await services.getPublicOffer(c.req.param("id"));
+
+    if (!offer) {
+      return c.json(
+        { error: { code: "not_found", message: t("marketplace.features.offers.api.route.offer.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(omitPrivateOfferResponseFields(offer));
+  });
+
   app.get("/offers/matches", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {

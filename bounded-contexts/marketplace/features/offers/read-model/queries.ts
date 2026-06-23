@@ -265,6 +265,23 @@ export async function getSubmittedOffer(
   return row ? mapOfferRow(row) : null;
 }
 
+export async function getPublicOffer(db: PgQueryable, offerId: string): Promise<MarketplaceOfferListRow | null> {
+  const result = await db.query<MarketplaceOfferPageRow>(
+    `SELECT
+       offer.*,
+       seller.average_rating::text AS accepted_seller_average_rating,
+       COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+     FROM marketplace_offer_pages AS offer
+     LEFT JOIN marketplace_account_pages AS seller
+       ON seller.account_id = offer.accepted_seller_account_id
+     WHERE offer.offer_id = $1`,
+    [offerId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapOfferRow(row) : null;
+}
+
 export async function listOfferMatches(
   db: PgQueryable,
   params: Readonly<{

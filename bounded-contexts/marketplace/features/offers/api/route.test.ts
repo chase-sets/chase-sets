@@ -51,6 +51,7 @@ function createServices(): MarketplaceOfferServices {
   }));
   const listSubmittedOffers = vi.fn(async () => ({ items: [], total: 0 }));
   const getSubmittedOffer = vi.fn(async () => null);
+  const getPublicOffer = vi.fn(async () => null);
   const listOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
   const getOfferMatch = vi.fn(async () => null);
 
@@ -61,6 +62,7 @@ function createServices(): MarketplaceOfferServices {
     previewOfferAcceptanceTerms,
     listSubmittedOffers,
     getSubmittedOffer,
+    getPublicOffer,
     listOfferMatches,
     getOfferMatch,
     projectors: [],
@@ -206,6 +208,54 @@ describe("marketplace offer routes", () => {
     expect(listBody.items[0]).not.toHaveProperty("shipping_destination_snapshot");
     expect(detailBody).not.toHaveProperty("shipping_destination_snapshot");
     expect(JSON.stringify({ listBody, detailBody })).not.toContain("alternate-contact@example.test");
+  });
+
+  it("returns a public submitted offer for seller selected-offer resolution without private destination data", async () => {
+    const services = createServices();
+    vi.mocked(services.getPublicOffer).mockResolvedValue({
+      ...submittedOfferWithPrivateDestination,
+      offer_id: "off_air_balloon",
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: "cat_air_balloon::condition:damaged|form:raw",
+      item_title: "Air Balloon",
+      item_subtitle: null,
+      selected_options: [
+        { dimensionId: "condition", optionId: "damaged" },
+        { dimensionId: "form", optionId: "raw" },
+      ],
+      product_summary: "Raw / Damaged",
+      price_amount: "24.96",
+      quantity_requested: 1,
+      status: "submitted",
+      accepted_seller_account_id: null,
+      accepted_at: null,
+    } as never);
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["offers.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://marketplace.test/account/offers/public/off_air_balloon"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      offer_id: "off_air_balloon",
+      status: "submitted",
+      product_id: "cat_air_balloon::condition:damaged|form:raw",
+      price_amount: "24.96",
+    });
+    expect(body).not.toHaveProperty("shipping_destination_snapshot");
+    expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
+    expect(services.getPublicOffer).toHaveBeenCalledWith("off_air_balloon");
   });
 
   it("rejects anonymous offer submission", async () => {
