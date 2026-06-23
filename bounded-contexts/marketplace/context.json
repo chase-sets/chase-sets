@@ -63,6 +63,14 @@
       "projectionHandlerSetNames": ["marketplace-identity-account-projection"]
     },
     {
+      "sourceContextName": "catalog",
+      "projectionName": "marketplace-listing-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "order": 21,
+      "projectionHandlerSetNames": ["marketplace-listing-projection"]
+    },
+    {
       "sourceContextName": "inventory",
       "projectionName": "marketplace-inventory-supply-projection",
       "subscriptionVersion": 1,
@@ -169,7 +177,7 @@
     },
     {
       "projectionName": "marketplace-listing-projection",
-      "sourceContextNames": ["marketplace"],
+      "sourceContextNames": ["catalog"],
       "ownedTables": ["marketplace_listing_pages", "marketplace_seller_listing_availability_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
@@ -340,10 +348,32 @@
       "owner": "marketplace",
       "risk": "critical",
       "source": {
-        "routeIds": ["account-listings", "account-listing"],
-        "actions": ["Create listing", "Update listing", "Publish listing"],
+        "routeId": "account-listing",
+        "actions": ["Update listing", "Publish listing"],
         "command": "Marketplace listing commands",
         "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listing",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings/:id",
+        "readModelTables": ["marketplace_listing_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
+        }
+      }
+    },
+    {
+      "id": "marketplace.listing-create-from-list-to-detail",
+      "owner": "marketplace",
+      "risk": "critical",
+      "source": {
+        "routeId": "account-listings",
+        "actions": ["Create listing", "Create and publish listing"],
+        "command": "Marketplace listing commands",
+        "helperUses": ["appendFreshWriteTokenFromSources"]
       },
       "destination": {
         "routeId": "account-listing",

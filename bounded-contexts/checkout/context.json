@@ -66,6 +66,14 @@
       ]
     },
     {
+      "sourceContextName": "catalog",
+      "projectionName": "checkout-marketplace-seller-options-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "order": 11,
+      "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
+    },
+    {
       "sourceContextName": "inventory",
       "projectionName": "checkout-marketplace-seller-options-projection",
       "subscriptionVersion": 1,
@@ -124,7 +132,7 @@
     },
     {
       "projectionName": "checkout-marketplace-seller-options-projection",
-      "sourceContextNames": ["marketplace", "inventory", "identity"],
+      "sourceContextNames": ["marketplace", "catalog", "inventory", "identity"],
       "ownedTables": [
         "checkout_marketplace_seller_options",
         "checkout_supply_items",

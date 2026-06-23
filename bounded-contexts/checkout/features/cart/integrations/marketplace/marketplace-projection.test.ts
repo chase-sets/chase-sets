@@ -11,6 +11,7 @@ type SellerOptionRow = {
   price_amount: string;
   listing_quantity_cap: number;
   product_summary: string | null;
+  product_measure_snapshot: string | null;
   status: string;
   updated_at: string;
   inventory_item_id: string | null;
@@ -39,9 +40,10 @@ class ProjectionDb implements PgQueryable {
         price_amount: String(values[4]),
         listing_quantity_cap: Number(values[5]),
         product_summary: values[6] === null ? null : String(values[6]),
+        product_measure_snapshot: values[7] === null ? null : String(values[7]),
         status: existing?.status ?? "draft",
-        updated_at: String(values[7]),
-        inventory_item_id: values[8] === null ? null : String(values[8]),
+        updated_at: String(values[8]),
+        inventory_item_id: values[9] === null ? null : String(values[9]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -82,6 +84,22 @@ class ProjectionDb implements PgQueryable {
 
     if (sql.includes("SET status = 'active'") && sql.includes("AND status = 'seller-unavailable'")) {
       return this.flipSellerStatus(String(values[0]), "seller-unavailable", "active", String(values[1]));
+    }
+
+    if (sql.includes("UPDATE checkout_marketplace_seller_options AS option")) {
+      const catalogItemId = String(values[0]);
+      const products = JSON.parse(String(values[1])) as { productId?: unknown }[];
+      let affected = 0;
+      for (const row of this.options.values()) {
+        if (row.catalog_catalog_item_id !== catalogItemId) {
+          continue;
+        }
+        const measure = products.find((product) => product?.productId === row.product_id) ?? null;
+        row.product_measure_snapshot = measure ? JSON.stringify(measure) : null;
+        row.updated_at = String(values[2]);
+        affected += 1;
+      }
+      return { rows: [], rowCount: affected };
     }
 
     // Supply-counter backfill recompute issued by listing.created. No inventory
@@ -162,6 +180,11 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
     catalogItemId: "cat_1",
     productId: "prd_1",
     productSummary: "Charizard — Base Set",
+    productMeasureSnapshot: {
+      catalogItemId: "cat_1",
+      productId: "prd_1",
+      measureVersion: "pm_raw_v1",
+    },
     priceAmount: "120.00",
     quantityCap: 5,
     ...overrides,
@@ -183,8 +206,41 @@ describe("checkout marketplace seller-options projection", () => {
       price_amount: "120.00",
       listing_quantity_cap: 5,
       product_summary: "Charizard — Base Set",
+      product_measure_snapshot: JSON.stringify({
+        catalogItemId: "cat_1",
+        productId: "prd_1",
+        measureVersion: "pm_raw_v1",
+      }),
       status: "draft",
       inventory_item_id: "inv_1",
+    });
+  });
+
+  it("updates existing seller options from resolved catalog product measures", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(createdEvent({ productMeasureSnapshot: null }));
+    await handlers["catalog.catalog-item.product-measures-resolved"]!(
+      event("catalog.catalog-item.product-measures-resolved", "catalog.product-measures-cat_1", {
+        catalogItemId: "cat_1",
+        products: [
+          {
+            catalogItemId: "cat_1",
+            productId: "prd_1",
+            measureVersion: "pm_raw_v2",
+          },
+        ],
+      }),
+    );
+
+    expect(db.options.get("lst_1")).toMatchObject({
+      product_measure_snapshot: JSON.stringify({
+        catalogItemId: "cat_1",
+        productId: "prd_1",
+        measureVersion: "pm_raw_v2",
+      }),
+      updated_at: "2026-05-09T00:00:00.000Z",
     });
   });
 

@@ -209,6 +209,38 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
       await emitListingPatch(db, event, data.listingId);
     },
+    "catalog.catalog-item.product-measures-resolved": async (event) => {
+      const data = event.data as {
+        catalogItemId: string;
+        products?: unknown;
+      };
+
+      const updated = await db.query<{ listing_id: string }>(
+        `WITH resolved_products AS (
+           SELECT measure
+           FROM jsonb_array_elements($2::jsonb) AS product(measure)
+         )
+         UPDATE marketplace_listing_pages AS listing
+         SET product_measure_snapshot = (
+               SELECT measure
+               FROM resolved_products
+               WHERE measure->>'productId' = listing.product_id
+               LIMIT 1
+             ),
+             updated_at = $3
+         WHERE listing.catalog_catalog_item_id = $1
+         RETURNING listing.listing_id`,
+        [
+          data.catalogItemId,
+          JSON.stringify(Array.isArray(data.products) ? data.products : []),
+          event.timing.recordedAt,
+        ],
+      );
+
+      for (const row of updated.rows) {
+        await emitListingPatch(db, event, row.listing_id);
+      }
+    },
     "marketplace.listing.photos-added": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const { listingPhotos } = event.data as { listingPhotos: unknown };

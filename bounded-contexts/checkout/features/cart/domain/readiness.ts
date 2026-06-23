@@ -9,6 +9,7 @@ export type CartReadinessSellerOption = Readonly<{
   price_amount: string;
   available_quantity: number;
   product_summary: string | null;
+  product_measure_snapshot: Readonly<Record<string, unknown>> | null;
 }>;
 
 export type CartReadinessLine = Readonly<{
@@ -68,7 +69,13 @@ export type CartReadinessSnapshot = Readonly<{
   lineOutcomes: readonly Readonly<{
     lineId: string;
     outcome: CartReadinessLineOutcome;
-    reason: "ready" | "unassigned-fulfillment" | "unavailable" | "waiting-for-supply" | "changed";
+    reason:
+      | "ready"
+      | "unassigned-fulfillment"
+      | "unavailable"
+      | "waiting-for-supply"
+      | "changed"
+      | "shipping-measure-missing";
   }>[];
   optimization: Readonly<{
     available: boolean;
@@ -129,8 +136,35 @@ function formatAmount(value: number) {
   return value.toFixed(2);
 }
 
-function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {
+function optionHasProductMeasure(option: CartReadinessSellerOption) {
+  return typeof option.product_measure_snapshot === "object" && option.product_measure_snapshot !== null;
+}
+
+function optionHasPricedAvailability(option: CartReadinessSellerOption) {
+  return option.available_quantity > 0 && moneyValue(option.price_amount) !== null;
+}
+
+function optionHasAvailablePricedQuantity(option: CartReadinessSellerOption, quantity: number) {
   return option.available_quantity >= quantity && moneyValue(option.price_amount) !== null;
+}
+
+function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {
+  return optionHasAvailablePricedQuantity(option, quantity) && optionHasProductMeasure(option);
+}
+
+function pricedAvailableQuantity(options: readonly CartReadinessSellerOption[]) {
+  return options.reduce(
+    (sum, option) => (optionHasPricedAvailability(option) ? sum + option.available_quantity : sum),
+    0,
+  );
+}
+
+function measuredPricedAvailableQuantity(options: readonly CartReadinessSellerOption[]) {
+  return options.reduce(
+    (sum, option) =>
+      optionHasPricedAvailability(option) && optionHasProductMeasure(option) ? sum + option.available_quantity : sum,
+    0,
+  );
 }
 
 function groupHash(value: unknown) {
@@ -179,6 +213,24 @@ function lockedListingIsWaitingForSupply(line: CartReadinessLine) {
   );
 }
 
+function lineHasMissingShippingMeasure(line: CartReadinessLine) {
+  if (line.availability_state !== "available") {
+    return false;
+  }
+
+  if (line.fulfillment_mode === "locked-listing") {
+    const selected = selectedCartReadinessListing(line);
+    return selected
+      ? optionHasAvailablePricedQuantity(selected, line.quantity) && !optionHasProductMeasure(selected)
+      : false;
+  }
+
+  return (
+    pricedAvailableQuantity(line.seller_options) >= line.quantity &&
+    measuredPricedAvailableQuantity(line.seller_options) < line.quantity
+  );
+}
+
 export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
   if (line.availability_state !== "available") {
     return false;
@@ -197,7 +249,7 @@ export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
     return false;
   }
 
-  return Boolean(lowestCartReadinessListing(line));
+  return measuredPricedAvailableQuantity(line.seller_options) >= line.quantity;
 }
 
 function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcomes"][number]["reason"] {
@@ -215,6 +267,9 @@ function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcome
   }
   if (lockedListingIsWaitingForSupply(line)) {
     return "waiting-for-supply";
+  }
+  if (lineHasMissingShippingMeasure(line)) {
+    return "shipping-measure-missing";
   }
   return cartReadinessLineHasFulfillment(line) ? "ready" : "unassigned-fulfillment";
 }
@@ -378,6 +433,7 @@ function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
         sellerDisplayName: option.seller_display_name,
         priceAmount: option.price_amount,
         availableQuantity: option.available_quantity,
+        productMeasureSnapshot: option.product_measure_snapshot,
       })),
       updatedAt: line.updated_at,
     })),

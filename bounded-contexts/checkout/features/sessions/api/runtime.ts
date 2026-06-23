@@ -395,6 +395,7 @@ type BuyNowLockedListingReadinessRow = Readonly<{
   status: string;
   price_amount: string;
   available_quantity: number;
+  product_measure_snapshot: unknown;
 }>;
 
 export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
@@ -482,6 +483,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
          product_id,
          status,
          price_amount::text AS price_amount,
+         product_measure_snapshot,
          LEAST(
            listing_quantity_cap,
            GREATEST(
@@ -510,6 +512,8 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     const priceAmount = Number(listing.price_amount);
     if (
       listing.status !== "active" ||
+      typeof listing.product_measure_snapshot !== "object" ||
+      listing.product_measure_snapshot === null ||
       !Number.isFinite(priceAmount) ||
       priceAmount < 0 ||
       !Number.isFinite(availableQuantity) ||

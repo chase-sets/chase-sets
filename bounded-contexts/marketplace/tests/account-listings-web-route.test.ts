@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { action as listingsAction, loader as listingsLoader } from "../routes/account-listings";
 import {
   appendFreshWriteToken,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeCommitReceipt,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 
@@ -268,10 +270,32 @@ describe("marketplace listing routes", () => {
       }
 
       if (url.includes("/api/marketplace/account/listings/lst_1/publish")) {
-        return Promise.resolve(jsonResponse({ id: "lst_1", version: 2 }));
+        return Promise.resolve(
+          jsonResponse({ id: "lst_1", version: 2 }, 200, {
+            "Chase-Sets-Consistency": "eventual",
+            [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+              {
+                sourceContextName: "marketplace",
+                maxGlobalPosition: "42",
+                eventIds: ["evt_listing_published"],
+              },
+            ]),
+          }),
+        );
       }
 
-      return Promise.resolve(jsonResponse({ id: "lst_1", version: 1 }, 201));
+      return Promise.resolve(
+        jsonResponse({ id: "lst_1", version: 1 }, 201, {
+          "Chase-Sets-Consistency": "eventual",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+            {
+              sourceContextName: "marketplace",
+              maxGlobalPosition: "41",
+              eventIds: ["evt_listing_created"],
+            },
+          ]),
+        }),
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -293,9 +317,15 @@ describe("marketplace listing routes", () => {
 
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(302);
-    expect((result as Response).headers.get("Location")).toBe(
-      "/account/listings/lst_1?feedbackWorkflow=listing-publish",
-    );
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?feedbackWorkflow=listing-publish&afterWrite=/);
+    expect(readFreshWriteToken(location)?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "42",
+        eventIds: expect.arrayContaining(["evt_listing_created", "evt_listing_published"]),
+      },
+    ]);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/marketplace/account/listings/lst_1/publish"),
       expect.any(Object),

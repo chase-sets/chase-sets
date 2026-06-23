@@ -23,6 +23,21 @@ const context = {
   },
 };
 
+const productMeasureSnapshot = {
+  catalogItemId: "cat_1",
+  productId: "cat_1::",
+  selectedOptions: [],
+  measureVersion: "pm_test_raw_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.02,
+  unitWeightOunces: 0.08,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+};
+
 function createInMemoryEventStore() {
   let globalPosition = 0;
   const streams = new Map<string, StoredEvent[]>();
@@ -117,6 +132,7 @@ const readyCartLine: CheckoutCartLineRow = {
       price_amount: "25.00",
       available_quantity: 1,
       product_summary: null,
+      product_measure_snapshot: productMeasureSnapshot,
     },
   ],
   created_at: "2026-06-09T00:00:00.000Z",
@@ -182,6 +198,7 @@ type BuyNowListingEvidenceRow = Readonly<{
   status: string;
   price_amount: string;
   available_quantity: number;
+  product_measure_snapshot: Readonly<Record<string, unknown>> | null;
 }>;
 
 const readyBuyNowListingEvidence: BuyNowListingEvidenceRow = {
@@ -191,6 +208,7 @@ const readyBuyNowListingEvidence: BuyNowListingEvidenceRow = {
   status: "active",
   price_amount: "25.00",
   available_quantity: 2,
+  product_measure_snapshot: productMeasureSnapshot,
 };
 
 function createBuyNowReadinessDb(
@@ -525,6 +543,7 @@ describe("checkout session runtime", () => {
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
     const buyNowReadinessSql = String(db.query.mock.calls[1]?.[0]);
     expect(buyNowReadinessSql).toContain("checkout_marketplace_seller_options");
+    expect(buyNowReadinessSql).toContain("product_measure_snapshot");
     expect(buyNowReadinessSql).toContain(
       "COALESCE(supply_total_quantity, listing_quantity_cap) - COALESCE(active_held_quantity, 0)",
     );
@@ -598,6 +617,15 @@ describe("checkout session runtime", () => {
     {
       name: "unavailable listing evidence",
       listingEvidenceRows: [{ ...readyBuyNowListingEvidence, status: "seller-unavailable" }],
+      input: {},
+      expected: {
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      },
+    },
+    {
+      name: "missing product measure evidence",
+      listingEvidenceRows: [{ ...readyBuyNowListingEvidence, product_measure_snapshot: null }],
       input: {},
       expected: {
         code: "unresolved_fulfillment",

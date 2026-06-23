@@ -29,27 +29,35 @@ type AcceptedOfferParams = Readonly<{
   context: EventStoreContext;
 }>;
 
+type CatalogProductMeasuresResolvedProjectionPayload = Readonly<{
+  catalogItemId: string;
+  products?: JsonValue;
+}>;
+
+type OrderingMarketplaceSupplyProjectionEventPayloads = Pick<
+  ChaseSetsEventPayloads,
+  | "marketplace.listing.created"
+  | "marketplace.listing.price-updated"
+  | "marketplace.listing.quantity-cap-updated"
+  | "marketplace.listing.purchase-limits-updated"
+  | "marketplace.listing.published"
+  | "marketplace.listing.paused"
+  | "marketplace.listing.withdrawn"
+  | "marketplace.seller-listing-availability.disabled"
+  | "marketplace.seller-listing-availability.enabled"
+  | "marketplace.offer.accepted"
+> &
+  Readonly<{
+    "catalog.catalog-item.product-measures-resolved": CatalogProductMeasuresResolvedProjectionPayload;
+  }>;
+
 export function buildOrderingMarketplaceSupplyProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
     onOfferAccepted?: (params: AcceptedOfferParams) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
-  return defineProjectorHandlers<
-    Pick<
-      ChaseSetsEventPayloads,
-      | "marketplace.listing.created"
-      | "marketplace.listing.price-updated"
-      | "marketplace.listing.quantity-cap-updated"
-      | "marketplace.listing.purchase-limits-updated"
-      | "marketplace.listing.published"
-      | "marketplace.listing.paused"
-      | "marketplace.listing.withdrawn"
-      | "marketplace.seller-listing-availability.disabled"
-      | "marketplace.seller-listing-availability.enabled"
-      | "marketplace.offer.accepted"
-    >
-  >({
+  return defineProjectorHandlers<OrderingMarketplaceSupplyProjectionEventPayloads>({
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;
@@ -166,6 +174,30 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
           data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "catalog.catalog-item.product-measures-resolved": async (event) => {
+      const data = event.data;
+
+      await db.query(
+        `WITH resolved_products AS (
+           SELECT measure
+           FROM jsonb_array_elements($2::jsonb) AS product(measure)
+         )
+         UPDATE ordering_market_listing_inputs AS listing
+         SET product_measure_snapshot = (
+               SELECT measure
+               FROM resolved_products
+               WHERE measure->>'productId' = listing.product_id
+               LIMIT 1
+             ),
+             updated_at = $3
+         WHERE listing.catalog_catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          JSON.stringify(Array.isArray(data.products) ? data.products : []),
           event.timing.recordedAt,
         ],
       );

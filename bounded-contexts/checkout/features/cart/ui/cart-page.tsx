@@ -147,7 +147,12 @@ function formatMoney(amount: number) {
 }
 
 function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
+  if (!lineHasMeasuredPricedSupply(line)) {
+    return null;
+  }
+
   const optionPrices = line.seller_options
+    .filter((option) => sellerOptionHasPricedAvailability(option) && sellerOptionHasProductMeasure(option))
     .map((option) => Number(option.price_amount))
     .filter((price) => Number.isFinite(price) && price >= 0);
   if (optionPrices.length === 0) {
@@ -222,7 +227,7 @@ function hasFulfillmentPath(line: CheckoutCartLineGroup) {
     return selected ? sellerOptionCanFulfill(selected, line.quantity) : false;
   }
 
-  return line.seller_options.some((option) => sellerOptionCanFulfill(option, line.quantity));
+  return lineHasMeasuredPricedSupply(line);
 }
 
 function lockedListingIsWaitingForSupply(line: CheckoutCartLineGroup) {
@@ -259,6 +264,10 @@ function readinessLabel(line: CheckoutCartLineGroup) {
 
   if (lockedListingChanged(line)) {
     return t("checkout.features.cart.ui.cartPage.needs.review");
+  }
+
+  if (lineHasMissingShippingMeasure(line)) {
+    return t("checkout.features.cart.ui.cartPage.shipping.measure.missing");
   }
 
   if (!hasFulfillmentPath(line)) {
@@ -300,8 +309,56 @@ function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null)
 }
 
 function sellerOptionCanFulfill(option: CheckoutCartSellerOption, quantity: number) {
+  return sellerOptionHasPricedQuantity(option, quantity) && sellerOptionHasProductMeasure(option);
+}
+
+function sellerOptionHasPricedAvailability(option: CheckoutCartSellerOption) {
+  const price = Number(option.price_amount);
+  return option.available_quantity > 0 && Number.isFinite(price) && price >= 0;
+}
+
+function sellerOptionHasPricedQuantity(option: CheckoutCartSellerOption, quantity: number) {
   const price = Number(option.price_amount);
   return option.available_quantity >= quantity && Number.isFinite(price) && price >= 0;
+}
+
+function sellerOptionHasProductMeasure(option: CheckoutCartSellerOption) {
+  return typeof option.product_measure_snapshot === "object" && option.product_measure_snapshot !== null;
+}
+
+function aggregateSellerOptionQuantity(
+  line: CheckoutCartLineGroup,
+  predicate: (option: CheckoutCartSellerOption) => boolean,
+) {
+  return line.seller_options.reduce((sum, option) => (predicate(option) ? sum + option.available_quantity : sum), 0);
+}
+
+function lineHasPricedSupply(line: CheckoutCartLineGroup) {
+  return aggregateSellerOptionQuantity(line, sellerOptionHasPricedAvailability) >= line.quantity;
+}
+
+function lineHasMeasuredPricedSupply(line: CheckoutCartLineGroup) {
+  return (
+    aggregateSellerOptionQuantity(
+      line,
+      (option) => sellerOptionHasPricedAvailability(option) && sellerOptionHasProductMeasure(option),
+    ) >= line.quantity
+  );
+}
+
+function lineHasMissingShippingMeasure(line: CheckoutCartLineGroup) {
+  if (line.availability_state !== "available") {
+    return false;
+  }
+
+  if (line.fulfillment_mode === "locked-listing") {
+    const selected = findSellerOption(line, line.locked_listing_id);
+    return selected
+      ? sellerOptionHasPricedQuantity(selected, line.quantity) && !sellerOptionHasProductMeasure(selected)
+      : false;
+  }
+
+  return lineHasPricedSupply(line) && !lineHasMeasuredPricedSupply(line);
 }
 
 function selectedListingSnapshotSeller(line: CheckoutCartLineGroup, listingId: string | null) {

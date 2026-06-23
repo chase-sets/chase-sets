@@ -6,6 +6,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import {
   appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
   classifyFreshWriteReadError,
   loadFreshlyWrittenResource,
   type ListResponse,
@@ -400,19 +401,22 @@ export async function action({ request }: ActionFunctionArgs) {
           : await api.createListing(listingBody)
       ) as { id: string; feeQuoteFingerprint?: string };
 
-      const redirectReceipt =
+      const redirectReceipts =
         intent === "create-and-publish-listing"
-          ? await api.publishListing(result.id, {
-              feeQuoteFingerprint: result.feeQuoteFingerprint,
-            })
-          : result;
+          ? [
+              result,
+              await api.publishListing(result.id, {
+                feeQuoteFingerprint: result.feeQuoteFingerprint,
+              }),
+            ]
+          : [result];
 
       return redirect(
-        appendFreshWriteToken(
+        appendFreshWriteTokenFromSources(
           intent === "create-and-publish-listing"
             ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
             : `/account/listings/${result.id}`,
-          redirectReceipt,
+          redirectReceipts,
         ),
       );
     }

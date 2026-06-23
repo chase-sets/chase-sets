@@ -6,6 +6,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckoutCartPage } from "./cart-page";
 import type { CheckoutCartLine } from "./contracts";
 
+const productMeasureSnapshot = {
+  catalogItemId: "cat_charizard",
+  productId: "cat_charizard::condition:raw",
+  selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+  measureVersion: "pm_test_raw_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.02,
+  unitWeightOunces: 0.08,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+};
+
 const { mockFetcherSubmit, mockUseFetcher } = vi.hoisted(() => ({
   mockFetcherSubmit: vi.fn(),
   mockUseFetcher: vi.fn(() => ({
@@ -60,8 +75,9 @@ const cartLine: CheckoutCartLine = {
       seller_average_rating: "4.90",
       seller_review_count: 12,
       price_amount: "389.00",
-      available_quantity: 2,
+      available_quantity: 6,
       product_summary: "Form: Raw | Condition: Near Mint",
+      product_measure_snapshot: productMeasureSnapshot,
     },
     {
       listing_id: "lst_hobby_shop",
@@ -71,8 +87,9 @@ const cartLine: CheckoutCartLine = {
       seller_average_rating: null,
       seller_review_count: 0,
       price_amount: "395.00",
-      available_quantity: 1,
+      available_quantity: 4,
       product_summary: "Form: Raw | Condition: Near Mint",
+      product_measure_snapshot: productMeasureSnapshot,
     },
   ],
   created_at: "2026-04-28T00:00:00.000Z",
@@ -474,6 +491,7 @@ describe("checkout cart page", () => {
           price_amount: "389.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
       ],
     };
@@ -513,7 +531,7 @@ describe("checkout cart page", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[unavailableLine]} />);
 
     expect(markup).toContain("Some items need attention");
-    expect(markup).toContain("1 item needs fulfillment or availability resolved before checkout.");
+    expect(markup).toContain("1 item needs fulfillment, shipping measure, or availability resolved before checkout.");
     // The needs-review banner is warning-toned, not the default info-blue (#1932).
     expect(markup).toContain("bg-warning-soft");
     expect(markup).not.toContain("bg-info-soft");
@@ -555,6 +573,29 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Check out");
   });
 
+  it("blocks checkout and names a missing shipping measure for an otherwise available listing", () => {
+    const missingMeasureLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_card_vault",
+      seller_options: [
+        {
+          ...cartLine.seller_options[0]!,
+          product_measure_snapshot: null,
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[missingMeasureLine]} />);
+
+    expect(markup).toContain("Some items need attention");
+    expect(markup).toContain("Shipping measure missing");
+    expect(markup).toContain("Continue to checkout");
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
+    expect(markup).not.toContain("Check out");
+  });
+
   it("offers optional fulfillment savings as a secondary action before checkout starts", () => {
     const expensiveLine: CheckoutCartLine = {
       ...cartLine,
@@ -571,6 +612,7 @@ describe("checkout cart page", () => {
           price_amount: "389.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
         {
           listing_id: "lst_hobby_shop",
@@ -582,6 +624,7 @@ describe("checkout cart page", () => {
           price_amount: "395.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
       ],
     };
@@ -631,6 +674,7 @@ describe("checkout cart page", () => {
           price_amount: "395.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
       ],
     };
@@ -660,6 +704,7 @@ describe("checkout cart page", () => {
           price_amount: "389.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
         {
           listing_id: "lst_hobby_shop",
@@ -671,6 +716,7 @@ describe("checkout cart page", () => {
           price_amount: "395.00",
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
+          product_measure_snapshot: productMeasureSnapshot,
         },
       ],
     };

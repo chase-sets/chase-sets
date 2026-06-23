@@ -28,6 +28,7 @@ type SellerOption = Readonly<{
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
   product_summary: string | null;
+  product_measure_snapshot: Readonly<Record<string, unknown>> | null;
   status: string;
   seller_slug: string | null;
   seller_display_name: string | null;
@@ -112,6 +113,7 @@ class CartReadModelDb implements PgQueryable {
               price_amount: option.price_amount,
               available_quantity: holdsAccurateAvailableQuantity(option),
               product_summary: option.product_summary,
+              product_measure_snapshot: option.product_measure_snapshot,
             };
           }),
       }));
@@ -140,6 +142,24 @@ function line(overrides: Partial<CartLinePage> = {}): CartLinePage {
   };
 }
 
+function productMeasureSnapshot(overrides: Partial<Readonly<Record<string, unknown>>> = {}) {
+  return {
+    catalogItemId: "cat_1",
+    productId: "prd_1",
+    selectedOptions: [],
+    measureVersion: "pm_test_raw_v1",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.02,
+    unitWeightOunces: 0.08,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    source: "profile",
+    confidence: "measured",
+    ...overrides,
+  };
+}
+
 function option(overrides: Partial<SellerOption> = {}): SellerOption {
   return {
     listing_id: "lst_locked",
@@ -152,6 +172,7 @@ function option(overrides: Partial<SellerOption> = {}): SellerOption {
     supply_total_quantity: 100,
     active_held_quantity: 0,
     product_summary: "Raw",
+    product_measure_snapshot: productMeasureSnapshot(),
     status: "active",
     seller_slug: null,
     seller_display_name: null,
@@ -180,6 +201,7 @@ describe("listCartLines seller_options join", () => {
       price_amount: "25.00",
       available_quantity: 3,
       seller_review_count: 0,
+      product_measure_snapshot: productMeasureSnapshot(),
     });
   });
 
