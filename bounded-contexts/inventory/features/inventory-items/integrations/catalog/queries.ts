@@ -13,6 +13,12 @@ export type InventoryCatalogItemSnapshot = Readonly<{
   updated_at: string;
 }>;
 
+export type InventoryCatalogItemSearchParams = Readonly<{
+  search?: string | null;
+  status?: string | null;
+  limit?: number | null;
+}>;
+
 export type InventoryExternalProductReference = Readonly<{
   provider_key: string;
   external_key: string;
@@ -52,6 +58,17 @@ async function hasInventoryCatalogItemsTable(db: PgQueryable) {
   return Boolean(result.rows[0]?.table_name);
 }
 
+function toInventoryCatalogItemSnapshot(row: InventoryCatalogItemRow): InventoryCatalogItemSnapshot {
+  return {
+    ...row,
+    product_schema: toInventoryItemProductSchema(
+      typeof row.product_schema === "object" && row.product_schema !== null
+        ? (row.product_schema as InventoryProductSchema)
+        : null,
+    ),
+  };
+}
+
 export async function getInventoryCatalogItem(
   db: PgQueryable,
   itemId: string,
@@ -80,13 +97,61 @@ export async function getInventoryCatalogItem(
     return null;
   }
 
+  return toInventoryCatalogItemSnapshot(row);
+}
+
+export async function searchInventoryCatalogItems(
+  db: PgQueryable,
+  params: InventoryCatalogItemSearchParams,
+): Promise<{ items: InventoryCatalogItemSnapshot[]; total: number }> {
+  if (!(await hasInventoryCatalogItemsTable(db))) {
+    return { items: [], total: 0 };
+  }
+
+  const search = params.search?.trim() ?? "";
+  const status = params.status?.trim() || "active";
+  const limit = Math.max(1, Math.min(params.limit ?? 10, 25));
+  const values: unknown[] = [status];
+  const where = ["status = $1"];
+
+  if (search.length > 0) {
+    values.push(`%${search}%`);
+    where.push(
+      `(title ILIKE $${values.length} OR subtitle ILIKE $${values.length} OR catalog_item_id ILIKE $${values.length})`,
+    );
+  }
+
+  values.push(limit);
+
+  const result = await db.query<InventoryCatalogItemRow & { total_count: string }>(
+    `SELECT
+       catalog_item_id,
+       language_code,
+       title,
+       subtitle,
+       blueprint_id,
+       status,
+       product_schema,
+       updated_at,
+       COUNT(*) OVER() AS total_count
+     FROM inventory_catalog_items
+     WHERE ${where.join(" AND ")}
+     ORDER BY
+       CASE
+         WHEN catalog_item_id ILIKE ${search.length > 0 ? `$2` : "''"} THEN 0
+         WHEN title ILIKE ${search.length > 0 ? `$2` : "''"} THEN 1
+         ELSE 2
+       END,
+       title ASC,
+       subtitle ASC NULLS LAST,
+       catalog_item_id ASC
+     LIMIT $${values.length}`,
+    values,
+  );
+
   return {
-    ...row,
-    product_schema: toInventoryItemProductSchema(
-      typeof row.product_schema === "object" && row.product_schema !== null
-        ? (row.product_schema as InventoryProductSchema)
-        : null,
-    ),
+    items: result.rows.map(toInventoryCatalogItemSnapshot),
+    total: Number(result.rows[0]?.total_count ?? 0),
   };
 }
 

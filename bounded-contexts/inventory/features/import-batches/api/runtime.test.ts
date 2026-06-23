@@ -240,6 +240,7 @@ class ImportBatchDb implements PgQueryable {
 
 function catalogServices(): InventoryCatalogItemServices {
   return {
+    searchCatalogItems: async () => ({ items: [], total: 0 }),
     getExternalProductReference: async (providerKey, externalKey) => {
       if (
         (providerKey === "tcgplayer" && externalKey === "sku:tcg_sku_1") ||
