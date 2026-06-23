@@ -1,5 +1,15 @@
 import { t } from "@chase-sets/localization";
-import { Badge, LinkButton, Page, PageHeader, PageSection, ReviewCard, Stack, Text } from "@chase-sets/design-system";
+import {
+  Badge,
+  LinkButton,
+  MarketplaceEmptyState,
+  Page,
+  PageHeader,
+  PageSection,
+  ReviewCard,
+  Stack,
+  Text,
+} from "@chase-sets/design-system";
 import type { ReviewDetail } from "./contracts";
 
 function statusTone(status: string) {
@@ -39,6 +49,38 @@ export function ReviewDetailPage({ backHref, review }: { backHref: string; revie
             </Stack>
           }
           verified
+        />
+      </PageSection>
+    </Page>
+  );
+}
+
+export function ReviewDetailRecoveryPage({ currentPath }: Readonly<{ currentPath: string }>) {
+  const preparingTitle = t("reputation.routes.marketplace.accountReview.review.preparing");
+  const preparingDescription = t("reputation.routes.marketplace.accountReview.review.preparing.description");
+
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("reputation.features.reviews.ui.reviewDetailPage.review")}
+        title={preparingTitle}
+        description={preparingDescription}
+      />
+      <PageSection title={t("reputation.features.reviews.ui.reviewDetailRecoveryPage.recover.review")}>
+        <MarketplaceEmptyState
+          title={preparingTitle}
+          description={preparingDescription}
+          trustCue={t("reputation.features.reviews.ui.reviewDetailRecoveryPage.review.submission.saved")}
+          recoveryActions={
+            <>
+              <LinkButton href={currentPath} leadingIcon="refreshCcw">
+                {t("reputation.features.reviews.ui.reviewDetailRecoveryPage.refresh.review")}
+              </LinkButton>
+              <LinkButton href="/account/reviews" tone="secondary">
+                {t("reputation.features.reviews.ui.reviewDetailPage.back")}
+              </LinkButton>
+            </>
+          }
         />
       </PageSection>
     </Page>

@@ -402,7 +402,7 @@
         "routeId": "account-listings",
         "actions": ["Create listing", "Create and publish listing"],
         "command": "Marketplace listing commands",
-        "helperUses": ["appendFreshWriteTokenFromSources"]
+        "helperUses": ["navigateAfterWriteFromSources"]
       },
       "destination": {
         "routeId": "account-listing",
@@ -429,14 +429,14 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Marketplace listing list commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-listings",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings",
         "readModelTables": ["marketplace_listing_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Account Listings self-refresh forwards the Marketplace commit receipt to the listing-page API reads and retries valid fresh-write not-found responses while the listing projection catches up."
@@ -456,17 +456,17 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Marketplace listing list commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-listings",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/fee-lock-report",
         "readModelTables": ["marketplace_listing_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings loads the fee-lock report inside the same fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
+          "behavior": "Account Listings loads the fee-lock report inside the same default-safe fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
         }
       }
     },
@@ -495,10 +495,10 @@
           "marketplace_supply_holds",
           "marketplace_catalog_items"
         ],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings loads seller inventory options inside the fresh-write loader, merges an explicit Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item, and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
+          "behavior": "Account Listings loads seller inventory options inside the default-safe fresh-write loader, merges an explicit Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item, and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
         }
       }
     },
@@ -526,7 +526,7 @@
           "marketplace_supply_holds",
           "marketplace_catalog_items"
         ],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Committed import rows link to Account Listings with an explicit inventoryItemId; the loader preserves normal Marketplace supply options but merges the exact Inventory-owned item snapshot when the Marketplace supply mirror is missing the handoff item."
@@ -553,7 +553,7 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/supply-locations/exists",
         "readModelTables": ["marketplace_supply_locations"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Account Listings checks Listing stock readiness with exact Marketplace supply-location freshness and falls back to asking for ship-from details instead of throwing a generic page error while valid post-write supply reads catch up."
@@ -573,17 +573,17 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Seller Listing Availability commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-listings",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listing-availability",
         "readModelTables": ["marketplace_seller_listing_availability_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account Listings loads Seller Listing Availability inside the fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
+          "behavior": "Account Listings loads Seller Listing Availability inside the default-safe fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
         }
       }
     },
@@ -627,14 +627,14 @@
         "routeId": "account-offer-match",
         "actions": ["Accept offer match"],
         "command": "AcceptOffer",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-offer-match",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/matches/:id",
         "readModelTables": ["marketplace_offer_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and treats valid fresh-write not-found and projection freshness timeout responses as temporary offer-match preparation while the offer projection catches up."
@@ -654,17 +654,17 @@
         "routeIds": ["account-purchase-review", "account-sale-review"],
         "actions": ["Submit purchase review", "Submit sale review"],
         "command": "SubmitReview",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-review",
         "apiContextName": "marketplace",
         "apiRoutePath": "/reviews/:id",
         "readModelTables": ["reputation_review_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and retries valid fresh-write not-found responses while the review projection catches up."
+          "behavior": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and treats valid fresh-write not-found, projection freshness timeout, and opaque gateway timeout responses as temporary review preparation while the review projection catches up."
         }
       }
     }

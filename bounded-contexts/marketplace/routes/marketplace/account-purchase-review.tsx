@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createReviewSubmissionAction,
@@ -9,11 +9,21 @@ import {
   type ReviewSubmissionRouteConfig,
 } from "../../support/route-support/review-submission-route";
 
+const PURCHASE_REVIEW_POST_WRITE_TELEMETRY = {
+  boundedContextName: "marketplace",
+  surface: "account-purchase-review",
+  routeId: "account-purchase-review",
+  routeTemplate: "/account/purchases/:purchaseId/review",
+} as const satisfies PlatformPostWriteTelemetry;
+
 const purchaseReviewRouteConfig: ReviewSubmissionRouteConfig = {
   orderParamName: "purchaseId",
   notFoundMessage: t("reputation.routes.marketplace.accountPurchaseReview.verified.purchase.not.found"),
   buildBackHref: (orderId) => `/account/purchases/${orderId}`,
-  buildSubmittedReviewRedirect: (review) => appendFreshWriteToken(`/account/reviews/${review.id}`, review),
+  buildSubmittedReviewRedirect: (review) =>
+    navigateAfterWrite(review, `/account/reviews/${review.id}`, {
+      telemetry: PURCHASE_REVIEW_POST_WRITE_TELEMETRY,
+    }),
 };
 
 export const loader = createReviewSubmissionLoader(purchaseReviewRouteConfig);
