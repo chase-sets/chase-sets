@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildOrderingMarketplaceSupplyProjectionHandlers } from "./supply-projection";
@@ -33,9 +33,35 @@ type ListingInputRow = {
   updated_at: string;
 };
 
+type AcceptedOfferInputRow = {
+  offer_id: string;
+  buyer_account_id: string;
+  seller_account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string;
+  item_subtitle: string | null;
+  selected_options: string;
+  product_summary: string | null;
+  price_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
+  quantity_requested: number;
+  shipping_destination_snapshot: string;
+  accepted_at: string;
+  acceptance_batch_id: string | null;
+  acceptance_batch_size: number | null;
+  updated_at: string;
+};
+
 class ProjectionDb implements PgQueryable {
   public readonly listings = new Map<string, ListingInputRow>();
   public readonly sellerAvailability = new Map<string, string>();
+  public readonly acceptedOffers = new Map<string, AcceptedOfferInputRow>();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -90,6 +116,35 @@ class ProjectionDb implements PgQueryable {
         row.updated_at = String(values[7]);
       }
       return { rows: [], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("INSERT INTO ordering_offer_acceptance_inputs")) {
+      const row: AcceptedOfferInputRow = {
+        offer_id: String(values[0]),
+        buyer_account_id: String(values[1]),
+        seller_account_id: String(values[2]),
+        catalog_catalog_item_id: String(values[3]),
+        product_id: String(values[4]),
+        item_title: String(values[5]),
+        item_subtitle: values[6] === null ? null : String(values[6]),
+        selected_options: String(values[7]),
+        product_summary: values[8] === null ? null : String(values[8]),
+        price_amount: String(values[9]),
+        marketplace_sales_fee_unit_amount: String(values[10]),
+        seller_net_unit_amount: String(values[11]),
+        shipping_allowance_percentage_bps: Number(values[12]),
+        terms_schedule_id: values[13] === null ? null : String(values[13]),
+        terms_agreement_id: values[14] === null ? null : String(values[14]),
+        terms_resolved_at: String(values[15]),
+        quantity_requested: Number(values[16]),
+        shipping_destination_snapshot: String(values[17]),
+        accepted_at: String(values[18]),
+        acceptance_batch_id: values[19] === null ? null : String(values[19]),
+        acceptance_batch_size: values[20] === null ? null : Number(values[20]),
+        updated_at: String(values[21]),
+      };
+      this.acceptedOffers.set(row.offer_id, row);
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("UPDATE ordering_market_listing_inputs AS listing")) {
@@ -173,6 +228,44 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
   });
 }
 
+function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
+  return event("marketplace.offer.accepted", "marketplace.offer-off_1", {
+    offerId: "off_1",
+    buyerAccountId: "acc_buyer",
+    sellerAccountId: "acc_seller",
+    catalogItemId: "cat_1",
+    productId: "prd_1",
+    itemTitle: "Charizard",
+    itemSubtitle: "Base Set",
+    selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+    productSummary: "Charizard - Base Set",
+    shippingDestinationSnapshot: {
+      name: "Buyer",
+      line1: "100 Market",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: "buyer@example.test",
+    },
+    priceAmount: "120.00",
+    quantityRequested: 1,
+    acceptedAt: "2026-05-09T00:02:00.000Z",
+    marketplaceSalesFeeUnitAmount: "6.00",
+    sellerNetUnitAmount: "114.00",
+    shippingAllowancePercentageBps: 500,
+    termsScheduleId: "terms_standard",
+    termsAgreementId: null,
+    termsResolvedAt: "2026-05-09T00:01:00.000Z",
+    feeQuoteFingerprint: "quote_1",
+    acceptanceBatchId: null,
+    acceptanceBatchSize: null,
+    ...overrides,
+  });
+}
+
 describe("ordering marketplace supply projection", () => {
   it("keeps draft listing inputs when listing terms are not resolved until publish", async () => {
     const db = new ProjectionDb();
@@ -230,5 +323,37 @@ describe("ordering marketplace supply projection", () => {
       }),
       updated_at: "2026-05-09T00:00:00.000Z",
     });
+  });
+
+  it("records accepted-offer inputs and hands them to Ordering order creation", async () => {
+    const db = new ProjectionDb();
+    const onOfferAccepted = vi.fn(async () => undefined);
+    const handlers = buildOrderingMarketplaceSupplyProjectionHandlers(db, { onOfferAccepted });
+
+    await handlers["marketplace.offer.accepted"]!(offerAcceptedEvent());
+
+    expect(db.acceptedOffers.get("off_1")).toMatchObject({
+      offer_id: "off_1",
+      buyer_account_id: "acc_buyer",
+      seller_account_id: "acc_seller",
+      price_amount: "120.00",
+      quantity_requested: 1,
+      terms_schedule_id: "terms_standard",
+    });
+    expect(onOfferAccepted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        priceAmount: "120.00",
+        marketplaceSalesFeeUnitAmount: "6.00",
+        sellerNetUnitAmount: "114.00",
+        quantityRequested: 1,
+        context: expect.objectContaining({
+          tenantId: "tnt_1",
+          audit: expect.objectContaining({ forAccountId: "acc_1" }),
+        }),
+      }),
+    );
   });
 });

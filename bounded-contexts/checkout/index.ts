@@ -9,6 +9,7 @@ import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./feature
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
 import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
+import { buildCheckoutSellListProjectionHandlers } from "./features/sell-list/read-model/projection";
 import {
   createCheckoutServices,
   type CheckoutHostPorts,
@@ -46,6 +47,10 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
             ...buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
             ...buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
           }),
+        },
+        "marketplace.checkout.sell-list-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
         },
         "inventory.checkout-marketplace-seller-options-projection": {
           subscriptionName: "checkout.inventory-seller-options-supply-projection",

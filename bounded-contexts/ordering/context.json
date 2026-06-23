@@ -211,6 +211,18 @@
           ]
         },
         {
+          "routePath": "/sales",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "projectionName": "ordering-marketplace-offer-acceptance"
+            },
+            {
+              "projectionName": "ordering-order-projection"
+            }
+          ]
+        },
+        {
           "routePath": "/admin/postage-policies",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -235,6 +247,26 @@
     }
   ],
   "readAfterWriteRouteInventory": [
+    {
+      "id": "ordering.accepted-offer-to-sales-list",
+      "owner": "ordering",
+      "risk": "critical",
+      "source": {
+        "routeId": "sell-checkout-confirmation",
+        "actions": ["View committed sales after accepting an offer in seller checkout"],
+        "command": "AcceptOfferMatch"
+      },
+      "destination": {
+        "routeId": "account-sales",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/sales",
+        "projectionDependencies": ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Seller checkout confirmation preserves the Marketplace accepted-offer receipt on the Sales link; the Sales loader forwards that receipt to Ordering so accepted-offer inputs and order pages catch up before the seller sees the post-sale list."
+        }
+      }
+    },
     {
       "id": "ordering.purchase-cancel-to-detail",
       "owner": "ordering",

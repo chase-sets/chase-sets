@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -135,7 +135,12 @@ export async function action({
         handoffSummary: marketplaceHandoff.summary,
       });
 
-      return redirect(appendFreshWriteToken(confirmationPathForSession(state.sessionId), result));
+      return redirect(
+        appendFreshWriteTokenFromSources(confirmationPathForSession(state.sessionId), [
+          result,
+          ...marketplaceHandoff.writeResults,
+        ]),
+      );
     } catch (error) {
       if (error instanceof SellListReviewPlanStaleError) {
         return {

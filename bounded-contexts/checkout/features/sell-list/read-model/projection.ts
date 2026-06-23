@@ -193,5 +193,19 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         );
       }
     },
+    "marketplace.offer.accepted": async (event) => {
+      const data = event.data as {
+        offerId: string;
+        sellerAccountId: string;
+      };
+
+      await db.query(
+        `DELETE FROM checkout_sell_list_line_pages
+         WHERE seller_account_id = $1
+           AND line_type = 'selected-offer'
+           AND offer_id = $2`,
+        [data.sellerAccountId, data.offerId],
+      );
+    },
   };
 }

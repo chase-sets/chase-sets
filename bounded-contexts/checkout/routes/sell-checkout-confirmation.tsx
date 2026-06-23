@@ -35,6 +35,17 @@ function accountSellListPreparingPath(request: Request, confirmationId: string) 
   return `/account/sell-list?${search.toString()}`;
 }
 
+function pathWithFreshWrite(request: Request, path: string) {
+  const afterWrite = new URL(request.url).searchParams.get("afterWrite");
+  if (!afterWrite) {
+    return path;
+  }
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.set("afterWrite", afterWrite);
+  return `${url.pathname}${url.search}`;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   if (!canUseSignedInSellCheckout(actor)) {
@@ -74,7 +85,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect("/account/sell-list?confirmation=missing");
   }
 
-  return { confirmation };
+  return {
+    confirmation,
+    sellerActivityPath: pathWithFreshWrite(request, "/account/sell-list"),
+    committedSalesPath: pathWithFreshWrite(request, "/account/sales"),
+  };
 }
 
 export const meta: MetaFunction = () =>
@@ -86,5 +101,11 @@ export const meta: MetaFunction = () =>
 export default function SellCheckoutConfirmationRoute() {
   const data = useLoaderData<typeof loader>();
 
-  return <SellCheckoutConfirmationPage confirmation={data.confirmation} />;
+  return (
+    <SellCheckoutConfirmationPage
+      confirmation={data.confirmation}
+      sellerActivityPath={data.sellerActivityPath}
+      committedSalesPath={data.committedSalesPath}
+    />
+  );
 }
