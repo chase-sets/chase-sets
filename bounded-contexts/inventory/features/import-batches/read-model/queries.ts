@@ -73,6 +73,15 @@ type RawImportBatchRow = Omit<
     validation_errors: unknown;
   }>;
 
+const IMPORT_BATCH_STATUS_SQL = `CASE
+  WHEN total_count > 0
+   AND rejected_count = 0
+   AND accepted_count > 0
+   AND committed_count = accepted_count
+    THEN 'committed'
+  ELSE 'uploaded'
+END`;
+
 function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
   return {
     ...row,
@@ -104,7 +113,7 @@ export async function getImportBatch(
     `SELECT
        batch_id,
        account_id,
-       status,
+       ${IMPORT_BATCH_STATUS_SQL} AS status,
        source_key,
        adapter_version,
        quantity_mode,
@@ -185,7 +194,7 @@ export async function listImportBatches(
       `SELECT
          batch_id,
          account_id,
-         status,
+         ${IMPORT_BATCH_STATUS_SQL} AS status,
          source_key,
          adapter_version,
          quantity_mode,
