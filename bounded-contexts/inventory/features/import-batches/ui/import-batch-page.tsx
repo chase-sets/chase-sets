@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
   HiddenInput,
@@ -477,7 +477,7 @@ function useInventoryImportBatchJob(jobId?: string | null) {
           const destination = batchId
             ? `/account/inventory/imports/${encodeURIComponent(batchId)}`
             : "/account/inventory/imports";
-          window.location.replace(nextJob.result ? appendFreshWriteToken(destination, nextJob.result) : destination);
+          window.location.replace(nextJob.result ? navigateAfterWrite(nextJob.result, destination) : destination);
         }
       },
     });

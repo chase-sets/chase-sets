@@ -1,11 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -35,38 +31,40 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   });
   const api = createInventoryRequestApiClient(request);
 
-  try {
+  const itemRead = await loadAfterWrite({
+    request,
+    load: () => api.getItem(params.itemId!),
+    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+    getStatus: inventoryApiErrorStatus,
+    getErrorCode: inventoryApiErrorCode,
+    getBody: inventoryApiErrorBody,
+  });
+
+  if (itemRead.kind === "data") {
     return {
-      item: await loadFreshlyWrittenResource({
-        request,
-        load: () => api.getItem(params.itemId!),
-        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-      }),
+      item: itemRead.data,
     };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
-      getStatus: inventoryApiErrorStatus,
-      getErrorCode: inventoryApiErrorCode,
-      getBody: inventoryApiErrorBody,
-      recoverTransient: () =>
-        new Response("Inventory item is still updating. Reload this page in a moment.", {
-          status: 503,
-        }),
-    });
-    if (recovery) {
-      throw recovery;
-    }
-
-    if (inventoryApiErrorStatus(error) === 404) {
-      throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), {
-        status: 404,
-      });
-    }
-
-    throw error;
   }
+
+  if (itemRead.kind === "pending") {
+    throw new Response("Inventory item is still updating. Reload this page in a moment.", {
+      status: 503,
+    });
+  }
+
+  if (itemRead.reason !== "fresh-write-read-permanent") {
+    throw new Response("Inventory item update could not be verified. Reload this page and try again.", {
+      status: 409,
+    });
+  }
+
+  if (inventoryApiErrorStatus(itemRead.error) === 404) {
+    throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), {
+      status: 404,
+    });
+  }
+
+  throw itemRead.error;
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -82,30 +80,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
     switch (intent) {
       case "adjust-item":
         return redirect(
-          appendFreshWriteToken(
-            `${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`,
+          navigateAfterWrite(
             await api.adjustItem(params.itemId!, {
               quantityDelta: Number(formData.get("quantityDelta") ?? 0),
               reason: formData.get("reason"),
             }),
+            `${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`,
           ),
         );
       case "create-hold":
         return redirect(
-          appendFreshWriteToken(
-            new URL(request.url).pathname,
+          navigateAfterWrite(
             await api.createHold(params.itemId!, {
               quantity: Number(formData.get("quantity") ?? 0),
               reason: formData.get("reason"),
               notes: String(formData.get("notes") ?? "").trim() || null,
             }),
+            new URL(request.url).pathname,
           ),
         );
       case "release-hold":
         return redirect(
-          appendFreshWriteToken(
-            new URL(request.url).pathname,
+          navigateAfterWrite(
             await api.releaseHold(String(formData.get("holdId") ?? "")),
+            new URL(request.url).pathname,
           ),
         );
       default:

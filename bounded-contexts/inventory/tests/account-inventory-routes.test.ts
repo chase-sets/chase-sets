@@ -3,6 +3,7 @@ import {
   appendFreshWriteToken,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   encodeCommitReceipt,
+  encodeFreshWriteReceipt,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import { action as inventoryAction, loader as inventoryLoader } from "../routes/marketplace/account-inventory";
@@ -350,6 +351,67 @@ describe("marketplace inventory routes", () => {
     expect(result.item.available_quantity).toBe(7);
   });
 
+  it("forwards fresh-write receipts to inventory item detail reads", async () => {
+    const requests: { url: string; headers: Headers }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            item_id: "inv_1",
+            account_id: "acc_1",
+            catalog_catalog_item_id: "cat_1",
+            product_id: "cat_1::condition:near_mint",
+            item_title: "Charizard ex",
+            item_subtitle: null,
+            selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+            product_summary: "Condition: Near Mint",
+            storage_location_id: "loc_1",
+            storage_location_name: "North shelf",
+            ship_from_code: "CHI-WH-1",
+            total_quantity: 8,
+            held_quantity: 1,
+            available_quantity: 7,
+            acquisition_cost_amount: "4.25",
+            created_at: "2026-03-31T00:00:00.000Z",
+            updated_at: "2026-03-31T00:00:00.000Z",
+            holds: [],
+          }),
+        );
+      }),
+    );
+
+    await inventoryItemLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/inventory/items/inv_1", inventoryCommit("71"))}`,
+      ),
+      params: { itemId: "inv_1" },
+      context: undefined,
+    } as never);
+
+    const detailRead = requests.find((request) => request.url.includes("/api/inventory/items/inv_1"));
+    expect(detailRead?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+  });
+
   it("returns bounded recovery while fresh inventory item detail is catching up", async () => {
     vi.stubGlobal(
       "fetch",
@@ -395,6 +457,109 @@ describe("marketplace inventory routes", () => {
         context: undefined,
       } as never),
     ).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("treats expired fresh-write inventory item not-found responses as permanent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "not_found",
+                message: "Inventory item not found.",
+              },
+            },
+            404,
+          ),
+        );
+      }),
+    );
+
+    const expiredReceipt = encodeFreshWriteReceipt({
+      observedAtMs: 1,
+      commitPosition: "72",
+      sources: [
+        {
+          sourceContextName: "inventory",
+          maxGlobalPosition: "72",
+          eventIds: ["evt_inventory_72"],
+        },
+      ],
+    });
+
+    await expect(
+      inventoryItemLoader({
+        request: new Request(`http://localhost/account/inventory/items/inv_missing?afterWrite=${expiredReceipt}`),
+        params: { itemId: "inv_missing" },
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("carries inventory item adjustment receipts into the detail redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ id: "inv_1", version: 8, status: "adjusted" }, 200, commitHeaders("73")));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "adjust-item");
+    form.set("quantityDelta", "2");
+    form.set("reason", "Cycle count");
+
+    const response = (await inventoryItemAction({
+      request: new Request("http://localhost/account/inventory/items/inv_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { itemId: "inv_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/account/inventory/items/inv_1?feedbackWorkflow=inventory-adjust");
+    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("73");
   });
 
   it("loads import batch workbench data through the inventory API", async () => {
@@ -756,6 +921,9 @@ describe("marketplace inventory routes", () => {
     expect(createResponse).toBeInstanceOf(Response);
     expect((createResponse as Response).headers.get("Location")).toBe("/account/inventory/imports?jobId=job_create");
     expect(commitResponse).toBeInstanceOf(Response);
+    expect((commitResponse as Response).headers.get("Location")).toBe(
+      "/account/inventory/imports/imb_1?jobId=job_commit",
+    );
     expect(requestedUrls.some((url) => url.includes("/api/inventory/import-batches/imb_1/commit"))).toBe(true);
   });
 

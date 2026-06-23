@@ -144,14 +144,14 @@
         "routeId": "account-inventory",
         "actions": ["Create inventory item"],
         "command": "Inventory item create command",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item and hold projections before rendering the new stock record."
@@ -171,14 +171,14 @@
         "routeId": "account-inventory-item",
         "actions": ["Adjust inventory item", "Place inventory hold", "Release inventory hold"],
         "command": "Inventory item and hold commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-inventory-item",
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
@@ -193,11 +193,11 @@
         "routeIds": ["account-inventory-imports", "account-inventory-import"],
         "actions": ["Load newly created import batch"],
         "command": "Inventory import batch job commands",
-        "helperUses": ["loadFreshlyWrittenResource"]
+        "helperUses": ["loadAfterWrite"]
       },
       "destination": {
         "routeIds": ["account-inventory-imports", "account-inventory-import"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Import batch detail uses the completed import job receipt for compatibility fresh-write not-found retries, and the import result page carries that same receipt into inventory and listing setup handoff links while job-backed inventory routes remain snapshot-owned."
@@ -209,7 +209,7 @@
         "reviewBy": "2026-07-31",
         "reason": "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the completed job result now carries the Inventory commit receipt into import, inventory, and listing setup links, but the authoritative Inventory post-write contract remains the job snapshot rather than an Inventory read-model freshness wait.",
         "files": ["bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx"],
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       }
     },
     {
@@ -225,14 +225,14 @@
         "routeId": "account-inventory-locations",
         "actions": ["Create storage location", "Update storage location", "Archive storage location"],
         "command": "Inventory storage location commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-inventory-locations",
         "apiContextName": "inventory",
         "apiRoutePath": "/storage-locations",
         "readModelTables": ["inventory_storage_locations"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."

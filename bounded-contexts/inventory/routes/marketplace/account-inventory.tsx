@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
-import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
+import { type ListResponse } from "@chase-sets/http/responses";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -111,10 +112,10 @@ export async function action({ request }: ActionFunctionArgs) {
         feedback.set("feedbackEntityId", result.id);
         const returnTo = safeAccountReturnTo(formData.get("returnTo"));
         if (returnTo) {
-          return redirect(appendFreshWriteToken(appendFeedback(returnTo, feedback), result));
+          return redirect(navigateAfterWrite(result, appendFeedback(returnTo, feedback)));
         }
         return redirect(
-          appendFreshWriteToken(`/account/inventory/items/${encodeURIComponent(result.id)}?${feedback}`, result),
+          navigateAfterWrite(result, `/account/inventory/items/${encodeURIComponent(result.id)}?${feedback}`),
         );
       }
       return redirect(`/account/inventory?${feedback}`);

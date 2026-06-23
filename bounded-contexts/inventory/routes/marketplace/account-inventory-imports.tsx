@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { loadFreshlyWrittenResource, readApiErrorCode, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { readApiErrorCode } from "@chase-sets/http/responses";
+import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -43,37 +44,40 @@ async function loadImportBatchDetail(
   request: Request,
   load: () => Promise<InventoryImportBatchDetail>,
 ): Promise<Readonly<{ detail: InventoryImportBatchDetail | null; detailLoadMessage: string | null }>> {
-  try {
+  const detailRead = await loadAfterWrite({
+    request,
+    isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+    getStatus: inventoryApiErrorStatus,
+    getErrorCode: inventoryApiErrorCode,
+    getBody: inventoryApiErrorBody,
+    load,
+  });
+
+  if (detailRead.kind === "data") {
     return {
-      detail: await loadFreshlyWrittenResource({
-        request,
-        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
-        load,
-      }),
+      detail: detailRead.data,
       detailLoadMessage: null,
     };
-  } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
-      getStatus: inventoryApiErrorStatus,
-      getErrorCode: inventoryApiErrorCode,
-      getBody: inventoryApiErrorBody,
-      recoverTransient: () => ({
-        detail: null,
-        detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE,
-      }),
-    });
-    if (recovery) {
-      return recovery;
-    }
-
-    if (inventoryApiErrorStatus(error) === 404) {
-      throw new Response(t("inventory.features.importBatches.api.route.import.batch.not.found"), { status: 404 });
-    }
-
-    throw error;
   }
+
+  if (detailRead.kind === "pending") {
+    return {
+      detail: null,
+      detailLoadMessage: IMPORT_BATCH_UPDATING_MESSAGE,
+    };
+  }
+
+  if (detailRead.reason !== "fresh-write-read-permanent") {
+    throw new Response("Import batch update could not be verified. Reload this page and try again.", {
+      status: 409,
+    });
+  }
+
+  if (inventoryApiErrorStatus(detailRead.error) === 404) {
+    throw new Response(t("inventory.features.importBatches.api.route.import.batch.not.found"), { status: 404 });
+  }
+
+  throw detailRead.error;
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
