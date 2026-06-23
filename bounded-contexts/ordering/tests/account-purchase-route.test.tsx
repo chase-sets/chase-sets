@@ -235,6 +235,75 @@ describe("marketplace account purchase route", () => {
     expect((response as Response).headers.get("Location")).toContain("afterWrite=");
   });
 
+  it("returns temporary recovery when a fresh purchase read hits projection freshness timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection did not catch up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/purchases/ord_1",
+          { commitPositions: [orderingCommit] },
+          Date.now(),
+        )}`,
+      ),
+      params: { purchaseId: "ord_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing purchase");
+    await expect(response.text()).resolves.toContain("preparing your purchase");
+  });
+
+  it("returns permanent not-found when a purchase handoff is expired", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
+          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/purchases/ord_1",
+          { commitPositions: [orderingCommit] },
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: { purchaseId: "ord_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe("Purchase not found.");
+  });
+
   it("renders a verified-purchase account review CTA", () => {
     mockUseLoaderData.mockReturnValue({
       purchase: order,

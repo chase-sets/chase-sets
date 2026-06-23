@@ -3,9 +3,12 @@ import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import {
+  createForwardedAuthFetch,
+  navigateAfterWrite,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
 import {
   HiddenInput,
   Form,
@@ -168,7 +171,7 @@ export async function action({ request }: ActionFunctionArgs) {
       paymentMethodCategory,
       marketplaceCheckoutFeeQuoteFingerprint: checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
     });
-    return redirect(appendFreshWriteToken(`/account/payments/${payment.payment_id}`, payment));
+    return redirect(navigateAfterWrite(payment, `/account/payments/${payment.payment_id}`));
   } catch (error) {
     return {
       error:

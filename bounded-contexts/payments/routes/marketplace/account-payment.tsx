@@ -17,12 +17,8 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-  recoverFreshWriteReadError,
-} from "@chase-sets/http/responses";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import {
   completeBrowserAuthentication,
   createInternalAuthRequestApiClient,
@@ -66,6 +62,13 @@ function paymentPreparingResponse() {
     status: 503,
     statusText: t("payments.routes.marketplace.accountPayment.payment.preparing"),
   });
+}
+
+function isPaymentNotFound(error: unknown) {
+  return (
+    (error instanceof PaymentsApiError && error.status === 404) ||
+    (error instanceof Error && "status" in error && error.status === 404)
+  );
 }
 
 function isInternalPaymentSupportActor(
@@ -114,13 +117,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const orderingApi = createOrderingRequestApiClient(request);
 
   try {
-    const payment = await loadFreshlyWrittenResource({
+    const paymentRead = await loadAfterWrite({
       request,
-      isNotFound: (error) =>
-        (error instanceof PaymentsApiError && error.status === 404) ||
-        (error instanceof Error && "status" in error && error.status === 404),
+      isNotFound: isPaymentNotFound,
       load: () => paymentsApi.getAccountPayment(params.paymentId!),
     });
+    if (paymentRead.kind === "pending") {
+      throw paymentPreparingResponse();
+    }
+    if (paymentRead.kind === "permanent-failure") {
+      throw "error" in paymentRead
+        ? paymentRead.error
+        : new Response("Payment handoff is no longer valid.", { status: 410 });
+    }
+
+    const payment = paymentRead.data;
     const orders = await Promise.all(payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)));
     const guestClaimContext =
       isGuestCheckoutPayment && isClaimablePayment(payment)
@@ -145,19 +156,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       throw guestPaymentAccessExpiredResponse();
     }
 
-    const freshWriteRecovery = recoverFreshWriteReadError({
-      request,
-      error,
-      recoverTransient: paymentPreparingResponse,
-    });
-    if (freshWriteRecovery) {
-      throw freshWriteRecovery;
-    }
-
-    if (
-      (error instanceof PaymentsApiError && error.status === 404) ||
-      (error instanceof Error && "status" in error && error.status === 404)
-    ) {
+    if (isPaymentNotFound(error)) {
       throw new Response(t("payments.routes.marketplace.accountPayment.payment.not.found"), { status: 404 });
     }
 
@@ -204,7 +203,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         marketplaceCheckoutFeeQuoteFingerprint: checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
         returnUrlPath: "/checkout/payments/:paymentId",
       });
-      return redirect(appendFreshWriteToken(`/checkout/payments/${retryPayment.payment_id}`, retryPayment));
+      return redirect(navigateAfterWrite(retryPayment, `/checkout/payments/${retryPayment.payment_id}`));
     }
 
     if (!isClaimablePayment(payment)) {

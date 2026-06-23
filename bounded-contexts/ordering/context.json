@@ -279,6 +279,7 @@
         "apiRoutePath": "/sales",
         "projectionDependencies": ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
         "freshnessDependencyReason": "The sales list must wait for both the accepted-offer input projection and the order page projection because it combines offer acceptance readiness with the resulting order list.",
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Seller checkout confirmation preserves the Marketplace accepted-offer receipt on the Sales link; the Sales loader forwards that receipt to Ordering so accepted-offer inputs and order pages catch up before the seller sees the post-sale list."
@@ -298,14 +299,14 @@
         "routeId": "account-purchase",
         "actions": ["Cancel purchase"],
         "command": "CancelOrder",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
         "apiRoutePath": "/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Purchase detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
@@ -325,14 +326,14 @@
         "routeId": "account-sale",
         "actions": ["Cancel sale"],
         "command": "CancelOrder",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
         "apiRoutePath": "/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Sale detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
@@ -352,13 +353,14 @@
         "routeId": "ordering-postage-policies",
         "actions": ["Create postage policy draft"],
         "command": "CreatePostagePolicy",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "ordering-postage-policies",
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies",
         "readModelTables": ["ordering_postage_policy_pages"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Postage policy list forwards the create afterWrite receipt to Ordering so the new draft is present before the admin list renders."
@@ -383,14 +385,14 @@
           "Clone postage policy"
         ],
         "command": "Postage policy lifecycle commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "ordering-postage-policies-detail",
         "apiContextName": "ordering",
         "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."

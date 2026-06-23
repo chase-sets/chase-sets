@@ -701,6 +701,25 @@ describe("guest payment claim action", () => {
     expect(response?.statusText).toBe("Preparing payment");
   });
 
+  it("does not treat provider failures as payment projection lag", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    const failure = new PaymentsApiError(503, {
+      error: {
+        code: "provider_failed",
+        message: "The payment provider could not confirm this payment.",
+      },
+    });
+    mockGetAccountPayment.mockRejectedValue(failure);
+
+    await expect(
+      loader({
+        request: freshPaymentRequest(),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toBe(failure);
+  });
+
   it("returns permanent not-found recovery for stale or manual payment links", async () => {
     const { PaymentsApiError } = await import("../support/request-support/api-client");
     mockGetAccountPayment.mockRejectedValue(
@@ -722,6 +741,35 @@ describe("guest payment claim action", () => {
 
     expect(response?.status).toBe(404);
     expect(response?.statusText).toBe("");
+    await expect(response?.text()).resolves.toBe("Payment not found.");
+  });
+
+  it("returns permanent not-found recovery when a payment handoff is expired", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(404, {
+        error: { code: "not_found", message: "Payment not found." },
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await loader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken(
+            "/checkout/payments/pay_1",
+            paymentCommit("42", "evt_payment"),
+            Date.now() - 40_000,
+          )}`,
+        ),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(404);
     await expect(response?.text()).resolves.toBe("Payment not found.");
   });
 });

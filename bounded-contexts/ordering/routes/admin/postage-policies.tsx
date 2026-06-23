@@ -1,14 +1,35 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { OrderingApiError, createOrderingRequestApiClient } from "../../support/request-support/api-client";
 import { PostagePolicyListPage } from "../../features/postage-policies/ui/postage-policy-list-page";
 import { postagePolicyRequestFromForm } from "../../features/postage-policies/ui/form-data";
 
+function postagePoliciesPreparingResponse() {
+  return new Response("We are preparing postage policies. Refresh in a moment and the draft should appear.", {
+    status: 503,
+    statusText: "Preparing postage policies",
+  });
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
-  return api.listPostagePolicies("limit=100&offset=0");
+  const policiesRead = await loadAfterWrite({
+    request,
+    load: () => api.listPostagePolicies("limit=100&offset=0"),
+    isNotFound: () => false,
+  });
+  if (policiesRead.kind === "pending") {
+    throw postagePoliciesPreparingResponse();
+  }
+  if (policiesRead.kind === "permanent-failure") {
+    throw "error" in policiesRead
+      ? policiesRead.error
+      : new Response("Postage policy handoff is no longer valid.", { status: 410 });
+  }
+
+  return policiesRead.data;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -17,7 +38,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     const result = await api.createPostagePolicy(postagePolicyRequestFromForm(formData));
-    return redirect(appendFreshWriteToken("/commerce/postage-policies", result));
+    return redirect(navigateAfterWrite(result, "/commerce/postage-policies"));
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };

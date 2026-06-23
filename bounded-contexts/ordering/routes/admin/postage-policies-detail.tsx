@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { OrderingApiError, createOrderingRequestApiClient } from "../../support/request-support/api-client";
 import { PostagePolicyDetailPage } from "../../features/postage-policies/ui/postage-policy-detail-page";
 import {
@@ -9,16 +9,41 @@ import {
   postagePolicyRequestFromForm,
 } from "../../features/postage-policies/ui/form-data";
 
+function postagePolicyPreparingResponse() {
+  return new Response("We are preparing this postage policy. Refresh in a moment and it should appear.", {
+    status: 503,
+    statusText: "Preparing postage policy",
+  });
+}
+
+function postagePolicyNotFoundResponse() {
+  return new Response(t("ordering.routes.admin.postagePoliciesDetail.not.found"), { status: 404 });
+}
+
 export async function loader({ params, request }: LoaderFunctionArgs) {
   if (!params.id) {
-    throw new Response(t("ordering.routes.admin.postagePoliciesDetail.not.found"), { status: 404 });
+    throw postagePolicyNotFoundResponse();
   }
   const api = createOrderingRequestApiClient(request);
-  return loadFreshlyWrittenResource({
+  const policyRead = await loadAfterWrite({
     request,
     load: () => api.getPostagePolicy(params.id!),
     isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
   });
+  if (policyRead.kind === "pending") {
+    throw postagePolicyPreparingResponse();
+  }
+  if (policyRead.kind === "permanent-failure") {
+    if ("error" in policyRead && policyRead.error instanceof OrderingApiError && policyRead.error.status === 404) {
+      throw postagePolicyNotFoundResponse();
+    }
+
+    throw "error" in policyRead
+      ? policyRead.error
+      : new Response("Postage policy handoff is no longer valid.", { status: 410 });
+  }
+
+  return policyRead.data;
 }
 
 export async function action({ params, request }: ActionFunctionArgs) {
@@ -41,13 +66,13 @@ export async function action({ params, request }: ActionFunctionArgs) {
         effectiveFrom: String(formData.get("cloneEffectiveFrom") ?? ""),
         effectiveUntil: String(formData.get("cloneEffectiveUntil") ?? ""),
       });
-      return redirect(appendFreshWriteToken(`/commerce/postage-policies/${result.id}`, result));
+      return redirect(navigateAfterWrite(result, `/commerce/postage-policies/${result.id}`));
     } else if (intent === "preview") {
       return { preview: await api.previewPostagePolicy(postagePolicyPreviewRequestFromForm(formData)) };
     } else {
       result = await api.revisePostagePolicy(params.id, postagePolicyRequestFromForm(formData));
     }
-    return redirect(appendFreshWriteToken(`/commerce/postage-policies/${params.id}`, result));
+    return redirect(navigateAfterWrite(result, `/commerce/postage-policies/${params.id}`));
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };

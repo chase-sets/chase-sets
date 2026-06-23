@@ -111,6 +111,45 @@ describe("ordering postage policy routes", () => {
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
   });
 
+  it("returns temporary recovery when the fresh postage policy list is still catching up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/admin/postage-policies")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection did not catch up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await listLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/commerce/postage-policies",
+          { commitPositions: [orderingCommit] },
+          Date.now(),
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing postage policies");
+  });
+
   it("returns postage preview snapshots without redirecting", async () => {
     vi.stubGlobal(
       "fetch",
@@ -224,5 +263,73 @@ describe("ordering postage policy routes", () => {
     expect(result.policy_id).toBe("opp_1");
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+  });
+
+  it("returns temporary recovery when a fresh postage policy detail is still catching up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/admin/postage-policies/opp_1")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection did not catch up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await detailLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/commerce/postage-policies/opp_1",
+          { commitPositions: [orderingCommit] },
+          Date.now(),
+        )}`,
+      ),
+      params: { id: "opp_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing postage policy");
+  });
+
+  it("returns permanent not-found when a postage policy handoff is expired", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/admin/postage-policies/opp_1")) {
+          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await detailLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/commerce/postage-policies/opp_1",
+          { commitPositions: [orderingCommit] },
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: { id: "opp_1" },
+      context: undefined,
+    } as never).catch((caught) => caught)) as Response;
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe("Postage policy not found.");
   });
 });

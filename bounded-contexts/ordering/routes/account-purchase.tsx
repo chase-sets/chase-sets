@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
@@ -15,6 +15,13 @@ import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-revie
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
+function purchasePreparingResponse() {
+  return new Response("We are preparing your purchase. Refresh in a moment and it should appear.", {
+    status: 503,
+    statusText: "Preparing purchase",
+  });
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
     request,
@@ -24,11 +31,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const reputationApi = createReputationRequestApiClient(request);
 
   try {
-    const purchase = await loadFreshlyWrittenResource({
+    const purchaseRead = await loadAfterWrite({
       request,
       load: () => orderingApi.getPurchase(params.purchaseId!),
       isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
     });
+    if (purchaseRead.kind === "pending") {
+      throw purchasePreparingResponse();
+    }
+    if (purchaseRead.kind === "permanent-failure") {
+      throw "error" in purchaseRead
+        ? purchaseRead.error
+        : new Response("Purchase handoff is no longer valid.", { status: 410 });
+    }
+
+    const purchase = purchaseRead.data;
     let reviewOpportunity: ReviewOpportunity | null = null;
 
     if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
@@ -63,7 +80,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     if (intent === "cancel-purchase") {
       const result = await api.cancelPurchase(params.purchaseId!);
-      return redirect(appendFreshWriteToken(`/account/purchases/${params.purchaseId!}`, result));
+      return redirect(navigateAfterWrite(result, `/account/purchases/${params.purchaseId!}`));
     }
 
     return null;

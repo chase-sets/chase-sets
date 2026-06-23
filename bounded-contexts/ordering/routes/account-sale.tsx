@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createOrderingRequestApiClient,
@@ -14,6 +14,13 @@ import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page
 import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSale.inspect.a.sale.cancel.it.while");
+
+function salePreparingResponse() {
+  return new Response("We are preparing your sale. Refresh in a moment and it should appear.", {
+    status: 503,
+    statusText: "Preparing sale",
+  });
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -28,11 +35,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const reputationApi = createReputationRequestApiClient(request);
 
   try {
-    const sale = await loadFreshlyWrittenResource({
+    const saleRead = await loadAfterWrite({
       request,
       load: () => orderingApi.getSale(params.orderId!),
       isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
     });
+    if (saleRead.kind === "pending") {
+      throw salePreparingResponse();
+    }
+    if (saleRead.kind === "permanent-failure") {
+      throw "error" in saleRead ? saleRead.error : new Response("Sale handoff is no longer valid.", { status: 410 });
+    }
+
+    const sale = saleRead.data;
     let reviewOpportunity: ReviewOpportunity | null = null;
 
     if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
@@ -67,7 +82,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     if (intent === "cancel-sale") {
       const result = await api.cancelSale(params.orderId!);
-      return redirect(appendFreshWriteToken(`/account/sales/${params.orderId!}`, result));
+      return redirect(navigateAfterWrite(result, `/account/sales/${params.orderId!}`));
     }
 
     return null;
