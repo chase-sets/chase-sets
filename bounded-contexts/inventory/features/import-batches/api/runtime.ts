@@ -11,6 +11,7 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  type DurableJobWorkUnitClaimOutcomeReason,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
@@ -1050,7 +1051,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return detail;
   }
 
-  function normalizedCreateBatchRows(input: InventoryImportBatchJobInput): readonly NormalizedInventoryImportRow[] {
+  function normalizedCreateBatchRows(
+    input: Pick<
+      InventoryImportBatchJobInput,
+      "csvText" | "parsedRows" | "sourceKey" | "quantityMode" | "defaultStorageLocationId"
+    >,
+  ): readonly NormalizedInventoryImportRow[] {
     const quantityMode = input.quantityMode ?? "add";
     return getInventoryImportSourceAdapter(input.sourceKey).normalize({
       csvText: input.csvText,
@@ -1292,15 +1298,20 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     listBatches: (params) => listImportBatches(deps.db, params),
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {
-      const inputId = await stageCreateBatchJobInput(params);
-      const batchId = createId("imb");
       const quantityMode = params.quantityMode ?? "add";
-      const rowCount = getInventoryImportSourceAdapter(params.sourceKey).normalize({
+      const rows = normalizedCreateBatchRows({
         csvText: params.csvText,
         parsedRows: params.parsedRows,
+        sourceKey: params.sourceKey,
         quantityMode,
         defaultStorageLocationId: params.defaultStorageLocationId,
-      }).length;
+      });
+      if (rows.length === 0) {
+        throw new InventoryDomainError("Import CSV must include at least one row.");
+      }
+
+      const inputId = await stageCreateBatchJobInput(params);
+      const batchId = createId("imb");
       const job = await jobStore.enqueue({
         jobId: createId("job"),
         jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
@@ -1312,19 +1323,16 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             batchId,
           },
         },
-        progress: importBatchJobProgress("queued", 0, rowCount, null, "Import validation queued."),
+        progress: importBatchJobProgress("queued", 0, rows.length, null, "Import validation queued."),
         eventContext: context,
       });
       await workUnitStore.enqueue({
         jobId: job.jobId,
-        units: Array.from({ length: rowCount }, (_, index) => {
-          const rowNumber = index + 1;
-          return {
-            unitId: String(rowNumber),
-            unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
-            payload: { rowNumber },
-          };
-        }),
+        units: rows.map((row) => ({
+          unitId: String(row.rowNumber),
+          unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+          payload: { rowNumber: row.rowNumber },
+        })),
       });
       return job;
     },
@@ -1379,13 +1387,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
-      const processedCreateUnit = await processNextCreateBatchWorkUnit(input);
-      if (processedCreateUnit > 0) {
-        return processedCreateUnit;
+      const createUnitResult = await processNextCreateBatchWorkUnit(input);
+      if (createUnitResult.processed > 0) {
+        return createUnitResult.processed;
       }
 
-      const unitSummary = await workUnitStore.summarize();
-      if (unitSummary.queued > 0 || unitSummary.running > 0) {
+      if (shouldDeferImportBatchParentClaimForCreateUnitMiss(createUnitResult.missReason)) {
         return 0;
       }
 
@@ -1510,7 +1517,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     laneName?: string | null;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
-  }): Promise<number> {
+  }): Promise<Readonly<{ processed: number; missReason?: DurableJobWorkUnitClaimOutcomeReason }>> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
       claimTtlMs: input.claimTtlMs,
@@ -1521,7 +1528,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     });
     const claim = claimResult.claim;
     if (!claim) {
-      return 0;
+      return { processed: 0, missReason: claimResult.outcome.reason };
     }
 
     try {
@@ -1561,7 +1568,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       if (batch.complete) {
         await deleteCreateBatchJobInput(stagedInput.inputId).catch(() => undefined);
       }
-      return 1;
+      return { processed: 1 };
     } catch (error) {
       if (isImportBatchJobHandoff(error, input)) {
         await workUnitStore.releaseClaim({
@@ -1570,7 +1577,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           claimOwnerId: claim.claimOwnerId,
           claimToken: claim.claimToken,
         });
-        return 0;
+        return { processed: 0 };
       }
       await requireImportBatchJobClaim(
         workUnitStore.recordTerminal({
@@ -1587,7 +1594,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             importBatchCreateParentUpdateFromWorkUnits(queryable, claim.job, requireCreateBatchId(claim.job.payload)),
         }),
       );
-      return 1;
+      return { processed: 1 };
     }
   }
 
@@ -1647,6 +1654,12 @@ function importBatchJobProgress(
     currentRowId,
     message,
   };
+}
+
+export function shouldDeferImportBatchParentClaimForCreateUnitMiss(
+  reason: DurableJobWorkUnitClaimOutcomeReason | undefined,
+): boolean {
+  return reason === "workflow_budget_exhausted" || reason === "job_budget_exhausted";
 }
 
 function requireBatchId(payload: InventoryImportBatchJobPayload) {

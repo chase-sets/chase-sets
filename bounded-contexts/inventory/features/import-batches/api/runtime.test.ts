@@ -8,7 +8,7 @@ import type {
   InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
-import { createInventoryImportBatchRuntime } from "./runtime";
+import { createInventoryImportBatchRuntime, shouldDeferImportBatchParentClaimForCreateUnitMiss } from "./runtime";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -354,6 +354,28 @@ function dbWithLocations() {
 }
 
 describe("inventory import batch runtime", () => {
+  it("only defers parent job reconciliation while create work-unit capacity is exhausted", () => {
+    expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("workflow_budget_exhausted")).toBe(true);
+    expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("job_budget_exhausted")).toBe(true);
+    expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("none_available")).toBe(false);
+    expect(shouldDeferImportBatchParentClaimForCreateUnitMiss("claimed")).toBe(false);
+    expect(shouldDeferImportBatchParentClaimForCreateUnitMiss(undefined)).toBe(false);
+  });
+
+  it("rejects empty queued import validation before staging a durable job", async () => {
+    const services = runtime(dbWithLocations());
+
+    await expect(
+      services.enqueueCreateBatchJob(
+        {
+          accountId: "acc_1" as AccountId,
+          csvText: "catalogItemId,storageLocationId,totalQuantity,option:condition\n",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Import CSV must include at least one row.");
+  });
+
   it("accepts valid dynamic option rows and rejects row-level validation failures", async () => {
     const services = runtime(dbWithLocations());
     const batch = await services.createBatch(
