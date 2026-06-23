@@ -1049,10 +1049,10 @@ describe("source observation runtime: provider integration jobs", () => {
 
   it("lists Scrydex One Piece set options through the shared provider option interface", async () => {
     const originalFetch = globalThis.fetch;
-    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
-    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
-    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
-    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    const originalApiKey = process.env.SCRYDEX_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+    process.env.SCRYDEX_API_KEY = "test-key";
+    process.env.SCRYDEX_TEAM_ID = "main";
     globalThis.fetch = scrydexOnePieceFetch() as typeof globalThis.fetch;
     const harness = createIntegrationJobDedupeHarness();
     const services = createSourceObservationRuntime(
@@ -1084,18 +1084,18 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       ]);
     } finally {
-      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
-      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
       globalThis.fetch = originalFetch;
     }
   });
 
   it("previews Scrydex One Piece set imports without fetching provider payloads", async () => {
     const originalFetch = globalThis.fetch;
-    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
-    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
-    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
-    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    const originalApiKey = process.env.SCRYDEX_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+    process.env.SCRYDEX_API_KEY = "test-key";
+    process.env.SCRYDEX_TEAM_ID = "main";
     const fetch = vi.fn(scrydexOnePieceFetch());
     globalThis.fetch = fetch as typeof globalThis.fetch;
     const harness = createIntegrationJobClaimHandoffHarness();
@@ -1145,18 +1145,18 @@ describe("source observation runtime: provider integration jobs", () => {
       expect(fetch).not.toHaveBeenCalled();
       expect(harness.appendedSourceEvents).toEqual([]);
     } finally {
-      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
-      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
       globalThis.fetch = originalFetch;
     }
   });
 
   it("processes queued Scrydex One Piece set imports through the durable integration worker", async () => {
     const originalFetch = globalThis.fetch;
-    const originalApiKey = process.env.SCRYDEX_ONE_PIECE_API_KEY;
-    const originalTeamId = process.env.SCRYDEX_ONE_PIECE_TEAM_ID;
-    process.env.SCRYDEX_ONE_PIECE_API_KEY = "test-key";
-    process.env.SCRYDEX_ONE_PIECE_TEAM_ID = "main";
+    const originalApiKey = process.env.SCRYDEX_API_KEY;
+    const originalTeamId = process.env.SCRYDEX_TEAM_ID;
+    process.env.SCRYDEX_API_KEY = "test-key";
+    process.env.SCRYDEX_TEAM_ID = "main";
     globalThis.fetch = scrydexOnePieceFetch() as typeof globalThis.fetch;
     const harness = createIntegrationJobClaimHandoffHarness({
       scope: {
@@ -1178,8 +1178,8 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       ).resolves.toBe(1);
     } finally {
-      restoreEnvValue("SCRYDEX_ONE_PIECE_API_KEY", originalApiKey);
-      restoreEnvValue("SCRYDEX_ONE_PIECE_TEAM_ID", originalTeamId);
+      restoreEnvValue("SCRYDEX_API_KEY", originalApiKey);
+      restoreEnvValue("SCRYDEX_TEAM_ID", originalTeamId);
       globalThis.fetch = originalFetch;
     }
 

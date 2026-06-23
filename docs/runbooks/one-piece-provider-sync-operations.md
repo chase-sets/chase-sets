@@ -23,9 +23,11 @@ credentials are present. Production remains safe until activation gates pass:
   accepted provider-data approval and #2285 UAT evidence before production-like
   One Piece writes are opened.
 
-Scrydex requires a runtime API key and team identifier in the API and worker
-environments that execute provider transport. TCGplayer uses the existing
-automation-provider credential posture documented in
+Scrydex requires a shared runtime API key and team identifier in the API and
+worker environments that execute provider transport. Configure `SCRYDEX_API_KEY`
+and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines;
+do not create One Piece-specific or game-specific Scrydex secrets. TCGplayer
+uses the existing automation-provider credential posture documented in
 [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
 ## Provider Roles

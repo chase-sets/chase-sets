@@ -539,6 +539,8 @@ jobs:
       TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
+      TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
+      TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: ""
       TF_VAR_google_social_login_client_secret: ""
       TF_VAR_admin_google_workspace_hosted_domains: ""
@@ -612,6 +614,8 @@ jobs:
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_easypost_mode: test
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie
+      TF_VAR_scrydex_api_key: pr-validation-scrydex-api-key
+      TF_VAR_scrydex_team_id: pr-validation-scrydex-team
       TF_VAR_google_social_login_client_id: google-pr-validation-client
       TF_VAR_google_social_login_client_secret: google-pr-validation-secret
       TF_VAR_admin_google_workspace_hosted_domains: chasesets.com

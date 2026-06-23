@@ -87,6 +87,12 @@ Additional `preview` and `staging` secrets for the full platform:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_CONNECT_WEBHOOK_SECRET`
 - `EASYPOST_API_KEY`
+- `SCRYDEX_API_KEY`
+- `SCRYDEX_TEAM_ID`
+
+Optional provider-access secrets for `preview`, `staging`, and `production`:
+
+- `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
 
 Optional `preview` and `staging` variables:
 

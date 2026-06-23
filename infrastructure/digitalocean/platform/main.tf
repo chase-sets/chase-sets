@@ -915,7 +915,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.catalog_magic_provider_runtime_env
+          for_each = local.catalog_provider_runtime_env
           content {
             key   = env.key
             value = env.value.value
@@ -1102,7 +1102,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.catalog_magic_provider_runtime_env
+          for_each = local.catalog_provider_runtime_env
           content {
             key   = env.key
             value = env.value.value
@@ -1423,7 +1423,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.catalog_magic_provider_runtime_env
+          for_each = local.catalog_provider_runtime_env
           content {
             key   = env.key
             value = env.value.value
@@ -1711,7 +1711,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.catalog_magic_provider_runtime_env
+          for_each = local.catalog_provider_runtime_env
           content {
             key   = env.key
             value = env.value.value
@@ -1871,7 +1871,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.catalog_magic_provider_runtime_env
+          for_each = local.catalog_provider_runtime_env
           content {
             key   = env.key
             value = env.value.value
