@@ -2,7 +2,13 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeCommitReceipt,
+} from "@chase-sets/http/responses";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -33,6 +39,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 import MarketplaceAccountSaleRoute, { action, loader } from "../routes/account-sale";
+import { loader as salesListLoader } from "../routes/account-sales";
 
 const order = {
   order_id: "ord_1",
@@ -146,6 +153,167 @@ describe("marketplace account sale route", () => {
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(302);
     expect((response as Response).headers.get("Location")).toContain("afterWrite=");
+  });
+
+  it("forwards fresh-write metadata and retries a temporarily missing sale", async () => {
+    const fetchCalls: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        fetchCalls.push(request);
+        const url = requestUrl(request);
+
+        if (url.includes("/api/marketplace/account/sales/ord_1")) {
+          return Promise.resolve(
+            fetchCalls.length === 1 ? jsonResponse({ error: { code: "not_found" } }, 404) : jsonResponse(order),
+          );
+        }
+
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sales/ord_1", { commitPositions: [orderingCommit] })}`,
+      ),
+      params: { orderId: "ord_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.sale.order_id).toBe("ord_1");
+    expect(fetchCalls.filter((request) => request.url.includes("/account/sales/ord_1"))).toHaveLength(2);
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+  });
+
+  it("returns temporary recovery when a fresh sale read hits projection freshness timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/sales/ord_1")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection did not catch up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sales/ord_1", { commitPositions: [orderingCommit] })}`,
+      ),
+      params: { orderId: "ord_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing sale");
+    await expect(response.text()).resolves.toContain("preparing your sale");
+  });
+
+  it("returns permanent not-found when a sale handoff is expired", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/sales/ord_1")) {
+          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/sales/ord_1",
+          { commitPositions: [orderingCommit] },
+          Date.now() - 40_000,
+        )}`,
+      ),
+      params: { orderId: "ord_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe("Sale not found.");
+  });
+
+  it("forwards seller checkout freshness when loading the sales list", async () => {
+    const fetchCalls: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        fetchCalls.push(request);
+        return Promise.resolve(jsonResponse({ items: [order], total: 1, count: 1 }));
+      }),
+    );
+
+    const result = await salesListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sales", { commitPositions: [orderingCommit] })}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.sales.items).toHaveLength(1);
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+  });
+
+  it("returns temporary recovery when the fresh sales list is still waiting on Ordering projections", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/sales")) {
+          return Promise.resolve(
+            jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection did not catch up.",
+                },
+              },
+              503,
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = (await salesListLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/sales", { commitPositions: [orderingCommit] })}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(response.status).toBe(503);
+    expect(response.statusText).toBe("Preparing sales");
   });
 
   it("renders a verified-sale counterparty review CTA", () => {

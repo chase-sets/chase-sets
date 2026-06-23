@@ -120,14 +120,14 @@
         "routeId": "account-payment-new",
         "actions": ["Create account payment"],
         "command": "Payments payment creation command",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
@@ -142,14 +142,14 @@
         "routeId": "account-payment",
         "actions": ["Refresh or continue payment detail after payment command"],
         "command": "Payments detail commands",
-        "helperUses": ["appendFreshWriteToken", "loadFreshlyWrittenResource"]
+        "helperUses": ["navigateAfterWrite", "loadAfterWrite"]
       },
       "destination": {
         "routeId": "account-payment",
         "apiContextName": "payments",
         "apiRoutePath": "/account/payments/:id",
         "readModelTables": ["payments_payment_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
+        "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery."
