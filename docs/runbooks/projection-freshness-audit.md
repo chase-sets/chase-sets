@@ -6,6 +6,8 @@ Use the `read-after-write.freshness` audit record to diagnose post-write reads t
 
 The audit record is emitted by the API read consistency middleware. It is intentionally route-template based and must not contain guest emails, contact names, cookies, raw `afterWrite` tokens, checkout session ids, account ids, or event ids.
 
+The generated route inventory at `artifacts/read-after-write-route-inventory.md` is the durable audit index. Each migrated `readAfterWriteRouteInventory` row must include `freshnessSlo.flowClass`, `freshnessSlo.p95Ms`, and `freshnessSlo.p99Ms` so operators can sort critical customer handoffs, important self-refresh routes, and operator/background reads without inspecting route code.
+
 ## Field Inventory
 
 | Field | Meaning | Redaction/cardinality rule |
@@ -109,13 +111,13 @@ Do not add labels or log filters for checkout session ids, account ids, event id
 ## Operator Triage
 
 1. Open Grafana > `Projection Freshness` and filter for `/account/checkout-sessions/:sessionId`.
-2. If `missing-receipt` is non-zero, inspect the buy-checkout-readiness redirect, cookie-backed guest handoff, and server-side request forwarding. Do not change worker capacity for this class.
+2. If `missing-receipt` is non-zero, inspect the source redirect, cookie-backed handoff when present, and server-side request forwarding. This is a route-wiring failure, not projection lag; do not change worker capacity for this class.
 3. If `target_context_header` is `missing` or `present_invalid`, inspect the request client and shared mount routing before changing projection code.
 4. If `wait_mode=target-context` on Checkout without an active rollback note, inspect `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`, `READ_CONSISTENCY_ROUTE_TUNING_JSON`, and the context manifest `readFreshnessRoutes`.
-5. If `outcome=timeout`, check `pending` labels. `projection=checkout.session-projection`, `source_context=checkout`, growing lag, or `last_error=present` points to worker capacity, poison, or projection handler health.
+5. If `outcome=timeout`, check `pending` labels. Route-template `timeout` with pending projection/source labels is projection lag; growing lag or `last_error=present` points to worker capacity, poison, or projection handler health.
 6. Open Admin > Operations > Projection Operations or call `GET /api/platform/projections` to confirm worker heartbeat, source lag, applicable lag, blocked stream count, poison event count, and runner state for the projection group.
 7. If the browser sees a generic platform 503/504 while the audit shows valid receipt and target context, treat the incident as a document route budget regression. The route should surface Checkout-owned temporary recovery before the edge timeout.
-8. If `outcome=fresh` but the browser still renders permanent not-found, treat it as a route/API read bug. Check authorization, session ownership, and read-model query behavior.
+8. If `outcome=fresh` but the browser still renders permanent not-found, treat it as a route/API read or readiness bug. Check authorization, ownership, semantic readiness/source contracts, and read-model query behavior before treating it as lag.
 
 Repair follows the owning runbook:
 

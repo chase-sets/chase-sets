@@ -8,11 +8,15 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const CANARY_EVIDENCE_VERSION = CANARY_ANALYSIS_VERSION;
 
+const CANARY_GATE_CLASSES = new Set(["platform-required", "required-critical-migrated", "observation-only"]);
+const CANARY_EXCEPTION_STATUSES = new Set(["needs-instrumentation"]);
+
 export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "observability-transport",
     owner: "infrastructure/observability",
     required: true,
+    gateClass: "platform-required",
     source: "Prometheus scrape health for the production OpenTelemetry Collector",
     maxIncrease: 0,
     currentState: "available-now",
@@ -22,6 +26,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "app-platform-deployment-phase",
     owner: "infrastructure/deployment-workflow",
     required: true,
+    gateClass: "platform-required",
     source: "DigitalOcean App Platform deployment phase",
     maxIncrease: 0,
     currentState: "available-now",
@@ -31,6 +36,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "route-error-rate",
     owner: "platform-runtime/route-owner",
     required: false,
+    gateClass: "observation-only",
     source: "HTTP telemetry by route and host",
     maxIncrease: 0.005,
     currentState: "needs-instrumentation",
@@ -40,6 +46,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "route-latency-p95",
     owner: "platform-runtime/route-owner",
     required: false,
+    gateClass: "observation-only",
     source: "HTTP latency histogram by route and host",
     maxIncrease: 50,
     currentState: "needs-instrumentation",
@@ -49,6 +56,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "worker-health-backlog",
     owner: "platform-operations/infrastructure-runtime",
     required: false,
+    gateClass: "observation-only",
     source: "worker heartbeat and durable job backlog telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -58,6 +66,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "projection-lag-poison-events",
     owner: "owning-bounded-context/platform-operations",
     required: true,
+    gateClass: "required-critical-migrated",
     source: "projection operation snapshots and poison-event telemetry",
     maxIncrease: 0,
     currentState: "available-now",
@@ -67,6 +76,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "checkout-order-payment-errors",
     owner: "checkout/ordering/payments",
     required: false,
+    gateClass: "observation-only",
     source: "checkout, order, payment, and reconciliation telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -76,6 +86,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "settlement-payout-errors",
     owner: "settlement",
     required: true,
+    gateClass: "required-critical-migrated",
     source: "settlement operation telemetry for payout setup, readiness, and provider reconciliation",
     maxIncrease: 0,
     currentState: "available-now",
@@ -83,9 +94,30 @@ export const REQUIRED_CANARY_SIGNALS = [
       "No increase in payout setup session failures, readiness refresh failures, readiness webhook ignores, setup-blocked payout requests, or provider reconciliation failures.",
   },
   {
+    name: "sell-rail-accept-checkout-handoff",
+    owner: "checkout/marketplace/ordering",
+    required: true,
+    gateClass: "required-critical-migrated",
+    source: "sell-rail accept-to-checkout post-write handoff telemetry",
+    maxIncrease: 0,
+    currentState: "available-now",
+    detail: "Sell List accept-to-checkout migrated handoff telemetry must stay within the zero-failure gate.",
+  },
+  {
+    name: "payout-ready-handoff",
+    owner: "settlement/checkout",
+    required: true,
+    gateClass: "required-critical-migrated",
+    source: "payout-ready handoff post-write telemetry",
+    maxIncrease: 0,
+    currentState: "available-now",
+    detail: "Payout-ready return-to-Sell-List migrated handoff telemetry must stay within the zero-failure gate.",
+  },
+  {
     name: "fulfillment-postage-callback-errors",
     owner: "fulfillment",
     required: false,
+    gateClass: "observation-only",
     source: "postage provider callback telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -95,6 +127,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "transactional-email-callback-errors",
     owner: "notifications",
     required: false,
+    gateClass: "observation-only",
     source: "SES/SNS callback and outbox telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -104,6 +137,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "database-pool-pressure",
     owner: "infrastructure-runtime",
     required: false,
+    gateClass: "observation-only",
     source: "database pool and migration telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -113,6 +147,7 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "ucp-discovery-signed-write-health",
     owner: "ucp-facade-owners",
     required: false,
+    gateClass: "observation-only",
     source: "UCP discovery and signed-write telemetry",
     maxIncrease: 0,
     currentState: "deferred",
@@ -220,6 +255,8 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, headers =
           : typeof signal.maxIncrease === "number"
             ? `<= baseline + ${signal.maxIncrease}`
             : undefined,
+      ...(signal.gateClass ? { gateClass: signal.gateClass } : {}),
+      ...(signal.exception ? { exception: signal.exception } : {}),
       status: baseline === null || canary === null ? "missing" : undefined,
       detail:
         baseline === null || canary === null
@@ -288,6 +325,12 @@ export function validatePrometheusSignalConfig(signal) {
   if (signal?.required !== undefined && typeof signal.required !== "boolean") {
     errors.push("required must be a boolean when provided.");
   }
+  if (signal?.gateClass !== undefined && !CANARY_GATE_CLASSES.has(signal.gateClass)) {
+    errors.push(`gateClass must be one of ${[...CANARY_GATE_CLASSES].sort().join(", ")}.`);
+  }
+  if (signal?.gateClass === "required-critical-migrated") {
+    validateCriticalMigratedSignalException(signal, errors);
+  }
   return errors;
 }
 
@@ -311,6 +354,8 @@ function buildSignalEvidence(signal, telemetry) {
       required: resolveCanarySignalRequired(signal),
       source: signal.source,
       currentState: signal.currentState,
+      ...(signal.gateClass ? { gateClass: signal.gateClass } : {}),
+      ...(isPlainObject(signal.exception) ? { exception: signal.exception } : {}),
       maxIncrease: signal.maxIncrease,
       status: "missing",
       detail: `No telemetry found for ${signal.name} from ${signal.source}. ${signal.detail}`,
@@ -323,6 +368,10 @@ function buildSignalEvidence(signal, telemetry) {
     required: telemetry.required ?? resolveCanarySignalRequired(signal),
     source: normalizeString(telemetry.source) ?? signal.source,
     currentState: normalizeString(telemetry.currentState) ?? signal.currentState,
+    gateClass: normalizeString(telemetry.gateClass) ?? signal.gateClass,
+    ...(isPlainObject(telemetry.exception) || isPlainObject(signal.exception)
+      ? { exception: isPlainObject(telemetry.exception) ? telemetry.exception : signal.exception }
+      : {}),
     ...(typeof telemetry.baseline === "number" ? { baseline: telemetry.baseline } : {}),
     ...(typeof telemetry.canary === "number" ? { canary: telemetry.canary } : {}),
     ...(typeof telemetry.maxIncrease === "number"
@@ -339,6 +388,45 @@ function resolveCanarySignalRequired(signal) {
     return signal.required;
   }
   return signal?.currentState === "available-now";
+}
+
+function validateCriticalMigratedSignalException(signal, errors) {
+  if (signal.currentState === "needs-instrumentation") {
+    const exception = signal.exception;
+    if (!isPlainObject(exception)) {
+      errors.push("required-critical-migrated needs-instrumentation signals require an exception.");
+      return;
+    }
+    if (!CANARY_EXCEPTION_STATUSES.has(exception.status)) {
+      errors.push(`exception.status must be one of ${[...CANARY_EXCEPTION_STATUSES].sort().join(", ")}.`);
+    }
+    if (!normalizeString(exception.owner)) {
+      errors.push("exception.owner is required.");
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizeString(exception.reviewBy) ?? "")) {
+      errors.push("exception.reviewBy must be a YYYY-MM-DD date.");
+    }
+    if (!normalizeString(exception.removalIssue)) {
+      errors.push("exception.removalIssue is required.");
+    }
+    if (!normalizeString(exception.reason)) {
+      errors.push("exception.reason is required.");
+    }
+    if (signal.required !== false) {
+      errors.push("needs-instrumentation exceptions must set required to false until telemetry is live.");
+    }
+    return;
+  }
+
+  if (signal.required !== true) {
+    errors.push(
+      "required-critical-migrated signals must set required true unless a needs-instrumentation exception is active.",
+    );
+  }
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 async function readTelemetrySource(filePath) {

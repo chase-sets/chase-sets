@@ -263,6 +263,11 @@
       "id": "ordering.accepted-offer-to-sales-list",
       "owner": "ordering",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
       "source": {
         "routeId": "sell-checkout-confirmation",
         "actions": ["View committed sales after accepting an offer in seller checkout"],
@@ -284,6 +289,11 @@
       "id": "ordering.purchase-cancel-to-detail",
       "owner": "ordering",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-purchase",
         "actions": ["Cancel purchase"],
@@ -306,6 +316,11 @@
       "id": "ordering.sale-cancel-to-detail",
       "owner": "ordering",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-sale",
         "actions": ["Cancel sale"],
@@ -328,6 +343,11 @@
       "id": "ordering.postage-policy-create-to-list",
       "owner": "ordering",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "ordering-postage-policies",
         "actions": ["Create postage policy draft"],
@@ -349,6 +369,11 @@
       "id": "ordering.postage-policy-command-to-detail",
       "owner": "ordering",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "ordering-postage-policies-detail",
         "actions": [

@@ -61,6 +61,7 @@ describe("canary evidence collector", () => {
 
     expect(evidence.signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
       required: false,
+      gateClass: "observation-only",
       status: "missing",
       source: "HTTP telemetry by route and host",
     });
@@ -71,12 +72,22 @@ describe("canary evidence collector", () => {
     });
     expect(evidence.signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
       required: true,
+      gateClass: "required-critical-migrated",
       status: "missing",
       source: "projection operation snapshots and poison-event telemetry",
+    });
+    expect(evidence.signals.find((signal) => signal.name === "sell-rail-accept-checkout-handoff")).toMatchObject({
+      required: true,
+      gateClass: "required-critical-migrated",
+      currentState: "available-now",
+      status: "missing",
     });
     expect(analysis.passesCanaryAnalysisGate).toBe(false);
     expect(analysis.errors).not.toContain("Required canary signal route-error-rate did not pass: missing.");
     expect(analysis.errors).toContain("Required canary signal projection-lag-poison-events did not pass: missing.");
+    expect(analysis.errors).toContain(
+      "Required canary signal sell-rail-accept-checkout-handoff did not pass: missing.",
+    );
   });
 
   it("keeps threshold failures visible after collecting source files", async () => {
@@ -177,6 +188,22 @@ describe("canary evidence collector", () => {
             source: "Prometheus settlement operation failures",
             baselineQuery: "baseline_settlement",
             canaryQuery: "canary_settlement",
+            maxIncrease: 0,
+          },
+          {
+            name: "sell-rail-accept-checkout-handoff",
+            owner: "checkout/marketplace/ordering",
+            source: "Prometheus sell-rail handoff telemetry",
+            baselineQuery: "baseline_sell_rail",
+            canaryQuery: "canary_sell_rail",
+            maxIncrease: 0,
+          },
+          {
+            name: "payout-ready-handoff",
+            owner: "settlement/checkout",
+            source: "Prometheus payout-ready handoff telemetry",
+            baselineQuery: "baseline_payout_ready",
+            canaryQuery: "canary_payout_ready",
             maxIncrease: 0,
           },
         ],
@@ -310,6 +337,22 @@ describe("canary evidence collector", () => {
             canaryQuery: "canary_settlement",
             maxIncrease: 0,
           },
+          {
+            name: "sell-rail-accept-checkout-handoff",
+            owner: "checkout/marketplace/ordering",
+            source: "Prometheus sell-rail handoff telemetry",
+            baselineQuery: "sell_rail_baseline",
+            canaryQuery: "sell_rail_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "payout-ready-handoff",
+            owner: "settlement/checkout",
+            source: "Prometheus payout-ready handoff telemetry",
+            baselineQuery: "payout_ready_baseline",
+            canaryQuery: "payout_ready_canary",
+            maxIncrease: 0,
+          },
         ],
       })}\n`,
     );
@@ -384,6 +427,22 @@ describe("canary evidence collector", () => {
             source: "Prometheus settlement telemetry",
             baselineQuery: "settlement_baseline",
             canaryQuery: "settlement_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "sell-rail-accept-checkout-handoff",
+            owner: "checkout/marketplace/ordering",
+            source: "Prometheus sell-rail handoff telemetry",
+            baselineQuery: "sell_rail_baseline",
+            canaryQuery: "sell_rail_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "payout-ready-handoff",
+            owner: "settlement/checkout",
+            source: "Prometheus payout-ready handoff telemetry",
+            baselineQuery: "payout_ready_baseline",
+            canaryQuery: "payout_ready_canary",
             maxIncrease: 0,
           },
         ],
@@ -485,6 +544,20 @@ describe("canary evidence collector", () => {
       "maxIncrease must be a non-negative number.",
       "required must be a boolean when provided.",
     ]);
+
+    expect(
+      validatePrometheusSignalConfig({
+        name: "sell-rail-accept-checkout-handoff",
+        owner: "checkout/marketplace/ordering",
+        source: "Prometheus sell-rail handoff telemetry",
+        baselineQuery: "vector(0)",
+        canaryQuery: "sum(rate(chase_sets_post_write_consistency_events_total[15m]))",
+        maxIncrease: 0,
+        required: false,
+        gateClass: "required-critical-migrated",
+        currentState: "needs-instrumentation",
+      }),
+    ).toEqual(["required-critical-migrated needs-instrumentation signals require an exception."]);
   });
 
   it("keeps the production Prometheus query file valid for required canary gates", async () => {
@@ -501,6 +574,8 @@ describe("canary evidence collector", () => {
         "projection-lag-poison-events",
         "checkout-order-payment-errors",
         "settlement-payout-errors",
+        "sell-rail-accept-checkout-handoff",
+        "payout-ready-handoff",
       ]),
     );
     expect(signals.flatMap(validatePrometheusSignalConfig)).toEqual([]);
@@ -514,6 +589,7 @@ describe("canary evidence collector", () => {
       currentState: "available-now",
       source: "Prometheus checkout projection freshness last-error and work-signal telemetry",
       threshold: "production projection freshness last-error/work-signal telemetry must remain zero",
+      gateClass: "required-critical-migrated",
     });
     expect(projectionLagPoisonSignal.canaryQuery).toContain("chase_sets_projection_freshness_evaluations_total");
     expect(projectionLagPoisonSignal.canaryQuery).toContain(
@@ -524,6 +600,7 @@ describe("canary evidence collector", () => {
     expect(signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
       required: false,
       currentState: "needs-instrumentation",
+      gateClass: "observation-only",
     });
     expect(signals.find((signal) => signal.name === "checkout-order-payment-errors")).toMatchObject({
       required: false,
@@ -533,6 +610,7 @@ describe("canary evidence collector", () => {
     expect(settlementPayoutErrorsSignal).toMatchObject({
       required: true,
       currentState: "available-now",
+      gateClass: "required-critical-migrated",
     });
     expect(settlementPayoutErrorsSignal.canaryQuery).toContain(
       'max_over_time(chase_sets_settlement_operations_total{kind="provider-health-checked"}[15m])',
@@ -541,5 +619,18 @@ describe("canary evidence collector", () => {
       'rate(chase_sets_settlement_operations_total{kind="provider-health-checked"}[15m])',
     );
     expect(signals.some((signal) => "emptyResultValue" in signal)).toBe(false);
+
+    for (const signalName of ["sell-rail-accept-checkout-handoff", "payout-ready-handoff"]) {
+      expect(signals.find((signal) => signal.name === signalName)).toMatchObject({
+        required: true,
+        gateClass: "required-critical-migrated",
+        currentState: "available-now",
+      });
+      expect(signals.find((signal) => signal.name === signalName)?.canaryQuery).toContain(
+        "chase_sets_post_write_consistency_events_total",
+      );
+      expect(signals.find((signal) => signal.name === signalName)?.canaryQuery).toContain(" or on() ");
+      expect(signals.find((signal) => signal.name === signalName)).not.toHaveProperty("exception");
+    }
   });
 });

@@ -135,6 +135,11 @@
       "id": "inventory.item-create-to-detail",
       "owner": "inventory",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory",
         "actions": ["Create inventory item"],
@@ -157,6 +162,11 @@
       "id": "inventory.item-adjust-to-detail",
       "owner": "inventory",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory-item",
         "actions": ["Adjust inventory item", "Place inventory hold", "Release inventory hold"],
@@ -206,6 +216,11 @@
       "id": "inventory.storage-locations-list",
       "owner": "inventory",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-inventory-locations",
         "actions": ["Create storage location", "Update storage location", "Archive storage location"],

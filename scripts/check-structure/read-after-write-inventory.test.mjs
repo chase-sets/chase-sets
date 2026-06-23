@@ -177,6 +177,11 @@ function createContextManifest(root, overrides = {}) {
         id: "checkout.session-start-to-detail",
         owner: "checkout",
         risk: "critical",
+        freshnessSlo: {
+          flowClass: "critical-customer-handoff",
+          p95Ms: 1000,
+          p99Ms: 2250,
+        },
         source: {
           routeId: "buy-checkout-readiness",
           helperUses: ["appendFreshWriteToken"],
@@ -248,6 +253,10 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toEqual([]);
     expect(result.reportEntries).toHaveLength(1);
+    expect(result.reportEntries[0]).toMatchObject({
+      flowClass: "critical-customer-handoff",
+      freshnessSlo: "critical-customer-handoff p95<=1000ms p99<=2250ms",
+    });
     expect(result.mutationRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -344,6 +353,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendFreshWriteToken"],
@@ -474,6 +488,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["navigateAfterWrite"],
@@ -519,6 +538,21 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.transientRecovery.kinds must be a canonical post-write recovery kind or non-empty array of kinds (action-required, expired-handoff, pending-projection, refreshable-catching-up, stale-projection, terminal-failure)",
+    );
+  });
+
+  it("fails when a migrated route omits freshness SLO classification", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const manifest = createContextManifest(root);
+    delete manifest.get("bounded-contexts/checkout").manifest.readAfterWriteRouteInventory[0].freshnessSlo;
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: freshnessSlo with flowClass, p95Ms, and p99Ms is required",
     );
   });
 
@@ -579,6 +613,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
@@ -674,6 +713,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-self-refresh",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendFreshWriteToken"],
@@ -760,6 +804,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
@@ -799,6 +848,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
@@ -849,6 +903,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendPostWriteHandoff"],
@@ -975,6 +1034,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.session-start-to-detail",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["navigateAfterWrite"],
@@ -1444,6 +1508,11 @@ describe("read-after-write route inventory guard", () => {
             id: "checkout.missing-route",
             owner: "checkout",
             risk: "critical",
+            freshnessSlo: {
+              flowClass: "critical-customer-handoff",
+              p95Ms: 1000,
+              p99Ms: 2250,
+            },
             source: {
               routeId: "buy-checkout-readiness",
               helperUses: ["appendFreshWriteToken"],

@@ -38,6 +38,11 @@ const rawPostWriteHandoffMetadataPattern =
   /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);
 const supportedExceptionStatuses = new Set(["accepted", "not-read-model-backed", "not-post-write-read"]);
+const supportedFreshnessFlowClasses = new Set([
+  "critical-customer-handoff",
+  "important-self-refresh",
+  "operator-background-read",
+]);
 const POST_WRITE_HANDOFF_EXPECTATIONS = new Set([
   "resource-present",
   "resource-updated",
@@ -157,6 +162,20 @@ function isPortableHandoffText(value) {
 
 function formatValues(values) {
   return [...values].sort().join(", ") || "none";
+}
+
+function formatFreshnessSlo(slo) {
+  if (!isPlainObject(slo)) {
+    return "missing";
+  }
+  return `${slo.flowClass ?? "missing"} p95<=${slo.p95Ms ?? "?"}ms p99<=${slo.p99Ms ?? "?"}ms`;
+}
+
+function sectionRouteIds(section) {
+  if (!isPlainObject(section)) {
+    return [];
+  }
+  return [section.routeId, ...(section.routeIds ?? [])].filter(isNonEmptyString);
 }
 
 function markdownCell(value) {
@@ -755,10 +774,6 @@ function routeInventoryEntries(contextManifests) {
   return entries;
 }
 
-function sectionRouteIds(section) {
-  return [section?.routeId, ...(section?.routeIds ?? [])].filter(isNonEmptyString);
-}
-
 function routeSetIntersects(left, right) {
   for (const value of left) {
     if (right.has(value)) {
@@ -1163,6 +1178,33 @@ function validateTransientRecoveryDeclaration(options) {
   }
 }
 
+function validateFreshnessSloDeclaration(options) {
+  const { entryLabel, risk, value, violations } = options;
+  if (!isPlainObject(value)) {
+    violations.push(`${entryLabel}: freshnessSlo with flowClass, p95Ms, and p99Ms is required`);
+    return;
+  }
+
+  if (!supportedFreshnessFlowClasses.has(value.flowClass)) {
+    violations.push(
+      `${entryLabel}: freshnessSlo.flowClass must be one of ${[...supportedFreshnessFlowClasses].sort().join(", ")}`,
+    );
+  }
+
+  if (!Number.isInteger(value.p95Ms) || value.p95Ms <= 0) {
+    violations.push(`${entryLabel}: freshnessSlo.p95Ms must be a positive integer millisecond target`);
+  }
+  if (!Number.isInteger(value.p99Ms) || value.p99Ms <= 0) {
+    violations.push(`${entryLabel}: freshnessSlo.p99Ms must be a positive integer millisecond target`);
+  }
+  if (Number.isInteger(value.p95Ms) && Number.isInteger(value.p99Ms) && value.p99Ms < value.p95Ms) {
+    violations.push(`${entryLabel}: freshnessSlo.p99Ms must be greater than or equal to p95Ms`);
+  }
+  if (risk === "critical" && value.flowClass === "operator-background-read") {
+    violations.push(`${entryLabel}: critical routes cannot use operator-background-read freshness flow class`);
+  }
+}
+
 function validateMutationStrategyProof(entryLabel, entry, indexes, violations) {
   const proof = isPlainObject(entry.proof) ? entry.proof : {};
   const destination = isPlainObject(entry.visibleDestination) ? entry.visibleDestination : {};
@@ -1453,6 +1495,13 @@ function validateInventoryEntry(options) {
     return entry;
   }
 
+  validateFreshnessSloDeclaration({
+    entryLabel,
+    risk: entry.risk,
+    value: entry.freshnessSlo,
+    violations,
+  });
+
   const destination = isPlainObject(entry.destination) ? entry.destination : {};
   if (destination.transientRecovery === undefined) {
     violations.push(`${entryLabel}: destination.transientRecovery is required when no exception is declared`);
@@ -1612,8 +1661,10 @@ export async function validateReadAfterWriteRouteInventory(options) {
       id: validatedEntry.id ?? "(missing id)",
       owner: validatedEntry.owner ?? "(missing owner)",
       risk: validatedEntry.risk ?? "(missing risk)",
-      sourceRoute: validatedEntry.source?.routeId ?? "(missing source)",
-      destinationRoute: validatedEntry.destination?.routeId ?? "(missing destination)",
+      flowClass: validatedEntry.freshnessSlo?.flowClass ?? "(exception)",
+      freshnessSlo: formatFreshnessSlo(validatedEntry.freshnessSlo),
+      sourceRoute: sectionRouteIds(validatedEntry.source).join(", ") || "(missing source)",
+      destinationRoute: sectionRouteIds(validatedEntry.destination).join(", ") || "(missing destination)",
       apiRoute: validatedEntry.destination?.apiContextName
         ? `${validatedEntry.destination.apiContextName}${validatedEntry.destination.apiRoutePath ?? ""}`
         : "(exception)",
@@ -1710,13 +1761,13 @@ export function writeReadAfterWriteRouteInventoryReport(options) {
     "",
     "## Fresh-Write Routes",
     "",
-    "| Context | Inventory ID | Risk | Owner | Source route | Destination route | API route | Dependencies | Recovery / exception |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Context | Inventory ID | Risk | Flow class | Freshness SLO | Owner | Source route | Destination route | API route | Dependencies | Recovery / exception |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
 
   for (const entry of entries.sort((left, right) => left.id.localeCompare(right.id))) {
     lines.push(
-      `| ${markdownCell(entry.contextName)} | ${markdownCell(entry.id)} | ${markdownCell(entry.risk)} | ${markdownCell(entry.owner)} | ${markdownCell(entry.sourceRoute)} | ${markdownCell(entry.destinationRoute)} | ${markdownCell(entry.apiRoute)} | ${markdownCell(formatValues(entry.dependencies))} | ${markdownCell(entry.exception || `${formatValues(entry.transientRecovery)}: ${entry.transientRecoveryBehavior}`)} |`,
+      `| ${markdownCell(entry.contextName)} | ${markdownCell(entry.id)} | ${markdownCell(entry.risk)} | ${markdownCell(entry.flowClass)} | ${markdownCell(entry.freshnessSlo)} | ${markdownCell(entry.owner)} | ${markdownCell(entry.sourceRoute)} | ${markdownCell(entry.destinationRoute)} | ${markdownCell(entry.apiRoute)} | ${markdownCell(formatValues(entry.dependencies))} | ${markdownCell(entry.exception || `${formatValues(entry.transientRecovery)}: ${entry.transientRecoveryBehavior}`)} |`,
     );
   }
 

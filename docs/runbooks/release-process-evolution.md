@@ -169,6 +169,12 @@ The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseC
 
 The Observability-owned Prometheus query contract is `infrastructure/observability/release-canary-prometheus-queries.json`. Do not point `CANARY_PROMETHEUS_QUERY_FILE` at a different path unless the replacement includes the same owner, source, baseline query, canary query, and threshold metadata for every required signal.
 
+Each Prometheus signal also carries `gateClass`:
+
+- `platform-required`: required release plumbing such as observability transport.
+- `required-critical-migrated`: migrated critical post-write flow evidence. These signals must be `required: true` once telemetry is live. A temporary `currentState: "needs-instrumentation"` exception must include `owner`, `reviewBy`, `removalIssue`, and `reason`.
+- `observation-only`: useful but non-closing evidence. Optional account-cart-style observations cannot close a milestone while a required critical migrated handoff still has an active exception.
+
 Canary ownership starts with this matrix:
 
 | Signal | Owner | Source | Failure action |

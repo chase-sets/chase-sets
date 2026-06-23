@@ -366,6 +366,11 @@
       "id": "discovery.item-detail-listing-publication-self-refresh",
       "owner": "discovery",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "item-detail",
         "actions": ["Create listing", "Update listing"],

@@ -186,6 +186,11 @@
       "id": "identity.admin-account-detail-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "accounts-detail",
         "actions": [
@@ -217,6 +222,11 @@
       "id": "identity.marketplace-account-profile-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account",
         "actions": ["Update account profile"],
@@ -244,6 +254,11 @@
       "id": "identity.registration-current-actor-display-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["register", "sign-in"],
         "actions": [
@@ -275,6 +290,11 @@
       "id": "identity.admin-user-detail-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "users-detail",
         "actions": ["Update user profile", "Suspend user", "Reactivate user"],
@@ -299,6 +319,11 @@
       "id": "identity.account-security-user-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-security",
         "actions": ["Update user profile"],
@@ -323,6 +348,11 @@
       "id": "identity.admin-api-key-list-fresh-read",
       "owner": "identity",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "api-keys",
         "actions": ["Create API key"],
@@ -347,6 +377,11 @@
       "id": "identity.admin-api-key-detail-fresh-read",
       "owner": "identity",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "api-keys-detail",
         "actions": ["Rotate API key", "Revoke API key"],
@@ -371,6 +406,11 @@
       "id": "identity.account-security-api-key-fresh-read",
       "owner": "identity",
       "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-security",
         "actions": ["Create API key", "Rotate API key", "Revoke API key"],
@@ -395,6 +435,11 @@
       "id": "identity.admin-invitation-list-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "invitations",
         "actions": ["Create invitation"],
@@ -419,6 +464,11 @@
       "id": "identity.admin-invitation-detail-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "invitations-detail",
         "actions": ["Resend invitation", "Cancel invitation", "Decline invitation"],
@@ -443,6 +493,11 @@
       "id": "identity.account-team-invitation-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-team",
         "actions": ["Create invitation", "Cancel invitation"],
@@ -467,6 +522,11 @@
       "id": "identity.admin-membership-detail-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "memberships-detail",
         "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
@@ -491,6 +551,11 @@
       "id": "identity.account-team-membership-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-team",
         "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
@@ -515,6 +580,11 @@
       "id": "identity.shipping-addresses-fresh-read",
       "owner": "identity",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "account-shipping-addresses",
         "actions": [

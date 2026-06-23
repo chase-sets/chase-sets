@@ -48,6 +48,14 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
       "chase_sets_projection_freshness_evaluations_total",
     );
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Route wiring failures");
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Projection lag pending rows");
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
+      "Readiness and semantic handoff failures",
+    );
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
+      "chase_sets_post_write_consistency_events_total",
+    );
     expect(readStackFile("grafana/dashboards/checkout-observability.json")).toContain("Checkout Observability");
     expect(readStackFile("grafana/dashboards/checkout-observability.json")).toContain(
       "chase_sets_checkout_observability_events_total",

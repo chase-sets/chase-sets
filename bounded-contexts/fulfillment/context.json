@@ -130,6 +130,11 @@
       "id": "fulfillment.seller-shipment-self-refresh",
       "owner": "fulfillment",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
         "actions": [
