@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const runStagingProviderUat = process.env.CATALOG_STAGING_PROVIDER_UAT === "true";
+const providerUatJourneyScope = process.env.CATALOG_STAGING_PROVIDER_UAT_SCOPE?.trim() || "one-piece-launch";
 const catalogAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const catalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
 const pageReadyTimeoutMs = 90_000;
@@ -73,7 +74,7 @@ const tcgplayerYugiohSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: {},
 };
 
-const providerSyncJourneys: readonly ProviderSyncJourney[] = [
+const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "One Piece set through Scrydex bulk-first shared importer",
     providerKey: "scrydex",
@@ -123,6 +124,9 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
     ],
     requiresTerminalSync: true,
   },
+];
+
+const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "Yu-Gi-Oh set through YGOPRODeck",
     providerKey: "ygoprodeck",
@@ -146,12 +150,21 @@ const providerSyncJourneys: readonly ProviderSyncJourney[] = [
   },
 ];
 
+const providerSyncJourneys =
+  providerUatJourneyScope === "all-provider-regression"
+    ? [...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
+    : onePieceLaunchProviderSyncJourneys;
+
 test.describe("catalog staging provider sync UAT", () => {
-  test("operator syncs One Piece, Pokemon, MTG, and existing provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({
+  test("operator syncs One Piece, Pokemon, and MTG from the shared importer UI @catalog-staging-provider-uat", async ({
     page,
   }) => {
     test.setTimeout(1_800_000);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
+    test.skip(
+      !["one-piece-launch", "all-provider-regression"].includes(providerUatJourneyScope),
+      `Unsupported CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${providerUatJourneyScope}.`,
+    );
     test.skip(
       !catalogAdminEmail || !catalogAdminPassword,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for staging provider sync UAT.",
@@ -376,11 +389,11 @@ async function expectImportJobSettledForSelectedUnit(
   while (Date.now() < deadline) {
     observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
     const changedRows = observedRows.filter((row) => !previous.has(row));
-    const unsuccessful = changedRows.find((row) => /\b(failed|cancelled)\b/i.test(row));
+    const unsuccessful = changedRows.find(importJobRowReachedUnsuccessfulTerminal);
     if (unsuccessful) {
       throw new Error(`Import job for ${unitKey} reached an unsuccessful terminal state: ${unsuccessful}`);
     }
-    const completed = changedRows.find((row) => /\bcompleted\b/i.test(row));
+    const completed = changedRows.find(importJobRowReachedCompletedTerminal);
     if (completed) {
       console.log(
         `[catalog-staging-provider-uat] ${unitKey} completed for ${selectedScope.displayLabel}: ${completed}`,
@@ -396,6 +409,14 @@ async function expectImportJobSettledForSelectedUnit(
       observedRows.join(" | ") || "none"
     }`,
   );
+}
+
+function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
+  return /\bimport job \S+ is (?:failed|cancelled)\b/i.test(row);
+}
+
+function importJobRowReachedCompletedTerminal(row: string): boolean {
+  return /\bimport job \S+ is completed\b/i.test(row);
 }
 
 function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
