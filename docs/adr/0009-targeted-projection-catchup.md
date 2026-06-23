@@ -27,11 +27,12 @@ Do not add route-time fast-path projection catchup to the customer read path for
 The accepted platform contract remains:
 
 1. command writes return durable commit receipt metadata;
-2. browser redirects and server route fetches forward the receipt and target context;
-3. read consistency middleware waits on the exact projection dependencies declared by the owning context;
-4. route loaders render temporary recovery while a fresh receipt is still valid;
-5. projection workers drain owned projection groups under leases, fencing, idempotent application ledger claims, statement timeouts, and poison-event isolation;
-6. operators use projection operations for repair work such as rebuild and blocked-stream retry.
+2. browser redirects use `navigateAfterWrite` to carry the receipt and optional semantic handoff;
+3. destination loaders use `loadAfterWrite`, and server route fetches forward the receipt and target context;
+4. read consistency middleware waits on exact projection dependencies declared by the owning context, preferring `readModelTable` ownership when available;
+5. route recovery boundaries render temporary recovery only while a fresh receipt is still valid and the failure is projection visibility rather than readiness/source disagreement;
+6. projection workers drain owned projection groups under leases, fencing, idempotent application ledger claims, statement timeouts, and poison-event isolation;
+7. operators use projection operations for repair work such as rebuild and blocked-stream retry.
 
 #1072 should close as not planned after this ADR lands. A future fast-path proposal must reopen with new measured evidence that the baseline path cannot meet the Checkout freshness SLO after worker topology, canary, and E2E evidence are complete.
 
@@ -69,3 +70,4 @@ Create a new design issue before implementing any fast-path catchup if all of th
 - #1072 is not required for milestone closure and should be closed as not planned.
 - #1082, #1074, #1075, and #1086 remain the right closure path for proving the baseline contract in staging and production evidence.
 - Future work must not add a route-time projection runner or hidden synchronous drain without a new accepted ADR or design record.
+- Default-safe post-write route helpers do not change the no-go decision. They standardize receipt propagation, bounded retry, and recovery classification; they do not synchronously drain projections or make realtime correction a first-read guarantee.

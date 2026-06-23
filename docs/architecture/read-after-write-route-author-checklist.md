@@ -1,8 +1,10 @@
-# Read-After-Write Route Author Checklist
+# Advanced Read-After-Write Route Author Checklist
 
 ## Purpose
 
-Use this checklist when a browser action writes durable state and immediately redirects or refreshes to a route whose loader reads a projection-backed API resource. The route author contract is:
+Use the default-safe path first: source actions call `navigateAfterWrite` or `navigateAfterWriteFromSources`, destination loaders call `loadAfterWrite`, and the route maps the returned result through its recovery boundary. The canonical migration steps live in [Post-Write Consistency Policy: Migrating An Existing Route](./post-write-consistency.md#migrating-an-existing-route).
+
+This checklist is advanced authoring guidance for browser actions that write durable state and immediately redirect or refresh to a route whose loader reads a projection-backed API resource when the route needs bespoke review. Typical reasons are semantic handoff predicates, cookie-backed continuations, shared API mounts, file-level helper scans, temporary exceptions, or unusual dependency proof. The route author contract is still:
 
 1. The write response returns source-context commit receipt metadata.
 2. The browser route carries that receipt in a short-lived `afterWrite` token.
@@ -10,7 +12,7 @@ Use this checklist when a browser action writes durable state and immediately re
 4. The API read consistency gate waits only for the exact projection groups required by the destination route.
 5. The destination route treats `404`, `projection_freshness_timeout`, and any route-bounded gateway/service timeout as temporary only while the original token is valid.
 
-This pattern prevents a user-facing "not found" after a successful write without turning every read into a synchronous projection drain.
+The helper path implements this pattern without turning every read into a synchronous projection drain. Route authors should not hand-build `afterWrite`, manually parse `postWriteHandoff`, or duplicate `loadAfterWrite` classification for ordinary routes.
 
 When the destination can return a stale but successful shape, use the [Semantic Post-Write Handoffs](./semantic-post-write-handoffs.md) extension. `postWriteHandoff` is query metadata paired with `afterWrite`; it lets the destination distinguish an expected post-command outcome from a stale `200` empty collection, stale unchanged resource, or `404`. It is not a new header and does not change API freshness waits.
 
@@ -21,10 +23,10 @@ For flows that do not need a projection-backed immediate read, first choose the 
 - Identify the source action and command that writes durable state.
 - Identify the destination browser route, API context, API `GET` or `HEAD` route, and read-model table or projection group used by the first loader read.
 - Ensure the write result includes `Chase-Sets-Commit-Receipt` or source-aware commit metadata that `appendFreshWriteToken` can encode.
-- Add the `afterWrite` token with `appendFreshWriteToken` or `appendFreshWriteTokenFromSources` when redirecting to the destination.
-- Use `appendPostWriteHandoff` or `appendPostWriteHandoffFromSources` when the destination also needs semantic pending recovery for a stale `200` empty, stale unchanged resource, or `404`.
-- Load the destination with `loadFreshlyWrittenResource` only for the projection-backed resource that may lag.
-- Evaluate semantic expectations in the destination with `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` against the browser request and loaded data; missing, malformed, expired, or unpaired handoffs are normal non-applicable states.
+- Add the `afterWrite` token with `navigateAfterWrite` or `navigateAfterWriteFromSources` when redirecting to the destination.
+- Pass a `handoff` option to `navigateAfterWrite` or `navigateAfterWriteFromSources` when the destination also needs semantic pending recovery for a stale `200` empty, stale unchanged resource, or `404`.
+- Load the destination with `loadAfterWrite` only for the projection-backed resource that may lag.
+- Evaluate semantic expectations through the `loadAfterWrite` `isHandoffSatisfied` option. Use lower-level `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` only for bespoke routes that cannot use the helper result shape; missing, malformed, expired, or unpaired handoffs are normal non-applicable states.
 - Use request clients built on `@chase-sets/platform-runtime/http` so server-side fetches preserve `Chase-Sets-Read-After-Write`.
 - Pass `readTargetContextName` from context-owned request clients on shared mounts such as `/api/marketplace`.
 - Declare the destination API route in the owning context's `apiMounts[].readFreshnessRoutes`.
@@ -50,6 +52,8 @@ Projection waits must stay narrow. For each destination API route, prefer a `rea
 
 Use `projectionName` when the route depends on a projection group rather than a single declared table. Do not declare broad context-level waits for a critical post-write route. If a table is read immediately after a write, it must appear in exactly one projection group's `ownedTables` so the gate can resolve it without ambiguity.
 
+Use `projectionName` only when the route truly needs projection-level proof, such as a multi-table read whose projection cannot be represented by one table owner. Add `freshnessDependencyReason` in the route inventory for projection-level dependencies so reviewers can see why a `readModelTable` dependency was not enough.
+
 Shared API mounts must include the target context header. Without `Chase-Sets-Read-Target-Context`, two contexts exposing similar route shapes under `/api/marketplace` can cause unrelated projections to be selected or skipped.
 
 ## Route Inventory Fields
@@ -62,12 +66,12 @@ Every helper use in production route modules must be represented in `readAfterWr
 - `source.routeId` or `source.routeIds`: route contribution that creates or refreshes the write.
 - `source.actions`: customer or operator actions that trigger the write.
 - `source.command`: domain command or command family.
-- `source.helperUses`: `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, `appendPostWriteHandoff`, `appendPostWriteHandoffFromSources`, or the subset used by the route.
+- `source.helperUses`: `navigateAfterWrite`, `navigateAfterWriteFromSources`, or the lower-level `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, `appendPostWriteHandoff`, `appendPostWriteHandoffFromSources` subset used by a bespoke route.
 - `destination.routeId`: browser route that performs the post-write read.
 - `destination.apiContextName`: context serving the API read.
 - `destination.apiRoutePath`: route path matching `apiMounts[].readFreshnessRoutes[].routePath`.
 - `destination.readModelTables` or `destination.projectionDependencies`: exact dependency proof.
-- `destination.helperUses`: loader helper, usually `loadFreshlyWrittenResource`; include `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` when semantic handoff metadata is consumed.
+- `destination.helperUses`: loader helper, usually `loadAfterWrite`; include lower-level `loadFreshlyWrittenResource`, `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` only when the route cannot use the default helper result shape.
 - `destination.transientRecovery`: object with `kinds` and `behavior`. `kinds` is the canonical post-write recovery kind or array of kinds that the route can surface. `behavior` describes the route-owned customer recovery behavior. Use `refreshable-catching-up` for valid fresh-write `404`, `projection_freshness_timeout`, or bounded gateway/service lag; add `pending-projection` when a valid semantic handoff can leave a stale successful response pending; use the remaining canonical kinds only when the route explicitly documents that terminal or user-action recovery state.
 
 File-level entries are allowed only when the scanner cannot map a helper use to a deployable route contribution. Prefer route ids whenever possible.
@@ -115,6 +119,8 @@ Temporary states:
 - Fresh token plus a route-bounded opaque `502`, `503`, or `504`: the route may show the same temporary recovery UI when the request client intentionally prevents an outer platform timeout.
 - Fresh token plus valid `postWriteHandoff` whose expectation is not yet visible in a stale `200` response: the route may show the same bounded pending UI.
 
+Temporary states are projection-visibility states. They are not domain/readiness/source blockers. A fresh token must not turn stale checkout readiness, split-group handoff disagreement, unresolved fulfillment, blocked payout readiness, validation failure, authorization failure, or a true missing source into preparation UI.
+
 Permanent states:
 
 - Missing token.
@@ -124,6 +130,8 @@ Permanent states:
 - `401`, `403`, or unrelated API errors unless the route has separate protected-resource recovery.
 
 Do not mint a replacement token after timeout, refresh indefinitely, or convert old manual URLs into temporary states. Token validity and retry budgets are the termination rule.
+
+Do not keep a spinner or disabled action past the retry budget. When `loadAfterWrite` returns `permanent-failure`, render the context-owned recovery instead of retrying in place.
 
 Semantic handoffs should be added only when an audit finds a successful command can be hidden by stale `200` empty, stale unchanged resource, or `404`. Durable job/status flows, admin operation pages, and command responses that already carry a committed visible snapshot should stay with their existing `mutationConsistencyInventory` strategies instead of being forced into browser handoffs.
 
@@ -145,12 +153,13 @@ Checkout guest Buy Now:
 - API route: Checkout `/account/checkout-sessions/:sessionId`.
 - Dependency: `checkout_session_pages`, owned by `checkout.session-projection`.
 - Inventory id: `checkout.session-start-to-detail`.
-- Recovery: valid fresh-write `404`, `projection_freshness_timeout`, or route-bounded gateway/service timeout renders temporary checkout preparation UI; expired handoff renders safe restart copy that confirms payment has not started.
+- Helper path: source calls `navigateAfterWrite`; destination calls `loadAfterWrite`; the Checkout recovery boundary maps helper results into readiness/source outcomes.
+- Recovery: valid fresh-write `404`, `projection_freshness_timeout`, or route-bounded gateway/service timeout renders temporary checkout preparation UI; stale readiness, split-group handoff disagreement, validation, auth, and domain blockers render review/restart/access recovery; expired handoff renders safe restart copy that confirms payment has not started.
 
 Item detail add-to-cart to Buy Cart semantic handoff:
 
 - Source route: `item-detail`.
-- Source behavior: Discovery returns the committed Checkout cart-line snapshot and builds `viewCartHref` with `appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF)`.
+- Source behavior: Discovery returns the committed Checkout cart-line snapshot and builds `viewCartHref` with `navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF })`.
 - Destination route: `account-cart`.
 - API route: Checkout `/account/cart`.
 - Dependency: `checkout_cart_line_pages`, owned by `checkout.cart-projection`.
@@ -174,7 +183,8 @@ Marketplace listing create to detail:
 - API route: Marketplace `/account/listings/:id`.
 - Dependency: `marketplace_listing_pages`, owned by `marketplace-listing-projection`.
 - Inventory id: `marketplace.listing-create-to-detail`.
-- Recovery: listing detail retries fresh-write not-found while the listing projection catches up.
+- Helper path: source calls `navigateAfterWrite`; destination calls `loadAfterWrite`.
+- Recovery: listing detail renders bounded preparing recovery while the listing projection catches up, then preserves normal not-found/access behavior for old URLs or permanent failures.
 
 Admin durable job/status non-example:
 
