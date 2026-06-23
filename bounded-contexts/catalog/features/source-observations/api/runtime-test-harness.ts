@@ -10,6 +10,9 @@ import type {
   SourceObservationMagicSetReferenceNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationNormalized,
+  SourceObservationOnePieceCardPrintNormalized,
+  SourceObservationOnePieceSetReferenceNormalized,
+  SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
 } from "../domain/domain";
 import {
@@ -349,6 +352,97 @@ export function magicSetReferenceObservation(
     releaseYear: 2006,
     cardCount: 301,
     productLineName: "Magic: The Gathering",
+    imageUrls: [],
+    externalCatalogItemReferences: [],
+    ...input,
+  };
+}
+
+export function onePieceCardPrintObservation(
+  input: Partial<SourceObservationOnePieceCardPrintNormalized> = {},
+): SourceObservationOnePieceCardPrintNormalized {
+  return {
+    kind: "one-piece-card-print",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Monkey.D.Luffy",
+    cardNumber: "OP01-001",
+    setId: "op01",
+    setCode: "OP01",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    rarity: "L",
+    cardType: "Leader",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Monkey.D.Luffy",
+      collectorNumber: "OP01-001",
+      languageCode: "en",
+      productForm: "one-piece-card-print",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
+  };
+}
+
+export function onePieceSealedProductObservation(
+  input: Partial<SourceObservationOnePieceSealedProductNormalized> = {},
+): SourceObservationOnePieceSealedProductNormalized {
+  return {
+    kind: "one-piece-sealed-product",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Romance Dawn Booster Box",
+    cardNumber: null,
+    setId: "op01",
+    setCode: "OP01",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    sealedProductForm: "booster-box",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    productLineName: "One Piece Card Game",
+    barcode: null,
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "one-piece",
+      productLineName: "One Piece Card Game",
+      setName: "Romance Dawn",
+      printedProductName: "Romance Dawn Booster Box",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "booster-box",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
+  };
+}
+
+export function onePieceSetReferenceObservation(
+  input: Partial<SourceObservationOnePieceSetReferenceNormalized> = {},
+): SourceObservationOnePieceSetReferenceNormalized {
+  return {
+    kind: "one-piece-set-reference",
+    tcg: "one-piece",
+    languageCode: "en",
+    name: "Romance Dawn",
+    cardNumber: null,
+    setId: "op01",
+    setCode: "OP01",
+    setName: "Romance Dawn",
+    expansionName: "Romance Dawn",
+    releaseDate: "2022-12-02",
+    releaseYear: 2022,
+    cardCount: 121,
+    productLineName: "One Piece Card Game",
     imageUrls: [],
     externalCatalogItemReferences: [],
     ...input,

@@ -8,6 +8,9 @@ import {
   magicCardPrintObservation,
   magicSetReferenceObservation,
   magicSealedProductObservation,
+  onePieceCardPrintObservation,
+  onePieceSealedProductObservation,
+  onePieceSetReferenceObservation,
   pokemonObservation,
 } from "./runtime-test-harness";
 
@@ -494,6 +497,43 @@ describe("source observation runtime: promotion and reapply", () => {
           promotionProfileKey: "mtg-set-reference-data",
           promotionProfileVersion: "2026.06.19",
           promotionPlanFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        }),
+      }),
+    );
+  });
+
+  it("promotes Scrydex One Piece set-reference observations into Reference Records", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scrydex",
+      externalKey: "set:op01",
+      sourceUrl: "https://api.scrydex.example/onepiece/v1/expansions/op01",
+      sourceProfileKey: "scrydex-one-piece-set-reference",
+      sourceProfileVersion: "2026.06.22",
+      sourceMappingFingerprint: "fingerprint:scrydex:one-piece-set:2026.06.22",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: onePieceSetReferenceObservation(),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: null,
+      referenceRecordId: "ref_op01",
+    });
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promoted",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_op01",
+          promotionProfileKey: "one-piece-set-reference-data",
+          promotionProfileVersion: "2026.06.22",
         }),
       }),
     );
@@ -987,6 +1027,130 @@ describe("source observation runtime: promotion and reapply", () => {
           promotionProfileKey: "mtg-sealed-product-sku",
           promotionProfileVersion: "2026.06.19",
         }),
+      }),
+    );
+  });
+
+  it("promotes One Piece card prints with set fields and TCGplayer marketplace references", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scrydex",
+      externalKey: "card:op01-001",
+      sourceUrl: "https://api.scrydex.example/onepiece/v1/cards/op01-001",
+      sourceProfileKey: "scrydex-one-piece-card-print",
+      sourceProfileVersion: "2026.06.22",
+      sourceMappingFingerprint: "fingerprint:scrydex:one-piece-card:2026.06.22",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: onePieceCardPrintObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:555001" }],
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:888001",
+            selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+          },
+        ],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result.observationId).toBe("obs_changed");
+    expect(result.catalogItemId).toMatch(/^cat_/);
+    expect(harness.itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "AssignBlueprintToCatalogItem",
+            blueprintId: "bpr_one-piece-card-print",
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "SetCatalogItemFieldValue",
+            fieldId: "fld_set",
+            value: { referenceId: "ref_op01" },
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "LinkExternalCatalogItemReference",
+            providerKey: "tcgplayer",
+            externalKey: "product:555001",
+          }),
+        }),
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "LinkExternalProductReference",
+            providerKey: "tcgplayer",
+            externalKey: "sku:888001",
+            selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("reapplies promoted One Piece sealed products without replacing the Catalog Item or SKU options", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scrydex",
+      externalKey: "sealed:op01-booster-box",
+      sourceProfileKey: "scrydex-one-piece-sealed-product",
+      sourceProfileVersion: "2026.06.22",
+      sourceMappingFingerprint: "fingerprint:scrydex:one-piece-sealed:2026.06.22",
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing_one_piece_sealed",
+      normalized: onePieceSealedProductObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:555900" }],
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:888900",
+            selectedOptions: [{ dimensionId: "dim_language", optionId: "opt_english" }],
+          },
+        ],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const firstResult = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "current-active-profile",
+    });
+
+    expect(firstResult).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      failed: 0,
+      outcomes: [{ observationId: "obs_changed", status: "reapplied", catalogItemId: "cat_existing_one_piece_sealed" }],
+    });
+    expect(harness.itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          streamId: "catalog.item-cat_existing_one_piece_sealed",
+          command: expect.objectContaining({
+            type: "ReviseCatalogItemMetadata",
+          }),
+        }),
+        expect.objectContaining({
+          streamId: "catalog.item-cat_existing_one_piece_sealed",
+          command: expect.objectContaining({
+            type: "LinkExternalProductReference",
+            providerKey: "tcgplayer",
+            externalKey: "sku:888900",
+            selectedOptions: [{ dimensionId: "dim_language", optionId: "opt_english" }],
+          }),
+        }),
+      ]),
+    );
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
       }),
     );
   });
