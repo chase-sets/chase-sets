@@ -2,9 +2,15 @@ import { t } from "@chase-sets/localization";
 import { useCallback, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { SettlementApiError, createSettlementApiClient, type SettlementPayoutReadinessRow } from "../../client";
+import {
+  SettlementApiError,
+  createSettlementApiClient,
+  type SettlementPayoutReadinessRow,
+  type SettlementPayoutSetupRefreshResult,
+} from "../../client";
 import { createSettlementRequestApiClient } from "../../support/request-support/api-client";
 import { PayoutSetupPage, type PayoutSetupMode } from "../../features/payout-readiness/ui/payout-setup-page";
 
@@ -49,7 +55,25 @@ function stripePublishableKey(env: NodeJS.ProcessEnv = process.env) {
   return env.STRIPE_PUBLISHABLE_KEY?.trim() || null;
 }
 
-function setupRouteForMode(mode: PayoutSetupMode, setupNotice?: "updated") {
+function safeAccountReturnTo(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
+    return null;
+  }
+
+  try {
+    const url = new URL(raw, "http://localhost");
+    if (url.origin !== "http://localhost" || !url.pathname.startsWith("/account/")) {
+      return null;
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function setupRouteForMode(mode: PayoutSetupMode, setupNotice?: "updated", returnTo?: string | null) {
   const url = new URL("http://local/account/payouts/setup");
   if (mode === "management") {
     url.searchParams.set("mode", "manage");
@@ -57,7 +81,21 @@ function setupRouteForMode(mode: PayoutSetupMode, setupNotice?: "updated") {
   if (setupNotice) {
     url.searchParams.set("setup", setupNotice);
   }
+  if (returnTo) {
+    url.searchParams.set("returnTo", returnTo);
+  }
   return `${url.pathname}${url.search}`;
+}
+
+function returnToWithPayoutFreshness(
+  returnTo: string | null,
+  refreshResult: SettlementPayoutSetupRefreshResult,
+): string | null {
+  if (!returnTo || refreshResult.status !== "ready") {
+    return null;
+  }
+
+  return appendFreshWriteToken(returnTo, refreshResult);
 }
 
 export function resolvePayoutSetupMode(
@@ -80,10 +118,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const settlementApi = createSettlementRequestApiClient(request);
   const payoutReadiness = await settlementApi.getPayoutReadiness();
   const mode = resolvePayoutSetupMode(requestUrl, payoutReadiness as SettlementPayoutReadinessRow);
+  const returnTo = safeAccountReturnTo(requestUrl.searchParams.get("returnTo"));
 
   return {
     payoutReadiness,
     mode,
+    returnTo,
     stripePublishableKey: stripePublishableKey(),
     setupNotice:
       requestUrl.searchParams.get("setup") === "updated"
@@ -100,18 +140,24 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const mode = formData.get("mode") === "management" ? "management" : "setup";
+  const returnTo = safeAccountReturnTo(new URL(request.url).searchParams.get("returnTo"));
   const settlementApi = createSettlementRequestApiClient(request);
 
   try {
     if (intent === "refresh-payout-setup") {
       const payoutReadiness = await settlementApi.refreshPayoutSetup();
+      const returnHref = returnToWithPayoutFreshness(returnTo, payoutReadiness);
+      if (returnHref) {
+        return redirect(returnHref);
+      }
+
       return {
         payoutReadiness,
         setupNotice: t("settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.was.refreshed"),
       };
     }
 
-    return redirect(setupRouteForMode(mode));
+    return redirect(setupRouteForMode(mode, undefined, returnTo));
   } catch (error) {
     if (error instanceof SettlementApiError) {
       return { error: error.message };
@@ -136,7 +182,14 @@ export default function MarketplaceAccountPayoutSetupRoute() {
   const handleProviderExit = useCallback(async () => {
     setProviderErrorMessage(null);
     try {
-      setProviderReadinessSnapshot(await createSettlementApiClient().refreshPayoutSetup());
+      const refreshedReadiness = await createSettlementApiClient().refreshPayoutSetup();
+      const returnHref = returnToWithPayoutFreshness(data.returnTo, refreshedReadiness);
+      if (returnHref) {
+        window.location.assign(returnHref);
+        return;
+      }
+
+      setProviderReadinessSnapshot(refreshedReadiness);
       revalidator.revalidate();
     } catch (error) {
       setProviderErrorMessage(
@@ -145,7 +198,7 @@ export default function MarketplaceAccountPayoutSetupRoute() {
           : t("settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.could.not"),
       );
     }
-  }, [revalidator]);
+  }, [data.returnTo, revalidator]);
 
   return (
     <PayoutSetupPage

@@ -264,7 +264,7 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("bank account");
     expect(markup).toContain("No ready Smart Match offers are available for this line.");
     expect(markup).toContain("Set up payouts");
-    expect(markup).toContain('href="/account/payouts/setup"');
+    expect(markup).toContain('href="/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"');
     expect(markup).toContain("Create listing");
     expect(markup).toContain("Add inventory");
     expect(markup).toContain('href="/account/listings?catalogItemId=cat_charizard');

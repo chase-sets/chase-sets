@@ -7,6 +7,7 @@ export type {
   SettlementPayoutRow,
   SettlementPayoutPreview,
   SettlementProviderIdempotencyKeyRow,
+  SettlementPayoutSetupRefreshResult,
   SettlementPayoutReadinessRow,
   SettlementReconciliationRunRow,
   SettlementWalletRow,
