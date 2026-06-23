@@ -38,6 +38,7 @@ const DEFAULT_CONTACT_NAME = "Guest Buy Now Canary";
 const DEFAULT_GUEST_EMAIL = "guest-buy-now-canary@chasesets.test";
 const DEFAULT_SEARCH_QUERY = "charizard";
 const MAX_ATTEMPT_LIMIT = 10;
+const MAX_FIXTURE_CANDIDATES = 20;
 const READY_POLL_INTERVAL_MS = 250;
 const SLO_MODES = ["warn", "gate"];
 // The 10s ready budget is an interim value pending the #1237 numeric SLO/load
@@ -489,48 +490,71 @@ async function observeBuyNowCheckout(options) {
     }
 
     stage = "resolve-buy-now-fixture";
-    const itemPath = await resolveGuestBuyNowItemPath(options, fixtureFetch ?? fetch);
-    const itemUrl = new URL(itemPath, baseUrl);
-    stage = "load-buy-now-item-page";
-    await page.goto(itemUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
-    const buyNowButton = page
-      .locator(
-        'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
-      )
-      .first();
+    const fixtureCandidates = await resolveGuestBuyNowItemCandidates(options, fixtureFetch ?? fetch, {
+      requireCheckoutReady: flow === "account",
+    });
+    let checkoutStartRecoveryObservation = null;
 
-    let startedAt;
-    if (flow === "account") {
-      startedAt = Date.now();
-      stage = "click-account-buy-now";
-      await buyNowButton.click({ timeout: options.timeoutMs });
-    } else {
-      stage = "click-guest-buy-now";
-      await buyNowButton.click({ timeout: options.timeoutMs });
-      stage = "wait-guest-buy-readiness";
-      await page.waitForURL(BUY_READINESS_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
-      stage = "fill-guest-contact";
-      await page.getByLabel(/contact name/i).fill(options.contactName);
-      await page.getByLabel(/email/i).fill(options.guestEmail);
-      startedAt = Date.now();
-      stage = "submit-guest-contact";
-      await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
-    }
+    for (const fixtureCandidate of fixtureCandidates) {
+      const itemUrl = new URL(fixtureCandidate.path, baseUrl);
+      stage = "load-buy-now-item-page";
+      await page.goto(itemUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
+      const buyNowButton = page
+        .locator(
+          'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
+        )
+        .first();
 
-    stage = "wait-buy-checkout-session";
-    const sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs);
-    if (sessionStart.kind === "checkout-start-recovery") {
-      const cookies = await context.cookies(baseUrl);
+      let startedAt;
+      if (flow === "account") {
+        startedAt = Date.now();
+        stage = "click-account-buy-now";
+        await buyNowButton.click({ timeout: options.timeoutMs });
+      } else {
+        stage = "click-guest-buy-now";
+        await buyNowButton.click({ timeout: options.timeoutMs });
+        stage = "wait-guest-buy-readiness";
+        await page.waitForURL(BUY_READINESS_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
+        stage = "fill-guest-contact";
+        await page.getByLabel(/contact name/i).fill(options.contactName);
+        await page.getByLabel(/email/i).fill(options.guestEmail);
+        startedAt = Date.now();
+        stage = "submit-guest-contact";
+        await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
+      }
+
+      stage = "wait-buy-checkout-session";
+      const sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs);
+      if (sessionStart.kind === "checkout-start-recovery") {
+        checkoutStartRecoveryObservation = await checkoutStartRecoveryObservationFromPage({
+          context,
+          baseUrl,
+          page,
+          sessionStart,
+          startedAt,
+          checkoutDocumentStatuses,
+        });
+        continue;
+      }
+      const redirectedAt = sessionStart.observedAt;
+      stage = "load-checkout-session-document";
+      await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
+      const documentAt = Date.now();
+      stage = "watch-checkout-readiness";
+      const readiness = await watchCheckoutReadiness(page, startedAt, options.readySloMs);
+
       const finalUrl = new URL(page.url());
-      const pageText = sessionStart.pageText;
-      return {
-        latencyMs: sessionStart.observedAt - startedAt,
-        readyLatencyMs: null,
+      const cookies = await context.cookies(baseUrl);
+      const pageText = readiness.pageText;
+      const waitMode = detectWaitMode(pageText);
+      const observation = {
+        latencyMs: Date.now() - startedAt,
+        readyLatencyMs: readiness.readyAt === null ? null : readiness.readyAt - startedAt,
         segments: {
-          writeToRedirectMs: null,
-          redirectToDocumentMs: null,
-          documentToReadyMs: null,
-          writeToCheckoutReadyMs: null,
+          writeToRedirectMs: redirectedAt - startedAt,
+          redirectToDocumentMs: documentAt - redirectedAt,
+          documentToReadyMs: readiness.readyAt === null ? null : readiness.readyAt - documentAt,
+          writeToCheckoutReadyMs: readiness.readyAt === null ? null : readiness.readyAt - startedAt,
         },
         afterWritePresent: finalUrl.searchParams.has("afterWrite"),
         guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
@@ -538,58 +562,68 @@ async function observeBuyNowCheckout(options) {
         permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
         checkoutStartRecoveryVisible: CHECKOUT_START_RECOVERY_PATTERN.test(pageText),
         temporaryRecoveryVisible: TEMPORARY_RECOVERY_PATTERN.test(pageText),
-        temporaryRecoveryObserved: TEMPORARY_RECOVERY_PATTERN.test(pageText),
+        temporaryRecoveryObserved: readiness.temporaryRecoveryObserved,
         checkoutReviewVisible: CHECKOUT_REVIEW_PATTERN.test(pageText),
         platformErrorVisible: PLATFORM_ERROR_PATTERN.test(pageText),
         checkoutDocumentStatus: checkoutDocumentStatuses.at(-1) ?? null,
-        stateWaitOutcome: "matched",
-        waitMode: detectWaitMode(pageText),
+        stateWaitOutcome: readiness.stateWaitOutcome,
+        waitMode,
         pageText,
-        negativeProbe: { attempted: false },
+        negativeProbe: options.skipNegativeProbe
+          ? { attempted: false }
+          : await runNegativeProbe(page, baseUrl, options),
       };
+
+      return observation;
     }
-    const redirectedAt = sessionStart.observedAt;
-    stage = "load-checkout-session-document";
-    await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
-    const documentAt = Date.now();
-    stage = "watch-checkout-readiness";
-    const readiness = await watchCheckoutReadiness(page, startedAt, options.readySloMs);
 
-    const finalUrl = new URL(page.url());
-    const cookies = await context.cookies(baseUrl);
-    const pageText = readiness.pageText;
-    const waitMode = detectWaitMode(pageText);
-    const observation = {
-      latencyMs: Date.now() - startedAt,
-      readyLatencyMs: readiness.readyAt === null ? null : readiness.readyAt - startedAt,
-      segments: {
-        writeToRedirectMs: redirectedAt - startedAt,
-        redirectToDocumentMs: documentAt - redirectedAt,
-        documentToReadyMs: readiness.readyAt === null ? null : readiness.readyAt - documentAt,
-        writeToCheckoutReadyMs: readiness.readyAt === null ? null : readiness.readyAt - startedAt,
-      },
-      afterWritePresent: finalUrl.searchParams.has("afterWrite"),
-      guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
-      sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
-      permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
-      checkoutStartRecoveryVisible: CHECKOUT_START_RECOVERY_PATTERN.test(pageText),
-      temporaryRecoveryVisible: TEMPORARY_RECOVERY_PATTERN.test(pageText),
-      temporaryRecoveryObserved: readiness.temporaryRecoveryObserved,
-      checkoutReviewVisible: CHECKOUT_REVIEW_PATTERN.test(pageText),
-      platformErrorVisible: PLATFORM_ERROR_PATTERN.test(pageText),
-      checkoutDocumentStatus: checkoutDocumentStatuses.at(-1) ?? null,
-      stateWaitOutcome: readiness.stateWaitOutcome,
-      waitMode,
-      pageText,
-      negativeProbe: options.skipNegativeProbe ? { attempted: false } : await runNegativeProbe(page, baseUrl, options),
-    };
+    if (checkoutStartRecoveryObservation) {
+      return checkoutStartRecoveryObservation;
+    }
 
-    return observation;
+    throw new Error("Guest Buy Now canary found no checkout-ready marketplace fixture candidates.");
   } catch (error) {
     throw canaryRuntimeError(stage, error);
   } finally {
     await browser.close();
   }
+}
+
+async function checkoutStartRecoveryObservationFromPage({
+  context,
+  baseUrl,
+  page,
+  sessionStart,
+  startedAt,
+  checkoutDocumentStatuses,
+}) {
+  const cookies = await context.cookies(baseUrl);
+  const finalUrl = new URL(page.url());
+  const pageText = sessionStart.pageText;
+  return {
+    latencyMs: sessionStart.observedAt - startedAt,
+    readyLatencyMs: null,
+    segments: {
+      writeToRedirectMs: null,
+      redirectToDocumentMs: null,
+      documentToReadyMs: null,
+      writeToCheckoutReadyMs: null,
+    },
+    afterWritePresent: finalUrl.searchParams.has("afterWrite"),
+    guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
+    sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
+    permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
+    checkoutStartRecoveryVisible: CHECKOUT_START_RECOVERY_PATTERN.test(pageText),
+    temporaryRecoveryVisible: TEMPORARY_RECOVERY_PATTERN.test(pageText),
+    temporaryRecoveryObserved: TEMPORARY_RECOVERY_PATTERN.test(pageText),
+    checkoutReviewVisible: CHECKOUT_REVIEW_PATTERN.test(pageText),
+    platformErrorVisible: PLATFORM_ERROR_PATTERN.test(pageText),
+    checkoutDocumentStatus: checkoutDocumentStatuses.at(-1) ?? null,
+    stateWaitOutcome: "matched",
+    waitMode: detectWaitMode(pageText),
+    pageText,
+    negativeProbe: { attempted: false },
+  };
 }
 
 function canaryRuntimeError(stage, error) {
@@ -655,14 +689,37 @@ function canaryHttpError(message, status) {
 }
 
 function createPageRequestFetch(page) {
-  return async (url) => {
-    const response = await page.request.get(String(url));
+  return async (url, init = {}) => {
+    const method = String(init.method ?? "GET").toUpperCase();
+    const headers = init.headers && typeof init.headers === "object" ? init.headers : undefined;
+    const requestOptions = headers ? { headers } : {};
+    let response;
+    if (method === "POST") {
+      response = await page.request.post(String(url), {
+        ...requestOptions,
+        data: parseFetchBody(init.body),
+      });
+    } else {
+      response = await page.request.get(String(url), requestOptions);
+    }
     return {
       ok: response.ok(),
       status: response.status(),
       json: () => response.json(),
     };
   };
+}
+
+function parseFetchBody(body) {
+  if (typeof body !== "string") {
+    return body;
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
 }
 
 async function waitForBuyCheckoutSessionStart(page, startedAt, timeoutMs) {
@@ -762,9 +819,16 @@ async function runNegativeProbe(page, baseUrl, options) {
 }
 
 export async function resolveGuestBuyNowItemPath(options, fetchImpl = fetch) {
+  const candidates = await resolveGuestBuyNowItemCandidates(options, fetchImpl, {
+    requireCheckoutReady: Boolean(options.requireCheckoutReady),
+  });
+  return candidates[0]?.path;
+}
+
+export async function resolveGuestBuyNowItemCandidates(options, fetchImpl = fetch, resolverOptions = {}) {
   const configuredPath = normalizePath(options.itemPath);
   if (configuredPath) {
-    return configuredPath;
+    return [{ path: configuredPath }];
   }
 
   const baseUrl = normalizeUrl(options.baseUrl);
@@ -791,6 +855,7 @@ export async function resolveGuestBuyNowItemPath(options, fetchImpl = fetch) {
     );
   });
 
+  const buyNowCandidates = [];
   for (const candidate of candidates) {
     const detailUrl = new URL(`/api/marketplace/items/${encodeURIComponent(candidate.slug)}`, baseUrl);
     const detailResponse = await fetchImpl(detailUrl);
@@ -798,27 +863,46 @@ export async function resolveGuestBuyNowItemPath(options, fetchImpl = fetch) {
       continue;
     }
 
-    const path = pathFromBuyableDetail(candidate.slug, await detailResponse.json());
-    if (path) {
-      return path;
+    buyNowCandidates.push(...buyNowCandidatesFromDetail(candidate.slug, await detailResponse.json()));
+    if (buyNowCandidates.length >= MAX_FIXTURE_CANDIDATES) {
+      break;
     }
+  }
+
+  const boundedCandidates = buyNowCandidates.slice(0, MAX_FIXTURE_CANDIDATES);
+  if (resolverOptions.requireCheckoutReady) {
+    const checkoutReadyCandidates = [];
+    for (const candidate of boundedCandidates) {
+      if (await isCheckoutReadyFixtureCandidate(baseUrl, candidate, fetchImpl)) {
+        checkoutReadyCandidates.push(candidate);
+      }
+    }
+    if (checkoutReadyCandidates.length > 0) {
+      return checkoutReadyCandidates;
+    }
+  } else if (boundedCandidates.length > 0) {
+    return boundedCandidates;
   }
 
   throw new Error(`Guest Buy Now canary found no active buyable marketplace item for search query '${searchQuery}'.`);
 }
 
-function pathFromBuyableDetail(slug, detail) {
-  const listing = (Array.isArray(detail?.market_listings) ? detail.market_listings : []).find(
-    (candidate) =>
-      normalizeString(candidate?.listing_id) &&
-      String(candidate?.status ?? "").toLowerCase() === "active" &&
-      Number(candidate?.visible_quantity ?? candidate?.quantity_cap ?? 0) > 0,
-  );
-  if (!listing) {
-    return null;
-  }
+function buyNowCandidatesFromDetail(slug, detail) {
+  return (Array.isArray(detail?.market_listings) ? detail.market_listings : [])
+    .filter(
+      (candidate) =>
+        normalizeString(candidate?.listing_id) &&
+        String(candidate?.status ?? "").toLowerCase() === "active" &&
+        Number(candidate?.visible_quantity ?? candidate?.quantity_cap ?? 0) > 0,
+    )
+    .map((listing) => ({
+      path: pathFromBuyableListing(slug, listing),
+      previewRequest: checkoutPreviewRequestForListing(listing),
+    }));
+}
 
-  const params = new URLSearchParams({ market: "buy" });
+function pathFromBuyableListing(slug, listing) {
+  const params = new URLSearchParams({ market: "buy", listing: normalizeString(listing?.listing_id) ?? "" });
   for (const selection of Array.isArray(listing.selected_options) ? listing.selected_options : []) {
     const dimensionId = normalizeString(selection?.dimensionId);
     const optionId = normalizeString(selection?.optionId);
@@ -828,6 +912,47 @@ function pathFromBuyableDetail(slug, detail) {
   }
 
   return `/items/${slug}?${params.toString()}`;
+}
+
+function checkoutPreviewRequestForListing(listing) {
+  const listingId = normalizeString(listing?.listing_id) ?? "";
+  return {
+    checkoutSessionId: `chk_canary_fixture_preview_${listingId.replace(/[^A-Za-z0-9_:-]/g, "_").slice(0, 80)}`,
+    sourceType: "buy-now",
+    shippingOption: "standard",
+    optimizationGoal: "lowest-total",
+    lines: [
+      {
+        listingId,
+        cartLineId: null,
+        catalogItemId: normalizeString(listing?.catalog_catalog_item_id) ?? "",
+        productId: normalizeString(listing?.product_id) ?? "",
+        itemTitle: normalizeString(listing?.item_title) ?? "",
+        itemSubtitle: normalizeString(listing?.item_subtitle),
+        selectedOptions: Array.isArray(listing?.selected_options) ? listing.selected_options : [],
+        productSummary: normalizeString(listing?.product_summary),
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: listingId,
+        sellerPreferenceId: listingId,
+      },
+    ],
+  };
+}
+
+async function isCheckoutReadyFixtureCandidate(baseUrl, candidate, fetchImpl) {
+  const previewUrl = new URL("/api/marketplace/account/purchases/checkout/preview", baseUrl);
+  const response = await fetchImpl(previewUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(candidate.previewRequest),
+  });
+  if (!response.ok) {
+    return false;
+  }
+
+  const body = await response.json();
+  return Array.isArray(body?.readyLineKeys) && body.readyLineKeys.length > 0;
 }
 
 function detectWaitMode(text) {

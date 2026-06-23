@@ -22,7 +22,7 @@ Until the #1237 numeric SLO/load proof ratifies the budget, `checkout-ready-slo-
 - `--slo-mode` (`GUEST_BUY_NOW_CANARY_SLO_MODE`, default `warn`): `warn` records SLO breaches with user-safe states as release-health warnings without blocking; `gate` aborts the release on any SLO breach.
 - `--attempts` (`GUEST_BUY_NOW_CANARY_ATTEMPTS`, default `1`; the workflow passes `3`): `checkout-ready-slo-exceeded`, controlled `browser-navigation-timeout`, and transient 5xx setup outcomes are retried, matching the rollout decision to hold after repeated live-readiness misses instead of a single flaky browser or platform edge sample. Hard failures (permanent not-found, missing receipt/cookie, platform error page, non-5xx auth/setup failures, negative-probe failures) abort immediately without retry.
 
-The workflow discovers the first active buyable item from `/api/marketplace/items?q=<query>&includeTotal=true`. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session so it also works on hosts that gate the marketplace API behind sign-in.
+The workflow discovers active buyable item candidates from `/api/marketplace/items?q=<query>&includeTotal=true`, pins exact listing ids in the item detail route, and skips checkout-start recovery candidates when the selected listing is not checkout-ready. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known checkout-ready item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session and prefilters candidates with Ordering checkout preview, so it also works on hosts that gate the marketplace API behind sign-in.
 
 ### Flows
 
@@ -86,7 +86,7 @@ The canary measures the browser-visible segments directly and links the server-s
 ## Fixture Ownership
 
 - Operations owns the staging fixture search contract through `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, with `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` available only for deliberate path pinning.
-- The resolved fixture must be an item detail route with Buy Now available to signed-out shoppers (guest flow) and signed-in shoppers (account flow).
+- The resolved fixture must be an item detail route with Buy Now available to signed-out shoppers (guest flow), signed-in shoppers (account flow), and Ordering-preview checkout-ready supply for the selected listing.
 - Representative commerce state refreshes must preserve at least one active buyable item for the canary search query or intentionally update the query and fixture key together.
 - If discovery or the pinned fixture is unavailable, the canary fails closed. Fix representative marketplace state or update the query/path variable before promoting.
 
