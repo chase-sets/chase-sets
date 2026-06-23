@@ -103,13 +103,20 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
       );
     },
     "marketplace.listing.published": async (event) => {
-      await db.query(
+      const listingId = extractIdFromStreamId(event.streamId, "marketplace.listing-");
+      const updated = await db.query<{ inventory_item_id: string | null }>(
         `UPDATE checkout_marketplace_seller_options
          SET status = 'active',
              updated_at = $2
-         WHERE listing_id = $1`,
-        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
+         WHERE listing_id = $1
+         RETURNING inventory_item_id`,
+        [listingId, event.timing.recordedAt],
       );
+
+      const inventoryItemId = updated.rows[0]?.inventory_item_id;
+      if (inventoryItemId) {
+        await recomputeCheckoutSellerOptionSupply(db, inventoryItemId);
+      }
     },
     "marketplace.listing.paused": async (event) => {
       await db.query(

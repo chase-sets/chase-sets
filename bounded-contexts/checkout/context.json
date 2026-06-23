@@ -150,6 +150,9 @@
           "dependencies": [
             {
               "readModelTable": "checkout_cart_line_pages"
+            },
+            {
+              "readModelTable": "checkout_marketplace_seller_options"
             }
           ]
         },
@@ -159,6 +162,9 @@
           "dependencies": [
             {
               "readModelTable": "checkout_cart_line_pages"
+            },
+            {
+              "readModelTable": "checkout_marketplace_seller_options"
             }
           ]
         },
@@ -309,7 +315,7 @@
         "routeId": "account-cart",
         "apiContextName": "checkout",
         "apiRoutePath": "/account/cart",
-        "readModelTables": ["checkout_cart_line_pages"],
+        "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"],
         "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
         "postWriteHandoffs": [
           {
@@ -322,13 +328,13 @@
             "destinationRead": {
               "apiContextName": "checkout",
               "apiRoutePath": "/account/cart",
-              "readModelTables": ["checkout_cart_line_pages"]
+              "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"]
             }
           }
         ],
         "transientRecovery": {
           "kinds": ["pending-projection", "expired-handoff", "action-required", "refreshable-catching-up"],
-          "behavior": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart, converts valid afterWrite projection timeouts or valid add-line empty-cart handoffs into temporary cart recovery, and converts expired add-line handoffs that still read empty into action-required empty-cart recovery while missing, malformed, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
+          "behavior": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart and checkout seller-options read, converts valid afterWrite projection timeouts plus valid add-line empty-cart or selected-listing seller-option catch-up into temporary cart recovery, and converts expired add-line handoffs that still read empty into action-required empty-cart recovery while missing, malformed, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
         }
       }
     },
@@ -352,7 +358,7 @@
             "destinationRead": {
               "apiContextName": "checkout",
               "apiRoutePath": "/guest/cart",
-              "readModelTables": ["checkout_cart_line_pages"]
+              "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"]
             }
           }
         ]
@@ -361,7 +367,7 @@
         "routeId": "account-cart",
         "apiContextName": "checkout",
         "apiRoutePath": "/guest/cart",
-        "readModelTables": ["checkout_cart_line_pages"],
+        "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"],
         "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
         "postWriteHandoffs": [
           {
@@ -374,13 +380,13 @@
             "destinationRead": {
               "apiContextName": "checkout",
               "apiRoutePath": "/guest/cart",
-              "readModelTables": ["checkout_cart_line_pages"]
+              "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"]
             }
           }
         ],
         "transientRecovery": {
           "kinds": ["pending-projection", "expired-handoff", "action-required", "refreshable-catching-up"],
-          "behavior": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff, keeps valid empty-cart handoff states temporary, and converts expired empty-cart handoffs into action-required empty-cart recovery while malformed receipts fall back to the normal empty-cart path."
+          "behavior": "Guest Buy Cart add-line handoffs load the shared account-cart route through the guest cart API; the loader forwards the fresh-write receipt to /guest/cart, waits on checkout_cart_line_pages before evaluating the semantic add-line handoff against the loaded cart and checkout seller-options read, keeps valid empty-cart or selected-listing seller-option catch-up states temporary, and converts expired empty-cart handoffs into action-required empty-cart recovery while malformed receipts fall back to the normal empty-cart path."
         }
       }
     },
@@ -601,10 +607,10 @@
         "routeId": "account-cart",
         "apiContextName": "checkout",
         "apiRoutePath": "/account/cart",
-        "readModelTables": ["checkout_cart_line_pages"],
+        "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
+          "behavior": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages plus checkout seller-options data and shows temporary cart recovery for valid fresh-write projection lag."
         }
       },
       "proof": {

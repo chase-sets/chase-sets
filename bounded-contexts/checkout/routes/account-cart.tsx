@@ -23,6 +23,7 @@ import { readAnonymousCartId } from "../support/request-support/guest-checkout";
 import {
   ACCOUNT_CART_ADD_LINE_HANDOFF_KIND,
   isAccountCartAddLineHandoff,
+  isEmptyAccountCartAddLineHandoff,
   isPendingAccountCartAddLineHandoff,
 } from "../support/request-support/account-cart-handoffs";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
@@ -188,7 +189,7 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
     if (handoff.kind === "not-applicable") {
       if (
         isExpiredAccountCartAddLineHandoff(handoff.state) &&
-        isPendingAccountCartAddLineHandoff(cart, handoff.state.handoff)
+        isEmptyAccountCartAddLineHandoff(cart, handoff.state.handoff)
       ) {
         recordAccountCartSemanticHandoffOutcome(
           actorMode,

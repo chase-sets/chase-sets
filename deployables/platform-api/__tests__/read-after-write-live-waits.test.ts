@@ -282,7 +282,10 @@ describe("checkout exact read-after-write waits (#1225)", () => {
         route: {
           routePath: "/account/cart",
           methods: ["GET", "HEAD"],
-          dependencies: [{ readModelTable: "checkout_cart_line_pages" }],
+          dependencies: [
+            { readModelTable: "checkout_cart_line_pages" },
+            { readModelTable: "checkout_marketplace_seller_options" },
+          ],
         },
       },
     ]);
@@ -295,6 +298,7 @@ describe("checkout exact read-after-write waits (#1225)", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.cart-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
     ]);
   });
 
@@ -314,7 +318,10 @@ describe("checkout exact read-after-write waits (#1225)", () => {
         route: {
           routePath: "/guest/cart",
           methods: ["GET", "HEAD"],
-          dependencies: [{ readModelTable: "checkout_cart_line_pages" }],
+          dependencies: [
+            { readModelTable: "checkout_cart_line_pages" },
+            { readModelTable: "checkout_marketplace_seller_options" },
+          ],
         },
       },
     ]);
@@ -327,6 +334,7 @@ describe("checkout exact read-after-write waits (#1225)", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.cart-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
     ]);
   });
 
