@@ -5,6 +5,8 @@ import type { CatalogServices } from "../../../support/authoring-support/service
 import { sendSeedCommand } from "../../../support/seed-support/context";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { ReferenceRelationship } from "../domain/domain";
+import { buildCatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
+import { catalogAliasStreamId } from "../../alias-equivalence/domain/domain";
 
 type ReferenceTypeDef = Readonly<{
   referenceTypeId: ReferenceTypeId;
@@ -32,9 +34,14 @@ export type MagicReferenceIds = Readonly<{
   sets: Readonly<Record<string, ReferenceRecordId>>;
 }>;
 
+export type OnePieceReferenceIds = Readonly<{
+  sets: Readonly<Record<string, ReferenceRecordId>>;
+}>;
+
 export type CatalogReferenceIds = PokemonReferenceIds &
   Readonly<{
     magic: MagicReferenceIds;
+    onePiece: OnePieceReferenceIds;
   }>;
 
 const referenceTypes: readonly ReferenceTypeDef[] = [
@@ -56,7 +63,7 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
     referenceTypeId: catalogSeedIds.referenceTypes.series,
     key: "series",
     name: "Series",
-    description: "An official Pokemon TCG series that groups expansions.",
+    description: "An official product-line series that groups expansions or sets.",
     attributeKeys: ["tcgdex-series-id"],
   },
   {
@@ -77,13 +84,14 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
     referenceTypeId: catalogSeedIds.referenceTypes.set,
     key: "set",
     name: "Set",
-    description: "An official Magic: The Gathering card set.",
+    description: "An official card set for product lines that use set terminology.",
     attributeKeys: [
       "set-code",
       "printed-card-count",
       "release-date",
       "mtgjson-set-code",
       "scryfall-set-code",
+      "scrydex-set-id",
       "tcgplayer-set-name",
     ],
   },
@@ -91,8 +99,10 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
 
 const manufacturerId = catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational;
 const magicManufacturerId = catalogSeedIds.referenceRecords.manufacturers.wizardsOfTheCoast;
+const onePieceManufacturerId = catalogSeedIds.referenceRecords.manufacturers.bandai;
 const productLineId = catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame;
 const magicProductLineId = catalogSeedIds.referenceRecords.productLines.magicTheGathering;
+const onePieceProductLineId = catalogSeedIds.referenceRecords.productLines.onePieceCardGame;
 const seriesIds = catalogSeedIds.referenceRecords.series;
 const expansionIds = catalogSeedIds.referenceRecords.expansions;
 const setIds = catalogSeedIds.referenceRecords.sets;
@@ -141,6 +151,28 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "short-name": "MTG",
     },
     relationships: [{ relationshipType: "published-by", referenceId: magicManufacturerId }],
+  },
+  {
+    referenceRecordId: onePieceManufacturerId,
+    typeKey: "manufacturer",
+    key: "bandai",
+    name: "Bandai",
+    description: "Publisher and manufacturer of the One Piece Card Game.",
+    attributes: {
+      "homepage-url": "https://www.bandai.com",
+    },
+  },
+  {
+    referenceRecordId: onePieceProductLineId,
+    typeKey: "product-line",
+    key: "one-piece-card-game",
+    name: "One Piece Card Game",
+    description: "The One Piece Card Game product line.",
+    attributes: {
+      "official-name": "One Piece Card Game",
+      "short-name": "One Piece",
+    },
+    relationships: [{ relationshipType: "published-by", referenceId: onePieceManufacturerId }],
   },
   {
     referenceRecordId: seriesIds.base,
@@ -228,6 +260,13 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
     "scryfall-set-code": "tsp",
     "tcgplayer-set-name": "Time Spiral",
   }),
+  onePieceSet("romance-dawn", "Romance Dawn", setIds.romanceDawn, {
+    "set-code": "OP-01",
+    "printed-card-count": 121,
+    "release-date": "2022-12-02",
+    "scrydex-set-id": "op-01",
+    "tcgplayer-set-name": "Romance Dawn",
+  }),
 ];
 
 const magicReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
@@ -235,6 +274,12 @@ const magicReferenceRecordIds = new Set<ReferenceRecordId>([
   magicManufacturerId,
   magicProductLineId,
   setIds.timeSpiral,
+]);
+const onePieceReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
+const onePieceReferenceRecordIds = new Set<ReferenceRecordId>([
+  onePieceManufacturerId,
+  onePieceProductLineId,
+  setIds.romanceDawn,
 ]);
 
 export async function seedReferenceData(services: CatalogServices): Promise<CatalogReferenceIds> {
@@ -247,6 +292,8 @@ export async function seedReferenceData(services: CatalogServices): Promise<Cata
   for (const def of referenceRecords) {
     await createReferenceRecord(services, def);
   }
+
+  await seedOnePieceReferenceAliases(services);
 
   return staticReferenceIds();
 }
@@ -267,6 +314,28 @@ export async function seedMagicReferenceData(services: CatalogServices): Promise
   }
 
   return staticReferenceIds().magic;
+}
+
+export async function seedOnePieceReferenceData(services: CatalogServices): Promise<OnePieceReferenceIds> {
+  console.log("Reconciling One Piece reference data...");
+
+  for (const def of referenceTypes.filter((candidate) => onePieceReferenceTypeKeys.has(candidate.key))) {
+    if (!(await referenceTypeExists(services, def))) {
+      await createReferenceType(services, def);
+    }
+  }
+
+  for (const def of referenceRecords.filter((candidate) =>
+    onePieceReferenceRecordIds.has(candidate.referenceRecordId),
+  )) {
+    if (!(await referenceRecordExists(services, def))) {
+      await createReferenceRecord(services, def);
+    }
+  }
+
+  await seedOnePieceReferenceAliases(services);
+
+  return staticReferenceIds().onePiece;
 }
 
 async function createReferenceType(services: CatalogServices, def: ReferenceTypeDef): Promise<void> {
@@ -323,6 +392,11 @@ function staticReferenceIds(): CatalogReferenceIds {
     magic: {
       sets: {
         "time-spiral": setIds.timeSpiral,
+      },
+    },
+    onePiece: {
+      sets: {
+        "romance-dawn": setIds.romanceDawn,
       },
     },
   };
@@ -406,4 +480,80 @@ function magicSet(
     attributes,
     relationships: [{ relationshipType: "part-of", referenceId: magicProductLineId }],
   };
+}
+
+function onePieceSet(
+  key: string,
+  name: string,
+  referenceRecordId: ReferenceRecordId,
+  attributes: Readonly<Record<string, CatalogValue>>,
+): ReferenceRecordDef {
+  return {
+    referenceRecordId,
+    typeKey: "set",
+    key,
+    name,
+    description: `${name} One Piece Card Game set.`,
+    attributes,
+    relationships: [{ relationshipType: "part-of", referenceId: onePieceProductLineId }],
+  };
+}
+
+async function seedOnePieceReferenceAliases(services: CatalogServices): Promise<void> {
+  const aliases = [
+    buildCatalogAliasCandidate({
+      target: { kind: "reference-record", targetId: setIds.romanceDawn, targetKey: "set" },
+      aliasText: "OP-01",
+      aliasLanguageCode: "en",
+      sourceLanguageCode: "en",
+      aliasType: "set-equivalent",
+      confidence: "exact",
+      reviewStatus: "auto-accepted",
+      provenance: {
+        providerKey: "catalog-seed",
+        observationId: null,
+        sourceCategory: "curated-operator-mapping",
+        sourceProfileKey: "catalog-seed-one-piece-reference-aliases",
+        sourceProfileVersion: "2026.06.23",
+        mappingFingerprint: "catalog-seed-one-piece-reference-aliases-v1",
+      },
+      evidence: {
+        source: "catalog-seed",
+        setKey: "romance-dawn",
+        setCode: "OP-01",
+      },
+    }),
+  ];
+
+  for (const candidate of aliases) {
+    if (await referenceAliasExists(services, candidate.aliasHash)) {
+      continue;
+    }
+
+    await sendSeedCommand(
+      services.catalogAliases.catalogAliasCommandHandler,
+      catalogAliasStreamId(candidate.aliasHash),
+      {
+        type: "ProposeCatalogAlias",
+        candidate,
+        actor: "system",
+      },
+    );
+  }
+}
+
+async function referenceAliasExists(services: CatalogServices, aliasHash: string): Promise<boolean> {
+  try {
+    const existing = await services.db.query<{ alias_hash: string }>(
+      `SELECT alias_hash
+       FROM catalog_reference_record_aliases
+       WHERE alias_hash = $1
+         AND review_status IN ('accepted', 'auto-accepted')`,
+      [aliasHash],
+    );
+
+    return existing.rows.length > 0;
+  } catch {
+    return false;
+  }
 }

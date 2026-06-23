@@ -65,6 +65,32 @@ describe("seedDisplayTemplates", () => {
     expect(db.queueTouched).toBe(true);
   });
 
+  it("creates One Piece templates with product-line naming and shared set references", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const rows = matchingSeedRows().filter(
+      (row) => row.display_template_id !== catalogSeedIds.displayTemplates.onePieceCardPrintDefault,
+    );
+    const db = seedDb(rows);
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.onePieceCardPrintDefault}`,
+        command: expect.objectContaining({
+          type: "CreateDisplayTemplate",
+          key: "one-piece-card-print-default",
+          name: { defaultLocale: "en", values: { en: "One Piece card print" } },
+          target: { kind: "blueprint", id: catalogSeedIds.blueprints.onePieceCardPrint },
+          titleTemplate: "{field.card-name} {field.card-number}",
+          subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+          requiredFieldKeys: ["card-name", "card-number", "set"],
+        }),
+      }),
+    );
+    expect(db.queueTouched).toBe(true);
+  });
+
   it("publishes existing draft seed templates", async () => {
     const commandHandler = vi.fn(async () => undefined);
     const db = seedDb(
@@ -177,6 +203,28 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       key: "magic-sealed-product",
       target_kind: "blueprint",
       target_id: catalogSeedIds.blueprints.magicSealedProduct,
+      priority: 10,
+      title_template: "{item.title}",
+      subtitle_template: "{reference.set.name} sealed product",
+      required_field_keys: [],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.onePieceCardPrintDefault,
+      key: "one-piece-card-print-default",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.onePieceCardPrint,
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number}",
+      subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+      required_field_keys: ["card-name", "card-number", "set"],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.onePieceSealedProduct,
+      key: "one-piece-sealed-product",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.onePieceSealedProduct,
       priority: 10,
       title_template: "{item.title}",
       subtitle_template: "{reference.set.name} sealed product",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { seedMagicReferenceData } from "./seed";
+import { seedMagicReferenceData, seedOnePieceReferenceData } from "./seed";
 
 describe("reference data seed", () => {
   it("reconciles Magic reference roots and Time Spiral without recreating Pokemon reference data", async () => {
@@ -113,6 +113,97 @@ describe("reference data seed", () => {
       },
     ]);
   });
+
+  it("seeds One Piece reference taxonomy idempotently with stable product-line naming", async () => {
+    const harness = createReferenceSeedHarness({
+      existingReferenceTypeKeys: new Set(["manufacturer", "product-line"]),
+    });
+
+    const ids = await seedOnePieceReferenceData(harness.services as never);
+    const firstRunCommands = [...harness.commands];
+    harness.commands.length = 0;
+    const firstRunAliasCommands = [...harness.aliasCommands];
+    harness.aliasCommands.length = 0;
+
+    const rerunIds = await seedOnePieceReferenceData(harness.services as never);
+
+    expect(ids.sets["romance-dawn"]).toBe(catalogSeedIds.referenceRecords.sets.romanceDawn);
+    expect(rerunIds).toEqual(ids);
+    expect(harness.commands).toEqual([]);
+    expect(harness.aliasCommands).toEqual([]);
+    expect(firstRunCommands).toEqual([
+      {
+        streamId: `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`,
+        type: "CreateReferenceType",
+        key: "set",
+      },
+      {
+        streamId: `catalog.reference-type-${catalogSeedIds.referenceTypes.set}`,
+        type: "PublishReferenceType",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.manufacturers.bandai}`,
+        type: "CreateReferenceRecord",
+        key: "bandai",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.manufacturers.bandai}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.onePieceCardGame}`,
+        type: "CreateReferenceRecord",
+        key: "one-piece-card-game",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.productLines.onePieceCardGame}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.romanceDawn}`,
+        type: "CreateReferenceRecord",
+        key: "romance-dawn",
+      },
+      {
+        streamId: `catalog.reference-record-${catalogSeedIds.referenceRecords.sets.romanceDawn}`,
+        type: "PublishReferenceRecord",
+        key: undefined,
+      },
+    ]);
+    expect(harness.details).toContainEqual(
+      expect.objectContaining({
+        key: "one-piece-card-game",
+        name: "One Piece Card Game",
+        attributes: { "official-name": "One Piece Card Game", "short-name": "One Piece" },
+      }),
+    );
+    expect(harness.details).toContainEqual(
+      expect.objectContaining({
+        key: "romance-dawn",
+        attributes: expect.objectContaining({
+          "set-code": "OP-01",
+          "scrydex-set-id": "op-01",
+          "tcgplayer-set-name": "Romance Dawn",
+        }),
+        relationships: [
+          { relationshipType: "part-of", referenceId: catalogSeedIds.referenceRecords.productLines.onePieceCardGame },
+        ],
+      }),
+    );
+    expect(firstRunAliasCommands).toEqual([
+      expect.objectContaining({
+        streamId: expect.stringMatching(/^catalog\.alias-/),
+        type: "ProposeCatalogAlias",
+        aliasText: "OP-01",
+        targetId: catalogSeedIds.referenceRecords.sets.romanceDawn,
+        targetKey: "set",
+        reviewStatus: "auto-accepted",
+      }),
+    ]);
+  });
 });
 
 function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?: ReadonlySet<string> }> = {}) {
@@ -139,7 +230,22 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
     string,
     { reference_record_id: string; type_key: string; key: string; status: string }
   >();
+  const referenceAliases = new Set<string>();
   const commands: { streamId: string; type: string; key: string | undefined }[] = [];
+  const aliasCommands: {
+    streamId: string;
+    type: string;
+    aliasText: string | undefined;
+    targetId: string | null | undefined;
+    targetKey: string | undefined;
+    reviewStatus: string | undefined;
+  }[] = [];
+  const details: {
+    key: string | undefined;
+    name?: string;
+    attributes?: unknown;
+    relationships?: unknown;
+  }[] = [];
 
   const services = {
     db: {
@@ -165,6 +271,11 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
           return { rows: (row ? [row] : []) as T[] };
         }
 
+        if (sql.includes("FROM catalog_reference_record_aliases")) {
+          const aliasHash = String(values[0]);
+          return { rows: (referenceAliases.has(aliasHash) ? [{ alias_hash: aliasHash }] : []) as T[] };
+        }
+
         return { rows: [] as T[] };
       },
     },
@@ -177,6 +288,7 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
         command: { type: string; referenceTypeId?: string; key?: string };
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
+        details.push({ key: command.key });
         if (command.type === "CreateReferenceType" && command.referenceTypeId && command.key) {
           referenceTypes.set(command.key, {
             reference_type_id: command.referenceTypeId,
@@ -198,9 +310,23 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
         command,
       }: {
         streamId: string;
-        command: { type: string; referenceRecordId?: string; typeKey?: string; key?: string };
+        command: {
+          type: string;
+          referenceRecordId?: string;
+          typeKey?: string;
+          key?: string;
+          name?: { values?: { en?: string } };
+          attributes?: unknown;
+          relationships?: unknown;
+        };
       }) => {
         commands.push({ streamId, type: command.type, key: command.key });
+        details.push({
+          key: command.key,
+          name: command.name?.values?.en,
+          attributes: command.attributes,
+          relationships: command.relationships,
+        });
         if (command.type === "CreateReferenceRecord" && command.referenceRecordId && command.typeKey && command.key) {
           referenceRecords.set(`${command.typeKey}:${command.key}`, {
             reference_record_id: command.referenceRecordId,
@@ -219,7 +345,36 @@ function createReferenceSeedHarness(input: Readonly<{ existingReferenceTypeKeys?
         }
       },
     },
+    catalogAliases: {
+      catalogAliasCommandHandler: async ({
+        streamId,
+        command,
+      }: {
+        streamId: string;
+        command: {
+          type: string;
+          candidate?: {
+            aliasHash: string;
+            aliasText: string;
+            target: { targetId: string | null; targetKey: string };
+            reviewStatus: string;
+          };
+        };
+      }) => {
+        aliasCommands.push({
+          streamId,
+          type: command.type,
+          aliasText: command.candidate?.aliasText,
+          targetId: command.candidate?.target.targetId,
+          targetKey: command.candidate?.target.targetKey,
+          reviewStatus: command.candidate?.reviewStatus,
+        });
+        if (command.type === "ProposeCatalogAlias" && command.candidate) {
+          referenceAliases.add(command.candidate.aliasHash);
+        }
+      },
+    },
   };
 
-  return { commands, services };
+  return { aliasCommands, commands, details, services };
 }

@@ -6,7 +6,7 @@ import type { CatalogItemImageFallback } from "../domain/domain";
 import type { BlueprintIds } from "../../blueprints/api/seed";
 import type { CategoryIds } from "../../categories/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
-import type { PokemonReferenceIds } from "../../reference-data/api/seed";
+import type { CatalogReferenceIds } from "../../reference-data/api/seed";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 
 export async function seedCatalogItems(
@@ -14,13 +14,15 @@ export async function seedCatalogItems(
   blueprints: BlueprintIds,
   fields: FieldIds,
   categories: CategoryIds,
-  references: PokemonReferenceIds,
+  references: CatalogReferenceIds,
 ): Promise<void> {
   console.log("Seeding catalog items...");
 
   const requiredFieldIdsByBlueprint: Record<string, readonly FieldId[]> = {
     "pokemon-card-single": [fields["card-number"], fields["card-name"], fields.expansion, fields.rarity],
     "pokemon-sealed-product": [fields.expansion, fields["pack-count"]],
+    "one-piece-card-print": [fields["card-number"], fields["card-name"], fields.set],
+    "one-piece-sealed-product": [fields.set, fields["pack-count"]],
   };
 
   type ItemDef = {
@@ -33,6 +35,10 @@ export async function seedCatalogItems(
     fieldValues: [string, string | number | LocalizedTextMap | { referenceId: string }][];
     categoryKeys: string[];
     tags: string[];
+    externalCatalogItemReferences?: Array<{
+      providerKey: string;
+      externalKey: string;
+    }>;
     externalProductReferences?: Array<{
       providerKey: string;
       externalKey: string;
@@ -41,8 +47,11 @@ export async function seedCatalogItems(
     imageFallback?: CatalogItemImageFallback;
   };
 
-  const expansionReference = (key: keyof PokemonReferenceIds["expansions"]) => ({
+  const expansionReference = (key: keyof CatalogReferenceIds["expansions"]) => ({
     referenceId: references.expansions[key],
+  });
+  const setReference = (key: keyof CatalogReferenceIds["onePiece"]["sets"]) => ({
+    referenceId: references.onePiece.sets[key],
   });
 
   const items: ItemDef[] = [
@@ -274,6 +283,86 @@ export async function seedCatalogItems(
       tags: ["elite-trainer-box", "sealed", "twilight-masquerade"],
       imageFallback: pokemonSealedFallback(),
     },
+    {
+      itemId: catalogSeedIds.items.onePieceLuffyRomanceDawn as CatalogItemId,
+      languageCode: "en",
+      title: l10n("Monkey.D.Luffy"),
+      subtitle: l10n("Romance Dawn OP01-001 Leader"),
+      description: l10n(
+        "A representative Romance Dawn One Piece card print whose raw and graded Products resolve from one Catalog Item.",
+      ),
+      blueprintKey: "one-piece-card-print",
+      fieldValues: [
+        ["card-number", "OP01-001"],
+        ["card-name", l10n("Monkey.D.Luffy")],
+        ["set", setReference("romance-dawn")],
+        ["rarity", "Leader"],
+        ["card-variant", "Standard Art"],
+        ["release-year", 2022],
+      ],
+      categoryKeys: ["one-piece-card-game", "one-piece-card-prints"],
+      tags: ["one-piece", "romance-dawn", "leader", "luffy"],
+      imageFallback: onePieceCardBack(),
+      externalCatalogItemReferences: [
+        {
+          providerKey: "scrydex",
+          externalKey: "card:op01-001",
+        },
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:987650",
+        },
+      ],
+      externalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:900987650",
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      itemId: catalogSeedIds.items.onePieceRomanceDawnBoosterBox as CatalogItemId,
+      languageCode: "en",
+      title: l10n("Romance Dawn Booster Box"),
+      subtitle: l10n("Sealed booster box"),
+      description: l10n("A factory sealed One Piece Romance Dawn booster box."),
+      blueprintKey: "one-piece-sealed-product",
+      fieldValues: [
+        ["set", setReference("romance-dawn")],
+        ["release-year", 2022],
+        ["pack-count", 24],
+      ],
+      categoryKeys: ["one-piece-card-game", "one-piece-sealed-products", "one-piece-booster-boxes"],
+      tags: ["one-piece", "romance-dawn", "booster-box", "sealed"],
+      imageFallback: onePieceSealedFallback(),
+      externalCatalogItemReferences: [
+        {
+          providerKey: "scrydex",
+          externalKey: "sealed-product:op01-booster-box",
+        },
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:987660",
+        },
+      ],
+      externalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:900987660",
+          selectedOptions: [],
+        },
+      ],
+    },
   ];
 
   for (const item of items) {
@@ -320,6 +409,14 @@ export async function seedCatalogItems(
       });
     }
 
+    for (const reference of item.externalCatalogItemReferences ?? []) {
+      await sendSeedCommand(services.items.commandHandler, streamId, {
+        type: "LinkExternalCatalogItemReference",
+        providerKey: reference.providerKey,
+        externalKey: reference.externalKey,
+      });
+    }
+
     for (const reference of item.externalProductReferences ?? []) {
       await sendSeedCommand(services.items.commandHandler, streamId, {
         type: "LinkExternalProductReference",
@@ -351,6 +448,18 @@ function pokemonSealedFallback(): CatalogItemImageFallback {
   return imageFallback(
     "/fake-cdn/assets/pokemon-card-back.png",
     "Pokemon sealed product loading image",
+    "loading-only",
+  );
+}
+
+function onePieceCardBack(): CatalogItemImageFallback {
+  return imageFallback("/fake-cdn/assets/one-piece-card-back.png", "One Piece Card Game card back", "permanent");
+}
+
+function onePieceSealedFallback(): CatalogItemImageFallback {
+  return imageFallback(
+    "/fake-cdn/assets/one-piece-card-back.png",
+    "One Piece sealed product loading image",
     "loading-only",
   );
 }

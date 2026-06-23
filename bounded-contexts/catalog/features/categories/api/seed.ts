@@ -32,6 +32,15 @@ export async function seedMagicCategories(services: CatalogServices): Promise<Ca
   );
 }
 
+export async function seedOnePieceCategories(services: CatalogServices): Promise<CategoryIds> {
+  console.log("Reconciling One Piece categories...");
+  return seedCategoryDefinitions(
+    services,
+    allCategoryDefs().filter((def) => def.key.startsWith("one-piece-")),
+    { reconcileExisting: true },
+  );
+}
+
 function allCategoryDefs(): CategoryDef[] {
   const defs: CategoryDef[] = [
     {
@@ -200,6 +209,52 @@ function allCategoryDefs(): CategoryDef[] {
       description: "Factory sealed Magic booster boxes",
       parentKey: "magic-sealed-products",
       displayOrder: 1,
+    },
+    {
+      key: "one-piece-card-game",
+      categoryId: catalogSeedIds.categories.onePieceCardGame as CategoryId,
+      name: "One Piece Card Game",
+      description: "One Piece Card Game catalog",
+    },
+    {
+      key: "one-piece-card-prints",
+      categoryId: catalogSeedIds.categories.onePieceCardPrints as CategoryId,
+      name: "Card Prints",
+      description: "Individual One Piece card prints",
+      parentKey: "one-piece-card-game",
+      displayOrder: 0,
+    },
+    {
+      key: "one-piece-sealed-products",
+      categoryId: catalogSeedIds.categories.onePieceSealedProducts as CategoryId,
+      name: "Sealed Products",
+      description: "One Piece sealed products",
+      parentKey: "one-piece-card-game",
+      displayOrder: 1,
+    },
+    {
+      key: "one-piece-booster-packs",
+      categoryId: catalogSeedIds.categories.onePieceBoosterPacks as CategoryId,
+      name: "Booster Packs",
+      description: "Single sealed One Piece booster packs",
+      parentKey: "one-piece-sealed-products",
+      displayOrder: 0,
+    },
+    {
+      key: "one-piece-booster-boxes",
+      categoryId: catalogSeedIds.categories.onePieceBoosterBoxes as CategoryId,
+      name: "Booster Boxes",
+      description: "Factory sealed One Piece booster boxes",
+      parentKey: "one-piece-sealed-products",
+      displayOrder: 1,
+    },
+    {
+      key: "one-piece-starter-decks",
+      categoryId: catalogSeedIds.categories.onePieceStarterDecks as CategoryId,
+      name: "Starter Decks",
+      description: "Factory sealed One Piece starter decks",
+      parentKey: "one-piece-sealed-products",
+      displayOrder: 2,
     },
   );
 

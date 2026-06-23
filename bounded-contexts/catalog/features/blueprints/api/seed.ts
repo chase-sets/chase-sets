@@ -165,6 +165,10 @@ export async function seedBlueprints(
     result,
     await seedMagicBlueprints(services, components, dimensions, fields, { reconcileExisting: false }),
   );
+  Object.assign(
+    result,
+    await seedOnePieceBlueprints(services, components, dimensions, fields, { reconcileExisting: false }),
+  );
 
   return result;
 }
@@ -304,6 +308,147 @@ export async function seedMagicBlueprints(
     }
 
     result["magic-sealed-product"] = blueprintId;
+  }
+
+  return result;
+}
+
+export async function seedOnePieceBlueprints(
+  services: CatalogServices,
+  components: ComponentIds,
+  dimensions: DimensionIds,
+  fields: FieldIds,
+  options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
+): Promise<BlueprintIds> {
+  const result: BlueprintIds = {};
+
+  {
+    const blueprintId = catalogSeedIds.blueprints.onePieceCardPrint as BlueprintId;
+    const streamId = `catalog.blueprint-${blueprintId}`;
+    const formDimension = dimensions.form;
+
+    if (!(options.reconcileExisting && (await blueprintExists(services, blueprintId, "one-piece-card-print")))) {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "CreateBlueprint",
+        blueprintId,
+        key: "one-piece-card-print",
+        name: localizedTextMapFromEnglish("One Piece Card Print"),
+        description: localizedTextMapFromEnglish(
+          "Template for a specific printed One Piece card with raw and graded Products",
+        ),
+      });
+
+      for (const compKey of ["one-piece-card-print-identity", "one-piece-card-product-resolution"] as const) {
+        await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+          type: "AttachComponentToBlueprint",
+          componentId: components[compKey],
+        });
+      }
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintFields",
+        fieldRules: [
+          { fieldId: fields["card-number"], required: true },
+          { fieldId: fields["card-name"], required: true },
+          { fieldId: fields.set, required: true },
+          { fieldId: fields.rarity, required: false },
+          { fieldId: fields["card-variant"], required: false },
+          { fieldId: fields["release-year"], required: false },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintDimensions",
+        dimensionRules: [
+          {
+            dimensionId: formDimension.dimensionId,
+            required: true,
+            allowedOptionIds: formDimension.orderedOptionIds,
+          },
+          {
+            dimensionId: dimensions.condition.dimensionId,
+            required: true,
+            allowedOptionIds: dimensions.condition.orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.raw] }],
+          },
+          {
+            dimensionId: dimensions["grading-company"].dimensionId,
+            required: true,
+            allowedOptionIds: dimensions["grading-company"].orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.graded] }],
+          },
+          {
+            dimensionId: dimensions.grade.dimensionId,
+            required: true,
+            allowedOptionIds: dimensions.grade.orderedOptionIds,
+            appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.graded] }],
+          },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintProductResolutionRules",
+        canonicalDimensionOrder: [
+          formDimension.dimensionId,
+          dimensions.condition.dimensionId,
+          dimensions["grading-company"].dimensionId,
+          dimensions.grade.dimensionId,
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "PublishBlueprint",
+      });
+    }
+
+    result["one-piece-card-print"] = blueprintId;
+  }
+
+  {
+    const blueprintId = catalogSeedIds.blueprints.onePieceSealedProduct as BlueprintId;
+    const streamId = `catalog.blueprint-${blueprintId}`;
+
+    if (!(options.reconcileExisting && (await blueprintExists(services, blueprintId, "one-piece-sealed-product")))) {
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "CreateBlueprint",
+        blueprintId,
+        key: "one-piece-sealed-product",
+        name: localizedTextMapFromEnglish("One Piece Sealed Product"),
+        description: localizedTextMapFromEnglish(
+          "Template for One Piece sealed products such as booster packs, booster boxes, and starter decks",
+        ),
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "AttachComponentToBlueprint",
+        componentId: components["one-piece-sealed-product-identity"],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintFields",
+        fieldRules: [
+          { fieldId: fields.set, required: true },
+          { fieldId: fields["release-year"], required: false },
+          { fieldId: fields["pack-count"], required: true },
+        ],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintDimensions",
+        dimensionRules: [],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "SetBlueprintProductResolutionRules",
+        canonicalDimensionOrder: [],
+      });
+
+      await sendSeedCommand(services.blueprints.commandHandler, streamId, {
+        type: "PublishBlueprint",
+      });
+    }
+
+    result["one-piece-sealed-product"] = blueprintId;
   }
 
   return result;

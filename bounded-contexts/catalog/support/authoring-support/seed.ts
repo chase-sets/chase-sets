@@ -1,12 +1,12 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "./services";
-import { seedBlueprints, seedMagicBlueprints } from "../../features/blueprints/api/seed";
+import { seedBlueprints, seedMagicBlueprints, seedOnePieceBlueprints } from "../../features/blueprints/api/seed";
 import type { BlueprintIds } from "../../features/blueprints/api/seed";
 import { seedCatalogItems } from "../../features/catalog-items/api/seed";
-import { seedCategories, seedMagicCategories } from "../../features/categories/api/seed";
+import { seedCategories, seedMagicCategories, seedOnePieceCategories } from "../../features/categories/api/seed";
 import type { CategoryIds } from "../../features/categories/api/seed";
-import { seedComponents, seedMagicComponents } from "../../features/components/api/seed";
+import { seedComponents, seedMagicComponents, seedOnePieceComponents } from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
@@ -14,7 +14,11 @@ import { seedDisplayTemplates } from "../../features/display-templates/api/seed"
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
-import { seedMagicReferenceData, seedReferenceData } from "../../features/reference-data/api/seed";
+import {
+  seedMagicReferenceData,
+  seedOnePieceReferenceData,
+  seedReferenceData,
+} from "../../features/reference-data/api/seed";
 import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -62,9 +66,13 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     const dimensions = staticCatalogIntegrationIds().dimensions;
     const fields = await seedFields(services);
     await seedMagicReferenceData(services);
+    await seedOnePieceReferenceData(services);
     const components = await seedMagicComponents(services, dimensions, fields);
+    Object.assign(components, await seedOnePieceComponents(services, dimensions, fields));
     await seedMagicBlueprints(services, components, dimensions, fields);
+    await seedOnePieceBlueprints(services, components, dimensions, fields);
     await seedMagicCategories(services);
+    await seedOnePieceCategories(services);
     await seedDisplayTemplates(services);
     return {
       ...staticCatalogIntegrationIds(),
@@ -222,6 +230,11 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
         "time-spiral": catalogSeedIds.referenceRecords.sets.timeSpiral,
       },
     },
+    onePiece: {
+      sets: {
+        "romance-dawn": catalogSeedIds.referenceRecords.sets.romanceDawn,
+      },
+    },
   };
   const components: ComponentIds = {
     "single-card-identity": catalogSeedIds.components.singleCardIdentity as ComponentId,
@@ -230,12 +243,17 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     "magic-card-print-identity": catalogSeedIds.components.magicCardPrintIdentity as ComponentId,
     "magic-card-product-resolution": catalogSeedIds.components.magicCardProductResolution as ComponentId,
     "magic-sealed-product-identity": catalogSeedIds.components.magicSealedProductIdentity as ComponentId,
+    "one-piece-card-print-identity": catalogSeedIds.components.onePieceCardPrintIdentity as ComponentId,
+    "one-piece-card-product-resolution": catalogSeedIds.components.onePieceCardProductResolution as ComponentId,
+    "one-piece-sealed-product-identity": catalogSeedIds.components.onePieceSealedProductIdentity as ComponentId,
   };
   const blueprints: BlueprintIds = {
     "pokemon-card-single": catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId,
     "pokemon-sealed-product": catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId,
     "magic-card-print": catalogSeedIds.blueprints.magicCardPrint as BlueprintId,
     "magic-sealed-product": catalogSeedIds.blueprints.magicSealedProduct as BlueprintId,
+    "one-piece-card-print": catalogSeedIds.blueprints.onePieceCardPrint as BlueprintId,
+    "one-piece-sealed-product": catalogSeedIds.blueprints.onePieceSealedProduct as BlueprintId,
   };
   const categories: CategoryIds = {
     "pokemon-tcg": catalogSeedIds.categories.pokemonTcg as CategoryId,
@@ -274,6 +292,12 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     "magic-sealed-products": catalogSeedIds.categories.magicSealedProducts as CategoryId,
     "magic-booster-packs": catalogSeedIds.categories.magicBoosterPacks as CategoryId,
     "magic-booster-boxes": catalogSeedIds.categories.magicBoosterBoxes as CategoryId,
+    "one-piece-card-game": catalogSeedIds.categories.onePieceCardGame as CategoryId,
+    "one-piece-card-prints": catalogSeedIds.categories.onePieceCardPrints as CategoryId,
+    "one-piece-sealed-products": catalogSeedIds.categories.onePieceSealedProducts as CategoryId,
+    "one-piece-booster-packs": catalogSeedIds.categories.onePieceBoosterPacks as CategoryId,
+    "one-piece-booster-boxes": catalogSeedIds.categories.onePieceBoosterBoxes as CategoryId,
+    "one-piece-starter-decks": catalogSeedIds.categories.onePieceStarterDecks as CategoryId,
   };
 
   return {
