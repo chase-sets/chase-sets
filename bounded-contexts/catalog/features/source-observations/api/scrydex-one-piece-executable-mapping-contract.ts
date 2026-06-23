@@ -260,6 +260,15 @@ function scrydexOnePieceCardNormalizedObservation(): ScrydexOnePieceExecutableMa
         "normalized-observation",
         "hash-material",
       ]),
+      printings: scrydexOnePieceOptionalPathExpression("card.printings", "catalog-merge-evidence", [
+        "normalized-observation",
+        "hash-material",
+        "merge-identity",
+      ]),
+      variants: scrydexOnePieceOptionalPathExpression("card.variants", "catalog-merge-evidence", [
+        "normalized-observation",
+        "hash-material",
+      ]),
       releaseDate: scrydexOnePieceOptionalPathExpression("card.expansion.release_date", "catalog-truth", [
         "normalized-observation",
         "hash-material",
@@ -291,6 +300,10 @@ function scrydexOnePieceCardNormalizedObservation(): ScrydexOnePieceExecutableMa
           setName: scrydexOnePiecePathExpression("card.expansion.name", "catalog-truth", ["hash-material"]),
           rarity: scrydexOnePieceOptionalPathExpression("card.rarity", "catalog-truth", ["hash-material"]),
           cardType: scrydexOnePieceOptionalPathExpression("card.type", "catalog-truth", ["hash-material"]),
+          printings: scrydexOnePieceOptionalPathExpression("card.printings", "catalog-merge-evidence", [
+            "hash-material",
+          ]),
+          variants: scrydexOnePieceOptionalPathExpression("card.variants", "catalog-merge-evidence", ["hash-material"]),
         },
         "catalog-truth",
         ["hash-material"],

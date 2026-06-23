@@ -48,14 +48,19 @@ export const SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
 export const SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION = "2026.06.22";
 
 const scrydexOnePieceBaseUrl = "https://api.scrydex.com/onepiece/v1";
+const scrydexAccountBaseUrl = "https://api.scrydex.com/account/v1";
 const scrydexExpansionPageSize = 100;
 const scrydexCardPageSize = 250;
 const scrydexSealedPageSize = 100;
 const scrydexExpansionSelect = "id,name,code,total,release_date,language,language_code";
-const scrydexCardSelect = "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion";
+const scrydexCardSelect =
+  "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants";
 const scrydexSealedSelect = "id,name,type,language,language_code,expansion";
-const scrydexUsageCheckNotConfiguredDiagnostic =
-  "Scrydex usage endpoint is not configured in the Catalog adapter yet; import evidence records estimated request posture plus actual redacted request/page counts.";
+const scrydexUsageLagDiagnostic =
+  "Scrydex usage is account-level and may lag live imports by 20-30 minutes per provider policy.";
+const scrydexUsageCheckedDiagnostic = "Scrydex account usage check completed with redacted credit evidence.";
+const scrydexPriceHistoryPerCardDiagnostic =
+  "Scrydex One Piece price history is exposed as a per-card endpoint; production price-history sync remains source-authority-gated and disabled.";
 
 export type ScrydexOnePieceCredentials = Readonly<{
   apiKey?: string | null;
@@ -91,6 +96,13 @@ export type ScrydexOnePieceCard = Readonly<{
   language?: string;
   language_code?: string;
   expansion?: ScrydexOnePieceExpansion;
+  printings?: readonly string[];
+  variants?: readonly ScrydexOnePieceCardVariant[];
+}>;
+
+export type ScrydexOnePieceCardVariant = Readonly<{
+  name?: string;
+  printings?: readonly string[];
 }>;
 
 export type ScrydexOnePieceSealedProduct = Readonly<{
@@ -131,6 +143,21 @@ type ScrydexOnePieceUnitKey =
   | typeof SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY
   | typeof SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
 
+type ScrydexUsageReadiness = Readonly<{
+  usageCheckState: ProviderUsageEstimate["usageCheckState"];
+  creditDiagnostic: string | null;
+  degradedDiagnostic: string | null;
+  creditState: "available" | "low" | "exhausted" | "unknown";
+  totalCredits: number | null;
+  remainingCredits: number | null;
+  usedCredits: number | null;
+  overageCreditRate: string | null;
+  usageUpdatedAt: string | null;
+  retryAfterSeconds?: number;
+  diagnosticCode?: string;
+  credentialState?: "configured" | "invalid" | "unknown";
+}>;
+
 const scrydexOnePieceProofFetchedAt = "2026-06-22T00:00:00.000Z";
 const scrydexOnePieceProofExpansion: ScrydexOnePieceExpansion = {
   id: "op-01",
@@ -150,6 +177,8 @@ const scrydexOnePieceProofCard: ScrydexOnePieceCard = {
   type: "Leader",
   language_code: "en",
   expansion: scrydexOnePieceProofExpansion,
+  printings: ["OP-01"],
+  variants: [{ name: "normal", printings: ["OP-01"] }],
 };
 const scrydexOnePieceProofSealedProduct: ScrydexOnePieceSealedProduct = {
   id: "op01-booster-box",
@@ -206,16 +235,17 @@ export function createScrydexOnePieceProviderAdapter(
     },
     async planImport(scope) {
       assertScrydexOnePieceUnit(scope.unitKey);
+      const usageReadiness = await getScrydexUsageReadiness(options);
 
       if (scope.unitKey === SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY) {
-        return planScrydexOnePieceSetImport(scope);
+        return planScrydexOnePieceSetImport(scope, usageReadiness);
       }
 
       if (scope.unitKey === SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-        return planScrydexOnePieceCardImport(scope);
+        return planScrydexOnePieceCardImport(scope, usageReadiness);
       }
 
-      return planScrydexOnePieceSealedImport(scope);
+      return planScrydexOnePieceSealedImport(scope, usageReadiness);
     },
     async *fetchPayloads(plan, fetchOptions) {
       assertScrydexOnePieceUnit(plan.unitKey);
@@ -278,8 +308,12 @@ export function createScrydexOnePieceProviderAdapter(
           "Scrydex One Piece expansion card payload fetch requires expansionId.",
         );
         const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
-          `expansions/${encodeURIComponent(expansionId)}/cards`,
-          { page_size: String(scrydexCardPageSize), select: scrydexCardSelect },
+          "cards",
+          {
+            page_size: String(scrydexCardPageSize),
+            q: scrydexPrintingsSearchQuery(expansionId),
+            select: scrydexCardSelect,
+          },
           options,
         );
         const cards = pages.flatMap((page) =>
@@ -375,16 +409,21 @@ export function createScrydexOnePieceProviderAdapter(
     async getCredentialReadiness() {
       const readiness = scrydexCredentialState(options);
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
+      const usageReadiness = readiness.configured ? await getScrydexUsageReadiness(options) : null;
+      const state = usageReadiness?.credentialState ?? (readiness.configured ? "configured" : "missing");
       return scrydexOnePieceUnitKeys().map((unitKey) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "scrydex",
           unitKey,
           requirement: "required",
           sourceKind: "environment-secret",
-          state: readiness.configured ? "configured" : "missing",
-          message: readiness.configured
-            ? "Shared Scrydex credentials are configured for One Piece transport."
-            : "Shared Scrydex credentials require X-Api-Key and X-Team-ID before option queries or imports.",
+          state,
+          message:
+            state === "configured"
+              ? "Shared Scrydex credentials are configured for One Piece transport with redacted usage readiness."
+              : state === "missing"
+                ? "Shared Scrydex credentials require X-Api-Key and X-Team-ID before option queries or imports."
+                : "Scrydex credential readiness could not be validated; provider values remain redacted.",
           checkedAt,
           scope: {
             environmentKey: "runtime",
@@ -392,19 +431,29 @@ export function createScrydexOnePieceProviderAdapter(
           },
           evidence: {
             credentialRequirement: "required",
-            credentialState: readiness.configured ? "configured" : "missing",
+            credentialState: state,
             apiKeyConfigured: readiness.apiKeyConfigured,
             teamIdConfigured: readiness.teamIdConfigured,
             requiredHeaders: {
               "X-Api-Key": CATALOG_PROVIDER_CREDENTIAL_REDACTED_VALUE,
               "X-Team-ID": CATALOG_PROVIDER_CREDENTIAL_REDACTED_VALUE,
             },
+            usageCheckState: usageReadiness?.usageCheckState ?? "unavailable",
+            creditState: usageReadiness?.creditState ?? "unknown",
+            totalCredits: usageReadiness?.totalCredits ?? null,
+            remainingCredits: usageReadiness?.remainingCredits ?? null,
+            usedCredits: usageReadiness?.usedCredits ?? null,
+            overageCreditRate: usageReadiness?.overageCreditRate ?? null,
+            usageUpdatedAt: usageReadiness?.usageUpdatedAt ?? null,
+            creditDiagnostic: usageReadiness?.creditDiagnostic ?? null,
+            degradedDiagnostic: usageReadiness?.degradedDiagnostic ?? null,
           },
         }),
       );
     },
     async getTransportDiagnostics() {
       const readiness = scrydexCredentialState(options);
+      const usageReadiness = readiness.configured ? await getScrydexUsageReadiness(options) : null;
       const credentialDiagnostics: ProviderTransportDiagnostic[] = readiness.configured
         ? [
             {
@@ -435,6 +484,13 @@ export function createScrydexOnePieceProviderAdapter(
           ),
           unitKey,
         })),
+        ...scrydexUsageTransportDiagnostics(usageReadiness),
+        {
+          code: "scrydex-one-piece-price-history-source-authority-gated",
+          severity: "warning",
+          message: scrydexPriceHistoryPerCardDiagnostic,
+          unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        },
       ];
     },
   };
@@ -535,6 +591,11 @@ function normalizeScrydexOnePieceProofPayload(
         setName: card.expansion?.name,
         rarity: card.rarity,
         cardType: card.type,
+        printings: card.printings?.join(","),
+        variants: card.variants
+          ?.map((variant) => variant.name)
+          .filter(Boolean)
+          .join(","),
       }),
       sourceUrl: envelope.provenance.sourceUrl,
       sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
@@ -605,8 +666,12 @@ async function listScrydexOnePieceOptions(
       "Scrydex One Piece card option queries require an expansionId parent value.",
     );
     const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
-      `expansions/${encodeURIComponent(expansionId)}/cards`,
-      { page_size: String(scrydexCardPageSize), select: scrydexCardSelect },
+      "cards",
+      {
+        page_size: String(scrydexCardPageSize),
+        q: scrydexPrintingsSearchQuery(expansionId),
+        select: scrydexCardSelect,
+      },
       options,
     );
     return {
@@ -636,7 +701,10 @@ async function listScrydexOnePieceOptions(
   return { items: [] };
 }
 
-function planScrydexOnePieceSetImport(scope: ProviderImportScope): ProviderImportPlan {
+function planScrydexOnePieceSetImport(
+  scope: ProviderImportScope,
+  usageReadiness: ScrydexUsageReadiness,
+): ProviderImportPlan {
   const expansionId = requireString(
     scope.values.expansionId ?? scope.values.setId ?? scope.values.id ?? scope.values.parentValue,
     "Scrydex One Piece set reference import planning requires expansionId.",
@@ -655,11 +723,15 @@ function planScrydexOnePieceSetImport(scope: ProviderImportScope): ProviderImpor
       estimatedRequestCount: 1,
       selectedFields: [],
       perRecordFallbackReason: "Selected set-reference import uses the Scrydex expansion detail endpoint.",
+      usageReadiness,
     }),
   };
 }
 
-function planScrydexOnePieceCardImport(scope: ProviderImportScope): ProviderImportPlan {
+function planScrydexOnePieceCardImport(
+  scope: ProviderImportScope,
+  usageReadiness: ScrydexUsageReadiness,
+): ProviderImportPlan {
   const cardId = stringValue(scope.values.cardId ?? scope.values.id);
   if (cardId) {
     return {
@@ -672,6 +744,7 @@ function planScrydexOnePieceCardImport(scope: ProviderImportScope): ProviderImpo
         estimatedRequestCount: 1,
         selectedFields: [],
         perRecordFallbackReason: "Operator selected one explicit Scrydex card id.",
+        usageReadiness,
       }),
     };
   }
@@ -685,19 +758,24 @@ function planScrydexOnePieceCardImport(scope: ProviderImportScope): ProviderImpo
     planKey: `scrydex:one-piece:expansion:${normalizePlanSegment(expansionId)}:cards`,
     scope: { unitKey: scope.unitKey, scopeKey: "expansion-cards", values: { ...scope.values, expansionId } },
     transportSteps: [
-      "Fetch Scrydex One Piece expansion cards with max page size",
+      "Search Scrydex One Piece cards by printings set with max page size",
       "Sanitize card payloads",
       "Attach payload provenance",
     ],
     usageEstimate: scrydexBulkFirstUsageEstimate({
       pageSize: scrydexCardPageSize,
       selectedFields: scrydexCardSelect,
-      estimateReason: "Card page count is available only after the first Scrydex paged response.",
+      estimateReason:
+        "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
+      usageReadiness,
     }),
   };
 }
 
-function planScrydexOnePieceSealedImport(scope: ProviderImportScope): ProviderImportPlan {
+function planScrydexOnePieceSealedImport(
+  scope: ProviderImportScope,
+  usageReadiness: ScrydexUsageReadiness,
+): ProviderImportPlan {
   const sealedProductId = stringValue(scope.values.sealedProductId ?? scope.values.sealedId ?? scope.values.id);
   if (sealedProductId) {
     return {
@@ -718,6 +796,7 @@ function planScrydexOnePieceSealedImport(scope: ProviderImportScope): ProviderIm
         estimatedRequestCount: 1,
         selectedFields: [],
         perRecordFallbackReason: "Operator selected one explicit Scrydex sealed product id.",
+        usageReadiness,
       }),
     };
   }
@@ -739,6 +818,7 @@ function planScrydexOnePieceSealedImport(scope: ProviderImportScope): ProviderIm
       pageSize: scrydexSealedPageSize,
       selectedFields: scrydexSealedSelect,
       estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+      usageReadiness,
     }),
   };
 }
@@ -747,6 +827,7 @@ function scrydexBulkFirstUsageEstimate(input: {
   pageSize: number;
   selectedFields: string;
   estimateReason: string;
+  usageReadiness: ScrydexUsageReadiness;
 }): ProviderUsageEstimate {
   return {
     requestStrategy: "bulk-first",
@@ -756,9 +837,9 @@ function scrydexBulkFirstUsageEstimate(input: {
     pageSize: input.pageSize,
     selectedFields: selectedFieldList(input.selectedFields),
     perRecordFallbackReason: null,
-    usageCheckState: "not-configured",
-    creditDiagnostic: scrydexUsageCheckNotConfiguredDiagnostic,
-    degradedDiagnostic: null,
+    usageCheckState: input.usageReadiness.usageCheckState,
+    creditDiagnostic: input.usageReadiness.creditDiagnostic,
+    degradedDiagnostic: input.usageReadiness.degradedDiagnostic,
   };
 }
 
@@ -766,6 +847,7 @@ function scrydexSingleRecordUsageEstimate(input: {
   estimatedRequestCount: number;
   selectedFields: readonly string[];
   perRecordFallbackReason: string;
+  usageReadiness: ScrydexUsageReadiness;
 }): ProviderUsageEstimate {
   return {
     requestStrategy: "single-record",
@@ -775,9 +857,9 @@ function scrydexSingleRecordUsageEstimate(input: {
     pageSize: null,
     selectedFields: input.selectedFields,
     perRecordFallbackReason: input.perRecordFallbackReason,
-    usageCheckState: "not-configured",
-    creditDiagnostic: scrydexUsageCheckNotConfiguredDiagnostic,
-    degradedDiagnostic: null,
+    usageCheckState: input.usageReadiness.usageCheckState,
+    creditDiagnostic: input.usageReadiness.creditDiagnostic,
+    degradedDiagnostic: input.usageReadiness.degradedDiagnostic,
   };
 }
 
@@ -849,6 +931,135 @@ async function fetchScrydexPagedJson<TItem>(
   return pages;
 }
 
+async function getScrydexUsageReadiness(
+  options: ScrydexOnePieceProviderAdapterOptions,
+): Promise<ScrydexUsageReadiness> {
+  if (!scrydexCredentialState(options).configured) {
+    return {
+      usageCheckState: "unavailable",
+      creditDiagnostic: "Scrydex usage check skipped because API key or team ID is missing.",
+      degradedDiagnostic: null,
+      creditState: "unknown",
+      totalCredits: null,
+      remainingCredits: null,
+      usedCredits: null,
+      overageCreditRate: null,
+      usageUpdatedAt: null,
+      credentialState: "unknown",
+      diagnosticCode: "credential-missing",
+    };
+  }
+
+  try {
+    const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options);
+    const usage = sanitizeScrydexUsage(body);
+    const creditState = scrydexCreditState(usage);
+    return {
+      usageCheckState: "checked",
+      creditDiagnostic: scrydexCreditDiagnostic(creditState),
+      degradedDiagnostic: scrydexUsageLagDiagnostic,
+      creditState,
+      ...usage,
+      credentialState: "configured",
+    };
+  } catch (error) {
+    if (error instanceof ScrydexTransportError) {
+      return {
+        usageCheckState: "unavailable",
+        creditDiagnostic:
+          error.diagnosticCode === "scrydex-credit-exhausted"
+            ? "Scrydex account credits appear exhausted; imports should remain stopped until operators review plan and overage posture."
+            : null,
+        degradedDiagnostic: error.message,
+        creditState: error.diagnosticCode === "scrydex-credit-exhausted" ? "exhausted" : "unknown",
+        totalCredits: null,
+        remainingCredits: null,
+        usedCredits: null,
+        overageCreditRate: null,
+        usageUpdatedAt: null,
+        retryAfterSeconds: error.retryAfterSeconds,
+        diagnosticCode: error.diagnosticCode,
+        credentialState:
+          error.diagnosticCode === "credential-invalid"
+            ? "invalid"
+            : error.diagnosticCode === "adapter-authentication-failed"
+              ? "unknown"
+              : "configured",
+      };
+    }
+
+    return {
+      usageCheckState: "unavailable",
+      creditDiagnostic: null,
+      degradedDiagnostic: "Scrydex account usage check failed before returning redacted credit evidence.",
+      creditState: "unknown",
+      totalCredits: null,
+      remainingCredits: null,
+      usedCredits: null,
+      overageCreditRate: null,
+      usageUpdatedAt: null,
+      diagnosticCode: "provider-degraded",
+      credentialState: "configured",
+    };
+  }
+}
+
+function scrydexUsageTransportDiagnostics(
+  usageReadiness: ScrydexUsageReadiness | null,
+): readonly ProviderTransportDiagnostic[] {
+  if (!usageReadiness) {
+    return [];
+  }
+
+  const diagnostics: ProviderTransportDiagnostic[] = [
+    {
+      code:
+        usageReadiness.usageCheckState === "checked"
+          ? "scrydex-account-usage-checked"
+          : (usageReadiness.diagnosticCode ?? "scrydex-account-usage-unavailable"),
+      severity:
+        usageReadiness.creditState === "exhausted" ||
+        usageReadiness.diagnosticCode === "credential-invalid" ||
+        usageReadiness.diagnosticCode === "adapter-authentication-failed"
+          ? "error"
+          : usageReadiness.usageCheckState === "checked"
+            ? "info"
+            : "warning",
+      message:
+        usageReadiness.usageCheckState === "checked"
+          ? scrydexUsageCheckedDiagnostic
+          : (usageReadiness.degradedDiagnostic ?? "Scrydex account usage check is unavailable."),
+      retryAfterSeconds: usageReadiness.retryAfterSeconds,
+    },
+  ];
+
+  if (usageReadiness.creditState === "low") {
+    diagnostics.push({
+      code: "scrydex-credit-low",
+      severity: "warning",
+      message: usageReadiness.creditDiagnostic ?? "Scrydex account credits are low.",
+    });
+  }
+
+  if (usageReadiness.creditState === "exhausted") {
+    diagnostics.push({
+      code: "scrydex-credit-exhausted",
+      severity: "error",
+      message: usageReadiness.creditDiagnostic ?? "Scrydex account credits are exhausted.",
+    });
+  }
+
+  if (usageReadiness.usageCheckState === "checked") {
+    diagnostics.push({
+      code: "scrydex-account-usage-stale-window",
+      severity: "warning",
+      message: scrydexUsageLagDiagnostic,
+    });
+  }
+
+  return diagnostics;
+}
+
 async function fetchScrydexJson(url: string, options: ScrydexOnePieceProviderAdapterOptions): Promise<JsonValue> {
   const credentials = requireScrydexCredentials(options);
   const response = await (options.fetch ?? globalThis.fetch)(url, {
@@ -859,9 +1070,70 @@ async function fetchScrydexJson(url: string, options: ScrydexOnePieceProviderAda
     },
   });
   if (!response.ok) {
-    throw new Error(`Scrydex One Piece request failed with HTTP ${response.status}.`);
+    throw await scrydexTransportError(response);
   }
   return (await response.json()) as JsonValue;
+}
+
+async function scrydexTransportError(response: Response): Promise<ScrydexTransportError> {
+  const bodyText = await response.text().catch(() => "");
+  const body = parseJsonText(bodyText);
+  const retryAfterSeconds = retryAfterSecondsFromHeader(response.headers.get("retry-after"));
+  const bodyMentionsCredit = stableStringify(body ?? {})
+    .toLowerCase()
+    .includes("credit");
+
+  if (response.status === 401) {
+    return new ScrydexTransportError({
+      status: response.status,
+      diagnosticCode: "credential-invalid",
+      diagnosticText: "Scrydex rejected the redacted API credentials with HTTP 401.",
+      retryAfterSeconds,
+    });
+  }
+
+  if (response.status === 403) {
+    return new ScrydexTransportError({
+      status: response.status,
+      diagnosticCode: "adapter-authentication-failed",
+      diagnosticText: "Scrydex denied access with HTTP 403; verify redacted team, key, and plan readiness.",
+      retryAfterSeconds,
+    });
+  }
+
+  if (response.status === 429) {
+    return new ScrydexTransportError({
+      status: response.status,
+      diagnosticCode: "provider-rate-limited",
+      diagnosticText: "Scrydex rate-limited the request with HTTP 429.",
+      retryAfterSeconds,
+    });
+  }
+
+  if (response.status === 402 || bodyMentionsCredit) {
+    return new ScrydexTransportError({
+      status: response.status,
+      diagnosticCode: "scrydex-credit-exhausted",
+      diagnosticText: "Scrydex reported credit exhaustion or payment-required state; provider details are redacted.",
+      retryAfterSeconds,
+    });
+  }
+
+  if (response.status >= 500) {
+    return new ScrydexTransportError({
+      status: response.status,
+      diagnosticCode: "provider-degraded",
+      diagnosticText: `Scrydex provider appears degraded with HTTP ${response.status}.`,
+      retryAfterSeconds,
+    });
+  }
+
+  return new ScrydexTransportError({
+    status: response.status,
+    diagnosticCode: "provider-request-failed",
+    diagnosticText: `Scrydex request failed with HTTP ${response.status}; provider response body is redacted.`,
+    retryAfterSeconds,
+  });
 }
 
 function extractScrydexItems<TItem>(body: JsonValue): readonly TItem[] {
@@ -938,6 +1210,8 @@ function sealedProductOptionItem(sealedProduct: ScrydexOnePieceSealedProduct, ex
 
 function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
   const record = jsonRecord(value);
+  const printings = stringArrayValue(record.printings);
+  const variants = sanitizeScrydexCardVariants(record.variants);
   return compactRecord({
     id: stringValue(record.id),
     name: stringValue(record.name),
@@ -949,7 +1223,26 @@ function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
     language: stringValue(record.language),
     language_code: stringValue(record.language_code),
     expansion: sanitizeScrydexExpansion(record.expansion),
+    printings: printings.length > 0 ? printings : null,
+    variants: variants.length > 0 ? variants : null,
   });
+}
+
+function sanitizeScrydexCardVariants(value: JsonValue | undefined): readonly ScrydexOnePieceCardVariant[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const record = jsonRecord(entry);
+      const printings = stringArrayValue(record.printings);
+      return compactRecord({
+        name: stringValue(record.name),
+        printings: printings.length > 0 ? printings : null,
+      }) as ScrydexOnePieceCardVariant;
+    })
+    .filter((variant) => Boolean(variant.name) || Boolean(variant.printings?.length));
 }
 
 function sanitizeScrydexSealedProduct(value: JsonValue): ScrydexOnePieceSealedProduct {
@@ -1010,6 +1303,25 @@ function scrydexUrl(
     url.searchParams.set(key, value);
   }
   return url.toString();
+}
+
+function scrydexAccountUrl(path: string, options: ScrydexOnePieceProviderAdapterOptions): string {
+  const base = accountBaseUrl(options).replace(/\/$/, "");
+  return new URL(`${base}/${path.replace(/^\//, "")}`).toString();
+}
+
+function accountBaseUrl(options: ScrydexOnePieceProviderAdapterOptions): string {
+  if (!options.baseUrl) {
+    return scrydexAccountBaseUrl;
+  }
+
+  return options.baseUrl.replace(/\/onepiece\/v1\/?$/i, "/account/v1");
+}
+
+function scrydexPrintingsSearchQuery(expansionId: string): string {
+  const normalized = requireString(expansionId, "Scrydex One Piece printings search requires a set value.");
+  const queryValue = /^[a-z0-9_-]+$/i.test(normalized) ? normalized : `"${normalized.replace(/"/g, '\\"')}"`;
+  return `printings:${queryValue}`;
 }
 
 function absoluteScrydexUrl(value: string, options: ScrydexOnePieceProviderAdapterOptions): string {
@@ -1085,6 +1397,14 @@ function stringValue(value: unknown): string | null {
   return null;
 }
 
+function stringArrayValue(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map(stringValue).filter((entry): entry is string => Boolean(entry));
+}
+
 function stringOrNumberValue(value: unknown): string | number | null {
   return typeof value === "number" ? value : stringValue(value);
 }
@@ -1103,6 +1423,20 @@ function booleanValue(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  const normalized = stringValue(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function positiveInteger(value: unknown): number | null {
   const normalized = stringValue(value);
   if (!normalized) {
@@ -1114,6 +1448,89 @@ function positiveInteger(value: unknown): number | null {
 
 function recordValue(value: unknown, key: string): JsonValue | undefined {
   return isJsonRecord(value) ? value[key] : undefined;
+}
+
+function sanitizeScrydexUsage(
+  value: JsonValue,
+): Omit<
+  ScrydexUsageReadiness,
+  "usageCheckState" | "creditDiagnostic" | "degradedDiagnostic" | "creditState" | "credentialState"
+> {
+  const record = jsonRecord(value);
+  return {
+    totalCredits: numberValue(record.total_credits ?? record.totalCredits),
+    remainingCredits: numberValue(record.remaining_credits ?? record.remainingCredits),
+    usedCredits: numberValue(record.used_credits ?? record.usedCredits),
+    overageCreditRate: stringValue(record.overage_credit_rate ?? record.overageCreditRate),
+    usageUpdatedAt: stringValue(
+      record.updated_at ?? record.updatedAt ?? record.usage_updated_at ?? record.usageUpdatedAt ?? record.last_updated,
+    ),
+  };
+}
+
+function scrydexCreditState(
+  usage: Pick<ScrydexUsageReadiness, "remainingCredits" | "totalCredits">,
+): ScrydexUsageReadiness["creditState"] {
+  if (usage.remainingCredits === null) {
+    return "unknown";
+  }
+
+  if (usage.remainingCredits <= 0) {
+    return "exhausted";
+  }
+
+  if (usage.totalCredits !== null && usage.totalCredits > 0 && usage.remainingCredits / usage.totalCredits <= 0.1) {
+    return "low";
+  }
+
+  return "available";
+}
+
+function scrydexCreditDiagnostic(creditState: ScrydexUsageReadiness["creditState"]): string {
+  if (creditState === "exhausted") {
+    return "Scrydex account credits are exhausted; stop paid imports until operators review credits and overage posture.";
+  }
+
+  if (creditState === "low") {
+    return "Scrydex account credits are low; operators should review call budgets before running imports.";
+  }
+
+  if (creditState === "unknown") {
+    return "Scrydex account usage response did not include remaining-credit evidence.";
+  }
+
+  return scrydexUsageCheckedDiagnostic;
+}
+
+function retryAfterSecondsFromHeader(value: string | null): number | undefined {
+  const retryAfter = stringValue(value);
+  if (!retryAfter) {
+    return undefined;
+  }
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.floor(seconds);
+  }
+
+  const retryAt = Date.parse(retryAfter);
+  if (Number.isNaN(retryAt)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function parseJsonText(value: string): JsonValue | null {
+  if (!value.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch {
+    return null;
+  }
 }
 
 function jsonRecord(value: JsonValue): Readonly<Record<string, JsonValue>> {
@@ -1156,4 +1573,18 @@ function sortJsonValue(value: unknown): unknown {
     );
   }
   return value;
+}
+
+class ScrydexTransportError extends Error {
+  readonly status: number;
+  readonly diagnosticCode: string;
+  readonly retryAfterSeconds?: number;
+
+  constructor(input: { status: number; diagnosticCode: string; diagnosticText: string; retryAfterSeconds?: number }) {
+    super(input.diagnosticText);
+    this.name = "ScrydexTransportError";
+    this.status = input.status;
+    this.diagnosticCode = input.diagnosticCode;
+    this.retryAfterSeconds = input.retryAfterSeconds;
+  }
 }

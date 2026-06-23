@@ -143,24 +143,30 @@ describe("Scrydex One Piece provider adapter", () => {
         optionQueryBlocking: false,
       }),
     ]);
-    expect(diagnostics).toEqual([
-      expect.objectContaining({
-        code: "scrydex-one-piece-credentials-configured",
-        severity: "info",
-      }),
-      expect.objectContaining({
-        code: "scrydex-one-piece-bulk-first-transport-configured",
-        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      }),
-      expect.objectContaining({
-        code: "scrydex-one-piece-bulk-first-transport-configured",
-        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-      }),
-      expect.objectContaining({
-        code: "scrydex-one-piece-bulk-first-transport-configured",
-        unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      }),
-    ]);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "scrydex-one-piece-credentials-configured",
+          severity: "info",
+        }),
+        expect.objectContaining({
+          code: "scrydex-one-piece-bulk-first-transport-configured",
+          unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        }),
+        expect.objectContaining({
+          code: "scrydex-account-usage-checked",
+          severity: "info",
+        }),
+        expect.objectContaining({
+          code: "scrydex-account-usage-stale-window",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          code: "scrydex-one-piece-price-history-source-authority-gated",
+          severity: "warning",
+        }),
+      ]),
+    );
     expect(serialized).not.toContain(fixtureCredentials.apiKey);
     expect(serialized).not.toContain(fixtureCredentials.teamId);
     expect(serialized).toContain("[redacted-provider-credential]");
@@ -215,16 +221,22 @@ describe("Scrydex One Piece provider adapter", () => {
     ]);
     expect(fixture.calls.map((call) => endpoint(call.url))).toEqual([
       "/expansions",
-      "/expansions/op-01/cards",
-      "/expansions/op-01/cards",
+      "/cards",
+      "/cards",
       "/expansions/op-01/sealed",
     ]);
     expect(fixture.calls.map((call) => search(call.url, "page_size"))).toEqual(["100", "250", "250", "100"]);
     expect(fixture.calls.map((call) => search(call.url, "select"))).toEqual([
       "id,name,code,total,release_date,language,language_code",
-      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion",
-      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion",
+      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants",
+      "id,name,number,printed_number,rarity,rarity_code,type,language,language_code,expansion,printings,variants",
       "id,name,type,language,language_code,expansion",
+    ]);
+    expect(fixture.calls.map((call) => search(call.url, "q"))).toEqual([
+      null,
+      "printings:op-01",
+      "printings:op-01",
+      null,
     ]);
     expect(fixture.calls.every((call) => call.apiKey === fixtureCredentials.apiKey)).toBe(true);
     expect(fixture.calls.every((call) => call.teamId === fixtureCredentials.teamId)).toBe(true);
@@ -266,7 +278,7 @@ describe("Scrydex One Piece provider adapter", () => {
     expect(cardPlan).toMatchObject({
       planKey: "scrydex:one-piece:expansion:op-01:cards",
       transportSteps: [
-        "Fetch Scrydex One Piece expansion cards with max page size",
+        "Search Scrydex One Piece cards by printings set with max page size",
         "Sanitize card payloads",
         "Attach payload provenance",
       ],
@@ -274,7 +286,8 @@ describe("Scrydex One Piece provider adapter", () => {
         requestStrategy: "bulk-first",
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
-        estimateReason: "Card page count is available only after the first Scrydex paged response.",
+        estimateReason:
+          "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
         pageSize: 250,
         selectedFields: [
           "id",
@@ -287,9 +300,11 @@ describe("Scrydex One Piece provider adapter", () => {
           "language",
           "language_code",
           "expansion",
+          "printings",
+          "variants",
         ],
         perRecordFallbackReason: null,
-        usageCheckState: "not-configured",
+        usageCheckState: "checked",
       },
     });
     expect(sealedPlan).toMatchObject({
@@ -307,7 +322,7 @@ describe("Scrydex One Piece provider adapter", () => {
         pageSize: 100,
         selectedFields: ["id", "name", "type", "language", "language_code", "expansion"],
         perRecordFallbackReason: null,
-        usageCheckState: "not-configured",
+        usageCheckState: "checked",
       },
     });
     expect(payloads.map((payload) => payload.externalKey)).toEqual([
@@ -322,13 +337,18 @@ describe("Scrydex One Piece provider adapter", () => {
       { phase: "fetching", completed: 3, total: 3, currentLabel: "Nami" },
     ]);
     expect(fixture.calls.map((call) => endpoint(call.url))).toEqual([
-      "/expansions/op-01/cards",
-      "/expansions/op-01/cards",
+      "/scrydex/account/v1/usage",
+      "/scrydex/account/v1/usage",
+      "/cards",
+      "/cards",
       "/expansions/op-01/sealed",
     ]);
     expect(fixture.calls.map((call) => endpoint(call.url))).not.toEqual(
       expect.arrayContaining(["/cards/op01-001", "/cards/op01-002", "/cards/op01-003", "/sealed/op01-booster-box"]),
     );
+    expect(
+      fixture.calls.filter((call) => endpoint(call.url) === "/cards").map((call) => search(call.url, "q")),
+    ).toEqual(["printings:op-01", "printings:op-01"]);
   });
 
   it("fetches explicit set reference-data through the expansion single endpoint", async () => {
@@ -367,7 +387,7 @@ describe("Scrydex One Piece provider adapter", () => {
         estimateState: "estimated",
         estimatedRequestCount: 1,
         perRecordFallbackReason: "Selected set-reference import uses the Scrydex expansion detail endpoint.",
-        usageCheckState: "not-configured",
+        usageCheckState: "checked",
       },
     });
     expect(payloads).toEqual([
@@ -389,7 +409,7 @@ describe("Scrydex One Piece provider adapter", () => {
       }),
     ]);
     expect(progress).toEqual([{ phase: "fetching", completed: 1, total: 1, currentLabel: "Romance Dawn" }]);
-    expect(fixture.calls.map((call) => endpoint(call.url))).toEqual(["/expansions/op-01"]);
+    expect(fixture.calls.map((call) => endpoint(call.url))).toEqual(["/scrydex/account/v1/usage", "/expansions/op-01"]);
     expect(JSON.stringify(payloads)).not.toMatch(/price|seller|api-key-fixture|team-id-fixture|X-Api-Key/i);
   });
 
@@ -453,6 +473,11 @@ describe("Scrydex One Piece provider adapter", () => {
               language: "English",
               language_code: "en",
             },
+            printings: ["OP-01", "PRB01"],
+            variants: [
+              { name: "normal", printings: ["OP-01"] },
+              { name: "mangaAltArt", printings: ["PRB01"] },
+            ],
           },
           sourceUrl: "https://fixture.chase-sets.local/scrydex/onepiece/v1/cards/op01-001",
         },
@@ -460,14 +485,61 @@ describe("Scrydex One Piece provider adapter", () => {
     );
     expect(payload.provenance.contentHash).toBe(repeatPayload.provenance.contentHash);
     expect(JSON.stringify(payload)).not.toMatch(/market_price|price|seller|api-key-fixture|team-id-fixture|X-Api-Key/i);
-    expect(firstFixture.calls.map((call) => endpoint(call.url))).toEqual(["/cards/op01-001"]);
+    expect(firstFixture.calls.map((call) => endpoint(call.url))).toEqual([
+      "/scrydex/account/v1/usage",
+      "/cards/op01-001",
+    ]);
     expect(plan.usageEstimate).toMatchObject({
       requestStrategy: "single-record",
       estimateState: "estimated",
       estimatedRequestCount: 1,
       perRecordFallbackReason: "Operator selected one explicit Scrydex card id.",
-      usageCheckState: "not-configured",
+      usageCheckState: "checked",
     });
+  });
+
+  it("maps Scrydex auth, rate, credit, and degraded failures into redacted diagnostics", async () => {
+    const cases = [
+      { status: 401, body: { error: "invalid" }, code: "credential-invalid", severity: "error" },
+      { status: 403, body: { error: "forbidden" }, code: "adapter-authentication-failed", severity: "error" },
+      { status: 429, body: { error: "slow down" }, code: "provider-rate-limited", severity: "warning" },
+      { status: 402, body: { error: "credits exhausted" }, code: "scrydex-credit-exhausted", severity: "error" },
+      { status: 503, body: { error: "maintenance" }, code: "provider-degraded", severity: "warning" },
+    ] as const;
+
+    for (const testCase of cases) {
+      const adapter = createScrydexOnePieceProviderAdapter({
+        credentials: fixtureCredentials,
+        baseUrl: fixtureBaseUrl,
+        fetch: async (input, init) => {
+          const headers = new Headers(init?.headers);
+          expect(headers.get("X-Api-Key")).toBe(fixtureCredentials.apiKey);
+          expect(headers.get("X-Team-ID")).toBe(fixtureCredentials.teamId);
+          expect(String(input)).toBe(`${fixtureBaseUrl.replace("/onepiece/v1", "/account/v1")}/usage`);
+          return new Response(JSON.stringify(testCase.body), {
+            status: testCase.status,
+            headers: { "retry-after": "30" },
+          });
+        },
+        now: () => fixtureNow,
+      });
+
+      const diagnostics = await adapter.getTransportDiagnostics();
+      const serialized = JSON.stringify(diagnostics);
+
+      expect(diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: testCase.code,
+            severity: testCase.severity,
+          }),
+        ]),
+      );
+      expect(serialized).not.toContain(fixtureCredentials.apiKey);
+      expect(serialized).not.toContain(fixtureCredentials.teamId);
+      expect(serialized).not.toContain("credits exhausted");
+      expect(serialized).not.toContain("maintenance");
+    }
   });
 });
 
@@ -495,17 +567,24 @@ function scrydexFixtureFetch(): Readonly<{
 }> {
   const calls: ScrydexFixtureCall[] = [];
   const responses: Readonly<Record<string, unknown>> = {
+    [`${fixtureBaseUrl.replace("/onepiece/v1", "/account/v1")}/usage`]: {
+      total_credits: 1000,
+      remaining_credits: 875,
+      used_credits: 125,
+      overage_credit_rate: "0.01",
+      updated_at: "2026-06-22T00:00:00.000Z",
+    },
     [`${fixtureBaseUrl}/expansions?page=1&page_size=100&select=id%2Cname%2Ccode%2Ctotal%2Crelease_date%2Clanguage%2Clanguage_code`]:
       {
         data: [scrydexExpansion],
         total_pages: 1,
       },
-    [`${fixtureBaseUrl}/expansions/op-01/cards?page=1&page_size=250&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion`]:
+    [`${fixtureBaseUrl}/cards?page=1&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
       {
         data: [scrydexCards[0], scrydexCards[1]],
         total_pages: 2,
       },
-    [`${fixtureBaseUrl}/expansions/op-01/cards?page=2&page_size=250&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion`]:
+    [`${fixtureBaseUrl}/cards?page=2&page_size=250&q=printings%3Aop-01&select=id%2Cname%2Cnumber%2Cprinted_number%2Crarity%2Crarity_code%2Ctype%2Clanguage%2Clanguage_code%2Cexpansion%2Cprintings%2Cvariants`]:
       {
         data: [scrydexCards[2]],
         total_pages: 2,
@@ -576,6 +655,21 @@ const scrydexCards = [
     language: "English",
     language_code: "en",
     expansion: scrydexExpansion,
+    printings: ["OP-01", "PRB01"],
+    variants: [
+      {
+        name: "normal",
+        printings: ["OP-01"],
+        images: [{ large: "https://images.scrydex.example/op01-001/large" }],
+        prices: [{ market: 20 }],
+      },
+      {
+        name: "mangaAltArt",
+        printings: ["PRB01"],
+        images: [{ large: "https://images.scrydex.example/op01-001-manga/large" }],
+        prices: [{ market: 2000 }],
+      },
+    ],
   },
   {
     id: "op01-002",
@@ -588,6 +682,8 @@ const scrydexCards = [
     language: "English",
     language_code: "en",
     expansion: scrydexExpansion,
+    printings: ["OP-01"],
+    variants: [{ name: "normal", printings: ["OP-01"] }],
   },
   {
     id: "op01-003",
@@ -600,6 +696,8 @@ const scrydexCards = [
     language: "English",
     language_code: "en",
     expansion: scrydexExpansion,
+    printings: ["OP-01"],
+    variants: [{ name: "normal", printings: ["OP-01"] }],
   },
 ];
 
