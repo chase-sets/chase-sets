@@ -4,20 +4,46 @@
 
 Every Chase Sets mutation that changes user-visible state must choose an explicit post-write consistency strategy. This policy is the product-wide taxonomy that route authors, API owners, realtime consumers, and future structure checks reference before implementing a write flow.
 
-This document does not replace the [Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md), [Semantic Post-Write Handoffs](./semantic-post-write-handoffs.md), [Event Projection Runtime](./event-projection-runtime.md), [Projection Freshness SLOs](./projection-freshness-slos.md), or [Realtime SSE Runbook](../runbooks/realtime-sse.md). Those documents remain the detailed contracts for receipt propagation, semantic handoff metadata, projection waits, route inventories, SLOs, and SSE operation.
+This document does not replace the [Advanced Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md), [Semantic Post-Write Handoffs](./semantic-post-write-handoffs.md), [Event Projection Runtime](./event-projection-runtime.md), [Projection Freshness SLOs](./projection-freshness-slos.md), or [Realtime SSE Runbook](../runbooks/realtime-sse.md). Those documents remain the detailed contracts for receipt propagation, semantic handoff metadata, projection waits, route inventories, SLOs, and SSE operation.
 
 The consistency floor is durable domain state plus context-owned projections. Push wake signals, SSE, browser retries, and optimistic UI are latency and correction tools. They must never become the only correctness guarantee for critical immediate feedback unless a documented, tested fallback reads the authoritative projection again.
+
+## Default-Safe Route Path
+
+For projection-backed post-write navigation, the documented default is the shared helper pair:
+
+1. Source actions call `navigateAfterWrite(commandResult, destinationRoute, options)` or `navigateAfterWriteFromSources(commandResults, destinationRoute, options)`.
+2. Destination loaders call `loadAfterWrite({ request, load, isNotFound, ... })`.
+3. Routes map the returned `data`, `pending`, or `permanent-failure` result into a context-owned recovery boundary when available.
+
+That pair is the default-safe path because it centralizes receipt encoding, semantic handoff pairing, bounded retry, fresh-write error classification, and low-cardinality telemetry. Route code should not hand-build `afterWrite`, parse `postWriteHandoff`, or duplicate retry classification unless it has a documented bespoke need.
+
+Use the route-owned recovery boundary to keep temporary lag distinct from real blockers. The recovery boundary should accept canonical `PostWriteRecoveryKind` values from `loadAfterWrite`, render bounded preparing/retry copy for `pending-projection` or `refreshable-catching-up`, and render explicit restart/review/not-found/access recovery for `expired-handoff`, `action-required`, `stale-projection`, or `terminal-failure`. Checkout's readiness/source result split is the model: projection lag with a valid receipt is temporary; stale readiness, split-group handoff disagreement, auth, validation, domain blockers, and permanent not-found are not checkout preparation.
+
+The manual [Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md) is an advanced checklist for migrations, unusual helper composition, shared mounts, cookie-backed continuations, semantic predicates, or manifest exceptions. New ordinary routes should start with `navigateAfterWrite` and `loadAfterWrite`, then use the checklist only to verify the advanced details the helper path cannot infer.
 
 ## Strategy Taxonomy
 
 | Strategy | Contract | Use When | Not Enough When |
 | --- | --- | --- | --- |
-| `fresh-read` | The write returns source-context commit receipt metadata; the next read carries `afterWrite`/`Chase-Sets-Read-After-Write`; the API waits on exact projection dependencies and either serves fresh data or returns bounded temporary recovery. Browser routes may also carry `postWriteHandoff` query metadata beside `afterWrite` when the destination must distinguish a stale `200` empty or stale resource shape from an actually empty/current result. | Critical redirects or reloads where stale state would look like lost money, a missing checkout session, a failed payment, a missing resource after a confirmed write, or a successful command hidden behind normal empty-state UI. | The destination read is not projection-backed, the flow stays on the same page and can safely use a returned snapshot, the route already has a durable job/status resource, or the user can tolerate explicit lag. |
+| `fresh-read` | The write returns source-context commit receipt metadata; source routes use `navigateAfterWrite`; destination loaders use `loadAfterWrite`; server route clients forward `Chase-Sets-Read-After-Write`; the API waits on exact projection dependencies and either serves fresh data or returns bounded temporary recovery. Browser routes may also carry `postWriteHandoff` query metadata beside `afterWrite` when the destination must distinguish a stale `200` empty or stale resource shape from an actually empty/current result. | Critical redirects or reloads where stale state would look like lost money, a missing checkout session, a failed payment, a missing resource after a confirmed write, or a successful command hidden behind normal empty-state UI. | The destination read is not projection-backed, the flow stays on the same page and can safely use a returned snapshot, the route already has a durable job/status resource, or the user can tolerate explicit lag. |
 | `optimistic-with-correction` | The client applies a local predicted state immediately, records the write in flight, then reconciles with the command result, a fresh refetch, or a bounded realtime correction. Failed writes roll back or show route-owned repair. | Quantity steppers, cart and sell-list controls, simple preference toggles, and other reversible account actions where immediate feel matters and failure can be explained inline. | The write starts checkout, creates payment/order side effects, changes money movement, or would hide authorization, inventory, quote, or fee failures. |
 | `snapshot-return` | The command response includes the user-visible snapshot or version needed to render the committed state without waiting for a projection. The snapshot is scoped to the command owner and does not pretend downstream projections have caught up. | Same-context mutations where the aggregate can return a safe current view, such as a revised line quantity, selected option, fee quote, validation result, or command receipt. | Other route regions depend on downstream projections, cross-context read models, or server-derived totals that the command owner cannot authoritatively return. |
 | `realtime-correction` | The initial page comes from a normal server/API read. SSE delivers durable projection patches or `sync.required`; clients patch only compatible visible state and refetch/reload on missed, expired, backpressured, invalid, or failed streams. | Multi-tab correction, account list refresh, public market updates, operator surfaces, and supplemental updates after a page is already usable. | Critical immediate feedback after a write unless paired with `fresh-read`, `snapshot-return`, or an explicit reload/refetch fallback that is tested. |
 
 Use the smallest strategy that preserves trust. Combining strategies is expected: a quantity stepper may use `optimistic-with-correction` plus `snapshot-return`; checkout session start uses `fresh-read`; the checkout review page may also use `realtime-correction` to reload after later projection changes.
+
+## Lag, Readiness, And Source Results
+
+Projection lag means the committed source event has not reached the destination read model yet. It is temporary only when the request still has a valid fresh-write receipt or valid paired semantic handoff. Examples: a newly created listing detail returns `404` while `marketplace_listing_pages` catches up; an account cart add-line handoff loads a stale empty cart before `checkout_cart_line_pages` catches up; a checkout session read hits `projection_freshness_timeout` immediately after session creation.
+
+Readiness and source results are domain facts, not projection lag. Examples: Checkout cart readiness is stale because the cart revision changed; split-group handoff evidence no longer matches the session; fulfillment is unresolved; payout setup is blocked; the actor lacks access; validation fails; the destination source resource truly does not exist. A fresh-write receipt must not convert those outcomes into "preparing" UI. Show the context-owned blocker, restart, review, or access recovery instead.
+
+When both are possible, classify in this order:
+
+1. If the route has a valid receipt and the only failure is missing/stale projection visibility, return bounded pending recovery.
+2. If the API returns a domain/source/readiness blocker, render that blocker even when a receipt is present.
+3. If the receipt is missing, malformed, expired, wrong-scope, or exhausted its retry budget, stop treating the state as temporary.
 
 ## Recovery Kind Taxonomy
 
@@ -95,6 +121,8 @@ Realtime/SSE is bounded correction, not source-of-truth execution:
 - Keep topic ownership in the bounded context that owns the projection/read model. Public topics can expose public market facts; account topics require actor/account authorization.
 - Realtime-only is disallowed for critical immediate-feedback mutations unless the route documents and tests a fallback that re-reads authoritative state within a bounded budget.
 
+Realtime can shorten visible lag and correct already loaded pages, but it does not guarantee that the first read after a write is fresh. A missed stream, delayed patch, cursor expiry, or deploy drain must fall back to route reload/refetch or the `loadAfterWrite` recovery boundary; it must not promise that a committed write is visible.
+
 Existing realtime consumers are classified as:
 
 | Surface | Current Role | Required Fallback |
@@ -111,12 +139,27 @@ Termination must be visible, bounded, and tied to the original write.
 
 - `afterWrite` expiry is final. Missing, malformed, far-future, expired, or wrong-actor tokens must not be refreshed, re-minted, or treated as temporary.
 - Retry/reload budgets belong to the route. A fresh token can retry `404`, `projection_freshness_timeout`, or a route-bounded opaque gateway/service timeout only until the token expires or the route's attempt budget is exhausted.
+- Do not show a spinner, disabled control, or "preparing" state past the retry budget. Once the budget ends, render the route-owned action-required, expired-handoff, stale-projection, or terminal recovery.
 - Realtime reconnects must use the last cursor where available, back off after noisy errors, and close streams on unmount. Cursor expiry or replay backpressure terminates patch replay and requires a full reload/refetch.
 - Optimistic UI must either confirm, reconcile, or roll back. A failed write must restore the last known server state or replace the optimistic state with a server-returned snapshot plus inline recovery copy.
 - Snapshot responses must include enough version/status information for the client to detect stale command results, concurrent edits, or quote/fingerprint drift. Stale snapshots must not overwrite newer local or server-confirmed state.
 - Background and operator flows must expose stale, lagging, partial, unavailable, or retryable status instead of silently presenting old projections as current.
 
 User-visible recovery should name the user task, not the infrastructure. "Preparing checkout", "Reload listings", or "Quantity could not be updated" is appropriate. "Projection timeout" belongs in logs, metrics, and operator diagnostics, not customer-facing copy.
+
+## Migrating An Existing Route
+
+Use this section as the canonical link target for per-context migration issues.
+
+1. Classify the mutation in `mutationConsistencyInventory`; use `fresh-read` only when an immediate projection-backed read can hide the committed write.
+2. Replace manual URL construction with `navigateAfterWrite` or `navigateAfterWriteFromSources`; pass a semantic `handoff` option only when a stale successful response can hide the expected outcome.
+3. Replace bespoke loader retry code with `loadAfterWrite`; keep unrelated secondary reads on a non-fresh request when they should not inherit the write receipt.
+4. Wire the route's recovery boundary to the helper result: `data` renders normally, `pending` renders bounded preparing/retry copy, and `permanent-failure` preserves not-found/access/domain recovery.
+5. Declare exact `readFreshnessRoutes` dependencies with `readModelTable` whenever the table has one projection owner; use `projectionName` only for multi-table or projection-level waits and document the reason.
+6. Update `readAfterWriteRouteInventory` with helper uses, dependency proof, transient recovery kinds, and semantic handoff evidence if used.
+7. Add focused tests for source navigation, destination loading, fresh temporary recovery, expired/malformed permanent recovery, and domain/readiness blockers not being treated as lag.
+
+Non-goals stay unchanged during migration: do not add synchronous projection drains, do not spin past the route retry budget, and do not treat realtime correction as the guarantee that the first post-write read is fresh.
 
 ## Stale Response And Rollback Behavior
 
