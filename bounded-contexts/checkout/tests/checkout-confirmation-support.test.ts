@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MarketplaceApiError } from "@chase-sets/marketplace/server";
 import {
   createCheckoutOrdersThroughOrdering,
+  previewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace,
 } from "../support/request-support/checkout-confirmation";
 
@@ -149,6 +150,50 @@ describe("checkout confirmation support", () => {
 
     expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(expect.objectContaining({ sourceType: "buy-now" }));
     expect(mockCreateCheckoutOrders).toHaveBeenCalledWith(expect.objectContaining({ sourceType: "buy-now" }));
+  });
+
+  it("preflights Buy Now locked listing supply through Ordering", async () => {
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "preview_buy_now_ready",
+      readyLineKeys: ["lst_1:0"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+    });
+
+    await previewBuyNowCheckoutSupplyThroughOrdering(new Request("https://checkout.test/account/checkout-sessions"), {
+      checkoutSessionId: "chk_buy_now_preflight",
+      shippingOption: "standard",
+      optimizationGoal: "lowest-total",
+      line: {
+        cartLineId: null,
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Raw",
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        sellerPreferenceId: "lst_1",
+      },
+    });
+
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith({
+      checkoutSessionId: "chk_buy_now_preflight",
+      sourceType: "buy-now",
+      shippingOption: "standard",
+      optimizationGoal: "lowest-total",
+      lines: [
+        expect.objectContaining({
+          listingId: "lst_1",
+          lockedListingId: "lst_1",
+          fulfillmentMode: "locked-listing",
+          productId: "cat_1::form:raw",
+        }),
+      ],
+    });
   });
 
   it("does not map offer intent directly to Ordering", async () => {

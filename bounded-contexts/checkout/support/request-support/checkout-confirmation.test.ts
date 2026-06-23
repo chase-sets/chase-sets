@@ -39,7 +39,7 @@ describe("checkout confirmation request support", () => {
     mockCreateAccountPayment.mockResolvedValue({ payment_id: "pay_existing" });
     const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
 
-    const paymentId = await createCheckoutPaymentThroughPayments(
+    const payment = await createCheckoutPaymentThroughPayments(
       request,
       "chk_1",
       ["ord_1", "ord_2"],
@@ -51,7 +51,7 @@ describe("checkout confirmation request support", () => {
       "/account/payments/:paymentId",
     );
 
-    expect(paymentId).toBe("pay_existing");
+    expect(payment).toEqual({ payment_id: "pay_existing" });
     expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledWith(request);
     expect(mockCreateAccountPayment).toHaveBeenCalledWith({
       orderIds: ["ord_1", "ord_2"],

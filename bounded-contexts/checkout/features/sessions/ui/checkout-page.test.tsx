@@ -540,6 +540,30 @@ describe("checkout session page", () => {
     expect(markup).toContain("Sellers can accept your purchase intent before an order and payment are created.");
   });
 
+  it("keeps purchase intent submission on confirm checkout after destination edits", () => {
+    render(
+      <CheckoutSessionPage
+        session={{
+          ...session,
+          session_id: "chk_offer_intent_refresh_guard",
+          source_type: "offer-intent",
+          fulfillment_preview_revision: null,
+          lines: [{ ...session.lines[0], cartLineId: null, offerPriceAmount: "350.00" }],
+        }}
+        fulfillmentPreview={null}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Recipient name/), { target: { value: "Jamie Buyer" } });
+
+    const primaryActions = screen.getAllByRole("button", { name: "Place purchase intent" });
+    expect(primaryActions.length).toBeGreaterThan(0);
+    expect(primaryActions.every((button) => (button as HTMLButtonElement).value === "confirm-checkout")).toBe(true);
+    expect(primaryActions.some((button) => (button as HTMLButtonElement).value === "refresh-checkout-preview")).toBe(
+      false,
+    );
+  });
+
   it("renders saved shipping address selection with explicit address preferences", () => {
     const markup = renderToString(
       <CheckoutSessionPage

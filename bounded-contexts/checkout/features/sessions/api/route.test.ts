@@ -4,23 +4,26 @@ import {
   type TestActorOverrides,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
 
 const {
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
+  mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
 } = vi.hoisted(() => ({
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
+  mockPreviewBuyNowCheckoutSupplyThroughOrdering: vi.fn(),
   mockSubmitPurchaseIntentThroughMarketplace: vi.fn(),
 }));
 
 vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,
+  previewBuyNowCheckoutSupplyThroughOrdering: mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
     value === null || value === undefined ? null : String(value),
@@ -108,6 +111,42 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
   };
 }
 
+function createPaymentResult(paymentId: string, position = "84", eventId = `evt_${paymentId}`) {
+  return {
+    payment_id: paymentId,
+    commandReceipt: {
+      mode: "eventual",
+      commitPosition: position,
+      commitEventIds: [eventId],
+      commitPositions: [
+        {
+          sourceContextName: "payments",
+          maxGlobalPosition: position,
+          eventIds: [eventId],
+        },
+      ],
+    },
+  };
+}
+
+function readyBuyNowSupplyPreview() {
+  return {
+    revision: "buy_now_supply_ready",
+    readyLineKeys: ["lst_1:0"],
+    unavailableLineKeys: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "0.00",
+      shippingAmount: "0.00",
+      salesTaxAmount: "0.00",
+      totalAmount: "0.00",
+      packageCount: 0,
+    },
+    unavailableLines: [],
+    materialChangeReasons: [],
+  };
+}
+
 function createServices(overrides: Partial<CheckoutSessionServices> = {}): CheckoutSessionServices {
   const mutationResult = (sessionId: string) => ({ sessionId, session: createSession({ session_id: sessionId }) });
 
@@ -143,10 +182,15 @@ function expectNoCheckoutConfirmSideEffects(services: CheckoutSessionServices) {
 useMockReset(
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
+  mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
 );
 
 describe("checkout session routes", () => {
+  beforeEach(() => {
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+  });
+
   it("returns cart session validation errors from checkout", async () => {
     const services = createServices({
       createFromCart: vi.fn(async () => {
@@ -647,6 +691,70 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("blocks buy-now session creation until Ordering can fulfill the locked listing", async () => {
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue({
+      ...readyBuyNowSupplyPreview(),
+      readyLineKeys: [],
+      unavailableLineKeys: ["lst_1:0"],
+      unavailableLines: [
+        {
+          lineKey: "lst_1:0",
+          catalogItemId: "cat_1",
+          productId: "cat_1::form:raw",
+          itemTitle: "Charizard",
+          productSummary: "Raw",
+          quantity: 1,
+          reason: "Locked listing is unavailable.",
+        },
+      ],
+      materialChangeReasons: ["unavailable-lines"],
+    });
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "buy-now",
+            listingId: "lst_1",
+            lockedListingId: "lst_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            productSummary: "Raw",
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "unresolved_fulfillment",
+        message: "This listing is still becoming available for checkout. Try again shortly.",
+      },
+    });
+    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({
+        shippingOption: "standard",
+        optimizationGoal: "lowest-total",
+        line: expect.objectContaining({
+          listingId: "lst_1",
+          lockedListingId: "lst_1",
+          fulfillmentMode: "locked-listing",
+          productId: "cat_1::form:raw",
+        }),
+      }),
+    );
+    expect(services.createBuyNow).not.toHaveBeenCalled();
+  });
+
   it("rejects buy-now session creation without assigned fulfillment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices();
@@ -886,9 +994,22 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
+      recordPaymentStarted: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ session_id: sessionId, payment_id: "pay_1" }),
+        commitPosition: "91",
+        commitEventIds: ["evt_checkout_payment_started"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "91",
+            eventIds: ["evt_checkout_payment_started"],
+          },
+        ],
+      })),
     });
     const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
 
@@ -901,9 +1022,26 @@ describe("checkout session routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       payment_id: "pay_1",
       order_ids: ["ord_1"],
+    });
+    expect(body).toMatchObject({
+      commitPosition: "91",
+      commitEventIds: ["evt_pay_1", "evt_checkout_payment_started"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "91",
+          eventIds: ["evt_checkout_payment_started"],
+        },
+        {
+          sourceContextName: "payments",
+          maxGlobalPosition: "84",
+          eventIds: ["evt_pay_1"],
+        },
+      ],
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
     expect(services.recordOrdersCreated).toHaveBeenCalledWith(
@@ -1019,7 +1157,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_card_vault", "ord_second_seller"],
       readyLineKeys: ["cli_card_vault", "cli_second_seller"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_multi_seller");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_multi_seller"));
     const services = createServices({
       getSession: vi.fn(async () => multiSellerSession),
       setShippingAddress: vi.fn(async () => ({ sessionId: "chk_multi_seller", session: multiSellerSession })),
@@ -1432,7 +1570,7 @@ describe("checkout session routes", () => {
   });
 
   it("retries payment recording without recreating orders", async () => {
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_existing"));
     const sessionWithOrders = createSession({ order_ids: ["ord_existing"], payment_id: null });
     const services = createServices({
       getSession: vi.fn(async () => sessionWithOrders),
@@ -1477,7 +1615,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -1592,7 +1730,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -1630,7 +1768,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
       getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
     });
@@ -1762,7 +1900,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
       getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
     });
@@ -1872,7 +2010,7 @@ describe("checkout session routes", () => {
         session: confirmedSession,
       })),
     });
-    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_existing"));
     const app = buildApp(services);
 
     const response = await app.fetch(
