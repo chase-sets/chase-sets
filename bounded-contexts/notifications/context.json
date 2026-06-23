@@ -101,7 +101,8 @@
         "authoritativeResponse": "Read-state commands return the same-context feed snapshot and unread count after the write commits; preference commands return the saved Notification Preference item for the account and key that was just written.",
         "tests": [
           "bounded-contexts/notifications/features/notification-center/api/api.test.ts proves mark-read, mark-all-read, and preference writes return committed snapshots.",
-          "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers."
+          "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers.",
+          "bounded-contexts/notifications/features/notification-center/ui/notification-center-shell.test.tsx proves the account sheet reconciles from committed snapshots and preserves current state when write calls fail."
         ]
       }
     },
