@@ -390,7 +390,32 @@
       ]
     }
   ],
-  "shellContributions": [],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "inventory",
+      "label": "Inventory",
+      "icon": "package",
+      "href": "/account/inventory",
+      "order": 100,
+      "visibility": "signed-in",
+      "requiredPermissions": ["inventory.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "inventory-imports",
+      "label": "Import",
+      "icon": "package",
+      "href": "/account/inventory/imports",
+      "order": 110,
+      "visibility": "signed-in",
+      "requiredPermissions": ["inventory.view"]
+    }
+  ],
   "directoryIntent": {
     "inventory-items": {
       "classification": "slice",
