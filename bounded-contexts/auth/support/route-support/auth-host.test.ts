@@ -225,6 +225,26 @@ describe("auth host", () => {
     expect(location.searchParams.get("afterWrite")).toBeNull();
   });
 
+  it("does not attach identity freshness to marketplace registration continuations", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(authJsonResponse(createSessionStartedResult(), [identitySource]));
+    vi.stubGlobal("fetch", fetch);
+
+    const response = await host.createRegisterAction()(
+      createActionArgs(
+        createPasswordRegistrationRequest(
+          `?returnTo=${encodeURIComponent("/account/listings?claimListingIntent=ldi_1")}`,
+        ),
+      ),
+    );
+    const location = redirectLocation(response);
+
+    expect(location.pathname).toBe("/account/listings");
+    expect(location.searchParams.get("claimListingIntent")).toBe("ldi_1");
+    expect(location.searchParams.get("afterWrite")).toBeNull();
+  });
+
   it("clears and revokes guest checkout state alongside normal session sign-out", async () => {
     const fetchPaths: string[] = [];
     const fetch: typeof globalThis.fetch = vi.fn(async (input) => {

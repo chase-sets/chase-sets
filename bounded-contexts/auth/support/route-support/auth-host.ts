@@ -241,8 +241,18 @@ function identityFreshWriteSource(source: unknown) {
   return hasReceiptSource(source, "identity") ? source : undefined;
 }
 
-function applyFreshWriteToken(path: string, source: unknown | undefined) {
-  return source ? appendFreshWriteToken(path, source) : path;
+function hasSamePathname(path: string, expectedPath: string) {
+  const url = new URL(path, "https://chase-sets.local");
+  const expectedUrl = new URL(expectedPath, "https://chase-sets.local");
+  return url.pathname === expectedUrl.pathname;
+}
+
+function applyScopedFreshWriteToken(
+  path: string,
+  source: unknown | undefined,
+  options: Readonly<{ scopePath: string }>,
+) {
+  return source && hasSamePathname(path, options.scopePath) ? appendFreshWriteToken(path, source) : path;
 }
 
 function requireAccountSelectionTokenOrRedirect(
@@ -275,9 +285,12 @@ export function completeBrowserAuthentication(
 ) {
   const headers = new Headers();
   clearAccountSelectionCookie(headers, request);
-  const successPath = applyFreshWriteToken(
+  const successPath = applyScopedFreshWriteToken(
     getSafeReturnTo(request, options.defaultSuccessPath),
     options.freshWriteSource,
+    {
+      scopePath: options.defaultSuccessPath,
+    },
   );
 
   if (result.type === "account-selection-required") {

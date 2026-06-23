@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } from "react-router";
 import {
   appendFreshWriteToken,
   loadFreshlyWrittenResource,
@@ -133,6 +133,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const feedbackWorkflowParam = searchParams.get("feedbackWorkflow");
   const feedbackWorkflow =
@@ -143,6 +144,7 @@ export default function MarketplaceInventoryItemRoute() {
   return (
     <InventoryItemDetailPage
       item={data.item as InventoryItemDetail}
+      currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
         feedbackWorkflow ? (

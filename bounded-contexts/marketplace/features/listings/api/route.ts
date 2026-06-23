@@ -298,6 +298,17 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
     const catalogItemId = c.req.query("catalogItemId");
+    const inventoryItemId = c.req.query("inventoryItemId")?.trim();
+    if (inventoryItemId) {
+      const item = await services.getInventoryItemSupply(inventoryItemId, access.actor.accountId);
+      const items = item && item.available_quantity > 0 ? [item] : [];
+      return c.json({
+        items,
+        total: items.length,
+        count: items.length,
+      });
+    }
+
     const result = await services.listSellerInventoryItemSupply({
       accountId: access.actor.accountId,
       catalogItemId: catalogItemId && catalogItemId.trim() ? catalogItemId : undefined,

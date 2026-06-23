@@ -102,6 +102,163 @@ describe("marketplace listing routes", () => {
     expect(result.inventoryItems).toHaveLength(1);
   });
 
+  it("forwards inventory freshness when preselecting newly-created inventory", async () => {
+    const inventoryHeaders: Headers[] = [];
+    const freshPath = appendFreshWriteToken(
+      "/account/listings?inventoryItemId=inv_1",
+      {
+        commitPositions: [
+          {
+            sourceContextName: "inventory",
+            maxGlobalPosition: "61",
+            eventIds: ["evt_inventory_61"],
+          },
+        ],
+        commitEventIds: ["evt_inventory_61"],
+      },
+      Date.now(),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-inventory")) {
+          inventoryHeaders.push(new Headers(init?.headers));
+          return Promise.resolve(
+            jsonResponse({
+              items: [
+                {
+                  item_id: "inv_1",
+                  account_id: "acc_1",
+                  catalog_catalog_item_id: "cat_charizard",
+                  product_id: "cat_charizard::dim_condition:near_mint",
+                  item_title: "Charizard ex",
+                  item_subtitle: null,
+                  selected_options: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
+                  product_summary: "Condition: Near Mint",
+                  product_measure_snapshot: null,
+                  graded_card: null,
+                  storage_location_name: "North shelf",
+                  ship_from_code: "CHI-WH-1",
+                  ship_from_address: {
+                    name: "Seller",
+                    line1: "100 Market St",
+                    city: "Chicago",
+                    state: "IL",
+                    postalCode: "60601",
+                    country: "US",
+                  },
+                  available_quantity: 7,
+                },
+              ],
+              total: 1,
+              count: 1,
+            }),
+          );
+        }
+
+        if (url.includes("/api/marketplace/account/supply-locations/exists")) {
+          return Promise.resolve(jsonResponse({ exists: true }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-availability")) {
+          return Promise.resolve(jsonResponse(listingAvailability));
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const result = await listingsLoader({
+      request: new Request(`http://localhost${freshPath}`),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.createForm?.inventoryItemId).toBe("inv_1");
+    expect(inventoryHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(inventoryHeaders[0]?.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
+  });
+
+  it("preselects requested inventory through exact lookup when the first inventory page is empty", async () => {
+    const listingInventoryUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-inventory")) {
+          listingInventoryUrls.push(url);
+          if (url.includes("inventoryItemId=inv_1")) {
+            return Promise.resolve(
+              jsonResponse({
+                items: [
+                  {
+                    item_id: "inv_1",
+                    account_id: "acc_1",
+                    catalog_catalog_item_id: "cat_charizard",
+                    product_id: "cat_charizard::dim_condition:near_mint",
+                    item_title: "Charizard ex",
+                    item_subtitle: null,
+                    selected_options: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
+                    product_summary: "Condition: Near Mint",
+                    product_measure_snapshot: null,
+                    graded_card: null,
+                    storage_location_name: "North shelf",
+                    ship_from_code: "CHI-WH-1",
+                    ship_from_address: {
+                      name: "Seller",
+                      line1: "100 Market St",
+                      city: "Chicago",
+                      state: "IL",
+                      postalCode: "60601",
+                      country: "US",
+                    },
+                    available_quantity: 7,
+                  },
+                ],
+                total: 1,
+                count: 1,
+              }),
+            );
+          }
+
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        if (url.includes("/api/marketplace/account/supply-locations/exists")) {
+          return Promise.resolve(jsonResponse({ exists: true }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-availability")) {
+          return Promise.resolve(jsonResponse(listingAvailability));
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const result = await listingsLoader({
+      request: new Request("http://localhost/account/listings?inventoryItemId=inv_1"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.createForm?.inventoryItemId).toBe("inv_1");
+    expect(result.inventoryItems).toHaveLength(1);
+    expect(listingInventoryUrls.some((url) => url.includes("inventoryItemId=inv_1"))).toBe(true);
+  });
+
   it("creates and publishes a listing in one seller action", async () => {
     const fetchMock = vi.fn((input: string | URL | Request) => {
       const url = String(input);

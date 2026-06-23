@@ -255,6 +255,33 @@
           ]
         },
         {
+          "routePath": "/account/listing-inventory",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_supply_items"
+            },
+            {
+              "readModelTable": "marketplace_supply_locations"
+            },
+            {
+              "readModelTable": "marketplace_supply_holds"
+            },
+            {
+              "readModelTable": "marketplace_catalog_items"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/supply-locations/exists",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_supply_locations"
+            }
+          ]
+        },
+        {
           "routePath": "/account/listing-availability",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -371,6 +398,55 @@
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Account Listings loads the fee-lock report inside the same fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
+        }
+      }
+    },
+    {
+      "id": "marketplace.listing-inventory-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-inventory", "account-inventory-item"],
+        "actions": ["Create inventory item and return to listing setup", "Create listing from inventory item detail"],
+        "command": "Inventory item commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listing-inventory",
+        "readModelTables": [
+          "marketplace_supply_items",
+          "marketplace_supply_locations",
+          "marketplace_supply_holds",
+          "marketplace_catalog_items"
+        ],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings loads seller inventory options inside the fresh-write loader and renders a route-owned empty inventory fallback when valid post-write supply reads are still catching up."
+        }
+      }
+    },
+    {
+      "id": "marketplace.listing-stock-location-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-inventory", "account-inventory-locations"],
+        "actions": ["Create inventory item", "Create inventory storage location"],
+        "command": "Inventory storage location commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/supply-locations/exists",
+        "readModelTables": ["marketplace_supply_locations"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account Listings checks Listing stock readiness with exact Marketplace supply-location freshness and falls back to asking for ship-from details instead of throwing a generic page error while valid post-write supply reads catch up."
         }
       }
     },
