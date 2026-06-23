@@ -11,6 +11,7 @@ import {
   catalogIntegrationDataGovernancePolicies,
   catalogIntegrationDataGovernancePoliciesByKey,
   catalogIntegrationOnePieceProviderAuthorityPolicies,
+  catalogIntegrationOnePieceValidationChecks,
   catalogIntegrationProviderDataSignoffChecklist,
   catalogIntegrationScrydexOnePieceBulkImportPolicy,
   decideCatalogAliasAcceptance,
@@ -255,6 +256,37 @@ describe("One Piece provider-data governance (#2269, #2270, #2287)", () => {
     );
     expect(catalogIntegrationScrydexOnePieceBulkImportPolicy.requiredPostRunEvidence).toEqual(
       expect.arrayContaining(["actual request count", "bulk-first confirmation or per-record fallback reason"]),
+    );
+  });
+
+  it("defines representative Bandai validation checks without making Bandai or fallback sources import authority", () => {
+    expect(catalogIntegrationOnePieceValidationChecks.map((check) => check.target)).toEqual([
+      "card",
+      "expansion",
+      "sealed-product",
+    ]);
+
+    for (const check of catalogIntegrationOnePieceValidationChecks) {
+      expect(check.validationSource).toBe("bandai-one-piece-official");
+      expect(check.comparedProviders).toEqual(expect.arrayContaining(["scrydex-one-piece"]));
+      expect(check.allowedEvidence.join(" ")).toMatch(/redacted|normalized|diagnostic|checklist/i);
+      expect(check.forbiddenEvidence).toEqual(
+        expect.arrayContaining([expect.stringMatching(/official .*text/i), "official imagery copies"]),
+      );
+      expect(check.operatorEvidenceRequirement).toMatch(/Admin interface/i);
+      expect(check.fallbackSourcePolicy).toMatch(/comparison-only/i);
+      expect(check.fallbackSourcePolicy).toMatch(/after named approval|cannot/i);
+    }
+
+    expect(catalogIntegrationOnePieceValidationChecks.find((check) => check.target === "card")).toMatchObject({
+      key: "one-piece-card-release-validation",
+      comparedFieldClasses: expect.arrayContaining(["card number", "expansion membership"]),
+    });
+    expect(catalogIntegrationOnePieceValidationChecks.find((check) => check.target === "sealed-product")).toMatchObject(
+      {
+        comparedProviders: expect.arrayContaining(["tcgplayer-one-piece"]),
+        comparedFieldClasses: expect.arrayContaining(["marketplace product/SKU bridge evidence"]),
+      },
     );
   });
 });

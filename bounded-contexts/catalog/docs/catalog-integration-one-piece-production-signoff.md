@@ -31,6 +31,15 @@ References, or External Product References directly. Catalog Source
 Observations, promotion, conflict policy, duplicate prevention, and operator
 review own the transition into Catalog truth.
 
+Representative validation checks must cover at least one card, one expansion,
+and one sealed product before production signoff. Bandai official references
+may be used only as redacted validation labels and source-disagreement
+diagnostics. Fallback/community sources may be used only after named source
+approval and remain comparison-only. Each disagreement diagnostic must name the
+provider key, ingestion unit, comparison source key, redacted external id, and
+field class; it must not retain raw official/community payload text, official
+imagery copies, provider imagery, or scraped payload bodies.
+
 ## Scrydex Credit Policy
 
 Scrydex API requests consume paid credits. Scrydex One Piece imports must be
