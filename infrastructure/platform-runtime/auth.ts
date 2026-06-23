@@ -89,7 +89,7 @@ export async function resolveActorFromAuthApi(
     response = await (options.fetch ?? globalThis.fetch)(
       resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "session"),
       {
-        headers: createForwardedAuthHeaders(options.request),
+        headers: createForwardedAuthHeaders(options.request, undefined, { readTargetContextName: "auth" }),
         credentials: "include",
       },
     );

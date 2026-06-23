@@ -144,6 +144,15 @@
       "requiresAuth": false,
       "readFreshnessRoutes": [
         {
+          "routePath": "/session",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "identity_sessions"
+            }
+          ]
+        },
+        {
           "routePath": "/sessions/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -437,6 +446,34 @@
   "runtimeDeployables": ["admin-support-worker", "platform-worker"],
   "readAfterWriteRouteInventory": [
     {
+      "id": "auth.current-session-fresh-read",
+      "owner": "auth",
+      "risk": "important",
+      "source": {
+        "routeIds": ["register", "sign-in"],
+        "actions": [
+          "Complete password registration",
+          "Complete passkey registration",
+          "Complete first magic-link authentication",
+          "Complete first phone-code authentication"
+        ],
+        "command": "Auth browser authentication that starts the selected account session"
+      },
+      "destination": {
+        "routeIds": ["account"],
+        "apiContextName": "auth",
+        "apiRoutePath": "/session",
+        "readModelTables": ["identity_sessions"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Marketplace routes that require the current actor forward the browser auth receipt to the Auth session API with read target `auth`, so the Auth session projection catches up before actor resolution decides whether the user is signed in."
+        }
+      },
+      "proof": {
+        "tests": ["infrastructure/platform-runtime/auth.test.ts"]
+      }
+    },
+    {
       "id": "auth.session-detail-self-refresh",
       "owner": "auth",
       "risk": "important",
@@ -478,7 +515,7 @@
         "status": "not-post-write-read",
         "owner": "auth",
         "reviewBy": "2026-09-30",
-        "reason": "The shared Auth host only carries Identity write receipts into the browser redirect. Identity owns the projection-backed account and current-actor-display destination reads and declares their exact freshness dependencies.",
+        "reason": "The shared Auth host carries browser authentication write receipts into the account redirect. Auth owns the current-session fresh read separately; Identity owns the projection-backed account and current-actor-display destination reads and declares their exact freshness dependencies.",
         "files": ["bounded-contexts/auth/support/route-support/auth-host.ts"],
         "helperUses": ["appendFreshWriteToken"]
       }
