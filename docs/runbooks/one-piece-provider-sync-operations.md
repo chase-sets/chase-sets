@@ -77,20 +77,75 @@ Use the narrowest switch that stops the unsafe behavior:
 - Provider outage, suspected auth leak, credit exhaustion, or unexpected
   high-call import plan:
   `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=scrydex`.
+- Provider outage, suspected auth leak, credit exhaustion, or unexpected
+  high-call import plan for one One Piece unit only:
+  `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit key>`.
 - Stop live option queries while keeping cached choices visible:
   `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=cache-only`.
+- Stop or cache-only one provider/product-line selector:
+  `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED=<unit key>` or
+  `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit key>`.
 - Stop Scrydex imports:
   `CATALOG_INTEGRATION_IMPORTS_DISABLED=scrydex`.
+- Stop one One Piece import lane without blocking the same provider elsewhere:
+  `CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED=<unit key>`.
 - Stop writes into Catalog truth:
   `CATALOG_INTEGRATION_PROMOTION_DISABLED=scrydex` or the affected provider.
+- Stop one promotion lane:
+  `CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED=<unit key>`.
 - Freeze reapply/replay:
   `CATALOG_INTEGRATION_REAPPLY_DISABLED=scrydex` or the affected provider.
+- Freeze one reapply lane:
+  `CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED=<unit key>`.
 - Freeze the whole control plane except dry-run evidence:
   `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=dry-run-only`.
 
 Because TCGplayer is used by more than one product line, do not use a broad
 TCGplayer enablement as proof that One Piece TCGplayer units are approved.
 Production One Piece enablement must name the One Piece unit/profile evidence.
+
+## Credential Rotation
+
+Rotate provider credentials from the approved secret-management UI and release
+control workflow only. Never paste secret values, team ids, account ids, request
+headers, or provider screenshots into runbook notes, issue comments, PR bodies,
+fixtures, logs, or audit evidence.
+
+1. Activate a unit-scoped emergency stop for the affected Scrydex or TCGplayer
+   One Piece unit from the release/Ops controls.
+2. Confirm Integration health shows the intended provider/unit blocked and that
+   Pokemon and MTG TCGplayer units remain independently governed.
+3. Replace the secret value in the secret-management UI, preserving the existing
+   shared Scrydex secret names `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`.
+4. Redeploy or restart only the affected runtime/worker environment through the
+   normal platform UI.
+5. Open Provider setup and Integration health in Admin and verify credential
+   readiness is `configured` or `ready` with redacted references only.
+6. Run a dry-run preflight for the smallest approved source scope and review
+   estimated calls/credit impact or `estimate-unavailable`.
+7. Remove the unit-scoped stop only after readiness, cache state, and usage
+   diagnostics are visible and redacted.
+
+## Degraded Or Credit Recovery
+
+When Scrydex readiness is degraded, credits are low, usage checks fail, rate
+limits are active, cache state is unavailable, or preflight estimates look too
+large:
+
+1. Stop the affected Scrydex unit with
+   `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit key>` or keep
+   selectors cache-only with
+   `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit key>`.
+2. Do not start or resume imports until the Admin preflight shows the provider,
+   unit, source scope, estimated request count/credit impact or
+   `estimate-unavailable`, usage-check state, and bulk-first plan.
+3. Prefer a smaller bulk/list/search source scope over per-record fallback.
+   Per-record fallback requires a visible reason and call impact before import.
+4. After recovery, run a dry-run or smallest approved import and record actual
+   request count, page count, cache hit/miss count, usage-check result,
+   credit/rate/degraded diagnostics, and bulk-first confirmation.
+5. Escalate to provider-account review only with redacted usage summaries and
+   provider-safe diagnostic codes.
 
 ## Interface-Only Operator Actions
 
