@@ -71,6 +71,25 @@
       "projectionHandlerSetNames": ["marketplace-listing-projection"]
     },
     {
+      "sourceContextName": "marketplace",
+      "projectionName": "marketplace-listing-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.photos-added",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.purchase-limits-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled"
+      ],
+      "order": 22,
+      "projectionHandlerSetNames": ["marketplace-listing-projection"]
+    },
+    {
       "sourceContextName": "inventory",
       "projectionName": "marketplace-inventory-supply-projection",
       "subscriptionVersion": 1,
@@ -177,7 +196,7 @@
     },
     {
       "projectionName": "marketplace-listing-projection",
-      "sourceContextNames": ["catalog"],
+      "sourceContextNames": ["catalog", "marketplace"],
       "ownedTables": ["marketplace_listing_pages", "marketplace_seller_listing_availability_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"

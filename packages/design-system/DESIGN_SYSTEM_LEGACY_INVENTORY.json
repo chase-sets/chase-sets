@@ -56,7 +56,7 @@
       "file": "bounded-contexts/checkout/features/cart/ui/cart-page.tsx",
       "owner": "Checkout",
       "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 442, "column": 6, "detail": "div" }],
+      "details": [{ "category": "rawStructuralElement", "line": 499, "column": 6, "detail": "div" }],
       "phase": "Phase G3",
       "issueTargets": ["#1666"],
       "outcome": "migrate-or-promote-to-design-system",

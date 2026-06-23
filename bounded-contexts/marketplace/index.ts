@@ -53,6 +53,11 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           filterToEventTypes: true,
           buildHandlers: () => accountProjectionHandlers,
         },
+        "marketplace.marketplace-listing-projection": {
+          subscriptionName: "marketplace.self-listing-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
+        },
         "identity.reputation-account-projection": {
           subscriptionName: "reputation.identity-account-projection",
           buildHandlers: () => buildReviewAccountProjectionHandlers(services.db),

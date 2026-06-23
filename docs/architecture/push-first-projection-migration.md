@@ -44,7 +44,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
-| `checkout:checkout-marketplace-seller-options-projection` | Checkout | identity, inventory, **marketplace** | push-eligible | 1/3 |
+| `checkout:checkout-marketplace-seller-options-projection` | Checkout | **catalog**, identity, inventory, **marketplace** | push-eligible | 2/4 |
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.sell-list-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
@@ -76,7 +76,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
 | `marketplace:marketplace-identity-account-projection` | Marketplace | identity, **marketplace** | push-eligible | 1/2 |
 | `marketplace:marketplace-inventory-supply-projection` | Marketplace | inventory | push-eligible | 0/1 |
-| `marketplace:marketplace-listing-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
+| `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:reputation-account-projection` | Marketplace | identity | push-eligible | 0/1 |
 | `marketplace:reputation-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
@@ -89,7 +89,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-inventory-reservation-outcomes` | Ordering | inventory | push-eligible | 0/1 |
 | `ordering:ordering-inventory-supply-input-projection` | Ordering | inventory | push-eligible | 0/1 |
 | `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
-| `ordering:ordering-marketplace-supply-input-projection` | Ordering | **marketplace** | push-enabled | 1/1 |
+| `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
@@ -115,7 +115,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 33 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (58)
+## Read-After-Write Route Inventory (59)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -163,6 +163,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `inventory.item-create-to-detail` | inventory | important | exact wait | poll-bounded until wave 2 |
 | `inventory.storage-locations-list` | inventory | important | exact wait | poll-bounded until wave 2 |
 | `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.listing-create-from-list-to-detail` | marketplace | critical | exact wait | push-accelerated |
 | `marketplace.listing-create-to-detail` | marketplace | critical | exact wait | push-accelerated |
 | `marketplace.listing-fee-lock-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-inventory-self-refresh` | marketplace | important | exact wait | push-accelerated |
