@@ -268,6 +268,15 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "tcgplayer",
         value: "tcgplayer",
+        label: "TCGplayer One Piece Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
         label: "TCGplayer One Piece Single Cards",
         metadata: expect.objectContaining({
           status: "active",

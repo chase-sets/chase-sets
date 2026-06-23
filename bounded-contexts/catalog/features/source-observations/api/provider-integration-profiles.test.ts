@@ -21,6 +21,7 @@ import {
   tcgplayerMtgSingleCardProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerOnePieceSingleCardProviderProfile,
+  tcgplayerOnePieceSealedProductProviderProfile,
   tcgplayerYugiohSingleCardProviderProfile,
   ygojsonYugiohSealedProductReferenceProviderProfile,
   ygojsonYugiohSetReferenceProviderProfile,
@@ -128,6 +129,45 @@ describe("catalog provider integration profiles", () => {
         blueprintKey: "magic-sealed-product",
         categoryKey: "magic-booster-packs",
         fieldKeys: expect.objectContaining({ packCount: "pack-count", set: "set" }),
+      },
+    });
+  });
+
+  it("registers TCGplayer One Piece sealed products as an active marketplace-evidence profile unit", () => {
+    const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.23", {
+      profileKey: "one-piece-sealed-product-sku",
+    })?.profile;
+
+    expect(profile).toBe(tcgplayerOnePieceSealedProductProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "tcgplayer",
+      displayName: "TCGplayer One Piece Sealed Products",
+      status: "active",
+      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+      connector: {
+        kind: "tcgplayer-automation-client",
+        catalogBoundary: {
+          acceptedEvidence: ["product-id", "sku-id", "product-condition-id", "set-name", "product-line"],
+          excludedEvidence: ["listing-price", "sales-history", "order", "message", "seller-inventory"],
+        },
+      },
+      normalizedObservationMapping: { kind: "provider-product" },
+      catalogFieldMapping: {
+        blueprintKey: "one-piece-sealed-product",
+        categoryKey: "one-piece-sealed-products",
+        fieldKeys: expect.objectContaining({ cardName: "sealed-product-name", set: "set" }),
+      },
+      selectedOptionMapping: {
+        dimensions: [
+          expect.objectContaining({
+            dimensionKey: "product-form",
+            valueMappings: [{ from: true, value: "unopened" }],
+          }),
+          expect.objectContaining({
+            dimensionKey: "language",
+            valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+          }),
+        ],
       },
     });
   });
@@ -397,6 +437,9 @@ describe("catalog provider integration profiles", () => {
     const onePiece = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "one-piece-single-card-product-sku",
     });
+    const onePieceSealed = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "one-piece-sealed-product-sku",
+    });
     const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
       profileKey: "pokemon-tcg-automation-client",
     });
@@ -445,6 +488,22 @@ describe("catalog provider integration profiles", () => {
       },
     });
     expect(onePiece?.profile).toBe(tcgplayerOnePieceSingleCardProviderProfile);
+    expect(onePieceSealed).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "one-piece-sealed-product-sku",
+      lifecycle: "active",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+        productDomain: "one-piece",
+        productForm: "sealed-product",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "provider-product" },
+        catalogFieldMapping: { blueprintKey: "one-piece-sealed-product" },
+      },
+    });
+    expect(onePieceSealed?.profile).toBe(tcgplayerOnePieceSealedProductProviderProfile);
     expect(sealed).toMatchObject({
       providerKey: "tcgplayer",
       profileKey: "mtg-sealed-product-sku",
@@ -582,6 +641,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "planned"],
       ["ygojson", "active"],
       ["ygojson", "active"],
@@ -602,6 +662,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.23", "active"],
       ["tcgplayer", "2026.06.22", "active"],
       ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],
@@ -872,6 +933,7 @@ describe("catalog provider integration profiles", () => {
       "one-piece-set-reference-data",
       "one-piece-sealed-product-source-observation",
       "one-piece-single-card-product-sku",
+      "one-piece-sealed-product-sku",
     ]);
 
     for (const version of activeOnePieceVersions) {

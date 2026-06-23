@@ -889,6 +889,89 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       },
     ),
     ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "one-piece-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: ["sourceObservation.externalKey.selector.path", "sourceObservation.externalKey"],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "987660",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Romance Dawn Booster Box",
+              productForm: "sealed",
+              productLineName: "One Piece Card Game",
+              tcg: "one-piece",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987660" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987660",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "987660",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Romance Dawn Booster Box",
+              productForm: "sealed",
+              productLineName: "One Piece Card Game",
+              tcg: "one-piece",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:987660" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987660",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "987660-unknown-option",
+            normalizedKind: "provider-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:900987660",
+                selectedOptions: [{ dimensionKey: "language", optionKey: null, providerValue: "Pirate Glyph" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
       "scrydex",
       {
         profileKey: "one-piece-card-print-source-observation",

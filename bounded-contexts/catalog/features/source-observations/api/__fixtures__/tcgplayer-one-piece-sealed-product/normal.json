@@ -1,0 +1,64 @@
+{
+  "observationId": "tcgplayer_one_piece_product_987660_sealed",
+  "externalKey": "987660",
+  "sourceUrl": "https://www.tcgplayer.com/product/987660",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 987660,
+  "productName": "Romance Dawn Booster Box",
+  "setName": "Romance Dawn",
+  "productLineId": 68,
+  "productLineName": "One Piece Card Game",
+  "productTypeName": "Sealed Products",
+  "customAttributes": {
+    "number": "BOX"
+  },
+  "productForm": "sealed",
+  "barcode": "811039041234",
+  "skuReferences": ["sku:900987660"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:987660"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:900987660",
+      "selectedOptions": [
+        {
+          "dimensionKey": "product-form",
+          "optionKey": "unopened",
+          "providerValue": "Sealed"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "one-piece",
+    "productLineName": "One Piece Card Game",
+    "setName": "Romance Dawn",
+    "printedProductName": "Romance Dawn Booster Box",
+    "collectorNumber": "BOX",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": "811039041234"
+  },
+  "catalogHashMaterial": {
+    "productId": 987660,
+    "productName": "Romance Dawn Booster Box",
+    "setName": "Romance Dawn",
+    "productLineName": "One Piece Card Game",
+    "productForm": "sealed",
+    "skuIds": [900987660]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "normal",
+    "excludedEvidence": {
+      "price": "redacted fixture boundary",
+      "inventory": "redacted fixture boundary"
+    }
+  }
+}
