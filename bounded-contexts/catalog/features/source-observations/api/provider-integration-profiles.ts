@@ -2578,54 +2578,58 @@ export const scrydexScryfallCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+const mtgjsonMtgSetOptionQuery = {
+  queryKind: "sets",
+  queryKeySynonyms: ["set"],
+  displayName: "Set",
+  scope: "set-name",
+  parentScope: null,
+  operation: "mtgjson-list-sets",
+  output: {
+    valuePath: "setCode",
+    labelPath: "name",
+    description: { kind: "path", path: "releaseDate" },
+    metadataPaths: {
+      setCode: "setCode",
+      releaseDate: "releaseDate",
+      totalSetSize: "totalSetSize",
+      type: "type",
+      mtgjsonVersion: "mtgjsonVersion",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
+const mtgjsonMtgCardOptionQuery = {
+  queryKind: "cards",
+  queryKeySynonyms: ["card"],
+  displayName: "Card",
+  scope: "product/card",
+  parentScope: "set-name",
+  operation: "mtgjson-list-cards",
+  parentValue: {
+    required: true,
+    valueKind: "set-code",
+    diagnosticText: "MTGJSON card option queries require a selected set code.",
+  },
+  output: {
+    valuePath: "cardId",
+    labelPath: "name",
+    parentValuePath: "setCode",
+    metadataPaths: {
+      cardId: "cardId",
+      setCode: "setCode",
+      setName: "setName",
+      collectorNumber: "collectorNumber",
+      rarity: "rarity",
+      layout: "layout",
+      scryfallId: "scryfallId",
+    },
+  },
+} as const satisfies CatalogProviderOptionQuery;
+
 const mtgjsonMtgOptionQueries = [
-  {
-    queryKind: "sets",
-    queryKeySynonyms: ["set"],
-    displayName: "Set",
-    scope: "set-name",
-    parentScope: null,
-    operation: "mtgjson-list-sets",
-    output: {
-      valuePath: "setCode",
-      labelPath: "name",
-      description: { kind: "path", path: "releaseDate" },
-      metadataPaths: {
-        setCode: "setCode",
-        releaseDate: "releaseDate",
-        totalSetSize: "totalSetSize",
-        type: "type",
-        mtgjsonVersion: "mtgjsonVersion",
-      },
-    },
-  },
-  {
-    queryKind: "cards",
-    queryKeySynonyms: ["card"],
-    displayName: "Card",
-    scope: "product/card",
-    parentScope: "set-name",
-    operation: "mtgjson-list-cards",
-    parentValue: {
-      required: true,
-      valueKind: "set-code",
-      diagnosticText: "MTGJSON card option queries require a selected set code.",
-    },
-    output: {
-      valuePath: "cardId",
-      labelPath: "name",
-      parentValuePath: "setCode",
-      metadataPaths: {
-        cardId: "cardId",
-        setCode: "setCode",
-        setName: "setName",
-        collectorNumber: "collectorNumber",
-        rarity: "rarity",
-        layout: "layout",
-        scryfallId: "scryfallId",
-      },
-    },
-  },
+  mtgjsonMtgSetOptionQuery,
+  mtgjsonMtgCardOptionQuery,
 ] as const satisfies readonly CatalogProviderOptionQuery[];
 
 export const mtgjsonMtgCardReferenceProviderProfile = {
@@ -2798,9 +2802,9 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
 export const mtgjsonMtgSetReferenceProviderProfile = {
   ...mtgjsonMtgCardReferenceProviderProfile,
   displayName: "MTGJSON Set Reference",
-  capabilities: ["source-observation-import", "reference-data-promotion"],
+  capabilities: ["provider-option-query", "source-observation-import", "reference-data-promotion"],
   supportedScopes: ["set-name"],
-  optionQueries: [],
+  optionQueries: [mtgjsonMtgSetOptionQuery],
   normalizedObservationMapping: {
     ...mtgjsonMtgCardReferenceProviderProfile.normalizedObservationMapping,
     kind: "magic-set-reference",
