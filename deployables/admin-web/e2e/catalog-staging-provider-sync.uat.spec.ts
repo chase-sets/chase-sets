@@ -74,33 +74,64 @@ const tcgplayerYugiohSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: {},
 };
 
+const onePieceScrydexSetChoice: SelectChoice = {
+  labels: ["Romance Dawn"],
+  values: ["op-01", "OP01", "OP-01"],
+  fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?\d+$/i },
+};
+
+const tcgplayerOnePieceSetChoice: SelectChoice = {
+  labels: ["Romance Dawn"],
+  fallbackToFirstAvailableOption: {},
+};
+
 const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
-    name: "One Piece set through Scrydex bulk-first shared importer",
+    name: "One Piece card set through Scrydex bulk-first shared importer",
     providerKey: "scrydex",
     unitKey: "scrydex:one-piece:single-card:source-observation-import",
-    scope: [
-      {
-        label: "Set",
-        choice: {
-          labels: ["Romance Dawn"],
-          values: ["op-01", "OP01", "OP-01"],
-          fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?\d+$/i },
-        },
-      },
-    ],
+    scope: [{ label: "Set", choice: onePieceScrydexSetChoice }],
     preflight: {
       requestStrategy: "bulk-first",
       allowedUsageStates: ["checked", "not-configured", "unknown"],
       visibleText: [
         "Import preflight",
         "250",
-        "id, name, number, printed_number, rarity, rarity_code, type, language, language_code, expansion",
+        "id, name, number, printed_number, rarity, rarity_code, type, images, language, language_code, expansion, printings, variants",
         "Bulk-first",
         "Fetch Scrydex One Piece expansion cards with max page size",
         /scrydex:one-piece:expansion:[a-z0-9-]+:cards/i,
       ],
     },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "One Piece sealed products through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+    scope: [{ label: "Set", choice: onePieceScrydexSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "100",
+        "id, name, type, images, language, language_code, expansion",
+        "Bulk-first",
+        "Fetch Scrydex One Piece expansion sealed products with max page size",
+        /scrydex:one-piece:expansion:[a-z0-9-]+:sealed/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "One Piece set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["One Piece Card Game"], values: ["68"] } },
+      { label: "Set Name", choice: tcgplayerOnePieceSetChoice },
+    ],
     requiresTerminalSync: true,
   },
   {
@@ -156,9 +187,7 @@ const providerSyncJourneys =
     : onePieceLaunchProviderSyncJourneys;
 
 test.describe("catalog staging provider sync UAT", () => {
-  test("operator syncs One Piece, Pokemon, and MTG from the shared importer UI @catalog-staging-provider-uat", async ({
-    page,
-  }) => {
+  test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
     test.setTimeout(1_800_000);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
