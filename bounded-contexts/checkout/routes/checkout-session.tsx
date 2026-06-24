@@ -453,6 +453,14 @@ function reviewedPreviewWriteSources(sources: readonly unknown[]) {
   return sources.filter((source) => source !== null && source !== undefined);
 }
 
+function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPreview | null) {
+  return Boolean(
+    session?.payment_id ||
+    session?.submitted_offer_id ||
+    (Array.isArray(session?.order_ids) && session.order_ids.length > 0),
+  );
+}
+
 async function loadSavedCheckoutInstruments(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -639,9 +647,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
         validateServiceability: true,
       });
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
-      const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
-        shippingOption,
-      });
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
       const visiblePaymentMethodCategory = String(
         formData.get("previewPaymentMethodCategory") ?? quotedPaymentMethodCategory,
@@ -654,6 +659,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
+      const shippingOptionResult = hasCommittedCheckoutSideEffects(session)
+        ? null
+        : await api.selectShippingOption(params.sessionId, {
+            shippingOption,
+          });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
