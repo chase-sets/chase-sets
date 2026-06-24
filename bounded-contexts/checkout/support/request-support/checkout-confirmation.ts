@@ -1,6 +1,7 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import {
   checkoutSessionSourceCreatesOrders,
@@ -94,8 +95,9 @@ export async function createCheckoutPaymentThroughPayments(
     throw new Error("Review the payment quote before creating checkout payment.");
   }
 
-  const needsOrderInputFreshRead = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
-  const paymentsApi = needsOrderInputFreshRead
+  const hasSameRequestOrderWrite = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
+  const needsOrderInputFreshRead = hasSameRequestOrderWrite || readFreshWriteToken(request) !== null;
+  const paymentsApi = hasSameRequestOrderWrite
     ? createPaymentsRequestApiClient(request, { afterWriteSource: orderCreationWriteResult })
     : createPaymentsRequestApiClient(request);
   if (needsOrderInputFreshRead) {
