@@ -6,6 +6,8 @@
 
 **Use:** Walk this once before public enablement, and revisit only rows whose product code or provider surface changed.
 
+**Status:** Pre-launch tracking. This checklist belongs to the checkout public-enablement milestone; once checkout launches it moves to the closing GitHub milestone / release notes and is removed from `docs/` (launch sequencing lives in GitHub, not the repo).
+
 ## Buy Flows
 
 - [ ] Guest buy: cart review -> checkout -> payment -> confirmation completes with no account required (covered by PR #1549).

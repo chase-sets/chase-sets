@@ -24,7 +24,7 @@ Milestone #10 requires:
 
 | Issue | Requirement | Current evidence | Residual risk |
 | --- | --- | --- | --- |
-| #900 | Epic goal and completion gates | This audit, `FORM_TEST_MATRIX.md`, `README.md`, `check:no-legacy-forms`, `verify:static`, `verify:typecheck` | PR/CI/merge/deploy pending |
+| #900 | Epic goal and completion gates | This audit, the form matrix in this document, `README.md`, `check:no-legacy-forms`, `verify:static`, `verify:typecheck` | PR/CI/merge/deploy pending |
 | #901 | Form architecture and field adapter contract | `README.md` form architecture section, `form.tsx`, `router-form.tsx`, `shared.tsx`, `form-system.test.tsx` | None known before PR review |
 | #902 | Field anatomy for labels, hints, errors, status, counters | `shared.tsx`, native/composite/boolean primitive updates, `form-system.test.tsx` field anatomy tests | None known before PR review |
 | #903 | Native submission semantics for eligible primitives | `form-system.test.tsx` `FormData` coverage, primitive `name`/`form` and hidden/native input support | Browser-level file input behavior remains covered by representative route-contract smoke rather than full browser upload |
@@ -33,8 +33,8 @@ Milestone #10 requires:
 | #906 | Validation summary, submit status, unsaved-change patterns | `validation-summary.tsx`, summary focus tests, `useFormState` dirty/reset/submitting APIs, README lifecycle guidance | Full app-level navigation blocking examples are documented through API guidance rather than wired into product screens |
 | #907 | Group controls: CheckboxGroup, RadioGroup, Switch, Slider | `checkbox.tsx`, `radio-group.tsx`, `switch.tsx`, `slider.tsx`, repeated checkbox and boolean/range `FormData` tests | None known before PR review |
 | #908 | Composite controls: Select, Combobox, Autocomplete, TagInput, FileDropzone | `select.tsx`, `combobox.tsx`, `autocomplete.tsx`, `tag-input.tsx`, `file-dropzone.tsx`, composite `FormData` tests | File drag/drop browser behavior is not exhaustively browser-tested in this branch |
-| #909 | Form accessibility and behavior acceptance matrix | `FORM_TEST_MATRIX.md`, `form-system.test.tsx`, route smoke scripts wired into `verify:static` | Matrix must stay updated if PR review changes scope |
-| #910 | Documentation, recipes, migration guidance, no-legacy-form rule | `README.md`, `FORM_TEST_MATRIX.md`, guardrail script/tests | None known before PR review |
+| #909 | Form accessibility and behavior acceptance matrix | the form matrix in this document, `form-system.test.tsx`, route smoke scripts wired into `verify:static` | Matrix must stay updated if PR review changes scope |
+| #910 | Documentation, recipes, migration guidance, no-legacy-form rule | `README.md`, the form matrix in this document, guardrail script/tests | None known before PR review |
 | #911 | Representative product adoption slice | Auth sign-in, experience GET filter, marketplace listing multipart, public waitlist, marketplace shell smoke tests | Representative coverage only; full migration proof relies on #913/#924 |
 | #912 | Final audit and legacy code removal proof | This audit file, `check:no-legacy-forms` final mode, empty baseline, verification commands below | PR/CI/merge/deploy pending |
 | #913 | Track migration of every production form surface | Production migrations across bounded contexts/deployables/design-system, final guardrail inventory | Any future form additions before merge must pass the guardrail |
@@ -58,9 +58,9 @@ Milestone #10 requires:
 | `ValidationSummary` | Alert summary with field and form errors | Not applicable | Link focus and group focus delegation | `validation-summary.tsx`, `form-system.test.tsx` |
 | `useFormState` | Field metadata adapter | Not applicable | Dirty, touched, reset, async validation, stale result suppression, server-error clearing | `form-state.ts`, `form-system.test.tsx` |
 | `TextInput`, `CurrencyInput`, `SearchInput` | Label, description, error, status, counter | Native input | Error clearing through `useFormState` adapters | `text-input.tsx`, `form-system.test.tsx` |
-| `PasswordInput` | Label, description, error, status, counter | Native input | Reveal toggle remains local | `password-input.tsx`, `FORM_TEST_MATRIX.md` |
-| `Textarea` | Label, description, error, status, counter | Native textarea | Shared error/status semantics | `textarea.tsx`, `FORM_TEST_MATRIX.md` |
-| `NativeSelect` | Label, description, error, status, counter | Native select | Shared error/status semantics | `select.tsx`, `FORM_TEST_MATRIX.md` |
+| `PasswordInput` | Label, description, error, status, counter | Native input | Reveal toggle remains local | `password-input.tsx`, the form matrix in this document |
+| `Textarea` | Label, description, error, status, counter | Native textarea | Shared error/status semantics | `textarea.tsx`, the form matrix in this document |
+| `NativeSelect` | Label, description, error, status, counter | Native select | Shared error/status semantics | `select.tsx`, the form matrix in this document |
 | `Select` | Label, description, error, status, counter | Hidden input from selected value | Disabled submission exclusion | `select.tsx`, `form-system.test.tsx` |
 | `NumberField` | Label, description, error, status, counter | Base UI native/hidden input via `name`/`form` | Shared error/status semantics | `number-field.tsx`, `form-system.test.tsx` |
 | `Checkbox` | Item label plus description/error/status/counter | Native checkbox | Indeterminate visual state, read-only guard | `checkbox.tsx`, `form-system.test.tsx` |

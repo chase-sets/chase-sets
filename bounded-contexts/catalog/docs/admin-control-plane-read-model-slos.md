@@ -2,6 +2,8 @@
 
 The Admin Control Plane query contracts define what Catalog read models exist. This document defines the performance, pagination, indexing, freshness, and degraded-state expectations those read models must meet before Admin UI modules depend on them for high-volume operator workflows.
 
+**Related:** [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md) defines the query keys; [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md) consumes these SLOs as part of the operator API.
+
 The authoritative typed SLO inventory lives in:
 
 ```text

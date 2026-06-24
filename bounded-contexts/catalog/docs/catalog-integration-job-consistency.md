@@ -1,6 +1,6 @@
 # Catalog Integration Job Consistency
 
-Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The reset/backfill/rollback release plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
+Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The reset/backfill/rollback release plan is documented in [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md).
 
 ## Submission And Lifecycle Rules
 
