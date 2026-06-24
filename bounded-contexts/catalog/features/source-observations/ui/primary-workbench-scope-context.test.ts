@@ -91,6 +91,30 @@ describe("Catalog primary workbench scope context", () => {
     });
   });
 
+  it("keeps compact Lorcana set scopes from becoming product-line filters when structured set ids are present", () => {
+    const scope = scopeContextFromSearchParams({
+      searchParams: new URLSearchParams("providerKey=lorcanajson&importScope=en%3A1&languageCode=en&expansionId=1"),
+      providerKey: "lorcanajson",
+      importScope: "en:1",
+      sourceObservationFilters: {},
+    });
+
+    expect(scope).toMatchObject({
+      providerKey: "lorcanajson",
+      languageCode: "en",
+      productLineId: null,
+      seriesId: null,
+      expansionId: "1",
+    });
+    expect(scopeContextToObservationFilterScope(scope)).toMatchObject({
+      provider: "lorcanajson",
+      language: "en",
+      expansionId: "1",
+      setId: "1",
+    });
+    expect(scopeContextToObservationFilterScope(scope)).not.toHaveProperty("productLineId");
+  });
+
   it("drops stale legacy importScope parents when an explicit set-name selection differs", () => {
     const scope = scopeContextFromSearchParams({
       searchParams: new URLSearchParams(

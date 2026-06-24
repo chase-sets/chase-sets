@@ -205,7 +205,7 @@ function buildCatalogPrimaryWorkbenchCore(
   const rolloutEnabled =
     input.controlPlaneOverview?.readiness.rolloutControls.controls.every((control) => control.status !== "blocked") ??
     true;
-  const importJobRows = importJobsFor(input.controlPlaneOverview, routeContext);
+  const importJobRows = importJobsFor(input.controlPlaneOverview, routeContext, input.scopes.items);
   const activeJobCount = importJobRows.filter((job) => job.state === "queued" || job.state === "running").length;
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
   const canManage = input.canManageCatalog;
