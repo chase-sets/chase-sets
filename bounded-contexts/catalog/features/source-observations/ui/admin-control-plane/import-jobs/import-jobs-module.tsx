@@ -358,7 +358,10 @@ export function CatalogIntegrationImportJobsModule({
             <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
           </WorkbenchGridSpan>
           <WorkbenchGridSpan>
-            <DeferredImportPreviewEvidence deferredImportPreview={deferredImportPreview} />
+            <DeferredImportPreviewEvidence
+              deferredImportPreview={deferredImportPreview}
+              previewKey={importPreviewRouteKey(readModel.routeContext)}
+            />
           </WorkbenchGridSpan>
         </WorkbenchGrid>
       ) : (
@@ -405,8 +408,10 @@ function pendingImportJobDiscoveryKey(
 
 function DeferredImportPreviewEvidence({
   deferredImportPreview,
+  previewKey,
 }: Readonly<{
   deferredImportPreview: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  previewKey: string;
 }>) {
   if (!deferredImportPreview) {
     return null;
@@ -414,6 +419,7 @@ function DeferredImportPreviewEvidence({
 
   return (
     <Suspense
+      key={previewKey}
       fallback={
         <DeferredSupplementaryPanel
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
@@ -421,7 +427,7 @@ function DeferredImportPreviewEvidence({
         />
       }
     >
-      <Await resolve={deferredImportPreview}>
+      <Await key={previewKey} resolve={deferredImportPreview}>
         {(preview) => (preview ? <ImportPreviewEvidence preview={preview} /> : null)}
       </Await>
     </Suspense>
@@ -439,6 +445,9 @@ function ImportPreviewEvidence({
   return (
     <WorkbenchDetailPanel
       data-catalog-import-preview="ready"
+      data-catalog-import-preview-provider={preview.providerKey}
+      data-catalog-import-preview-unit={preview.scope.ingestionUnitKey ?? ""}
+      data-catalog-import-preview-scope={importPreviewScopeKey(preview.scope)}
       data-catalog-import-preview-strategy={usage.requestStrategy ?? "none"}
       data-catalog-import-preview-usage-state={usage.usageCheckState ?? "none"}
     >
@@ -571,6 +580,27 @@ function ImportJobLifecycleAction({
       </Button>
     </WorkbenchForm>
   );
+}
+
+function importPreviewRouteKey(routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"]): string {
+  return [
+    routeContext.providerKey ?? "provider:none",
+    routeContext.unitKey ?? "unit:none",
+    routeContext.importScope ?? "scope:none",
+    routeContext.profileVersion ?? "profile:none",
+  ].join("|");
+}
+
+function importPreviewScopeKey(scope: SourceObservationIntegrationImportPreview["scope"]): string {
+  return [
+    scope.language ?? "",
+    scope.productLineId ?? "",
+    scope.seriesId ?? "",
+    scope.setId ?? scope.setName ?? "",
+    scope.productId ?? "",
+  ]
+    .filter(Boolean)
+    .join(":");
 }
 
 type ImportPreviewUsageSummary = Readonly<{
