@@ -42,7 +42,7 @@
 - [ ] Final confirmation requires the normal payment quote path before order creation or payment handoff.
 - [ ] Refund, void, label cancellation, payout hold/reversal, and operator recovery either work through owned actions or are disabled in code with customer-safe support copy (covered by PR #1449).
 - [ ] EasyPost production mode and label purchase are verified before enabling label purchase; otherwise label purchase remains disabled with safe copy (covered by PR #1541).
-- [ ] Magic provider production imports/promotions remain disabled until MTGJSON, Scryfall, and TCGplayer evidence satisfies `bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md`: provider authority approval, interface-only staging UAT, dry-run evidence, option-query freshness/cache-only/stale evidence, job lag/failure monitoring, blocked promotion/conflict/duplicate-prevention review, single-provider stop proof, emergency-stop proof, and redaction review.
+- [ ] Magic provider production imports/promotions remain disabled until MTGJSON, Scryfall, and TCGplayer evidence satisfies `bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#magic`: provider authority approval, interface-only staging UAT, dry-run evidence, option-query freshness/cache-only/stale evidence, job lag/failure monitoring, blocked promotion/conflict/duplicate-prevention review, single-provider stop proof, emergency-stop proof, and redaction review.
 
 ## Notifications, Support, And Observability
 

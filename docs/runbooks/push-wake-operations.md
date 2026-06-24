@@ -94,7 +94,7 @@ Symptoms: `platform-worker-wake-alerts` fan-out failure rate alert; `projection-
 
 Symptoms: attempts-exhausted alert; `projection-wake.intent.attempts_exhausted` logs; failed intent rates in Grafana or failed counts from the wake-status endpoint.
 
-1. An intent retired after `WORKER_WAKE_MAX_ATTEMPTS` (default 10) means the underlying projection run kept failing — go to the projection console's Attention tab for the blocked stream / poison event / degraded group and repair per [Projection Operations](./projection-operations.md) and [Projection Poison Events](./projection-poison-events.md).
+1. An intent retired after `WORKER_WAKE_MAX_ATTEMPTS` (default 10) means the underlying projection run kept failing — go to the projection console's Attention tab for the blocked stream / poison event / degraded group and repair per [Projection Operations](./projection-operations.md).
 2. `unknown-target` retirements mean intents target a projection this worker does not host (commonly `api-wait` intents for a group disabled on the worker). Bounded and safe; silence it by disabling the source context or api-wait origin per the rollout-controls runbook.
 3. Do not replay exhausted intents: once the projection is repaired, polling (or the next wake) advances the checkpoint; the retired intent is irrelevant and will be pruned.
 
@@ -130,7 +130,7 @@ Symptoms: durable-job SSE progress or realtime patches arrive on poll cadence in
 
 ## Checkout Incident Triage (the Milestone #19 origin pattern)
 
-Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/buy/session/:sessionId`, and the page 503s or shows stale state because `checkout` projections lag ([root cause](./guest-buy-now-projection-lag-root-cause.md)).
+Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/buy/session/:sessionId`, and the page 503s or shows stale state because `checkout` projections lag.
 
 1. **Classify the read**: pull `read-after-write.freshness` audits for `/account/checkout-sessions/:sessionId` (fields and Loki queries in the [freshness audit runbook](./projection-freshness-audit.md)). `outcome=timeout` with valid receipt -> projection-side lag; missing receipt/dependency -> route wiring bug.
 2. **Localize the stage** with Grafana `Projection Wake Pipeline`:

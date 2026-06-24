@@ -254,7 +254,7 @@ this Catalog identity proof.
 
 One Piece production sync uses dedicated active Scrydex One Piece profile units
 and the shared Scrydex transport credential. Production-like writes remain gated
-until [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+until [Catalog Integration One Piece Production Signoff](./catalog-integration-production-signoff.md#one-piece)
 is accepted. The live adapter is a provider transport boundary: it owns
 Scrydex auth, team id handling, endpoint paths, pagination, throttling, usage
 checks, rate limits, credit diagnostics, raw response parsing, and sanitized
@@ -297,7 +297,7 @@ fixture-backed activation evidence; it is not a fixture-only production path.
 Disney Lorcana production sync uses active LorcanaJSON, Lorcast, Scrydex, and
 TCGplayer Lorcana profile units through the shared product-line-agnostic
 importer. Production-like writes remain gated until
-[Catalog Integration Lorcana Production Signoff](./catalog-integration-lorcana-production-signoff.md)
+[Catalog Integration Lorcana Production Signoff](./catalog-integration-production-signoff.md#lorcana)
 is accepted and the #2481 interface-only UAT plus #2486 downstream smoke pass.
 
 Lorcana profile units are narrow ingestion units, not one broad importer branch:

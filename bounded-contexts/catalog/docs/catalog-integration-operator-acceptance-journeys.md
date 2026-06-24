@@ -6,7 +6,7 @@ The [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-co
 
 Supporting proof remains required: `catalog-integration-provider-transport-budgets.test.ts` owns provider transport/performance acceptance and `catalog-integration-security-privacy-launch-gate.test.ts` owns security/privacy launch safety. The no-confusion acceptance packet links both so operator acceptance cannot pass while the primary path is confusing, unsafe, slow, or dependent on retired behavior.
 
-The primary-path framing for the rebuilt control plane is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md). Implementation evidence should treat J08 through J11 and J14 as the core import-to-promotion acceptance set unless a narrower issue explicitly states why one journey is out of scope.
+The primary-path framing for the rebuilt control plane is documented in [Catalog Control Plane Architecture](./catalog-control-plane-architecture.md). Implementation evidence should treat J08 through J11 and J14 as the core import-to-promotion acceptance set unless a narrower issue explicitly states why one journey is out of scope.
 
 ## Acceptance Matrix
 
@@ -66,7 +66,7 @@ If a journey cannot be validated because the underlying runtime capability does 
 ## Related References
 
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
-- [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
+- [Catalog Control Plane Architecture](./catalog-control-plane-architecture.md)
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md)

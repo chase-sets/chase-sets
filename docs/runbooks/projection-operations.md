@@ -41,9 +41,35 @@ The console is owned by the Platform Operations bounded context. It should be us
 
 ## Poison Events
 
-- Poison handling is stream-isolated.
-- Retry only the blocked stream after fixing the handler or data issue.
-- Other streams for the same projection continue to apply.
+Poison handling is stream-isolated. A projection group reports `degraded` when it is still draining unrelated streams but at least one stream is blocked by a poison event; `error` means the runner could not make progress for the turn. Unrelated streams continue to drain while one stream is blocked, and later events from the blocked stream remain unapplied for that projection.
+
+### Triage
+
+1. Open Admin > Operations > Projection Operations and start in the Attention tab.
+2. Select the blocked stream or degraded projection group and check source lag, applicable lag, blocked stream count, and poison event count.
+3. Inspect poison event detail: projection key, event type, stream id, stream version, global position, retry count, first/last seen timestamps, and error message.
+4. Decide whether the failure is a handler bug, malformed historical data, missing reference data, or a projection definition change.
+
+Do not ask publishers to re-run the command as the first response. Publishers already wrote durable events; the projection consumer owns catch-up and repair.
+
+### Repair choices
+
+- Fix a handler bug or missing reference data, then retry the blocked stream from the blocked-stream detail panel. Retry must preserve stream order — apply the first blocked event before later deferred events from the same stream.
+- Mark a poison event ignored only when the owning context documents why the event is irrelevant or safely lossy for that projection.
+- Rebuild the projection group when the projection definition changed or when many blocked streams indicate replay is safer than individual repair.
+
+Blocked-stream operations require `security.manage`:
+
+- `GET /api/platform/projections/:projectionKey/blocked-streams` lists active blocked stream and poison details for one projection key.
+- `POST /api/platform/projections/:projectionKey/blocked-streams/:streamId/retry` replays one blocked stream in stream-version order.
+
+### Escalate as a projection correctness incident when
+
+- a `global-strict` projection is in `error`,
+- blocked stream count grows quickly,
+- the same event type poisons many streams,
+- outstanding backlog or degraded lag affects operator workflows or customer-facing reads, or
+- repair fails after the handler or data fix is deployed.
 
 ## Rebuild
 

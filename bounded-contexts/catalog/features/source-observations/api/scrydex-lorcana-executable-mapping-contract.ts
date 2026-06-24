@@ -20,7 +20,7 @@ const scrydexLorcanaSourceContract = {
   owner: "chase-sets/catalog",
   repository: "chase-sets/chase-sets",
   commit: null,
-  documentPath: "bounded-contexts/catalog/docs/catalog-integration-lorcana-production-signoff.md",
+  documentPath: "bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#lorcana",
   fixtureSetVersion: "scrydex-lorcana-production-v1",
 } as const;
 

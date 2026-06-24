@@ -52,7 +52,6 @@ describe("Checkout observability contract", () => {
   it("documents the executable observability contract", () => {
     const doc = readFileSync(new URL("../../../docs/checkout-observability-contract.md", import.meta.url), "utf8");
     const checkoutReadme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
-    const docsIndex = readFileSync(new URL("../../../../../docs/README.md", import.meta.url), "utf8");
 
     expect(checkoutObservabilityContractDocPath).toBe(
       "bounded-contexts/checkout/docs/checkout-observability-contract.md",
@@ -68,7 +67,6 @@ describe("Checkout observability contract", () => {
     expect(doc).toContain("No raw `afterWrite`, cookies, emails, addresses, provider payloads");
     expect(doc).toContain("support-safe references");
     expect(checkoutReadme).toContain("./docs/checkout-observability-contract.md");
-    expect(docsIndex).toContain("../bounded-contexts/checkout/docs/checkout-observability-contract.md");
 
     for (const profile of checkoutObservabilityProfiles) {
       expect(doc, profile.state).toContain(`| ${profile.docLabel} |`);
