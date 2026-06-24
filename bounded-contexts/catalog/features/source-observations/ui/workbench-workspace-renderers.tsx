@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
-import type { SourceObservationIntegrationImportPreview } from "./contracts";
+import type { CatalogSyncRun, SourceObservationIntegrationImportPreview } from "./contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
@@ -20,6 +20,7 @@ export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
 }>;
 
 export type CatalogPrimaryWorkbenchWorkspaceRenderer = (
@@ -40,6 +41,7 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
       commandFeedback={slots.commandFeedback}
       deferredSourceOptions={slots.deferredSourceOptions}
       deferredImportPreview={slots.deferredImportPreview}
+      deferredCatalogSyncRun={slots.deferredCatalogSyncRun}
     />
   ),
   "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,

@@ -14,6 +14,7 @@ import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../..
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogIntegrationControlPlaneOverview,
+  CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationOptionResponse,
 } from "../../../features/source-observations/ui/contracts";
@@ -245,6 +246,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
       readModel.sourceOptions,
     ),
     deferredImportPreview: selectedImportPreview(api, readModel.routeContext),
+    deferredCatalogSyncRun: selectedCatalogSyncRun(api, readModel.routeContext),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
   };
 }
@@ -323,6 +325,21 @@ async function selectedImportPreview(
     return await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(
       integrationScopeFromContext(context),
     );
+  } catch {
+    return null;
+  }
+}
+
+async function selectedCatalogSyncRun(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<CatalogSyncRun | null> {
+  if (!context.jobId || typeof api.getCatalogSyncRun !== "function") {
+    return null;
+  }
+
+  try {
+    return await api.getCatalogSyncRun<CatalogSyncRun>(context.jobId);
   } catch {
     return null;
   }

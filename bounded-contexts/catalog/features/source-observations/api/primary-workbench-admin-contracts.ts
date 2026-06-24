@@ -37,6 +37,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
 
 export type CatalogPrimaryWorkbenchCommandKey =
   | "select-provider-scope"
+  | "start-catalog-sync"
   | "start-provider-import"
   | "resume-import-job"
   | "retry-import-job"
@@ -314,6 +315,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchProviderScopeReadModel;
   sourceOptions: CatalogPrimaryWorkbenchSourceOptionsReadModel;
+  catalogSync: CatalogPrimaryWorkbenchCatalogSyncReadModel;
   sourceScopeWorkset: CatalogPrimaryWorkbenchSourceScopeWorksetReadModel;
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
@@ -491,6 +493,67 @@ export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
     cacheOnly: boolean;
     forceRefreshSupported: boolean;
   }>;
+}>;
+
+export type CatalogPrimaryWorkbenchCatalogSyncStatus = "scope-required" | "ready" | "blocked" | "degraded";
+
+export type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchCatalogSyncStatus;
+  generatedAt: string;
+  scope: Readonly<{
+    scopeVersion: "catalog-sync-scope-v1";
+    productDomain: string | null;
+    productForm: string | null;
+    languageCode: string | null;
+    reference: Readonly<{
+      kind: "product-line" | "series" | "expansion" | "set" | "catalog-item" | null;
+      id: string | null;
+      name: string | null;
+      seriesId: string | null;
+      seriesName: string | null;
+    }>;
+    label: string;
+    hasConcreteScope: boolean;
+  }>;
+  preview: Readonly<{
+    previewVersion: "catalog-sync-provider-participation-preview-v1";
+    status: "ready" | "blocked";
+    startAllowed: boolean;
+    explanation: string;
+    blockers: readonly Readonly<{
+      code: string;
+      severity: "info" | "warning" | "error";
+      message: string;
+      providerKey: string;
+      unitKey: string | null;
+    }>[];
+    units: readonly CatalogPrimaryWorkbenchCatalogSyncUnitReadModel[];
+  }>;
+  action: CatalogPrimaryWorkbenchActionReadModel;
+}>;
+
+export type CatalogPrimaryWorkbenchCatalogSyncUnitReadModel = Readonly<{
+  providerKey: string;
+  unitKey: string | null;
+  displayName: string;
+  profileVersion: string | null;
+  productDomain: string | null;
+  productForm: string | null;
+  role: "primary" | "supplementary" | "reference";
+  requirement: "required" | "optional";
+  selected: boolean;
+  eligibility: "eligible" | "blocked";
+  childExecutionScope: Readonly<Record<string, string>> | null;
+  estimate: Readonly<{
+    estimateState: "estimated" | "estimate-unavailable";
+    estimatedRequestCount: number | null;
+    estimateReason: string | null;
+  }> | null;
+  blockers: readonly Readonly<{
+    code: string;
+    severity: "info" | "warning" | "error";
+    message: string;
+  }>[];
 }>;
 
 export type CatalogPrimaryWorkbenchSourceScopeWorksetStatus =
@@ -1782,7 +1845,13 @@ export const catalogPrimaryWorkbenchSections = [
     key: "import-jobs",
     defaultVisible: true,
     queryKeys: ["import-job-progress-summary"],
-    commands: ["start-provider-import", "resume-import-job", "retry-import-job", "cancel-import-job"],
+    commands: [
+      "start-catalog-sync",
+      "start-provider-import",
+      "resume-import-job",
+      "retry-import-job",
+      "cancel-import-job",
+    ],
     freshnessStates: ["fresh", "stale", "lagging", "unavailable"],
     pagination: "sse",
     routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
@@ -1877,6 +1946,7 @@ export const catalogPrimaryWorkbenchSections = [
       "audit-evidence-timeline",
     ],
     commands: [
+      "start-catalog-sync",
       "start-provider-import",
       "preview-promotion",
       "execute-promotion",
@@ -1939,6 +2009,21 @@ export const catalogPrimaryWorkbenchSections = [
 export const catalogPrimaryWorkbenchActions = [
   action("select-provider-scope", "GET", "/api/catalog/source-observations/admin/primary-workbench", "catalog.view", {
     blockerCategories: ["permission-denied", "authorization-denied", "legacy-selector-retired"],
+  }),
+  action("start-catalog-sync", "POST", "/api/catalog/source-observations/catalog-sync-scope/runs", "catalog.manage", {
+    blockerCategories: [
+      "permission-denied",
+      "authorization-denied",
+      "rollout-disabled",
+      "kill-switch-active",
+      "unit-selection-required",
+      "import-scope-required",
+      "missing-active-profile",
+      "read-model-unavailable",
+      "security-privacy-blocked",
+      "deploy-skew-unsupported-version",
+    ],
+    idempotencyRequired: true,
   }),
   action("start-provider-import", "POST", "/api/catalog/source-observations/admin/import-jobs", "catalog.manage", {
     blockerCategories: [

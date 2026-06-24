@@ -1,6 +1,7 @@
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import {
+  catalogSyncScopeFromContext,
   confirmsFreshPromotionPreview,
   hasExplicitPromotionScope,
   integrationScopeFromContext,
@@ -21,6 +22,7 @@ type RouteContext = CatalogIntegrationsCommandResult["context"];
 // the handler returns a structured result with the import-to-promotion section, and
 // the surface renders the command-feedback banner without navigating away.
 export type DailyCommandIntent =
+  | "start-catalog-sync"
   | "start-provider-import"
   | "retry-import-job"
   | "resume-import-job"
@@ -33,6 +35,7 @@ export type DailyCommandIntent =
   | "start-replay";
 
 const DAILY_COMMAND_INTENTS = new Set<string>([
+  "start-catalog-sync",
   "start-provider-import",
   "retry-import-job",
   "resume-import-job",
@@ -62,6 +65,20 @@ export async function handleDailyCommand(input: {
   const { api, intent, context, formData, selectedObservationIds } = input;
 
   switch (intent) {
+    case "start-catalog-sync": {
+      const scope = catalogSyncScopeFromContext(context, formData);
+      if (!scope) {
+        return dailyResult(intent, "error", "command-failed", { ...context, jobId: null, promotionPreviewId: null });
+      }
+
+      const run = await api.enqueueCatalogSyncRun<{ syncRunId?: unknown }>(scope);
+
+      return dailyResult(intent, "success", "job-queued", {
+        ...context,
+        jobId: stringValue(run.syncRunId) ?? context.jobId,
+        promotionPreviewId: null,
+      });
+    }
     case "start-provider-import": {
       if (!hasSelectedImportScope(context)) {
         return dailyResult(intent, "error", "command-failed", { ...context, jobId: null, promotionPreviewId: null });

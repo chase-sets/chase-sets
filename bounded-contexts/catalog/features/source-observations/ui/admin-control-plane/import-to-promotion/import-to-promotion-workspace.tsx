@@ -5,7 +5,8 @@ import type { SourceObservationIntegrationImportPreview } from "../../contracts"
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-module";
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
-import { CommandFormButton } from "./command-controls";
+import type { CatalogSyncRun } from "../../contracts";
+import { CatalogSyncScopeModule } from "./catalog-sync-scope-module";
 import { CatalogIntegrationCreateItemsStage } from "./create-items-stage";
 import { buildFlowStages, CatalogIntegrationFlowStepper } from "./primary-steps-module";
 import { CatalogSourceScopeWorksetModule } from "./source-scope-workset-module";
@@ -28,6 +29,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   commandFeedback = null,
   deferredSourceOptions = null,
   deferredImportPreview = null,
+  deferredCatalogSyncRun = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   // Optional alias-review visibility slot (#1908): the composition root supplies
@@ -38,6 +40,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
 }>) {
   const {
     activeStage,
@@ -56,9 +59,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         <WorkbenchText size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.runSync.description")}
         </WorkbenchText>
-        <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-        </CommandFormButton>
+        <CatalogSyncScopeModule readModel={readModel} deferredCatalogSyncRun={deferredCatalogSyncRun} />
         <ProgressiveDisclosure
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs")}
           icon="inbox"
