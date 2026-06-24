@@ -97,6 +97,8 @@ const paymentStartPendingCode = "payment_start_pending" as const;
 const marketplaceCheckoutFeePolicyVersion = "marketplace-checkout-fee-v1";
 const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
 const paymentOrderNotFoundPattern = /^Order ord_[0-9A-Za-z_:-]+ was not found\.$/;
+const paymentOrderPendingReservationPattern =
+  /^Order ord_[0-9A-Za-z_:-]+ is not eligible for payment in status pending-reservation\.$/;
 
 type CheckoutPaymentMethodCategory = (typeof checkoutPaymentMethodCategories)[number];
 
@@ -189,7 +191,8 @@ function paymentStartPendingFromMissingOrder(error: unknown, writeSources: reado
     return null;
   }
 
-  if (!paymentOrderNotFoundPattern.test(errorBodyMessage(error))) {
+  const message = errorBodyMessage(error);
+  if (!paymentOrderNotFoundPattern.test(message) && !paymentOrderPendingReservationPattern.test(message)) {
     return null;
   }
 

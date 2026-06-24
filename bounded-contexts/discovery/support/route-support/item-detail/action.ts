@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
@@ -78,6 +79,38 @@ const ITEM_DETAIL_LISTING_UPDATE_HANDOFF = {
 
 function listingCommandId(result: ListingCommandResult) {
   return result.id ?? result.listingId ?? result.listing_id ?? null;
+}
+
+function buyNowEntryAttemptKey(params: {
+  accountId: string;
+  source: Readonly<{
+    listingId: string;
+    catalogItemId: string;
+    productId: string;
+    selectedOptions: unknown;
+    quantity: number;
+    fulfillmentMode: string;
+    lockedListingId: string | null;
+  }>;
+}) {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        schema: "discovery.item-detail.buy-now-entry.v1",
+        accountId: params.accountId,
+        listingId: params.source.listingId,
+        catalogItemId: params.source.catalogItemId,
+        productId: params.source.productId,
+        selectedOptions: params.source.selectedOptions,
+        quantity: params.source.quantity,
+        fulfillmentMode: params.source.fulfillmentMode,
+        lockedListingId: params.source.lockedListingId,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 32);
+
+  return `chkentry_${digest}`;
 }
 
 function listingFeeQuoteFingerprint(result: ListingCommandResult) {
@@ -322,6 +355,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       const session = await checkoutApi.createCheckoutSession({
+        entryAttemptKey: buyNowEntryAttemptKey({
+          accountId: String(actor?.accountId ?? ""),
+          source,
+        }),
         source,
       });
 
