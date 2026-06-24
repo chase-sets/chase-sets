@@ -214,7 +214,7 @@ describe("fresh checkout read-model schemas", () => {
       "docs/architecture/projection-freshness-slos.md",
       "docs/architecture/projection-freshness-worker-capacity.md",
       "docs/architecture/read-after-write-route-author-checklist.md",
-      "docs/runbooks/guest-buy-now-freshness-canary.md",
+      "docs/runbooks/guest-buy-now-freshness-probe.md",
       "docs/runbooks/guest-buy-now-projection-lag-root-cause.md",
       "docs/runbooks/projection-freshness-audit.md",
       "docs/runbooks/push-wake-operations.md",

@@ -72,7 +72,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
 - [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
-- [Account Cart Consistency Canary](./runbooks/account-cart-consistency-canary.md): redacted account-cart post-write consistency evidence for optimistic apply, reconciliation, stale-response discard, rollback probes, and privacy constraints.
+- [Account Cart Consistency Probe](./runbooks/account-cart-consistency-probe.md): redacted account-cart post-write consistency evidence for optimistic apply, reconciliation, stale-response discard, rollback probes, and privacy constraints.
 - [Non-Buy-Now Post-Write Freshness UAT](./runbooks/non-buy-now-post-write-freshness-uat.md): Chrome staging checklist and redacted evidence shape for account cart, Sell List, payout-ready, and listing freshness flows not covered by the Buy Now canary.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
@@ -95,7 +95,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Push-Wake Recovery Drills](./runbooks/push-wake-recovery-drills.md): disaster-recovery drill catalog — on-demand staging reconciliation/burst drill workflow, operator-driven failover/kill-switch/cursor-loss/failover procedures, and evidence rules.
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
 - [Guest Buy Now Projection Lag Root Cause](./runbooks/guest-buy-now-projection-lag-root-cause.md): staging incident classification, evidence limits, failed contract, and follow-up mapping for Checkout projection lag.
-- [Guest Buy Now Freshness Canary](./runbooks/guest-buy-now-freshness-canary.md): guest and account Buy Now readiness canary, write-to-checkout-ready release gate, negative invalid-session probe, production proof-mode runs, fixture ownership, redacted evidence, and no-payment/no-order safety.
+- [Guest Buy Now Freshness Probe](./runbooks/guest-buy-now-freshness-probe.md): guest and account Buy Now readiness probe, write-to-checkout-ready release gate, negative invalid-session probe, production proof-mode runs, fixture ownership, redacted evidence, and no-payment/no-order safety.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.

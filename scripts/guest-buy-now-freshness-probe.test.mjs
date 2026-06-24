@@ -4,23 +4,23 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_READY_SLO_MS,
-  GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+  GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION,
   PRODUCTION_FEASIBILITY_DECISION,
   SEGMENT_METRIC_REFERENCES,
   assertRedactedEvidence,
-  buildGuestBuyNowCanaryEvidence,
+  buildGuestBuyNowProbeEvidence,
   buyNowItemPageNavigationWaitOptions,
   buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
   isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
-  parseGuestBuyNowCanaryArgs,
+  parseGuestBuyNowProbeArgs,
   resolveGuestBuyNowItemCandidates,
   resolveGuestBuyNowItemPath,
-  runGuestBuyNowFreshnessCanary,
-  validateGuestBuyNowCanaryOptions,
-} from "./guest-buy-now-freshness-canary.mjs";
+  runGuestBuyNowFreshnessProbe,
+  validateGuestBuyNowProbeOptions,
+} from "./guest-buy-now-freshness-probe.mjs";
 
 const baseOptions = {
   checkedAt: "2026-06-09T16:00:00.000Z",
@@ -38,7 +38,7 @@ const healthyProbe = {
   platformErrorVisible: false,
 };
 
-describe("guest Buy Now freshness canary", () => {
+describe("guest Buy Now freshness probe", () => {
   it("classifies pay-ready checkout inside the readiness SLO as promote", () => {
     expect(
       classifyGuestBuyNowObservation({
@@ -320,7 +320,7 @@ describe("guest Buy Now freshness canary", () => {
   });
 
   it("builds redacted pass evidence without sensitive identifiers", () => {
-    const evidence = buildGuestBuyNowCanaryEvidence({
+    const evidence = buildGuestBuyNowProbeEvidence({
       ...baseOptions,
       diagnosticCorrelationId: "diag raw!/value",
       observation: {
@@ -346,7 +346,7 @@ describe("guest Buy Now freshness canary", () => {
     });
 
     expect(evidence).toMatchObject({
-      schemaVersion: GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+      schemaVersion: GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION,
       flow: "guest",
       finalState: "pass",
       promotionDecision: "promote",
@@ -373,7 +373,7 @@ describe("guest Buy Now freshness canary", () => {
   });
 
   it("records a skipped negative probe explicitly", () => {
-    const evidence = buildGuestBuyNowCanaryEvidence({
+    const evidence = buildGuestBuyNowProbeEvidence({
       ...baseOptions,
       observation: {
         afterWritePresent: true,
@@ -389,17 +389,17 @@ describe("guest Buy Now freshness canary", () => {
   });
 
   it("parses CLI and environment defaults", () => {
-    const parsed = parseGuestBuyNowCanaryArgs(["--item-path", "/items/canary", "--skip-negative-probe"], {
-      GUEST_BUY_NOW_CANARY_OUT: "artifacts/guest-buy-now.json",
-      GUEST_BUY_NOW_CANARY_BASE_URL: "https://marketplace.staging.chasesets.com",
-      GUEST_BUY_NOW_CANARY_FIXTURE_KEY: "canary-fixture",
-      GUEST_BUY_NOW_CANARY_GUEST_EMAIL: "guest-buy-now-canary@example.test",
-      GUEST_BUY_NOW_CANARY_ENVIRONMENT: "staging",
-      GUEST_BUY_NOW_CANARY_TIMEOUT_MS: "1234",
-      GUEST_BUY_NOW_CANARY_READY_SLO_MS: "9000",
-      GUEST_BUY_NOW_CANARY_ATTEMPTS: "3",
-      GUEST_BUY_NOW_CANARY_CORRELATION_ID: "diag_1",
-      GUEST_BUY_NOW_CANARY_SEARCH_QUERY: "pikachu",
+    const parsed = parseGuestBuyNowProbeArgs(["--item-path", "/items/canary", "--skip-negative-probe"], {
+      GUEST_BUY_NOW_PROBE_OUT: "artifacts/guest-buy-now.json",
+      GUEST_BUY_NOW_PROBE_BASE_URL: "https://marketplace.staging.chasesets.com",
+      GUEST_BUY_NOW_PROBE_FIXTURE_KEY: "canary-fixture",
+      GUEST_BUY_NOW_PROBE_GUEST_EMAIL: "guest-buy-now-canary@example.test",
+      GUEST_BUY_NOW_PROBE_ENVIRONMENT: "staging",
+      GUEST_BUY_NOW_PROBE_TIMEOUT_MS: "1234",
+      GUEST_BUY_NOW_PROBE_READY_SLO_MS: "9000",
+      GUEST_BUY_NOW_PROBE_ATTEMPTS: "3",
+      GUEST_BUY_NOW_PROBE_CORRELATION_ID: "diag_1",
+      GUEST_BUY_NOW_PROBE_SEARCH_QUERY: "pikachu",
       MARKETPLACE_E2E_EMAIL: "marketplace-e2e@example.test",
       MARKETPLACE_E2E_PASSWORD: "marketplace-e2e-password",
     });
@@ -422,15 +422,15 @@ describe("guest Buy Now freshness canary", () => {
     });
   });
 
-  it("requires canary configuration and rejects public production browser canaries", () => {
-    expect(validateGuestBuyNowCanaryOptions({ flow: "guest", environment: "staging", searchQuery: "" })).toEqual([
-      "GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.",
-      "GUEST_BUY_NOW_CANARY_ITEM_PATH/--item-path or GUEST_BUY_NOW_CANARY_SEARCH_QUERY/--search-query is required.",
-      "GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.",
-      "GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required for the guest flow.",
+  it("requires probe configuration and rejects public production browser probes", () => {
+    expect(validateGuestBuyNowProbeOptions({ flow: "guest", environment: "staging", searchQuery: "" })).toEqual([
+      "GUEST_BUY_NOW_PROBE_BASE_URL or --base-url is required.",
+      "GUEST_BUY_NOW_PROBE_ITEM_PATH/--item-path or GUEST_BUY_NOW_PROBE_SEARCH_QUERY/--search-query is required.",
+      "GUEST_BUY_NOW_PROBE_FIXTURE_KEY or --fixture-key is required.",
+      "GUEST_BUY_NOW_PROBE_GUEST_EMAIL or --guest-email is required for the guest flow.",
     ]);
     expect(
-      validateGuestBuyNowCanaryOptions({
+      validateGuestBuyNowProbeOptions({
         flow: "guest",
         baseUrl: "https://marketplace.chasesets.com",
         itemPath: "/items/canary",
@@ -442,7 +442,7 @@ describe("guest Buy Now freshness canary", () => {
   });
 
   it("requires the account flow, operator credentials, and a proof reference in production proof mode", () => {
-    const errors = validateGuestBuyNowCanaryOptions({
+    const errors = validateGuestBuyNowProbeOptions({
       flow: "guest",
       baseUrl: "https://marketplace.chasesets.com",
       itemPath: "/items/canary",
@@ -456,7 +456,7 @@ describe("guest Buy Now freshness canary", () => {
     expect(errors.join(" ")).toContain("--production-proof-reference");
 
     expect(
-      validateGuestBuyNowCanaryOptions({
+      validateGuestBuyNowProbeOptions({
         flow: "account",
         baseUrl: "https://marketplace.chasesets.com",
         itemPath: "/items/canary",
@@ -591,7 +591,7 @@ describe("guest Buy Now freshness canary", () => {
     expect(requestedUrls[1]).toBe("https://marketplace.staging.chasesets.com/api/marketplace/items/buyable-card");
   });
 
-  it("can require checkout-ready fixture candidates for authenticated account canary discovery", async () => {
+  it("can require checkout-ready fixture candidates for authenticated account probe discovery", async () => {
     const requested = [];
     const itemSearchResponse = {
       ok: true,
@@ -758,7 +758,7 @@ describe("guest Buy Now freshness canary", () => {
   it("writes evidence and warns for safe temporary state that never becomes pay-ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
     const outFile = join(directory, "guest-buy-now.json");
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       outPath: outFile,
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
@@ -805,7 +805,7 @@ describe("guest Buy Now freshness canary", () => {
       },
     ];
     const attempts = [];
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
@@ -846,7 +846,7 @@ describe("guest Buy Now freshness canary", () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
     const outFile = join(directory, "guest-buy-now-runtime.json");
     const attempts = [];
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       outPath: outFile,
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
@@ -900,7 +900,7 @@ describe("guest Buy Now freshness canary", () => {
   });
 
   it("records checkout start recovery as a hard fixture or availability failure", async () => {
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
@@ -935,7 +935,7 @@ describe("guest Buy Now freshness canary", () => {
 
   it("retries transient platform setup failures up to the attempt budget", async () => {
     const attempts = [];
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
@@ -948,7 +948,7 @@ describe("guest Buy Now freshness canary", () => {
       observe: async (_options, attempt) => {
         attempts.push(attempt);
         if (attempt === 1) {
-          const error = new Error("Buy Now canary synthetic account registration failed with HTTP 504.");
+          const error = new Error("Buy Now probe synthetic account registration failed with HTTP 504.");
           error.stage = "start-account-session";
           error.reason = "platform-temporary-unavailable";
           throw error;
@@ -988,7 +988,7 @@ describe("guest Buy Now freshness canary", () => {
   it("writes runtime timeout evidence when every attempt fails before observation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
     const outFile = join(directory, "guest-buy-now-runtime-abort.json");
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       outPath: outFile,
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
@@ -1022,7 +1022,7 @@ describe("guest Buy Now freshness canary", () => {
 
   it("does not retry hard failures such as permanent not-found", async () => {
     const attempts = [];
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const evidence = await runGuestBuyNowFreshnessProbe({
       baseUrl: "https://marketplace.staging.chasesets.com",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",

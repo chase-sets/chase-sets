@@ -50,7 +50,7 @@ export const CANARY_BROWSER_SEGMENTS = Object.freeze([
 ]);
 
 const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const CANARY_SCRIPT_PATH = join(REPO_ROOT, "scripts", "guest-buy-now-freshness-canary.mjs");
+const CANARY_SCRIPT_PATH = join(REPO_ROOT, "scripts", "guest-buy-now-freshness-probe.mjs");
 const POSTGRES_URL_PATTERN = /postgres(?:ql)?:\/\/[^"'\s]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const BEARER_PATTERN = /Bearer\s+[A-Za-z0-9._-]+/g;
@@ -93,21 +93,19 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
     searchQuery:
       readOption(optionArgs, "--search-query") ??
       readEnv("WAKE_DRILL_SEARCH_QUERY", env) ??
-      readEnv("GUEST_BUY_NOW_CANARY_SEARCH_QUERY", env) ??
+      readEnv("GUEST_BUY_NOW_PROBE_SEARCH_QUERY", env) ??
       "air balloon",
-    itemPath: readOption(optionArgs, "--item-path") ?? readEnv("GUEST_BUY_NOW_CANARY_ITEM_PATH", env),
+    itemPath: readOption(optionArgs, "--item-path") ?? readEnv("GUEST_BUY_NOW_PROBE_ITEM_PATH", env),
     fixtureKey:
-      readOption(optionArgs, "--fixture-key") ??
-      readEnv("GUEST_BUY_NOW_CANARY_FIXTURE_KEY", env) ??
-      DEFAULT_FIXTURE_KEY,
+      readOption(optionArgs, "--fixture-key") ?? readEnv("GUEST_BUY_NOW_PROBE_FIXTURE_KEY", env) ?? DEFAULT_FIXTURE_KEY,
     timeoutMs: clampInteger(
-      readOption(optionArgs, "--timeout-ms") ?? readEnv("GUEST_BUY_NOW_CANARY_TIMEOUT_MS", env),
+      readOption(optionArgs, "--timeout-ms") ?? readEnv("GUEST_BUY_NOW_PROBE_TIMEOUT_MS", env),
       45_000,
       5_000,
       120_000,
     ),
     readySloMs: clampInteger(
-      readOption(optionArgs, "--ready-slo-ms") ?? readEnv("GUEST_BUY_NOW_CANARY_READY_SLO_MS", env),
+      readOption(optionArgs, "--ready-slo-ms") ?? readEnv("GUEST_BUY_NOW_PROBE_READY_SLO_MS", env),
       10_000,
       1_000,
       60_000,

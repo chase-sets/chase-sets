@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
-  parseProductionSettlementProviderHealthCanaryArgs,
-  runProductionSettlementProviderHealthCanary,
-  validateProductionSettlementProviderHealthCanaryOptions,
-} from "./production-settlement-provider-health-canary.mjs";
+  parseProductionSettlementProviderHealthProbeArgs,
+  runProductionSettlementProviderHealthProbe,
+  validateProductionSettlementProviderHealthProbeOptions,
+} from "./production-settlement-provider-health-probe.mjs";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -15,13 +15,13 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-describe("production settlement provider-health canary", () => {
+describe("production settlement provider-health probe", () => {
   it("signs in with the proof operator and records provider-health evidence", async () => {
     const calls = [];
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-settlement-provider-health-canary-"));
     const outPath = join(directory, "settlement-provider-health.json");
 
-    const evidence = await runProductionSettlementProviderHealthCanary(
+    const evidence = await runProductionSettlementProviderHealthProbe(
       {
         outPath,
         baseUrl: "https://marketplace.chasesets.com",
@@ -63,7 +63,7 @@ describe("production settlement provider-health canary", () => {
       "/api/settlement/provider-health",
     ]);
     expect(evidence).toMatchObject({
-      schemaVersion: "production-settlement-provider-health-canary/v1",
+      schemaVersion: "production-settlement-provider-health-probe/v1",
       status: "pass",
       providerName: "stripe",
       adapterMode: "provider",
@@ -76,24 +76,24 @@ describe("production settlement provider-health canary", () => {
 
   it("fails closed without production-proof credentials and reference", () => {
     expect(
-      validateProductionSettlementProviderHealthCanaryOptions({
+      validateProductionSettlementProviderHealthProbeOptions({
         baseUrl: "https://marketplace.chasesets.com",
         authBaseUrl: "https://marketplace.chasesets.com",
         environment: "production-proof",
         checkedAt: "2026-06-12T12:00:00.000Z",
       }),
     ).toEqual([
-      "Production settlement provider-health canary requires operator credentials (PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_EMAIL/PASSWORD or PLATFORM_ADMIN_EMAIL/PASSWORD).",
+      "Production settlement provider-health probe requires operator credentials (PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_EMAIL/PASSWORD or PLATFORM_ADMIN_EMAIL/PASSWORD).",
       "Production proof reference is required.",
     ]);
   });
 
   it("parses workflow environment defaults", () => {
     expect(
-      parseProductionSettlementProviderHealthCanaryArgs([], {
-        PRODUCTION_SETTLEMENT_CANARY_BASE_URL: "https://marketplace.chasesets.com",
-        PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_EMAIL: "ops@example.test",
-        PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_PASSWORD: "secret",
+      parseProductionSettlementProviderHealthProbeArgs([], {
+        PRODUCTION_SETTLEMENT_PROBE_BASE_URL: "https://marketplace.chasesets.com",
+        PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_EMAIL: "ops@example.test",
+        PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_PASSWORD: "secret",
         PRODUCTION_MARKETPLACE_PROOF_REFERENCE: "PRODUCTION-PROOF-2026-06-12",
       }),
     ).toMatchObject({

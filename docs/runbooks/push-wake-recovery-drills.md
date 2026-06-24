@@ -13,7 +13,7 @@ Every drill verifies the same contract: no wake-path failure loses data or perma
 What the `reconciliation` drill does:
 
 1. Snapshots `GET /api/platform/projections/wake-status` (admin credentials, structural fields only).
-2. Generates one synthetic guest Buy Now write via the existing [freshness canary](./guest-buy-now-freshness-canary.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus).
+2. Generates one synthetic guest Buy Now write via the existing [freshness probe](./guest-buy-now-freshness-probe.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus).
 3. Audits durable positions until convergence or budget exhaustion, per staging-enabled source context:
    - event-store head: `MAX(global_position)` of `event_store_events` for the source context;
    - relay high-water cursor: `platform_projection_wake_relay_cursors.last_fanout_position` (control database);
@@ -82,7 +82,7 @@ Goal: prove every kill switch degrades freshness to poll-bounded without breakin
 
 1. Flip one switch per drill pass (emission `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, relay `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, scheduler, one lane count to `0`, or `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) via Terraform locals + deploy, per the rollout-controls recipes.
 2. Verify the flip took effect using the rollout-controls "Verification After Flipping" checklist (worker status endpoint, dashboard series, log events).
-3. Run the [Buy Now freshness canary](./guest-buy-now-freshness-canary.md) for both flows: it must still reach pay-ready within the readiness budget on polling alone (staging budget currently 10 s; polling-bound staging evidence is the gate, an SLO miss here is a real capacity finding, not an expected drill outcome).
+3. Run the [Buy Now freshness probe](./guest-buy-now-freshness-probe.md) for both flows: it must still reach pay-ready within the readiness budget on polling alone (staging budget currently 10 s; polling-bound staging evidence is the gate, an SLO miss here is a real capacity finding, not an expected drill outcome).
 4. Run the reconciliation drill with `skip_canary_write: false`. Expected per switch: relay off **or** emission off -> `relay-cursor-behind-event-store-head` is the **expected** failure signature (the relay only catches up on startup, reconnect, or an incoming notification, so with no notifications or no relay the cursor freezes) while checkpoint gaps still converge via polling — record the run as pass-with-expected-cursor-freeze; scheduler/lane off -> intents age out via TTL while checkpoints converge via polling and the cursor still advances.
 5. Restore the switch, re-verify, re-run the canary and the reconciliation drill green before closing the drill.
 
@@ -152,5 +152,5 @@ These dispatchers are scheduled/poll-driven over durable outbox rows (documented
 - [Push-Wake Operations](./push-wake-operations.md) — failure classes and triage these drills exercise.
 - [Push-Wake Rollout Controls](./push-wake-rollout-controls.md) — kill-switch matrix and verification used by drill 4.
 - [Push-Wake SLO And Load Proof](../architecture/push-wake-slo-load-proof.md) — where drill evidence feeds the #1237 SLO/load record.
-- [Guest Buy Now Freshness Canary](./guest-buy-now-freshness-canary.md) — the synthetic write generator and release gate.
+- [Guest Buy Now Freshness Probe](./guest-buy-now-freshness-probe.md) — the synthetic write generator and release gate.
 - [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md) — capacity actions when a drill exposes backlog.

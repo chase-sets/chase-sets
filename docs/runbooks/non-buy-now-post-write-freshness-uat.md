@@ -22,7 +22,7 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
 3. Account cart: add an eligible listing to the account cart and navigate to `/account/cart`.
 4. Confirm the cart applies the optimistic state, then reconciles to server-confirmed state without a freshness timeout.
 5. Account cart stale response: perform a rapid quantity or remove/update sequence and confirm an older response cannot overwrite the newest visible cart state.
-6. Generate the redacted account-cart artifact with `scripts/account-cart-consistency-canary.mjs`; the artifact must promote and must not contain sensitive values.
+6. Generate the redacted account-cart artifact with `scripts/account-cart-consistency-probe.mjs`; the artifact must promote and must not contain sensitive values.
 7. Sell List accept-to-checkout: from `/account/sell`, accept an eligible sell readiness flow into checkout and confirm the handoff reaches the expected checkout or readiness state without fallback failure.
 8. Payout-ready return: use an operator-owned payout-ready account flow and confirm returning to Sell List shows payout readiness without setup-blocked recovery.
 9. Listing freshness: create or update a staging listing through the account listing flow, then confirm `/account/listings`, `/account/listings/:id`, and the public listing/product surface show the expected fresh state or an owned temporary recovery state.
