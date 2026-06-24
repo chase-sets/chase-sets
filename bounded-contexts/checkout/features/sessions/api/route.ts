@@ -597,6 +597,7 @@ export function createAccountCheckoutSessionRoutes(
           sellerPreferenceId,
           optimizationGoal,
           shippingOption,
+          fulfillmentPreviewRevision: supplyPreview.revision,
           sessionIdOverride,
         },
         context,

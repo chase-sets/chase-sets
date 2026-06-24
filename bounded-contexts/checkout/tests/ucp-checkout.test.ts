@@ -116,6 +116,7 @@ describe("checkout UCP handlers", () => {
           title: "Charizard",
           selected_options: [{ dimension_id: "form", option_id: "raw" }],
           quantity: 2,
+          fulfillment_preview_revision: "buy_now_supply_ready",
         },
         shipping_option: "priority",
       }),
@@ -130,6 +131,7 @@ describe("checkout UCP handlers", () => {
         productId: "cat_1::form:raw",
         quantity: 2,
         shippingOption: "priority",
+        fulfillmentPreviewRevision: "buy_now_supply_ready",
       }),
       context,
     );
