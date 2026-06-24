@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -954,9 +959,19 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
 
-    const requestPath = appendFreshWriteToken(
+    const orderingCommit = {
+      commitEventIds: ["evt_order_created"],
+      commitPositions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    };
+    const requestPath = appendFreshWriteTokenFromSources(
       "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
-      checkoutCommit("40", "evt_prior_review"),
+      [checkoutCommit("40", "evt_prior_review"), orderingCommit],
     );
     const response = (await checkoutSessionAction({
       request: new Request(`http://localhost${requestPath}`, {
@@ -1022,9 +1037,19 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
 
-    const requestPath = appendFreshWriteToken(
+    const orderingCommit = {
+      commitEventIds: ["evt_order_created"],
+      commitPositions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    };
+    const requestPath = appendFreshWriteTokenFromSources(
       "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
-      checkoutCommit("40", "evt_prior_review"),
+      [checkoutCommit("40", "evt_prior_review"), orderingCommit],
     );
     const response = (await checkoutSessionAction({
       request: new Request(`http://localhost${requestPath}`, {
@@ -1041,6 +1066,17 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
     const checkoutApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
     expect(new URL(checkoutApiRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(checkoutApiRequest.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+    const confirmApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[1]?.[0] as Request;
+    const confirmReceipt = readFreshWriteToken(confirmApiRequest);
+    expect(confirmReceipt?.sources).toEqual([
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ]);
+    expect(confirmApiRequest.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
       "chk_1",
       expect.objectContaining({

@@ -12,8 +12,11 @@ import {
 } from "react-router";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  appendFreshWriteTokenFromSources,
   loadFreshlyWrittenResource,
   readApiErrorCode,
+  readFreshWriteToken,
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -59,6 +62,7 @@ const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
 const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
+const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
 
 type GuestCheckoutContact = Readonly<{
   contactEmail: string;
@@ -469,7 +473,9 @@ function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPrev
 function requestWithoutReadAfterWrite(request: Request) {
   const url = new URL(request.url);
   const hadAfterWrite = url.searchParams.has("afterWrite");
-  const hadFreshWriteHeader = request.headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  const hadFreshWriteHeader =
+    request.headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER) ||
+    request.headers.has(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
   if (!hadAfterWrite && !hadFreshWriteHeader) {
     return request;
   }
@@ -477,10 +483,49 @@ function requestWithoutReadAfterWrite(request: Request) {
   url.searchParams.delete("afterWrite");
   const headers = new Headers(request.headers);
   headers.delete(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  headers.delete(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
   return new Request(url, {
     headers,
     method: request.method,
   });
+}
+
+function sourceCommitEventIds(sources: readonly SourceCommitPosition[]) {
+  return [...new Set(sources.flatMap((source) => source.eventIds))];
+}
+
+function requestWithOnlyFreshWriteSources(request: Request, sourceContextNames: ReadonlySet<string>) {
+  const receipt = readFreshWriteToken(request);
+  const commitPositions = receipt?.sources.filter((source) => sourceContextNames.has(source.sourceContextName)) ?? [];
+  if (commitPositions.length === 0 || !receipt) {
+    return requestWithoutReadAfterWrite(request);
+  }
+
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  const destinationPath = `${url.pathname}${url.search}${url.hash}`;
+  const freshPath = appendFreshWriteTokenFromSources(
+    destinationPath,
+    [
+      {
+        commitEventIds: sourceCommitEventIds(commitPositions),
+        commitPositions,
+      },
+    ],
+    receipt.observedAtMs,
+  );
+  const headers = new Headers(request.headers);
+  headers.delete(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  headers.delete(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
+
+  return new Request(new URL(freshPath, url.origin), {
+    headers,
+    method: request.method,
+  });
+}
+
+function requestWithPaymentStartFreshness(request: Request) {
+  return requestWithOnlyFreshWriteSources(request, PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES);
 }
 
 async function loadSavedCheckoutInstruments(
@@ -719,9 +764,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
           ),
         );
       }
-      let result: Awaited<ReturnType<typeof api.confirmCheckoutSession>>;
+      const confirmApi = createCheckoutRequestApiClient(requestWithPaymentStartFreshness(request));
+      let result: Awaited<ReturnType<typeof confirmApi.confirmCheckoutSession>>;
       try {
-        result = await api.confirmCheckoutSession(params.sessionId, {
+        result = await confirmApi.confirmCheckoutSession(params.sessionId, {
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
             formData.get("requestedBalanceCreditAmount"),
           ),

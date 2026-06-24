@@ -1,7 +1,12 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  decodeFreshWriteReceipt,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import {
   checkoutSessionSourceCreatesOrders,
@@ -95,11 +100,15 @@ export async function createCheckoutPaymentThroughPayments(
     throw new Error("Review the payment quote before creating checkout payment.");
   }
 
+  const forwardedFreshReadHeaders = paymentsFreshReadHeadersFromForwardedRequest(request);
   const hasSameRequestOrderWrite = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
-  const needsOrderInputFreshRead = hasSameRequestOrderWrite || readFreshWriteToken(request) !== null;
+  const needsOrderInputFreshRead =
+    hasSameRequestOrderWrite || readFreshWriteToken(request) !== null || forwardedFreshReadHeaders !== undefined;
   const paymentsApi = hasSameRequestOrderWrite
     ? createPaymentsRequestApiClient(request, { afterWriteSource: orderCreationWriteResult })
-    : createPaymentsRequestApiClient(request);
+    : forwardedFreshReadHeaders
+      ? createPaymentsRequestApiClient(request, { headers: forwardedFreshReadHeaders })
+      : createPaymentsRequestApiClient(request);
   if (needsOrderInputFreshRead) {
     await paymentsApi.getCheckoutStatus({
       orderIds,
@@ -120,6 +129,19 @@ export async function createCheckoutPaymentThroughPayments(
     returnUrlPath,
     agenticPayment,
   });
+}
+
+function paymentsFreshReadHeadersFromForwardedRequest(request: Request): HeadersInit | undefined {
+  const encodedReceipt = request.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  const receipt = decodeFreshWriteReceipt(encodedReceipt);
+  if (!receipt || receipt.sources.length === 0 || !encodedReceipt) {
+    return undefined;
+  }
+
+  const headers = new Headers();
+  headers.set(CHASE_SETS_READ_AFTER_WRITE_HEADER, encodedReceipt);
+  headers.set(CHASE_SETS_READ_TARGET_CONTEXT_HEADER, "payments");
+  return headers;
 }
 
 function offerIdForCheckoutSession(sessionId: string) {
