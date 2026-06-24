@@ -170,6 +170,34 @@ export const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRou
     pollIntervalMs: 50,
     exactDependencyMode: "enabled",
   },
+  {
+    mountPath: "/api/settlement",
+    routePath: "/payouts/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/settlement",
+    routePath: "/payout-readiness",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/payments/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/listings/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
 ];
 
 export type PlatformApiRealtimeStreamLimiterConfig =

@@ -47,6 +47,12 @@ The fan-out core does not claim that a source position has been fully caught up.
 
 The cursor advancement query verifies the supplied lease name, owner id, fencing token, and expiry against `platform_control_leases`. A stale relay process cannot advance the cursor after losing the active lease.
 
+## Rolling-Deploy Envelope Compatibility
+
+Event-store wake notifications use a strict `schemaVersion` and an additive `payloadVersion`. The relay rejects unknown schema versions because they may redefine the envelope contract, but accepts positive payload versions when the required v1 fields remain valid. Additive payload fields are ignored by the current fan-out mapper and are not copied into durable wake metadata; the relay records only the observed payload version and the safe structural v1 fields.
+
+Live `LISTEN` notifications remain latency hints. The active relay does not trust the notification body to advance work; a received notification only schedules durable catch-up from source event-store rows after the persisted relay cursor. During a rolling deploy, an older or newer emitter can therefore wake a relay instance without making correctness depend on that specific payload shape. If a breaking schema ever appears, the documented fallback is bounded catch-up/polling latency, not lost projection work.
+
 ## Deployable Hosting
 
 The platform worker hosts the relay as a long-lived supervised session beside its runner loops:

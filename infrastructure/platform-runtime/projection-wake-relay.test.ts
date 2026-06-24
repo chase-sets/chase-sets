@@ -102,6 +102,39 @@ describe("projection wake relay fan-out", () => {
     expect(inputs[0].metadata).not.toHaveProperty("eventPayload");
   });
 
+  it("accepts additive event-store wake payload versions during relay fan-out", async () => {
+    const { store, inputs } = recordingWorkSignalStore();
+
+    const result = await fanOutEventStoreWakeNotification({
+      notification: JSON.stringify({
+        ...checkoutWakeNotification(),
+        payloadVersion: 2,
+        payload: {
+          ...checkoutWakeNotification().payload,
+          additiveRoutingHint: "safe-over-wake-only",
+        },
+        additiveEnvelopeHint: "ignored-by-current-relay",
+      }),
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      relayConfigs: checkoutRelayConfigs(),
+    });
+
+    expect(result).toMatchObject({
+      status: "enqueued",
+      requiredCursor: "checkout:102",
+      enqueuedCount: 1,
+    });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].metadata).toMatchObject({
+      eventStoreWakeSchemaVersion: 1,
+      eventStoreWakePayloadVersion: 2,
+      eventStoreWakeLastGlobalPosition: "102",
+    });
+    expect(inputs[0].metadata).not.toHaveProperty("additiveRoutingHint");
+    expect(inputs[0].metadata).not.toHaveProperty("additiveEnvelopeHint");
+  });
+
   it("skips disabled source contexts without enqueueing work", async () => {
     const { store, inputs } = recordingWorkSignalStore();
     const skipped: ProjectionWakeRelaySourceSkippedEvent[] = [];
@@ -185,6 +218,30 @@ describe("projection wake relay fan-out", () => {
     ).rejects.toThrow(ProjectionWakeRelayNotificationRejectedError);
 
     expect(rejected[0].reason).toContain("lastGlobalPosition must be >= firstGlobalPosition");
+    expect(inputs).toEqual([]);
+  });
+
+  it("rejects breaking event-store wake schema versions before fan-out", async () => {
+    const rejected: ProjectionWakeRelayNotificationRejectedEvent[] = [];
+    const { store, inputs } = recordingWorkSignalStore();
+
+    await expect(
+      fanOutEventStoreWakeNotification({
+        notification: JSON.stringify({
+          ...checkoutWakeNotification(),
+          schemaVersion: 2,
+          payloadVersion: 1,
+        }),
+        projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+        workSignalStore: store,
+        relayConfigs: checkoutRelayConfigs(),
+        observer: {
+          notificationRejected: (event) => rejected.push(event),
+        },
+      }),
+    ).rejects.toThrow(ProjectionWakeRelayNotificationRejectedError);
+
+    expect(rejected[0].reason).toContain("unsupported schemaVersion");
     expect(inputs).toEqual([]);
   });
 
@@ -434,6 +491,84 @@ describe("projection wake relay active runtime", () => {
       caughtUpEventCount: 1,
       cursorAdvanceCount: 1,
     });
+  });
+
+  it("keeps old and new live wake envelopes interoperable through durable catch-up during rolling deploy", async () => {
+    const abortController = new AbortController();
+    const listener = new FakeRelayListenerClient();
+    const events = eventStoreWithRows([]);
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const completed: ProjectionWakeRelaySourceCatchUpCompletedEvent[] = [];
+
+    const resultPromise = runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: events,
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: (event) => {
+          completed.push(event);
+          if (event.reason === "startup") {
+            events.rows.push(storedEvent({ position: "101", eventType: "CheckoutSessionCreated" }));
+            listener.emit("platform_event_store_commits", JSON.stringify(checkoutWakeNotification({ eventCount: 1 })));
+            return;
+          }
+          if (completed.filter((entry) => entry.reason === "notification").length === 1) {
+            events.rows.push(storedEvent({ position: "102", eventType: "CheckoutSessionCreated" }));
+            listener.emit(
+              "platform_event_store_commits",
+              JSON.stringify({
+                ...checkoutWakeNotification({
+                  firstGlobalPosition: parseGlobalPosition("102"),
+                  lastGlobalPosition: parseGlobalPosition("102"),
+                  eventCount: 1,
+                }),
+                payloadVersion: 2,
+                payload: {
+                  ...checkoutWakeNotification({
+                    firstGlobalPosition: parseGlobalPosition("102"),
+                    lastGlobalPosition: parseGlobalPosition("102"),
+                    eventCount: 1,
+                  }).payload,
+                  additiveRoutingHint: "safe-over-wake-only",
+                },
+              }),
+            );
+            return;
+          }
+          if (completed.filter((entry) => entry.reason === "notification").length === 2) {
+            abortController.abort();
+          }
+        },
+      },
+    });
+
+    const result = await resultPromise;
+
+    expect(completed.map((event) => [event.reason, event.eventCount])).toEqual([
+      ["startup", 0],
+      ["notification", 1],
+      ["notification", 1],
+    ]);
+    expect(inputs).toHaveLength(2);
+    expect(inputs.map((input) => input.requiredCursor)).toEqual(["checkout:101", "checkout:102"]);
+    expect(controlPlane.advances).toMatchObject([
+      { sourceContextName: "checkout", lastFanOutPosition: "101" },
+      { sourceContextName: "checkout", lastFanOutPosition: "102" },
+    ]);
+    expect(result).toMatchObject({ status: "stopped", caughtUpEventCount: 2, cursorAdvanceCount: 2 });
   });
 
   it("reconnects listener connections and catches up durable rows after reconnect", async () => {

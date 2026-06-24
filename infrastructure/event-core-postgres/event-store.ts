@@ -61,7 +61,7 @@ export type EventStoreWakeNotificationPayload = Readonly<{
 
 export type EventStoreWakeNotificationEnvelope = Readonly<{
   schemaVersion: typeof EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION;
-  payloadVersion: typeof EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION;
+  payloadVersion: number;
   kind: typeof EVENT_STORE_WAKE_NOTIFICATION_KIND;
   source: string;
   emittedAt: IsoUtcTimestamp;
@@ -727,8 +727,11 @@ function assertSafeEventStoreWakeNotificationEnvelope(envelope: EventStoreWakeNo
   if (envelope.schemaVersion !== EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION) {
     throw new Error(`Unsupported event-store wake notification schemaVersion '${String(envelope.schemaVersion)}'.`);
   }
-  if (envelope.payloadVersion !== EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION) {
-    throw new Error(`Unsupported event-store wake notification payloadVersion '${String(envelope.payloadVersion)}'.`);
+  if (
+    !Number.isInteger(envelope.payloadVersion) ||
+    envelope.payloadVersion < EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION
+  ) {
+    throw new Error("Event-store wake notification payloadVersion must be a positive integer.");
   }
   if (envelope.kind !== EVENT_STORE_WAKE_NOTIFICATION_KIND) {
     throw new Error(`Unsupported event-store wake notification kind '${String(envelope.kind)}'.`);
