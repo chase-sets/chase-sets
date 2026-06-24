@@ -2,6 +2,8 @@
 
 The Catalog Admin Control Plane reads provider integration state through typed query contracts owned by Source Observations. UI workflow modules should call these contracts by query key and render the returned read models; they should not parse provider profile JSON, branch by provider/product category, or infer transport health from Catalog semantic readiness.
 
+**Related:** [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md) pins performance and freshness for these queries; [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md) composes them into the operator API.
+
 The authoritative TypeScript contract surface lives in:
 
 ```text

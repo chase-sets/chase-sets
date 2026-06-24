@@ -63,6 +63,6 @@ Forbidden outcomes include soft deprecation, compatibility shims, legacy support
 - [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
-- [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md)
+- [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md)
 - [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md)
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)

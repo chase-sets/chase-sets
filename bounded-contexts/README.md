@@ -6,6 +6,8 @@ Each bounded context owns its own terms, state transitions, internal models, rea
 
 Structure, public export, deployable composition, and shared-ID rules live in [Bounded Context Structure](../docs/architecture/bounded-context-structure.md).
 
+Each context `README.md` follows a common shape — see [Fulfillment](./fulfillment/README.md) as the reference: Purpose, Owns, Does Not Own, Ubiquitous Language (link to `GLOSSARY.md`), Core Aggregates and Process Managers, Incoming Dependencies, Outgoing Integration Events, and Invariants.
+
 ## Contexts
 
 | Context | Purpose |

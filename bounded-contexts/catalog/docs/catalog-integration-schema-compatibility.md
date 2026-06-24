@@ -14,16 +14,11 @@ The authoritative typed policy lives in:
 bounded-contexts/catalog/features/source-observations/api/catalog-integration-schema-compatibility.ts
 ```
 
-Legacy cleanup exceptions and launch cleanup checks are owned by [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md) and live in:
-
-```text
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-legacy-cleanup.ts
-```
-
-The executable migration/reset policy for applying these retention decisions before launch is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md) and lives in:
+Pre-launch cleanup, the executable migration/reset policy, and the reset evidence contract are owned by [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md), implemented in:
 
 ```text
 bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts
+bounded-contexts/catalog/features/source-observations/api/catalog-integration-legacy-cleanup.ts
 ```
 
 ## Launch Boundary

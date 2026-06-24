@@ -2,6 +2,8 @@
 
 This note defines the authoritative admin API and read-model contract for the rebuilt Catalog Control Plane primary workbench. The primary workbench is not a migration of retired admin pages. It is a clean-launch workflow centered on pulling provider data, reviewing Source Observations, and promoting eligible observations into Catalog Items or Catalog-owned references.
 
+**Related:** [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md) defines the query keys this workbench composes; [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md) pins their performance and freshness.
+
 The authoritative TypeScript surface lives in:
 
 ```text

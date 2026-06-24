@@ -1,5 +1,7 @@
 # Push-Driven Projection Runtime Phase Map
 
+_Status: Phases 0–1 (event-store wake, worker relay, durable wake store, wake scheduler, Checkout hot path) have shipped and run in staging for wave-1 source contexts; production rollout stays gated by the ADR 0010 gates. Retained as the phased rollout contract and source-of-truth boundary map._
+
 ## Purpose
 
 Milestone #19 moves projection readiness from polling-first to push-first without turning the platform into a big-bang rewrite. This phase map defines the delivery order, blocker classes, source-of-truth boundaries, and evidence required before each rollout expands.

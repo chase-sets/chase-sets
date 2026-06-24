@@ -15,19 +15,33 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ## Core References
 
+### Product and language
+
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
 - [Launch Checklist](./launch/checklist.md): single pre-public safety checklist for the Shopify-simple checkout.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
+
+### Bounded contexts and structure
+
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, manifest, export, import-boundary, deployable-composition, and structure-gate failure rules.
+
+### Checkout and guest flows
+
 - [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch readiness map for the Shopify-simple checkout rebuild.
 - [Guest Rail Intent Persistence](./architecture/guest-rail-intent-persistence.md): context-owned anonymous listing draft and Watch alert intent persistence, registration return, claim, expiry, replay, and privacy contract for the simplified item-detail rail.
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
+
+### Post-write consistency and projection freshness
+
 - [Post-Write Consistency Policy](./architecture/post-write-consistency.md): product-wide strategy taxonomy and default-safe route path for `navigateAfterWrite`, `loadAfterWrite`, recovery boundaries, lag-vs-readiness classification, and realtime as a bounded correction channel.
 - [Advanced Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): advanced/bespoke exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Semantic Post-Write Handoffs](./architecture/semantic-post-write-handoffs.md): lightweight `postWriteHandoff` query metadata paired with `navigateAfterWrite`/`loadAfterWrite` for `fresh-read` routes where stale `200` empty, stale resource, or `404` responses can hide a successful command.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
 - [Projection Freshness Worker Capacity](./architecture/projection-freshness-worker-capacity.md): worker topology, capacity defaults, operator evidence, and scaling order for critical projection freshness.
+
+### Push-driven wake pipeline
+
 - [Push-Driven Projection Runtime Phase Map](./architecture/push-driven-projection-runtime-phase-map.md): phased rollout gates for the worker-owned relay, durable wake store, Checkout hot path, and platform work-signal composite.
 - [Push-Wake SLO And Load Proof](./architecture/push-wake-slo-load-proof.md): consolidated numeric SLO, canary, load, and capacity evidence for the push-first runtime.
 - [Event-Store Wake Notifications](./architecture/event-store-wake-notifications.md): after-commit source wake channel, envelope, privacy, failure, and relay expectations for push-driven projections.
@@ -38,8 +52,14 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Projection Wake-Intent Scheduler](./architecture/projection-wake-scheduler.md): worker-side consumer that claims durable wake intents by lane, runs projection groups under existing leases, and completes only on durable checkpoint advancement.
 - [Push-Wake Connection Budget](./architecture/push-wake-connection-budget.md): per-environment DigitalOcean connection ledger, listener/channel inventory, PgBouncer-vs-direct semantics, topology parity contract, and plan-time Terraform budget checks.
 - [Platform Work-Signal Composite](./architecture/work-signal-composite.md): internal wake-notification envelope contract, emitter/waiter primitives, adapter channels, rolling-deploy compatibility, and the tracked origin disposition inventory.
+
+### Environment
+
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
+
+### Event projection runtime
+
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
 - [Event Projection Runtime](./architecture/event-projection-runtime.md): consumer-owned subscriptions, projection consumer states, scaling, idempotency, poison-event behavior, lag metrics, and ownership/reset-strategy rules.
 - [Projection Helper Toolkit](./architecture/projection-toolkit.md): typed row/JSONB helper mapping, escape-hatch guidance, and row-identity migration proof.
@@ -47,9 +67,15 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Durable Job Workflows](./architecture/durable-job-workflows.md): durable job tables, worker claims, SSE progress, and migration expectations for long-running workflows.
 - [Event Projection Query Plans](./architecture/event-projection-query-plans.md): projection read query shape, supporting indexes, and backlog validation expectations.
 - [Stream-Isolated Projection Errors](./architecture/stream-isolated-projection-errors.md): poison-event isolation, blocked-stream semantics, and degraded projection health.
+
+### Notifications, messaging, and integrations
+
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
+
+### API
+
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
 - [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.

@@ -12,6 +12,14 @@ must not use handcrafted URLs, direct API calls, CLI commands, SQL, Postman,
 browser console commands, manual provider endpoint access, or hidden Admin/API
 routes for the UAT.
 
+## Game signoffs
+
+| Game | Production providers | Section |
+| --- | --- | --- |
+| Magic | MTGJSON, Scryfall, TCGplayer | [Magic](#magic) |
+| One Piece | Scrydex, TCGplayer, Bandai (validation-only) | [One Piece](#one-piece) |
+| Lorcana | LorcanaJSON, Lorcast, Scrydex, TCGplayer | [Lorcana](#lorcana) |
+
 ## Shared signoff contract
 
 Every game signoff below asserts the same template. Read this section once; the
