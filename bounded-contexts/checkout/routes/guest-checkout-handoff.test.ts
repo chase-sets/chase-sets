@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   guestCheckoutActor,
@@ -38,6 +39,18 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
     resolveActorFromAuthApi: mockResolveActorFromAuthApi,
   };
 });
+
+async function readResolvedFreshWriteToken(location: string) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(new URL(location, "http://localhost")));
+  return readFreshWriteToken(resolvedRequest);
+}
+
+function expectCompactPostWriteLocation(location: string, expectedPrefix: string) {
+  expect(location).toContain(expectedPrefix);
+  expect(readCompactPostWriteToken(location)).toMatch(/^pwt_/);
+  expect(location).not.toContain("afterWrite=");
+  expect(location).not.toContain("postWriteHandoff=");
+}
 
 vi.mock("@chase-sets/auth/server", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/auth/server")>("@chase-sets/auth/server");
@@ -479,11 +492,11 @@ describe("checkout web routes: guest checkout handoff", () => {
       .getSetCookie()
       .find((cookie) => cookie.startsWith("chase_sets_guest_checkout="));
     const checkoutLocation = checkoutStartResponse.headers.get("Location") ?? "";
-    const freshReceipt = readFreshWriteToken(new Request(`http://localhost${checkoutLocation}`));
+    const freshReceipt = await readResolvedFreshWriteToken(checkoutLocation);
 
     expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
-    expect(checkoutLocation).toContain("/checkout/buy/session/chk_guest?afterWrite=");
+    expectCompactPostWriteLocation(checkoutLocation, "/checkout/buy/session/chk_guest?postWriteToken=");
     expect(freshReceipt).toMatchObject({
       sources: [
         {

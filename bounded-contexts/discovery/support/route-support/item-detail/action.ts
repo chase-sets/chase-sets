@@ -3,13 +3,11 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import {
-  appendFreshWriteToken,
-  appendPostWriteHandoff,
-  appendPostWriteHandoffFromSources,
-  type PostWriteHandoff,
-} from "@chase-sets/http/responses";
+  navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
+  navigateAfterWriteWithPlatformPostWriteToken,
+} from "@chase-sets/platform-runtime/post-write-tokens";
+import { appendFreshWriteToken, type PostWriteHandoff } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
@@ -272,7 +270,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
         if (intent === "buy-best-match") {
           const response = redirect(
-            navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
+            await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
+              handoff: ACCOUNT_CART_ADD_LINE_HANDOFF,
+            }),
           );
           appendAnonymousCartCookie(response.headers, anonymousCartId, request);
           return response;
@@ -283,7 +283,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
           itemTitle: item.title,
           quantity: cartLine.quantity,
           cartLine: checkoutCommandSnapshot(result),
-          viewCartHref: navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
+          viewCartHref: await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
+            handoff: ACCOUNT_CART_ADD_LINE_HANDOFF,
+          }),
         } satisfies AddToCartActionData);
         appendAnonymousCartCookie(response.headers, anonymousCartId, request);
         return response;
@@ -291,7 +293,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const result = await checkoutApi.addCartLine(cartLine);
       if (intent === "buy-best-match") {
-        return redirect(navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }));
+        return redirect(
+          await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
+            handoff: ACCOUNT_CART_ADD_LINE_HANDOFF,
+          }),
+        );
       }
 
       return Response.json({
@@ -299,7 +305,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemTitle: item.title,
         quantity: cartLine.quantity,
         cartLine: checkoutCommandSnapshot(result),
-        viewCartHref: navigateAfterWrite(result, "/account/cart", { handoff: ACCOUNT_CART_ADD_LINE_HANDOFF }),
+        viewCartHref: await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/cart", {
+          handoff: ACCOUNT_CART_ADD_LINE_HANDOFF,
+        }),
       } satisfies AddToCartActionData);
     }
 
@@ -362,7 +370,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         source,
       });
 
-      return redirect(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(session, `/checkout/buy/session/${session.session_id}`),
+      );
     }
 
     if (intent === "sell-now") {
@@ -381,7 +391,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const offer = getPublicSelectedOfferForSellList(item, offerId);
       const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
-      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        }),
+      );
     }
 
     if (intent === "add-to-sell-list") {
@@ -401,7 +415,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const offer = getPublicSelectedOfferForSellList(item, offerId);
       const result = await checkoutApi.addSellListLine(selectedOfferSellListLineFromPublicOffer(item, offer));
-      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        }),
+      );
     }
 
     if (intent === "add-product-to-sell-list") {
@@ -430,14 +448,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const anonymousSellListId = ensureAnonymousSellListId(request);
         const result = await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
         const response = redirect(
-          appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF),
+          await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+            handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+          }),
         );
         appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
         return response;
       }
 
       const result = await checkoutApi.addSellListLine(sellListLine);
-      return redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        }),
+      );
     }
 
     if (intent === "create-listing-stock-location") {
@@ -486,10 +510,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
         return redirect(
-          appendPostWriteHandoffFromSources(
-            itemDetailSellListingPath(item, params.id!, listingId),
+          await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
             [priceResult, result],
-            ITEM_DETAIL_LISTING_UPDATE_HANDOFF,
+            itemDetailSellListingPath(item, params.id!, listingId),
+            { handoff: ITEM_DETAIL_LISTING_UPDATE_HANDOFF },
           ),
         );
       }
@@ -553,10 +577,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       return redirect(
-        appendPostWriteHandoffFromSources(
-          itemDetailSellListingPath(item, params.id!, createdListingId),
+        await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
           writeResults,
-          ITEM_DETAIL_LISTING_PUBLISH_HANDOFF,
+          itemDetailSellListingPath(item, params.id!, createdListingId),
+          { handoff: ITEM_DETAIL_LISTING_PUBLISH_HANDOFF },
         ),
       );
     }

@@ -4,11 +4,8 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  createForwardedAuthFetch,
-  navigateAfterWrite,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   HiddenInput,
   Form,
@@ -171,7 +168,9 @@ export async function action({ request }: ActionFunctionArgs) {
       paymentMethodCategory,
       marketplaceCheckoutFeeQuoteFingerprint: checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
     });
-    return redirect(navigateAfterWrite(payment, `/account/payments/${payment.payment_id}`));
+    return redirect(
+      await navigateAfterWriteWithPlatformPostWriteToken(payment, `/account/payments/${payment.payment_id}`),
+    );
   } catch (error) {
     return {
       error:

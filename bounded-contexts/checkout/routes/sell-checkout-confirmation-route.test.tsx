@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readCompactPostWriteToken } from "@chase-sets/http/responses";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -120,13 +121,13 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
     });
 
+    const requestPath = await navigateAfterWriteWithPlatformPostWriteToken(
+      checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+      "/checkout/sell/session/chk_sell_1/confirmation",
+    );
+
     const result = await sellCheckoutConfirmationLoader({
-      request: new Request(
-        `http://localhost${appendFreshWriteToken(
-          "/checkout/sell/session/chk_sell_1/confirmation",
-          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
-        )}`,
-      ),
+      request: new Request(`http://localhost${requestPath}`),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never);
@@ -136,9 +137,11 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       confirmation: expect.objectContaining({
         confirmation_id: "slc_chk_sell_1",
       }),
-      sellerActivityPath: expect.stringContaining("/account/sell-list?afterWrite="),
-      committedSalesPath: expect.stringContaining("/account/sales?afterWrite="),
+      sellerActivityPath: expect.stringContaining("/account/sell-list?postWriteToken="),
+      committedSalesPath: expect.stringContaining("/account/sales?postWriteToken="),
     });
+    expect(result.sellerActivityPath).not.toContain("afterWrite=");
+    expect(result.committedSalesPath).not.toContain("afterWrite=");
   });
 
   it("preserves seller checkout freshness on confirmation page exit links", async () => {
@@ -175,14 +178,14 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
     });
 
+    const requestPath = await navigateAfterWriteWithPlatformPostWriteToken(
+      checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+      "/checkout/sell/session/chk_sell_1/confirmation",
+      { nowMs: Date.now() - 1 },
+    );
+
     const redirectResponse = (await sellCheckoutConfirmationLoader({
-      request: new Request(
-        `http://localhost${appendFreshWriteToken(
-          "/checkout/sell/session/chk_sell_1/confirmation",
-          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
-          Date.now() - 1,
-        )}`,
-      ),
+      request: new Request(`http://localhost${requestPath}`),
       params: { sessionId: "chk_sell_1" },
       context: undefined,
     } as never).catch((error) => error)) as Response;
@@ -193,7 +196,8 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
     expect(url.pathname).toBe("/account/sell-list");
     expect(url.searchParams.get("confirmation")).toBe("preparing");
     expect(url.searchParams.get("pendingConfirmationId")).toBe("slc_chk_sell_1");
-    expect(url.searchParams.has("afterWrite")).toBe(true);
+    expect(readCompactPostWriteToken(url)).toMatch(/^pwt_/);
+    expect(url.searchParams.has("afterWrite")).toBe(false);
   });
 
   it("returns missing confirmation links to Sell List without side effects", async () => {

@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRevalidator, useRouteLoaderData } from "react-router";
 import { navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -107,6 +108,19 @@ function returnToWithPayoutFreshness(
   });
 }
 
+async function returnToWithCompactPayoutFreshness(
+  returnTo: string | null,
+  refreshResult: SettlementPayoutSetupRefreshResult,
+): Promise<string | null> {
+  if (!returnTo || refreshResult.status !== "ready") {
+    return null;
+  }
+
+  return navigateAfterWriteWithPlatformPostWriteToken(refreshResult, returnTo, {
+    telemetry: ACCOUNT_PAYOUT_SETUP_POST_WRITE_TELEMETRY,
+  });
+}
+
 export function resolvePayoutSetupMode(
   requestUrl: URL,
   payoutReadiness: SettlementPayoutReadinessRow,
@@ -155,7 +169,7 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "refresh-payout-setup") {
       const payoutReadiness = await settlementApi.refreshPayoutSetup();
-      const returnHref = returnToWithPayoutFreshness(returnTo, payoutReadiness);
+      const returnHref = await returnToWithCompactPayoutFreshness(returnTo, payoutReadiness);
       if (returnHref) {
         return redirect(returnHref);
       }

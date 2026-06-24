@@ -13,6 +13,10 @@ import {
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   recordPlatformPostWriteConsistencyEvent,
@@ -311,7 +315,7 @@ function requestForPath(request: Request, path: string) {
 
 function sellerCheckoutReturnToFromSellListRequest(requestUrl: URL) {
   const params = new URLSearchParams({ registrationReturn: "seller-checkout" });
-  for (const key of ["afterWrite", "postWriteHandoff"]) {
+  for (const key of ["postWriteToken", "afterWrite", "postWriteHandoff"]) {
     const value = requestUrl.searchParams.get(key);
     if (value) {
       params.set(key, value);
@@ -783,17 +787,19 @@ async function loadPayoutReadiness(request: Request): Promise<SettlementPayoutRe
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const actor = await resolveActorFromAuthApi({ request });
-  const api = createCheckoutRequestApiClient(request);
-  const anonymousSellListId = readAnonymousSellListId(request);
-  const requestUrl = new URL(request.url);
+  const browserRequestUrl = new URL(request.url);
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
+  const api = createCheckoutRequestApiClient(resolvedRequest);
+  const anonymousSellListId = readAnonymousSellListId(resolvedRequest);
+  const requestUrl = new URL(resolvedRequest.url);
   const registrationReturn: "seller-checkout" | null =
     requestUrl.searchParams.get("registrationReturn") === "seller-checkout" ? "seller-checkout" : null;
-  const sellerCheckoutReturnTo = sellerCheckoutReturnToFromSellListRequest(requestUrl);
+  const sellerCheckoutReturnTo = sellerCheckoutReturnToFromSellListRequest(browserRequestUrl);
 
   if (!canUseAccountSellList(actor)) {
     const { sellList, freshnessError, sellListRecovery } = await loadSellListWithPostWriteRecovery(
-      request,
+      resolvedRequest,
       () => api.getGuestSellList(anonymousSellListId),
       "guest",
     );
@@ -808,18 +814,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
       freshnessError,
       sellListRecovery,
       sellList,
-      offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
+      offerReviews: await loadGuestSellListOfferReviews(resolvedRequest, sellList.items),
     };
   }
 
   let mergedLineCount = 0;
   let mergeError: string | null = null;
-  let accountSellListRequest = request;
+  let accountSellListRequest = resolvedRequest;
   let accountSellListApi = api;
   if (anonymousSellListId) {
     try {
       const guestSource = await loadSellListWithPostWriteRecovery(
-        request,
+        resolvedRequest,
         () => api.getGuestSellList(anonymousSellListId),
         "account",
       );
@@ -834,20 +840,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
           freshnessError: guestSource.freshnessError,
           sellListRecovery: guestSource.sellListRecovery,
           sellList: guestSource.sellList,
-          offerReviews: await loadSellListOfferReviews(request, guestSource.sellList.items, {
+          offerReviews: await loadSellListOfferReviews(resolvedRequest, guestSource.sellList.items, {
             includeStandardComparison: registrationReturn === "seller-checkout",
           }),
-          productOfferReviews: await loadSellListProductOfferReviews(request, guestSource.sellList.items),
-          inventoryItems: await loadSellListInventory(request, guestSource.sellList.items),
-          payoutReadiness: await loadPayoutReadiness(request),
+          productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, guestSource.sellList.items),
+          inventoryItems: await loadSellListInventory(resolvedRequest, guestSource.sellList.items),
+          payoutReadiness: await loadPayoutReadiness(resolvedRequest),
         };
       }
 
       const mergeResult = await api.mergeGuestSellListToAccount(anonymousSellListId);
       const count = Number((mergeResult as { mergedLineCount?: unknown }).mergedLineCount ?? 0);
       mergedLineCount = Number.isFinite(count) ? count : 0;
-      accountSellListRequest = requestWithMergeFreshness(request, mergeResult, mergedLineCount);
-      if (accountSellListRequest !== request) {
+      accountSellListRequest = requestWithMergeFreshness(resolvedRequest, mergeResult, mergedLineCount);
+      if (accountSellListRequest !== resolvedRequest) {
         accountSellListApi = createCheckoutRequestApiClient(accountSellListRequest);
       }
     } catch {
@@ -888,12 +894,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
     freshnessError,
     sellListRecovery: effectiveSellListRecovery,
     sellList: accountSellList,
-    offerReviews: await loadSellListOfferReviews(request, accountSellList.items, {
+    offerReviews: await loadSellListOfferReviews(resolvedRequest, accountSellList.items, {
       includeStandardComparison: registrationReturn === "seller-checkout",
     }),
-    productOfferReviews: await loadSellListProductOfferReviews(request, accountSellList.items),
-    inventoryItems: await loadSellListInventory(request, accountSellList.items),
-    payoutReadiness: await loadPayoutReadiness(request),
+    productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, accountSellList.items),
+    inventoryItems: await loadSellListInventory(resolvedRequest, accountSellList.items),
+    payoutReadiness: await loadPayoutReadiness(resolvedRequest),
   };
 }
 
@@ -1194,7 +1200,9 @@ export async function action({ request }: ActionFunctionArgs) {
         const anonymousOwnerId = ensureAnonymousSellListId(request);
         const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
         const response = redirect(
-          navigateAfterWrite(result, "/account/sell-list", { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF }),
+          await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+            handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+          }),
         );
         appendAnonymousSellListCookie(response.headers, anonymousOwnerId, request);
         return response;
@@ -1206,14 +1214,16 @@ export async function action({ request }: ActionFunctionArgs) {
       const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
       return redirect(
-        navigateAfterWrite(result, "/account/sell-list", { handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF }),
+        await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+          handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+        }),
       );
     }
 
     if (intent === "remove-sell-list-line") {
       if (!useAccountSellList && anonymousSellListId) {
         return redirect(
-          navigateAfterWrite(
+          await navigateAfterWriteWithPlatformPostWriteToken(
             await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
             "/account/sell-list",
           ),
@@ -1225,7 +1235,10 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       return redirect(
-        navigateAfterWrite(await api.removeSellListLine(String(formData.get("lineId") ?? "")), "/account/sell-list"),
+        await navigateAfterWriteWithPlatformPostWriteToken(
+          await api.removeSellListLine(String(formData.get("lineId") ?? "")),
+          "/account/sell-list",
+        ),
       );
     }
 
@@ -1253,7 +1266,10 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       return redirect(
-        navigateAfterWrite(readiness, sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan)),
+        await navigateAfterWriteWithPlatformPostWriteToken(
+          readiness,
+          sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan),
+        ),
       );
     }
 

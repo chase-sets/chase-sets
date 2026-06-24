@@ -23,12 +23,12 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import {
-  createForwardedAuthFetch,
-  navigateAfterWrite,
-  navigateAfterWriteFromSources,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+  navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
+  navigateAfterWriteWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import {
   checkoutRecoveryForError,
@@ -473,14 +473,17 @@ function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPrev
 function requestWithoutReadAfterWrite(request: Request) {
   const url = new URL(request.url);
   const hadAfterWrite = url.searchParams.has("afterWrite");
+  const hadPostWriteToken = url.searchParams.has("postWriteToken");
   const hadFreshWriteHeader =
     request.headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER) ||
     request.headers.has(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
-  if (!hadAfterWrite && !hadFreshWriteHeader) {
+  if (!hadAfterWrite && !hadPostWriteToken && !hadFreshWriteHeader) {
     return request;
   }
 
   url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
+  url.searchParams.delete("postWriteToken");
   const headers = new Headers(request.headers);
   headers.delete(CHASE_SETS_READ_AFTER_WRITE_HEADER);
   headers.delete(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
@@ -574,17 +577,18 @@ function reloadForRealtimeSync() {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await resolveActorFromAuthApi({ request });
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
 
-  const api = createCheckoutRequestApiClient(request, {
+  const api = createCheckoutRequestApiClient(resolvedRequest, {
     requestTimeoutMs: CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS,
     recoverTransportErrorsAsGatewayTimeout: true,
   });
   const session = await loadFreshlyWrittenResource({
-    request,
+    request: resolvedRequest,
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   }).catch((error) => {
@@ -592,7 +596,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       throw redirect("/checkout/buy/readiness");
     }
 
-    const recovery = checkoutRecoveryForFreshWriteError(error, actor, request, currentPathWithSearch(request));
+    const recovery = checkoutRecoveryForFreshWriteError(error, actor, resolvedRequest, currentPathWithSearch(request));
     if (recovery) {
       throw createCheckoutRecoveryResponse(recovery);
     }
@@ -606,12 +610,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
   }
 
-  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(request) : null;
-  const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
-  const savedCheckoutInstruments = await loadSavedCheckoutInstruments(request, actor);
-  const guestCheckoutContact = await loadGuestCheckoutContact(request, actor);
-  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
-  const searchParams = new URL(request.url).searchParams;
+  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(resolvedRequest) : null;
+  const savedShippingAddresses = await loadSavedShippingAddresses(resolvedRequest, actor);
+  const savedCheckoutInstruments = await loadSavedCheckoutInstruments(resolvedRequest, actor);
+  const guestCheckoutContact = await loadGuestCheckoutContact(resolvedRequest, actor);
+  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(resolvedRequest, session);
+  const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
       ?.payment_method_category ??
@@ -619,7 +623,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
   const paymentPreview = await loadPaymentPreview(
-    request,
+    resolvedRequest,
     actor,
     fulfillmentPreview,
     wallet,
@@ -656,14 +660,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  const actor = await resolveActorFromAuthApi({ request });
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
 
-  const formData = await request.formData();
+  const formData = await resolvedRequest.formData();
   const intent = String(formData.get("intent") ?? "");
-  const internalApiRequest = requestWithoutReadAfterWrite(request);
+  const internalApiRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const api = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
@@ -671,11 +676,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const result = await api.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
-      return redirect(navigateAfterWrite(result, `/checkout/buy/session/${params.sessionId}`));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, `/checkout/buy/session/${params.sessionId}`),
+      );
     }
 
     if (intent === "refresh-checkout-preview") {
-      const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData, {
+      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: false,
         validateServiceability: true,
       });
@@ -693,7 +700,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
-        navigateAfterWriteFromSources(
+        await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
           reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
           `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
         ),
@@ -710,7 +717,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return { error: GUEST_SAVED_PAYMENT_UNAVAILABLE };
       }
 
-      const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData, {
+      const shippingAddress = await resolveCheckoutShippingAddress(resolvedRequest, actor, formData, {
         persistAddressBook: true,
         validateServiceability: true,
       });
@@ -758,13 +765,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
-          navigateAfterWriteFromSources(
+          await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
             reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
             `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
           ),
         );
       }
-      const confirmApi = createCheckoutRequestApiClient(requestWithPaymentStartFreshness(request));
+      const confirmApi = createCheckoutRequestApiClient(requestWithPaymentStartFreshness(resolvedRequest));
       let result: Awaited<ReturnType<typeof confirmApi.confirmCheckoutSession>>;
       try {
         result = await confirmApi.confirmCheckoutSession(params.sessionId, {
@@ -787,7 +794,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             : null;
         if (refreshPath) {
           return redirect(
-            navigateAfterWriteFromSources(
+            await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
               reviewedPreviewWriteSources([
                 error instanceof CheckoutApiError ? visibleFreshWriteSource(error.body) : null,
               ]),
@@ -800,7 +807,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
       if (result.offer_id) {
         return redirect(
-          navigateAfterWriteFromSources(
+          await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
             [result, visibleFreshWriteSource(result)],
             `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
           ),
@@ -809,7 +816,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return payment or purchases.");
       }
-      return redirect(navigateAfterWrite(result, confirmationPathForSession(params.sessionId)));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(result, confirmationPathForSession(params.sessionId)),
+      );
     }
 
     return null;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -27,6 +28,18 @@ import {
 } from "../tests/support/checkout-route-test-harness";
 
 const mockListSavedCheckoutInstruments = vi.fn();
+
+async function readResolvedFreshWriteToken(location: string) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(new URL(location, "http://localhost")));
+  return readFreshWriteToken(resolvedRequest);
+}
+
+function expectCompactPostWriteLocation(location: string, expectedPrefix: string) {
+  expect(location).toContain(expectedPrefix);
+  expect(readCompactPostWriteToken(location)).toMatch(/^pwt_/);
+  expect(location).not.toContain("afterWrite=");
+  expect(location).not.toContain("postWriteHandoff=");
+}
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
@@ -239,10 +252,10 @@ describe("checkout web routes: signed-in buy checkout", () => {
       context: undefined,
     } as never)) as Response;
     const startLocation = startResponse.headers.get("Location") ?? "";
-    const startFreshReceipt = readFreshWriteToken(new Request(`http://localhost${startLocation}`));
+    const startFreshReceipt = await readResolvedFreshWriteToken(startLocation);
 
     expect(startResponse.status).toBe(302);
-    expect(startLocation).toContain("/checkout/buy/session/chk_signed_in?afterWrite=");
+    expectCompactPostWriteLocation(startLocation, "/checkout/buy/session/chk_signed_in?postWriteToken=");
     expect(startFreshReceipt?.sources).toEqual([
       {
         sourceContextName: "checkout",
@@ -352,10 +365,10 @@ describe("checkout web routes: signed-in buy checkout", () => {
       context: undefined,
     } as never)) as Response;
     const confirmLocation = confirmResponse.headers.get("Location") ?? "";
-    const confirmFreshReceipt = readFreshWriteToken(new Request(`http://localhost${confirmLocation}`));
+    const confirmFreshReceipt = await readResolvedFreshWriteToken(confirmLocation);
 
     expect(confirmResponse.status).toBe(302);
-    expect(confirmLocation).toContain("/checkout/buy/session/chk_signed_in/confirmation?afterWrite=");
+    expectCompactPostWriteLocation(confirmLocation, "/checkout/buy/session/chk_signed_in/confirmation?postWriteToken=");
     expect(confirmLocation).not.toContain("/checkout/payments");
     expect(confirmFreshReceipt?.sources).toEqual([
       {

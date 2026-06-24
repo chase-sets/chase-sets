@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type ActionFunctionArgs } from "react-router";
@@ -136,7 +136,7 @@ export async function action({
       });
 
       return redirect(
-        navigateAfterWriteFromSources(
+        await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
           [result, ...marketplaceHandoff.writeResults],
           confirmationPathForSession(state.sessionId),
         ),

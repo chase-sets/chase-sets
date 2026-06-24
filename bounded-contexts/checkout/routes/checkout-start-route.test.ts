@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   guestCheckoutActor,
@@ -89,6 +90,12 @@ import {
   checkoutStartHeaderCopy,
   loader as checkoutStartLoader,
 } from "./checkout-start";
+
+async function readRedirectFreshWriteToken(location: string | null) {
+  const request = new Request(new URL(location ?? "", "http://localhost"));
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  return readFreshWriteToken(resolvedRequest);
+}
 
 function checkoutSessionResult(sessionId: string, position = "42") {
   return {
@@ -544,7 +551,7 @@ describe("checkout web routes: checkout start", () => {
     expect(response.status).toBe(302);
     const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
     expect(redirectUrl.pathname).toBe("/checkout/buy/session/chk_buy_now");
-    expect(readFreshWriteToken(new Request(redirectUrl.toString()))).toMatchObject({
+    expect(await readRedirectFreshWriteToken(redirectUrl.toString())).toMatchObject({
       sources: [
         {
           sourceContextName: "checkout",
@@ -612,7 +619,7 @@ describe("checkout web routes: checkout start", () => {
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
     expect(redirectUrl.pathname).toBe("/checkout/buy/session/chk_guest_buy_now");
-    expect(readFreshWriteToken(new Request(redirectUrl.toString()))).toMatchObject({
+    expect(await readRedirectFreshWriteToken(redirectUrl.toString())).toMatchObject({
       sources: [
         {
           sourceContextName: "checkout",
@@ -916,9 +923,7 @@ describe("checkout web routes: checkout start", () => {
     } as never)) as Response;
     const freshnessRequest = mutableApiClientCalls[2]?.request;
     const freshnessReceipt = freshnessRequest ? readFreshWriteToken(freshnessRequest) : null;
-    const redirectReceipt = readFreshWriteToken(
-      new Request(`http://localhost${response.headers.get("Location") ?? ""}`),
-    );
+    const redirectReceipt = await readRedirectFreshWriteToken(response.headers.get("Location"));
 
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).toHaveBeenCalledTimes(1);

@@ -9,6 +9,7 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeCommitReceipt,
 } from "@chase-sets/http/responses";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -268,10 +269,15 @@ describe("marketplace account sale route", () => {
       }),
     );
 
+    const requestPath = await navigateAfterWriteWithPlatformPostWriteToken(
+      { commitPositions: [orderingCommit] },
+      "/account/sales",
+    );
+    expect(requestPath).toContain("postWriteToken=");
+    expect(requestPath).not.toContain("afterWrite=");
+
     const result = await salesListLoader({
-      request: new Request(
-        `http://localhost${appendFreshWriteToken("/account/sales", { commitPositions: [orderingCommit] })}`,
-      ),
+      request: new Request(`http://localhost${requestPath}`),
       params: {},
       context: undefined,
     } as never);

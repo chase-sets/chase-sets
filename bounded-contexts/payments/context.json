@@ -134,7 +134,7 @@
         "routeId": "account-payment-new",
         "actions": ["Create account payment"],
         "command": "Payments payment creation command",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
       },
       "destination": {
         "routeId": "account-payment",
@@ -192,7 +192,7 @@
         "routeId": "account-payment",
         "actions": ["Refresh or continue payment detail after payment command"],
         "command": "Payments detail commands",
-        "helperUses": ["navigateAfterWrite", "loadAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken", "loadAfterWrite"]
       },
       "destination": {
         "routeId": "account-payment",

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken, readPostWriteHandoff } from "@chase-sets/http/responses";
+import { readCompactPostWriteToken, readFreshWriteToken, readPostWriteHandoff } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
 import {
   mockAcceptOfferMatch,
@@ -79,18 +80,34 @@ vi.mock("@chase-sets/inventory/server", () => ({
 
 import { action, loader } from "../routes/item-detail";
 
+async function resolvePostWriteUrl(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return new URL(resolvedRequest.url);
+}
+
+async function readResolvedFreshWriteToken(url: URL) {
+  return readFreshWriteToken(await resolvePostWriteUrl(url));
+}
+
+async function readResolvedPostWriteHandoff(url: URL) {
+  return readPostWriteHandoff(await resolvePostWriteUrl(url));
+}
+
 function expectFreshWriteRedirect(response: Response, pathname: string) {
   const location = response.headers.get("Location") ?? "";
   const redirectUrl = new URL(location, "http://localhost");
   expect(redirectUrl.pathname).toBe(pathname);
-  expect(redirectUrl.searchParams.has("afterWrite")).toBe(true);
+  expect(redirectUrl.searchParams.has("postWriteToken")).toBe(true);
+  expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+  expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+  expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
 }
 
-function expectSellListPostWriteRedirect(response: Response) {
+async function expectSellListPostWriteRedirect(response: Response) {
   expectFreshWriteRedirect(response, "/account/sell-list");
   const location = response.headers.get("Location") ?? "";
   const redirectUrl = new URL(location, "http://localhost");
-  expect(readPostWriteHandoff(redirectUrl)).toEqual({
+  expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
     kind: "checkout.sell-list.add-line",
     expectation: "collection-non-empty",
     surface: "account-sell-list",
@@ -559,11 +576,12 @@ describe("item detail buy now checkout actions", () => {
     });
     const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
     expect(viewCartUrl.pathname).toBe("/account/cart");
-    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(true);
-    expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
+    expect(viewCartUrl.searchParams.has("postWriteToken")).toBe(true);
+    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(await readResolvedFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
-    expect(readPostWriteHandoff(viewCartUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(viewCartUrl)).toEqual({
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
       surface: "account-cart",
@@ -817,7 +835,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 3,
     });
     expect(response.status).toBe(302);
-    expectSellListPostWriteRedirect(response);
+    await expectSellListPostWriteRedirect(response);
   });
 
   it("adds signed-out product seller intent to an anonymous Sell List", async () => {
@@ -875,7 +893,7 @@ describe("item detail buy now checkout actions", () => {
       expect.any(Request),
     );
     expect(response.status).toBe(302);
-    expectSellListPostWriteRedirect(response);
+    await expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -945,7 +963,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expectSellListPostWriteRedirect(response);
+    await expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -1038,7 +1056,7 @@ describe("item detail buy now checkout actions", () => {
         quantity: 1,
       });
       expect(response.status).toBe(302);
-      expectSellListPostWriteRedirect(response);
+      await expectSellListPostWriteRedirect(response);
       expect(response.headers.getSetCookie().join("; ")).not.toContain("chase_sets_anonymous_sell_list=");
     });
   }
@@ -1112,7 +1130,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expectSellListPostWriteRedirect(response);
+    await expectSellListPostWriteRedirect(response);
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -1301,11 +1319,12 @@ describe("item detail buy now checkout actions", () => {
     });
     const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
     expect(viewCartUrl.pathname).toBe("/account/cart");
-    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(true);
-    expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
+    expect(viewCartUrl.searchParams.has("postWriteToken")).toBe(true);
+    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(await readResolvedFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
-    expect(readPostWriteHandoff(viewCartUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(viewCartUrl)).toEqual({
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
       surface: "account-cart",
@@ -1363,10 +1382,12 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(302);
     const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
     expect(redirectUrl.pathname).toBe("/account/cart");
-    expect(readFreshWriteToken(redirectUrl)).toMatchObject({
+    expect(redirectUrl.searchParams.has("postWriteToken")).toBe(true);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(await readResolvedFreshWriteToken(redirectUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
-    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
       surface: "account-cart",
@@ -1472,10 +1493,12 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(302);
     const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
     expect(redirectUrl.pathname).toBe("/account/cart");
-    expect(readFreshWriteToken(redirectUrl)).toMatchObject({
+    expect(redirectUrl.searchParams.has("postWriteToken")).toBe(true);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(await readResolvedFreshWriteToken(redirectUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
-    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
       kind: "checkout.cart.add-line",
       expectation: "collection-non-empty",
       surface: "account-cart",

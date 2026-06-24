@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
 const {
   mockClaimGuestCheckoutWithPasskey,
@@ -82,6 +83,11 @@ vi.mock("../support/request-support/api-client", () => ({
 }));
 
 import { action, loader } from "../routes/marketplace/account-payment";
+
+async function readResolvedFreshWriteToken(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return readFreshWriteToken(resolvedRequest.url);
+}
 
 function paymentCommit(position: string, eventId: string) {
   return {
@@ -553,8 +559,12 @@ describe("guest payment claim action", () => {
       returnUrlPath: "/checkout/payments/:paymentId",
     });
     const location = (result as Response).headers.get("Location");
-    expect(location).toContain("/checkout/payments/pay_retry?afterWrite=");
-    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([
+    const redirectUrl = new URL(location ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/checkout/payments/pay_retry");
+    expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
+    expect((await readResolvedFreshWriteToken(redirectUrl))?.sources).toEqual([
       {
         sourceContextName: "payments",
         maxGlobalPosition: "43",

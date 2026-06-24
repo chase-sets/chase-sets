@@ -18,7 +18,11 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   completeBrowserAuthentication,
   createInternalAuthRequestApiClient,
@@ -102,23 +106,24 @@ function needsProcessorBuyerEmail(payment: Readonly<{ status: string; processor_
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const pathname = new URL(request.url).pathname;
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const pathname = new URL(resolvedRequest.url).pathname;
   const isGuestCheckoutPayment = pathname.startsWith("/checkout/payments/");
   const actor = isGuestCheckoutPayment
-    ? await resolveActorFromAuthApi({ request })
+    ? await resolveActorFromAuthApi({ request: resolvedRequest })
     : await requireActorFromAuthApi({
-        request,
+        request: resolvedRequest,
         permission: "orders.view",
       });
   if (isGuestCheckoutPayment && actor && actor.roleKey !== "guest-buyer") {
     throw redirect(`/account/payments/${params.paymentId}`);
   }
-  const paymentsApi = createPaymentsRequestApiClient(request);
-  const orderingApi = createOrderingRequestApiClient(request);
+  const paymentsApi = createPaymentsRequestApiClient(resolvedRequest);
+  const orderingApi = createOrderingRequestApiClient(resolvedRequest);
 
   try {
     const paymentRead = await loadAfterWrite({
-      request,
+      request: resolvedRequest,
       isNotFound: isPaymentNotFound,
       load: () => paymentsApi.getAccountPayment(params.paymentId!),
     });
@@ -135,7 +140,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const orders = await Promise.all(payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)));
     const guestClaimContext =
       isGuestCheckoutPayment && isClaimablePayment(payment)
-        ? await createInternalAuthRequestApiClient(request).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({
+        ? await createInternalAuthRequestApiClient(
+            resolvedRequest,
+          ).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({
             paymentId: params.paymentId,
           })
         : null;
@@ -203,7 +210,12 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         marketplaceCheckoutFeeQuoteFingerprint: checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
         returnUrlPath: "/checkout/payments/:paymentId",
       });
-      return redirect(navigateAfterWrite(retryPayment, `/checkout/payments/${retryPayment.payment_id}`));
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(
+          retryPayment,
+          `/checkout/payments/${retryPayment.payment_id}`,
+        ),
+      );
     }
 
     if (!isClaimablePayment(payment)) {

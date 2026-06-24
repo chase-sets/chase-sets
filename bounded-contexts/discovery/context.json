@@ -399,7 +399,7 @@
         "routeId": "item-detail",
         "actions": ["Create listing", "Update listing"],
         "command": "Marketplace listing create, publish, and update commands",
-        "helperUses": ["appendPostWriteHandoffFromSources"],
+        "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"],
         "postWriteHandoffs": [
           {
             "kind": "marketplace.listing.publish",
@@ -515,7 +515,7 @@
         "owner": "discovery",
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the Buy Cart redirect or View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout. The same item-detail action also carries plain fresh-write tokens for Checkout session, Inventory setup, and Product Alert confirmation flows whose destination recovery or command-snapshot confirmation is owned outside this Discovery read-after-write entry.",
-        "helperUses": ["navigateAfterWrite", "appendFreshWriteToken"],
+        "helperUses": ["appendFreshWriteToken", "navigateAfterWriteWithPlatformPostWriteToken"],
         "postWriteHandoffs": [
           {
             "kind": "checkout.cart.add-line",
@@ -583,7 +583,7 @@
         "owner": "discovery",
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout.",
-        "helperUses": ["navigateAfterWrite"],
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"],
         "postWriteHandoffs": [
           {
             "kind": "checkout.cart.add-line",
@@ -623,7 +623,7 @@
         "owner": "discovery",
         "reviewBy": "2026-07-31",
         "reason": "Discovery builds the Sell List redirect URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-sell-list destination is owned and tested in Checkout.",
-        "helperUses": ["appendPostWriteHandoff"],
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"],
         "postWriteHandoffs": [
           {
             "kind": "checkout.sell-list.add-line",

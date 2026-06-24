@@ -204,7 +204,7 @@
         "routeId": "account-payout-setup",
         "actions": ["Refresh payout setup status", "Complete provider payout setup"],
         "command": "RecordPayoutReadiness",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWrite", "navigateAfterWriteWithPlatformPostWriteToken"]
       },
       "destination": {
         "routeId": "account-sell-list",

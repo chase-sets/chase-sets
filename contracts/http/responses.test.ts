@@ -25,6 +25,7 @@ import {
   navigateAfterWriteFromSources,
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
+  preserveFreshWriteMetadata,
   readCompactPostWriteToken,
   readFreshWriteToken,
   readFreshWriteTokenState,
@@ -370,6 +371,38 @@ describe("response consistency metadata", () => {
       kind: "marketplace.listing.publish",
       expectation: "resource-updated",
       surface: "account-listing",
+    });
+  });
+
+  it("preserves existing compact and valid legacy fresh-write metadata on follow-on paths", () => {
+    const compactHref = appendCompactPostWriteToken(
+      "/checkout/sell/session/chk_1/confirmation?afterWrite=old",
+      "pwt_1234567890123456",
+    );
+    expect(preserveFreshWriteMetadata("/account/sell-list?confirmation=preparing", compactHref, 1234)).toBe(
+      "/account/sell-list?confirmation=preparing&postWriteToken=pwt_1234567890123456",
+    );
+
+    const legacyHref = appendPostWriteHandoff(
+      "/checkout/sell/session/chk_1/confirmation",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      {
+        kind: "checkout.sell-list.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-sell-list",
+      },
+      1234,
+    );
+    const preservedHref = preserveFreshWriteMetadata("/account/sell-list?confirmation=preparing", legacyHref, 1234);
+
+    expect(readFreshWriteToken(preservedHref, 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [checkoutSource],
+    });
+    expect(readPostWriteHandoff(preservedHref, 1234)).toEqual({
+      kind: "checkout.sell-list.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-sell-list",
     });
   });
 

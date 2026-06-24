@@ -5,6 +5,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { type SaleListItem } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
@@ -20,17 +21,18 @@ function salesPreparingResponse() {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
   const actor = await requireActorFromAuthApi({
-    request,
+    request: resolvedRequest,
     permission: "orders.view",
   });
   if (!actor.permissions.includes("listings.view")) {
     throw new Response(t("ordering.routes.accountSales.forbidden"), { status: 403 });
   }
 
-  const api = createOrderingRequestApiClient(request);
+  const api = createOrderingRequestApiClient(resolvedRequest);
   const salesRead = await loadAfterWrite({
-    request,
+    request: resolvedRequest,
     load: () => api.listSales(DEFAULT_ORDER_QUERY),
     isNotFound: () => false,
   });
