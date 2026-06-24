@@ -65,9 +65,17 @@
     {
       "projectionName": "inventory-order-reservation-workflow",
       "sourceContextNames": ["ordering"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
+    },
+    {
+      "projectionName": "inventory-reservation-projection",
+      "sourceContextNames": ["inventory"],
       "ownedTables": ["inventory_reservation_pages"],
       "requiredDuringBootstrap": false,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "inventory-item-projection",

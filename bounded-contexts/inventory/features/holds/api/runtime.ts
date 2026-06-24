@@ -23,6 +23,7 @@ export type InventoryHoldServices = Readonly<{
   commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
   createHold: (
     params: Readonly<{
+      holdId?: InventoryHoldId | null;
       accountId: AccountId;
       itemId: string;
       quantity: number;
@@ -43,7 +44,7 @@ export type InventoryHoldServices = Readonly<{
 }>;
 
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<InventoryHoldEvent>(),
     initialState: () => initialInventoryHoldState,
@@ -54,6 +55,24 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
   return {
     commandHandler,
     createHold: async (params, context) => {
+      const holdId = params.holdId ?? (createId("hld") as InventoryHoldId);
+      const existing = await repository.load(`inventory.hold-${holdId}`);
+      if (existing.state.id !== null) {
+        if (
+          existing.state.status === "active" &&
+          existing.state.accountId === params.accountId &&
+          existing.state.itemId === params.itemId &&
+          existing.state.quantity === params.quantity
+        ) {
+          return {
+            holdId,
+            version: existing.version,
+          };
+        }
+
+        throw new InventoryDomainError("Inventory hold already exists for different stock.");
+      }
+
       const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
       if (!item) {
         throw new InventoryDomainError("Inventory item not found.");
@@ -63,7 +82,6 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
         throw new InventoryDomainError("Holds cannot exceed the available quantity for an inventory item.");
       }
 
-      const holdId = createId("hld") as InventoryHoldId;
       const result = await commandHandler({
         streamId: `inventory.hold-${holdId}`,
         command: {

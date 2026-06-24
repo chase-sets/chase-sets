@@ -147,6 +147,7 @@ export type BcProjectionGroupDeclaration = Readonly<{
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
   readonly ownedTables: readonly string[];
+  readonly sideEffectOnly?: boolean;
   readonly resetStrategy?: BcProjectionGroupResetStrategy;
   readonly requiredDuringBootstrap?: boolean;
 }>;

@@ -106,7 +106,7 @@ After a durable checkpoint advances, the runtime compacts `applied` ledger rows 
 
 ## Ownership and Reset Strategies
 
-Projections are consumer-owned bounded-context subscriptions: a context declares the facts it consumes, the projection group that owns the resulting read model, and the source contexts that feed it. Each owned table must appear in only one projection group per context. Shared outbox tables must either have one combined projection group owner or be explicitly partitioned by source/generation. Projection groups that own tables must declare a reset strategy: `replay-only`, `append-only-no-reset`, `truncate-owned-tables`, or `generation-cutover`.
+Projections are consumer-owned bounded-context subscriptions: a context declares the facts it consumes, the projection group that owns the resulting read model, and the source contexts that feed it. Each owned table must appear in only one projection group per context. Shared outbox tables must either have one combined projection group owner or be explicitly partitioned by source/generation. Projection groups that own tables must declare a reset strategy: `replay-only`, `append-only-no-reset`, `truncate-owned-tables`, or `generation-cutover`. Event subscription groups that intentionally own no read-model table must be marked `sideEffectOnly: true`, keep `ownedTables: []`, and use `replay-only` so rebuild/replay behavior is explicit.
 
 ## Metrics To Watch
 

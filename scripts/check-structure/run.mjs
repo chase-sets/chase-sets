@@ -1473,8 +1473,20 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(projectionGroupLabel, "sourceContextNames must be a non-empty array of strings");
       }
 
-      if (!isStringArray(projectionGroup.ownedTables) || projectionGroup.ownedTables.length === 0) {
-        addPathViolation(projectionGroupLabel, "ownedTables must be a non-empty array of strings");
+      if ("sideEffectOnly" in projectionGroup && !isBoolean(projectionGroup.sideEffectOnly)) {
+        addPathViolation(projectionGroupLabel, "sideEffectOnly must be a boolean when provided");
+      }
+
+      const sideEffectOnly = projectionGroup.sideEffectOnly === true;
+      if (!isStringArray(projectionGroup.ownedTables)) {
+        addPathViolation(projectionGroupLabel, "ownedTables must be an array of strings");
+      } else if (sideEffectOnly && projectionGroup.ownedTables.length > 0) {
+        addPathViolation(projectionGroupLabel, "sideEffectOnly projection groups must not declare ownedTables");
+      } else if (!sideEffectOnly && projectionGroup.ownedTables.length === 0) {
+        addPathViolation(
+          projectionGroupLabel,
+          "ownedTables must be a non-empty array of strings unless sideEffectOnly is true",
+        );
       }
 
       const supportedResetStrategies = new Set([
@@ -1488,6 +1500,9 @@ export async function runStructureCheck(options = {}) {
           projectionGroupLabel,
           "resetStrategy must be one of append-only-no-reset, generation-cutover, replay-only, or truncate-owned-tables",
         );
+      }
+      if (sideEffectOnly && projectionGroup.resetStrategy !== "replay-only") {
+        addPathViolation(projectionGroupLabel, "sideEffectOnly projection groups must use replay-only resetStrategy");
       }
 
       if ("requiredDuringBootstrap" in projectionGroup && !isBoolean(projectionGroup.requiredDuringBootstrap)) {
