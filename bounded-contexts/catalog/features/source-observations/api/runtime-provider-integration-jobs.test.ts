@@ -1189,6 +1189,66 @@ describe("source observation runtime: provider integration jobs", () => {
     },
   );
 
+  it.each([
+    {
+      profileKey: "lorcana-card-reference-data",
+      ingestionUnitKey: "lorcanajson:lorcana:single-card:reference-data",
+      observationId: "lorcanajson_card_en_1-041",
+      externalKey: "card:1-041",
+      normalizedKind: "lorcana-card-print",
+    },
+    {
+      profileKey: "lorcana-set-reference-data",
+      ingestionUnitKey: "lorcanajson:lorcana:set:reference-data",
+      observationId: "lorcanajson_set_en_1",
+      externalKey: "set:1",
+      normalizedKind: "lorcana-set-reference",
+    },
+  ])(
+    "processes queued LorcanaJSON $profileKey imports through the durable integration worker",
+    async ({ profileKey, ingestionUnitKey, observationId, externalKey, normalizedKind }) => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = lorcanajsonFetch() as typeof globalThis.fetch;
+      const harness = createIntegrationJobClaimHandoffHarness({
+        scope: { provider: "lorcanajson", profileKey, ingestionUnitKey, setId: "1" },
+        renewSucceeds: true,
+      });
+      const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+      try {
+        await expect(
+          services.processNextIntegrationJob({
+            claimOwnerId: "worker-1",
+            claimTtlMs: 120_000,
+          }),
+        ).resolves.toBe(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      expect(harness.job.status).toBe("completed");
+      expect(harness.job.result).toMatchObject({
+        requested: 1,
+        imported: 1,
+        observed: 1,
+        failed: 0,
+      });
+      expect(harness.appendedSourceEvents).toHaveLength(1);
+      expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
+        observationId,
+        providerKey: "lorcanajson",
+        externalKey,
+        sourceProfileKey: profileKey,
+        sourceProfileVersion: "2026.06.23",
+        normalized: expect.objectContaining({
+          kind: normalizedKind,
+          setCode: "1",
+          setName: "The First Chapter",
+        }),
+      });
+    },
+  );
+
   it("lists Scrydex One Piece set options through the shared provider option interface", async () => {
     const originalFetch = globalThis.fetch;
     const originalApiKey = process.env.SCRYDEX_API_KEY;
@@ -1785,6 +1845,82 @@ function mtgjsonFetch(): typeof globalThis.fetch {
           },
         ],
       },
+    },
+  };
+
+  return (async (input: RequestInfo | URL) => {
+    const body = responses[String(input)];
+    if (!body) {
+      return new Response(null, { status: 404 });
+    }
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+}
+
+function lorcanajsonFetch(): typeof globalThis.fetch {
+  const responses: Record<string, unknown> = {
+    "https://lorcanajson.org/files/current/en/allCards.json": {
+      metadata: {
+        formatVersion: "2.3.2",
+        generatedOn: "2026-05-26T19:11:58",
+        language: "en",
+      },
+      sets: {
+        "1": {
+          id: "1",
+          code: "1",
+          name: "The First Chapter",
+          releaseDate: "2023-09-01",
+          type: "expansion",
+          number: 1,
+        },
+      },
+      cards: [
+        {
+          id: "1-041",
+          fullName: "Elsa - Snow Queen",
+          number: "41",
+          setCode: "1",
+          rarity: "Super Rare",
+          type: "Storyborn Hero Queen",
+          color: "Amethyst",
+          images: {
+            full: "https://images.lorcanajson.org/cards/en/1/041.webp",
+            thumbnail: "https://images.lorcanajson.org/cards/en/1/041-small.webp",
+          },
+          externalLinks: { tcgPlayerId: "1005010" },
+        },
+      ],
+    },
+    "https://lorcanajson.org/files/current/en/sets/setdata.1.json": {
+      metadata: {
+        formatVersion: "2.3.2",
+        generatedOn: "2026-05-26T19:11:58",
+        language: "en",
+      },
+      code: "1",
+      name: "The First Chapter",
+      releaseDate: "2023-09-01",
+      cards: [
+        {
+          id: "1-041",
+          fullName: "Elsa - Snow Queen",
+          number: "41",
+          setCode: "1",
+          rarity: "Super Rare",
+          type: "Storyborn Hero Queen",
+          color: "Amethyst",
+          images: {
+            full: "https://images.lorcanajson.org/cards/en/1/041.webp",
+            thumbnail: "https://images.lorcanajson.org/cards/en/1/041-small.webp",
+          },
+          externalLinks: { tcgPlayerId: "1005010" },
+        },
+      ],
     },
   };
 

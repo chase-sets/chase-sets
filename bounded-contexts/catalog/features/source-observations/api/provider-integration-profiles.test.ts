@@ -973,6 +973,14 @@ describe("catalog provider integration profiles", () => {
       /multiple active profile units/,
     );
     expect(
+      getCatalogProviderIntegrationProfileVersion("LORCANAJSON", null, {
+        ingestionUnitKey: "lorcanajson:lorcana:set:reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "lorcanajson",
+      profileKey: "lorcana-set-reference-data",
+    });
+    expect(
       getActiveCatalogProviderIntegrationProfileVersion("LORCANAJSON", {
         ingestionUnitKey: "lorcanajson:lorcana:set:reference-data",
       }),

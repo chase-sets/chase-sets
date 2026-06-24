@@ -4614,6 +4614,23 @@ export function getCatalogProviderIntegrationProfileVersion(
     );
   }
 
+  if (selector) {
+    return (
+      selectActiveCatalogProviderProfileVersion(
+        normalizedProviderKey,
+        candidates.filter((version) => version.active && version.lifecycle === "active"),
+        selector,
+      ) ??
+      candidates.find(
+        (version) => version.lifecycle === "test" && catalogProviderProfileVersionMatchesSelector(version, selector),
+      ) ??
+      candidates.find(
+        (version) => version.lifecycle === "draft" && catalogProviderProfileVersionMatchesSelector(version, selector),
+      ) ??
+      null
+    );
+  }
+
   return (
     candidates.find((version) => version.active) ??
     candidates.find((version) => version.lifecycle === "test") ??
@@ -4970,6 +4987,19 @@ export function selectActiveCatalogProviderProfileVersion(
     `Catalog provider '${normalizeProviderKey(
       providerKey,
     )}' has multiple active profile units for ${selectorText}. Select a profileKey or ingestionUnitKey. Active versions: ${options}.`,
+  );
+}
+
+function catalogProviderProfileVersionMatchesSelector(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  selector: CatalogProviderProfileVersionSelector,
+): boolean {
+  const normalizedProfileKey = selector.profileKey?.trim().toLowerCase() ?? "";
+  const normalizedUnitKey = selector.ingestionUnitKey?.trim().toLowerCase() ?? "";
+  return (
+    (!normalizedProfileKey || version.profileKey.trim().toLowerCase() === normalizedProfileKey) &&
+    (!normalizedUnitKey ||
+      catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() === normalizedUnitKey)
   );
 }
 
