@@ -1559,6 +1559,43 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("confirms with Ordering when a visibly refreshed fulfillment preview is acknowledged", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingApiWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({
+          fulfillment_preview_revision: "fulfillment-rev-1",
+        }),
+      ),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          fulfillmentPreviewRevision: "fulfillment-rev-2",
+          acknowledgedMaterialChanges: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledWith(expect.any(Request), expect.any(Object), {
+      fulfillmentPreviewRevision: "fulfillment-rev-2",
+      acknowledgedMaterialChanges: true,
+    });
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
   it("does not support payment deferral payloads before committing orders or payment", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),

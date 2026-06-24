@@ -829,6 +829,53 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("provider payload");
   });
 
+  it("acknowledges a visibly refreshed fulfillment preview even when no line reason is present", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          fulfillment_preview_revision: "fulfillment_rev_stored",
+        }}
+        fulfillmentPreview={{
+          ...readyFulfillmentPreview,
+          revision: "fulfillment_rev_visible",
+          materialChangeReasons: [],
+        }}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(screen.getByText("Fulfillment changed since your last preview")).toBeTruthy();
+    expect(screen.getByText("Review the latest checkout preview before continuing.")).toBeTruthy();
+    expect(container.querySelector<HTMLInputElement>("input[name='acknowledgedMaterialChanges']")?.value).toBe("true");
+  });
+
+  it("does not acknowledge fulfillment changes when the visible preview still matches the recorded review", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          fulfillment_preview_revision: "fulfillment_rev_current",
+        }}
+        fulfillmentPreview={{
+          ...readyFulfillmentPreview,
+          revision: "fulfillment_rev_current",
+          materialChangeReasons: [],
+        }}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(screen.queryByText("Fulfillment changed since your last preview")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("input[name='acknowledgedMaterialChanges']")?.value).toBe("");
+  });
+
   it("marks totals stale without submitting when checkout fields change or blur", () => {
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
 

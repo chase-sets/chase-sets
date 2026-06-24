@@ -159,6 +159,8 @@ export const checkoutEnglishTranslations = {
     "Using {addressLabel} for fulfillment, shipping, and tax preview. Choose payment before placing the order.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.changed": "Fulfillment changed since your last preview",
+  "checkout.features.sessions.ui.checkoutPage.fulfillment.changed.description":
+    "Review the latest checkout preview before continuing.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.resolved.before.checkout":
     "Cart review resolves fulfillment before checkout starts.",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
