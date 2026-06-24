@@ -213,6 +213,23 @@ export type DiscoveryRepresentativeMarketStateResult = Readonly<{
   offerCount: number;
 }>;
 
+export type OrderingRepresentativeSupplyStateInput = Readonly<{
+  listingIds: readonly string[];
+  existingRepresentativeLimit?: number;
+}>;
+
+export type OrderingRepresentativeSupplyStateServices = Readonly<{
+  inventoryDb: RepresentativeQueryable;
+  marketplaceDb: RepresentativeQueryable;
+  orderingDb: RepresentativeQueryable;
+}>;
+
+export type OrderingRepresentativeSupplyStateResult = Readonly<{
+  listingCount: number;
+  inventoryItemCount: number;
+  inventoryHoldCount: number;
+}>;
+
 type DimensionRule = Readonly<{
   dimensionId: string;
   required: boolean;
@@ -288,17 +305,46 @@ type MarketplaceListingRow = Readonly<{
   product_measure_snapshot: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
+  ship_from_address: unknown;
   price_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string | Date | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
+  seller_listing_availability_status: "available" | "unavailable";
+  seller_listing_availability_updated_at: string | Date;
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
   status: string;
   created_at: string | Date;
   updated_at: string | Date;
+}>;
+
+type InventoryItemRow = Readonly<{
+  item_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  total_quantity: number;
+  updated_at: string | Date;
+  last_stream_version: number | string | null;
+}>;
+
+type InventoryHoldRow = Readonly<{
+  hold_id: string;
+  account_id: string;
+  item_id: string;
+  quantity: number;
+  status: string;
+  released_at: string | Date | null;
+  updated_at: string | Date;
+  last_stream_version: number | string | null;
 }>;
 
 type MarketplaceOfferRow = Readonly<{
@@ -888,6 +934,37 @@ export async function reconcileRepresentativeDiscoveryMarketState(
   };
 }
 
+export async function reconcileRepresentativeOrderingSupplyState(
+  services: OrderingRepresentativeSupplyStateServices,
+  input: OrderingRepresentativeSupplyStateInput,
+): Promise<OrderingRepresentativeSupplyStateResult> {
+  const explicitListingIds = uniqueTextValues(input.listingIds);
+  const existingRepresentativeLimit = normalizeRepresentativeCandidateLimit(input.existingRepresentativeLimit);
+  const listingIds =
+    explicitListingIds.length > 0
+      ? explicitListingIds
+      : await loadExistingRepresentativeMarketplaceListingIds(services.marketplaceDb, {
+          limit: existingRepresentativeLimit,
+        });
+  const listings = await loadMarketplaceListings(services.marketplaceDb, listingIds);
+  const inventoryItemIds = uniqueTextValues(listings.map((listing) => listing.inventory_item_id));
+  const [inventoryItems, inventoryHolds] = await Promise.all([
+    loadInventoryItems(services.inventoryDb, inventoryItemIds),
+    loadInventoryHolds(services.inventoryDb, inventoryItemIds),
+  ]);
+
+  await reconcileOrderingSellerListingAvailabilityInputs(services.orderingDb, listings);
+  await reconcileOrderingMarketplaceListingInputs(services.orderingDb, listings);
+  await reconcileOrderingInventoryItemInputs(services.orderingDb, inventoryItems);
+  await reconcileOrderingInventoryHoldInputs(services.orderingDb, inventoryItemIds, inventoryHolds);
+
+  return {
+    listingCount: listings.length,
+    inventoryItemCount: inventoryItems.length,
+    inventoryHoldCount: inventoryHolds.length,
+  };
+}
+
 async function loadExistingRepresentativeMarketplaceListingIds(
   db: RepresentativeQueryable,
   options: Readonly<{ limit: number }>,
@@ -1419,12 +1496,20 @@ async function loadMarketplaceListings(
        listing.product_measure_snapshot,
        listing.storage_location_name,
        listing.ship_from_code,
+       listing.ship_from_address,
        listing.price_amount::text AS price_amount,
+       listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
+       listing.seller_net_unit_amount::text AS seller_net_unit_amount,
        listing.shipping_allowance_percentage_bps,
+       listing.terms_schedule_id,
+       listing.terms_agreement_id,
+       listing.terms_resolved_at::text AS terms_resolved_at,
        listing.quantity_cap,
        listing.max_units_per_order,
        listing.max_units_per_day,
        listing.max_units_per_customer_account,
+       COALESCE(availability.status, 'available') AS seller_listing_availability_status,
+       COALESCE(availability.updated_at, listing.updated_at)::text AS seller_listing_availability_updated_at,
        supply.total_quantity AS supply_total_quantity,
        CASE
          WHEN supply.item_id IS NULL THEN NULL
@@ -1436,6 +1521,8 @@ async function loadMarketplaceListings(
      FROM marketplace_listing_pages AS listing
      LEFT JOIN marketplace_supply_items AS supply
        ON supply.item_id = listing.inventory_item_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = listing.account_id
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM marketplace_supply_holds
@@ -1446,6 +1533,59 @@ async function loadMarketplaceListings(
      WHERE listing.listing_id = ANY($1::text[])
      ORDER BY listing.updated_at DESC, listing.listing_id ASC`,
     [listingIds],
+  );
+
+  return result.rows;
+}
+
+async function loadInventoryItems(
+  db: RepresentativeQueryable,
+  inventoryItemIds: readonly string[],
+): Promise<readonly InventoryItemRow[]> {
+  if (inventoryItemIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<InventoryItemRow>(
+    `SELECT
+       item.item_id,
+       item.account_id,
+       item.catalog_catalog_item_id,
+       item.product_id,
+       item.total_quantity,
+       item.updated_at::text AS updated_at,
+       item.last_stream_version::text AS last_stream_version
+     FROM inventory_items AS item
+     WHERE item.item_id = ANY($1::text[])
+     ORDER BY item.updated_at DESC, item.item_id ASC`,
+    [inventoryItemIds],
+  );
+
+  return result.rows;
+}
+
+async function loadInventoryHolds(
+  db: RepresentativeQueryable,
+  inventoryItemIds: readonly string[],
+): Promise<readonly InventoryHoldRow[]> {
+  if (inventoryItemIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<InventoryHoldRow>(
+    `SELECT
+       hold.hold_id,
+       hold.account_id,
+       hold.item_id,
+       hold.quantity,
+       hold.status,
+       hold.released_at::text AS released_at,
+       hold.updated_at::text AS updated_at,
+       hold.last_stream_version::text AS last_stream_version
+     FROM inventory_holds AS hold
+     WHERE hold.item_id = ANY($1::text[])
+     ORDER BY hold.updated_at DESC, hold.hold_id ASC`,
+    [inventoryItemIds],
   );
 
   return result.rows;
@@ -1483,6 +1623,220 @@ async function loadMarketplaceOffers(
   );
 
   return result.rows;
+}
+
+async function reconcileOrderingSellerListingAvailabilityInputs(
+  db: RepresentativeQueryable,
+  listings: readonly MarketplaceListingRow[],
+): Promise<void> {
+  const availabilityByAccount = new Map<string, Readonly<{ status: "available" | "unavailable"; updatedAt: string }>>();
+  for (const listing of listings) {
+    const updatedAt = toIsoText(listing.seller_listing_availability_updated_at);
+    const existing = availabilityByAccount.get(listing.account_id);
+    if (!existing || Date.parse(existing.updatedAt) <= Date.parse(updatedAt)) {
+      availabilityByAccount.set(listing.account_id, {
+        status: listing.seller_listing_availability_status,
+        updatedAt,
+      });
+    }
+  }
+
+  for (const [accountId, availability] of availabilityByAccount) {
+    await db.query(
+      `INSERT INTO ordering_seller_listing_availability_inputs (
+         account_id,
+         status,
+         updated_at
+       ) VALUES ($1, $2, $3)
+       ON CONFLICT (account_id) DO UPDATE SET
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at`,
+      [accountId, availability.status, availability.updatedAt],
+    );
+  }
+}
+
+async function reconcileOrderingMarketplaceListingInputs(
+  db: RepresentativeQueryable,
+  listings: readonly MarketplaceListingRow[],
+): Promise<void> {
+  for (const listing of listings) {
+    await db.query(
+      `INSERT INTO ordering_market_listing_inputs (
+         listing_id,
+         seller_account_id,
+         inventory_item_id,
+         catalog_catalog_item_id,
+         product_id,
+         item_title,
+         item_subtitle,
+         selected_options,
+         product_summary,
+         product_measure_snapshot,
+         storage_location_name,
+         ship_from_code,
+         ship_from_address,
+         price_amount,
+         marketplace_sales_fee_unit_amount,
+         seller_net_unit_amount,
+         shipping_allowance_percentage_bps,
+         terms_schedule_id,
+         terms_agreement_id,
+         terms_resolved_at,
+         quantity_cap,
+         max_units_per_order,
+         max_units_per_day,
+         max_units_per_customer_account,
+         seller_listing_availability_status,
+         status,
+         updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, $20::timestamptz, $21, $22, $23, $24, $25, $26, $27
+       )
+       ON CONFLICT (listing_id) DO UPDATE SET
+         seller_account_id = EXCLUDED.seller_account_id,
+         inventory_item_id = EXCLUDED.inventory_item_id,
+         catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+         product_id = EXCLUDED.product_id,
+         item_title = EXCLUDED.item_title,
+         item_subtitle = EXCLUDED.item_subtitle,
+         selected_options = EXCLUDED.selected_options,
+         product_summary = EXCLUDED.product_summary,
+         product_measure_snapshot = EXCLUDED.product_measure_snapshot,
+         storage_location_name = EXCLUDED.storage_location_name,
+         ship_from_code = EXCLUDED.ship_from_code,
+         ship_from_address = EXCLUDED.ship_from_address,
+         price_amount = EXCLUDED.price_amount,
+         marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
+         seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
+         shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
+         terms_schedule_id = EXCLUDED.terms_schedule_id,
+         terms_agreement_id = EXCLUDED.terms_agreement_id,
+         terms_resolved_at = EXCLUDED.terms_resolved_at,
+         quantity_cap = EXCLUDED.quantity_cap,
+         max_units_per_order = EXCLUDED.max_units_per_order,
+         max_units_per_day = EXCLUDED.max_units_per_day,
+         max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
+         seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        listing.listing_id,
+        listing.account_id,
+        listing.inventory_item_id,
+        listing.catalog_catalog_item_id,
+        listing.product_id,
+        listing.item_title,
+        listing.item_subtitle,
+        selectedOptionsJson(listing.selected_options),
+        listing.product_summary,
+        optionalJsonObject(listing.product_measure_snapshot),
+        listing.storage_location_name,
+        listing.ship_from_code,
+        jsonObject(listing.ship_from_address),
+        listing.price_amount,
+        listing.marketplace_sales_fee_unit_amount,
+        listing.seller_net_unit_amount,
+        listing.shipping_allowance_percentage_bps,
+        listing.terms_schedule_id,
+        listing.terms_agreement_id,
+        toNullableIsoText(listing.terms_resolved_at),
+        listing.quantity_cap,
+        listing.max_units_per_order,
+        listing.max_units_per_day,
+        listing.max_units_per_customer_account,
+        listing.seller_listing_availability_status,
+        listing.status,
+        toIsoText(listing.updated_at),
+      ],
+    );
+  }
+}
+
+async function reconcileOrderingInventoryItemInputs(
+  db: RepresentativeQueryable,
+  inventoryItems: readonly InventoryItemRow[],
+): Promise<void> {
+  for (const item of inventoryItems) {
+    await db.query(
+      `INSERT INTO ordering_inventory_item_inputs (
+         item_id,
+         seller_account_id,
+         catalog_catalog_item_id,
+         product_id,
+         total_quantity,
+         updated_at,
+         last_stream_version
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (item_id) DO UPDATE SET
+         seller_account_id = EXCLUDED.seller_account_id,
+         catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+         product_id = EXCLUDED.product_id,
+         total_quantity = EXCLUDED.total_quantity,
+         updated_at = EXCLUDED.updated_at,
+         last_stream_version = EXCLUDED.last_stream_version`,
+      [
+        item.item_id,
+        item.account_id,
+        item.catalog_catalog_item_id,
+        item.product_id,
+        item.total_quantity,
+        toIsoText(item.updated_at),
+        positiveStreamVersion(item.last_stream_version),
+      ],
+    );
+  }
+}
+
+async function reconcileOrderingInventoryHoldInputs(
+  db: RepresentativeQueryable,
+  inventoryItemIds: readonly string[],
+  inventoryHolds: readonly InventoryHoldRow[],
+): Promise<void> {
+  if (inventoryItemIds.length === 0) {
+    return;
+  }
+
+  const holdIds = uniqueTextValues(inventoryHolds.map((hold) => hold.hold_id));
+  await db.query(
+    `DELETE FROM ordering_inventory_hold_inputs
+     WHERE item_id = ANY($1::text[])
+       AND hold_id <> ALL($2::text[])`,
+    [inventoryItemIds, holdIds],
+  );
+
+  for (const hold of inventoryHolds) {
+    await db.query(
+      `INSERT INTO ordering_inventory_hold_inputs (
+         hold_id,
+         item_id,
+         seller_account_id,
+         quantity,
+         status,
+         released_at,
+         updated_at,
+         last_stream_version
+       ) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8)
+       ON CONFLICT (hold_id) DO UPDATE SET
+         item_id = EXCLUDED.item_id,
+         seller_account_id = EXCLUDED.seller_account_id,
+         quantity = EXCLUDED.quantity,
+         status = EXCLUDED.status,
+         released_at = EXCLUDED.released_at,
+         updated_at = EXCLUDED.updated_at,
+         last_stream_version = EXCLUDED.last_stream_version`,
+      [
+        hold.hold_id,
+        hold.item_id,
+        hold.account_id,
+        hold.quantity,
+        hold.status,
+        toNullableIsoText(hold.released_at),
+        toIsoText(hold.updated_at),
+        positiveStreamVersion(hold.last_stream_version),
+      ],
+    );
+  }
 }
 
 async function reconcileAccounts(
@@ -1780,6 +2134,19 @@ function uniqueTextValues(values: readonly string[]): string[] {
 
 function selectedOptionsJson(value: unknown): string {
   return JSON.stringify(Array.isArray(value) ? value : []);
+}
+
+function optionalJsonObject(value: unknown): string | null {
+  return value && typeof value === "object" ? JSON.stringify(value) : null;
+}
+
+function jsonObject(value: unknown): string {
+  return value && typeof value === "object" && !Array.isArray(value) ? JSON.stringify(value) : "{}";
+}
+
+function positiveStreamVersion(value: number | string | null): number {
+  const numericValue = typeof value === "number" ? value : Number.parseInt(value ?? "", 10);
+  return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : 1;
 }
 
 function toIsoText(value: string | Date): string {
