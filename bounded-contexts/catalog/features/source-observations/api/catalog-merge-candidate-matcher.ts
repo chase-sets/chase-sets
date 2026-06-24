@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { t } from "@chase-sets/localization";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   CatalogMergeCandidateConflict,
@@ -191,7 +192,9 @@ function candidateFromGroup(group: readonly MatchableObservation[], addedAt: str
       : [
           conflict({
             code: "multiple-existing-catalog-items",
-            message: "Matched Source Observations point at more than one existing Catalog Item.",
+            message: t(
+              "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.multipleExistingCatalogItems",
+            ),
             fieldPath: "matches.catalogItemId",
             observationIds: group.map((entry) => entry.row.observation_id),
             existingValue: matchedCatalogItemIds,
@@ -300,7 +303,9 @@ function projectCandidateFields(
       conflicts.push(
         conflict({
           code: `${spec.factKey}-mismatch`,
-          message: `Provider observations disagree about ${spec.factKey}.`,
+          message: t("catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.fieldMismatch", {
+            field: spec.factKey,
+          }),
           fieldPath: spec.fieldPath,
           observationIds: entries.map((entry) => entry.entry.row.observation_id),
           existingValue: distinctValues.slice(1),
@@ -320,7 +325,7 @@ function projectCandidateFields(
   if (uniqueJsonValues(imageEntries.map((entry) => entry.value)).length > 1) {
     warnings.push({
       code: "image-source-differs",
-      message: "Provider image URLs differ; keep image choice reviewable before promotion.",
+      message: t("catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.warning.imageSourceDiffers"),
       fieldPath: "catalogItem.imageUrls",
       observationIds: imageEntries.map((entry) => entry.entry.row.observation_id),
     });
@@ -374,7 +379,7 @@ function conflictingIdentities(group: readonly MatchableObservation[]): readonly
   return [
     conflict({
       code: "merge-identity-mismatch",
-      message: "Exact external reference matched observations with different merge identities.",
+      message: t("catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.mergeIdentityMismatch"),
       fieldPath: "identity",
       observationIds: group.map((entry) => entry.row.observation_id),
       existingValue: distinctFingerprints,
@@ -402,7 +407,9 @@ function repeatedExternalCatalogReferences(
     return [
       conflict({
         code: "repeated-external-catalog-item-reference",
-        message: "One provider identifier appears on materially different Source Observation identities.",
+        message: t(
+          "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.repeatedExternalCatalogItemReference",
+        ),
         fieldPath: "externalCatalogItemReferences",
         observationIds: entries.map((entry) => entry.row.observation_id),
         existingValue: key,
