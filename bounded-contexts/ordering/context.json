@@ -132,14 +132,14 @@
     {
       "projectionName": "ordering-inventory-reservation-outcomes",
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["ordering_order_pages", "ordering_order_hold_pages"],
+      "ownedTables": ["ordering_order_hold_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-order-projection",
       "sourceContextNames": ["ordering"],
-      "ownedTables": ["ordering_order_line_pages"],
+      "ownedTables": ["ordering_order_pages", "ordering_order_line_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
@@ -230,7 +230,10 @@
               "projectionName": "ordering-marketplace-offer-acceptance"
             },
             {
-              "projectionName": "ordering-order-projection"
+              "readModelTable": "ordering_order_pages"
+            },
+            {
+              "readModelTable": "ordering_order_line_pages"
             }
           ]
         },
@@ -277,8 +280,9 @@
         "routeId": "account-sales",
         "apiContextName": "ordering",
         "apiRoutePath": "/sales",
-        "projectionDependencies": ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
-        "freshnessDependencyReason": "The sales list must wait for both the accepted-offer input projection and the order page projection because it combines offer acceptance readiness with the resulting order list.",
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages"],
+        "projectionDependencies": ["ordering-marketplace-offer-acceptance"],
+        "freshnessDependencyReason": "The sales list must wait for the Marketplace accepted-offer process that creates the Ordering order, then wait on the Ordering-owned sale list read models when an Ordering receipt is present. Account and fulfillment joins are display/cancellation adornments and must not gate the accepted-offer handoff.",
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
