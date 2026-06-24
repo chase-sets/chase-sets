@@ -4,16 +4,16 @@ import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
-export const GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION = "guest-buy-now-freshness-canary/v2";
-export const CANARY_STATES = Object.freeze(["pass", "temporary", "fail"]);
-export const CANARY_FLOWS = Object.freeze(["guest", "account"]);
+export const GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION = "guest-buy-now-freshness-probe/v2";
+export const PROBE_STATES = Object.freeze(["pass", "temporary", "fail"]);
+export const PROBE_FLOWS = Object.freeze(["guest", "account"]);
 export const DEFAULT_READY_SLO_MS = 10_000;
 export const DEFAULT_MAX_ATTEMPTS = 1;
 export const PRODUCTION_FEASIBILITY_DECISION = Object.freeze({
   feasible: false,
   decision: "production-proof-mode-only",
   reason:
-    "Public production guest Buy Now browser canary remains not feasible: it would create persistent guest checkout artifacts without a payment/order cleanup contract. Production Buy Now readiness evidence comes from the authenticated proof-mode canary on the permission-gated proof marketplace host (--environment production-proof), which stops at checkout review and never confirms payment.",
+    "Public production guest Buy Now browser probe remains not feasible: it would create persistent guest checkout artifacts without a payment/order cleanup contract. Production Buy Now readiness evidence comes from the authenticated proof-mode probe on the permission-gated proof marketplace host (--environment production-proof), which stops at checkout review and never confirms payment.",
 });
 export const SEGMENT_METRIC_REFERENCES = Object.freeze({
   joinKey: "diagnosticCorrelationId",
@@ -30,12 +30,12 @@ export const SEGMENT_METRIC_REFERENCES = Object.freeze({
     "checkpoint-readiness",
     "route-wait",
   ]),
-  interpretationRunbook: "docs/runbooks/guest-buy-now-freshness-canary.md",
+  interpretationRunbook: "docs/runbooks/guest-buy-now-freshness-probe.md",
 });
 
 const DEFAULT_TIMEOUT_MS = 45_000;
-const DEFAULT_CONTACT_NAME = "Guest Buy Now Canary";
-const DEFAULT_GUEST_EMAIL = "guest-buy-now-canary@chasesets.test";
+const DEFAULT_CONTACT_NAME = "Guest Buy Now Probe";
+const DEFAULT_GUEST_EMAIL = "guest-buy-now-probe@chasesets.test";
 const DEFAULT_SEARCH_QUERY = "charizard";
 const MAX_ATTEMPT_LIMIT = 10;
 const MAX_FIXTURE_CANDIDATES = 20;
@@ -89,80 +89,80 @@ export function buyNowItemPageNavigationWaitOptions(timeoutMs) {
   };
 }
 
-export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
+export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
   return {
-    outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_CANARY_OUT", env),
-    baseUrl: readOption(argv, "--base-url") ?? readEnv("GUEST_BUY_NOW_CANARY_BASE_URL", env),
-    flow: readOption(argv, "--flow") ?? readEnv("GUEST_BUY_NOW_CANARY_FLOW", env) ?? "guest",
-    itemPath: readOption(argv, "--item-path") ?? readEnv("GUEST_BUY_NOW_CANARY_ITEM_PATH", env),
+    outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_PROBE_OUT", env),
+    baseUrl: readOption(argv, "--base-url") ?? readEnv("GUEST_BUY_NOW_PROBE_BASE_URL", env),
+    flow: readOption(argv, "--flow") ?? readEnv("GUEST_BUY_NOW_PROBE_FLOW", env) ?? "guest",
+    itemPath: readOption(argv, "--item-path") ?? readEnv("GUEST_BUY_NOW_PROBE_ITEM_PATH", env),
     searchQuery:
-      readOption(argv, "--search-query") ?? readEnv("GUEST_BUY_NOW_CANARY_SEARCH_QUERY", env) ?? DEFAULT_SEARCH_QUERY,
-    fixtureKey: readOption(argv, "--fixture-key") ?? readEnv("GUEST_BUY_NOW_CANARY_FIXTURE_KEY", env),
-    guestEmail: readOption(argv, "--guest-email") ?? readEnv("GUEST_BUY_NOW_CANARY_GUEST_EMAIL", env),
+      readOption(argv, "--search-query") ?? readEnv("GUEST_BUY_NOW_PROBE_SEARCH_QUERY", env) ?? DEFAULT_SEARCH_QUERY,
+    fixtureKey: readOption(argv, "--fixture-key") ?? readEnv("GUEST_BUY_NOW_PROBE_FIXTURE_KEY", env),
+    guestEmail: readOption(argv, "--guest-email") ?? readEnv("GUEST_BUY_NOW_PROBE_GUEST_EMAIL", env),
     contactName:
-      readOption(argv, "--contact-name") ?? readEnv("GUEST_BUY_NOW_CANARY_CONTACT_NAME", env) ?? DEFAULT_CONTACT_NAME,
+      readOption(argv, "--contact-name") ?? readEnv("GUEST_BUY_NOW_PROBE_CONTACT_NAME", env) ?? DEFAULT_CONTACT_NAME,
     accountEmail:
       readOption(argv, "--account-email") ??
-      readEnv("GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL", env) ??
+      readEnv("GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL", env) ??
       readEnv("MARKETPLACE_E2E_EMAIL", env),
     accountPassword:
       readOption(argv, "--account-password") ??
-      readEnv("GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD", env) ??
+      readEnv("GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD", env) ??
       readEnv("MARKETPLACE_E2E_PASSWORD", env),
-    environment: readOption(argv, "--environment") ?? readEnv("GUEST_BUY_NOW_CANARY_ENVIRONMENT", env) ?? "staging",
+    environment: readOption(argv, "--environment") ?? readEnv("GUEST_BUY_NOW_PROBE_ENVIRONMENT", env) ?? "staging",
     productionProofReference:
       readOption(argv, "--production-proof-reference") ??
-      readEnv("GUEST_BUY_NOW_CANARY_PRODUCTION_PROOF_REFERENCE", env),
+      readEnv("GUEST_BUY_NOW_PROBE_PRODUCTION_PROOF_REFERENCE", env),
     timeoutMs: normalizePositiveInteger(
-      readOption(argv, "--timeout-ms") ?? readEnv("GUEST_BUY_NOW_CANARY_TIMEOUT_MS", env),
+      readOption(argv, "--timeout-ms") ?? readEnv("GUEST_BUY_NOW_PROBE_TIMEOUT_MS", env),
       DEFAULT_TIMEOUT_MS,
     ),
     readySloMs: normalizePositiveInteger(
-      readOption(argv, "--ready-slo-ms") ?? readEnv("GUEST_BUY_NOW_CANARY_READY_SLO_MS", env),
+      readOption(argv, "--ready-slo-ms") ?? readEnv("GUEST_BUY_NOW_PROBE_READY_SLO_MS", env),
       DEFAULT_READY_SLO_MS,
     ),
-    sloMode: readOption(argv, "--slo-mode") ?? readEnv("GUEST_BUY_NOW_CANARY_SLO_MODE", env) ?? DEFAULT_SLO_MODE,
+    sloMode: readOption(argv, "--slo-mode") ?? readEnv("GUEST_BUY_NOW_PROBE_SLO_MODE", env) ?? DEFAULT_SLO_MODE,
     maxAttempts: Math.min(
       normalizePositiveInteger(
-        readOption(argv, "--attempts") ?? readEnv("GUEST_BUY_NOW_CANARY_ATTEMPTS", env),
+        readOption(argv, "--attempts") ?? readEnv("GUEST_BUY_NOW_PROBE_ATTEMPTS", env),
         DEFAULT_MAX_ATTEMPTS,
       ),
       MAX_ATTEMPT_LIMIT,
     ),
     skipNegativeProbe:
-      readFlag(argv, "--skip-negative-probe") || readBoolean(readEnv("GUEST_BUY_NOW_CANARY_SKIP_NEGATIVE_PROBE", env)),
+      readFlag(argv, "--skip-negative-probe") || readBoolean(readEnv("GUEST_BUY_NOW_PROBE_SKIP_NEGATIVE_PROBE", env)),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     diagnosticCorrelationId:
       readOption(argv, "--diagnostic-correlation-id") ??
-      readEnv("GUEST_BUY_NOW_CANARY_CORRELATION_ID", env) ??
+      readEnv("GUEST_BUY_NOW_PROBE_CORRELATION_ID", env) ??
       createDiagnosticCorrelationId(),
-    headless: readBoolean(readOption(argv, "--headed") ?? readEnv("GUEST_BUY_NOW_CANARY_HEADED", env)) ? false : true,
+    headless: readBoolean(readOption(argv, "--headed") ?? readEnv("GUEST_BUY_NOW_PROBE_HEADED", env)) ? false : true,
   };
 }
 
-export function validateGuestBuyNowCanaryOptions(options) {
+export function validateGuestBuyNowProbeOptions(options) {
   const errors = [];
   const flow = normalizeFlow(options.flow ?? "guest");
   const environment = String(options.environment ?? "").toLowerCase();
   if (!flow) {
-    errors.push(`GUEST_BUY_NOW_CANARY_FLOW or --flow must be one of: ${CANARY_FLOWS.join(", ")}.`);
+    errors.push(`GUEST_BUY_NOW_PROBE_FLOW or --flow must be one of: ${PROBE_FLOWS.join(", ")}.`);
   }
   if (!normalizeUrl(options.baseUrl)) {
-    errors.push("GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.");
+    errors.push("GUEST_BUY_NOW_PROBE_BASE_URL or --base-url is required.");
   }
   if (!normalizePath(options.itemPath) && !normalizeString(options.searchQuery)) {
     errors.push(
-      "GUEST_BUY_NOW_CANARY_ITEM_PATH/--item-path or GUEST_BUY_NOW_CANARY_SEARCH_QUERY/--search-query is required.",
+      "GUEST_BUY_NOW_PROBE_ITEM_PATH/--item-path or GUEST_BUY_NOW_PROBE_SEARCH_QUERY/--search-query is required.",
     );
   }
   if (!normalizeString(options.fixtureKey)) {
-    errors.push("GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.");
+    errors.push("GUEST_BUY_NOW_PROBE_FIXTURE_KEY or --fixture-key is required.");
   }
   if (options.sloMode !== undefined && !SLO_MODES.includes(options.sloMode)) {
-    errors.push(`GUEST_BUY_NOW_CANARY_SLO_MODE or --slo-mode must be one of: ${SLO_MODES.join(", ")}.`);
+    errors.push(`GUEST_BUY_NOW_PROBE_SLO_MODE or --slo-mode must be one of: ${SLO_MODES.join(", ")}.`);
   }
   if (flow === "guest" && !normalizeString(options.guestEmail)) {
-    errors.push("GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required for the guest flow.");
+    errors.push("GUEST_BUY_NOW_PROBE_GUEST_EMAIL or --guest-email is required for the guest flow.");
   }
   if (environment === "production") {
     errors.push(PRODUCTION_FEASIBILITY_DECISION.reason);
@@ -175,12 +175,12 @@ export function validateGuestBuyNowCanaryOptions(options) {
     }
     if (!normalizeString(options.accountEmail) || !normalizeString(options.accountPassword)) {
       errors.push(
-        "Production proof mode requires configured operator credentials (GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL/PASSWORD); synthetic account registration is not allowed in production.",
+        "Production proof mode requires configured operator credentials (GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL/PASSWORD); synthetic account registration is not allowed in production.",
       );
     }
     if (!normalizeString(options.productionProofReference)) {
       errors.push(
-        "Production proof mode requires GUEST_BUY_NOW_CANARY_PRODUCTION_PROOF_REFERENCE or --production-proof-reference (the approved proof-mode evidence reference).",
+        "Production proof mode requires GUEST_BUY_NOW_PROBE_PRODUCTION_PROOF_REFERENCE or --production-proof-reference (the approved proof-mode evidence reference).",
       );
     }
   }
@@ -274,14 +274,14 @@ function classifyNegativeProbe(probe) {
   return null;
 }
 
-export function buildGuestBuyNowCanaryEvidence(input) {
+export function buildGuestBuyNowProbeEvidence(input) {
   const flow = normalizeFlow(input.flow) ?? "guest";
   const readySloMs = normalizePositiveInteger(input.readySloMs, DEFAULT_READY_SLO_MS);
   const sloMode = SLO_MODES.includes(input.sloMode) ? input.sloMode : DEFAULT_SLO_MODE;
   const observation = input.observation ?? {};
   const classification = classifyGuestBuyNowObservation(observation, { flow, readySloMs, sloMode });
   return {
-    schemaVersion: GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+    schemaVersion: GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION,
     checkedAt: input.checkedAt,
     environment: normalizeString(input.environment) ?? "staging",
     flow,
@@ -381,8 +381,8 @@ export function assertRedactedEvidence(evidence) {
   return [...new Set(leaks)];
 }
 
-export async function runGuestBuyNowFreshnessCanary(options) {
-  const errors = validateGuestBuyNowCanaryOptions(options);
+export async function runGuestBuyNowFreshnessProbe(options) {
+  const errors = validateGuestBuyNowProbeOptions(options);
   if (errors.length > 0) {
     throw new Error(errors.join(" "));
   }
@@ -394,7 +394,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const observation = await observe(options, attempt).catch((error) => runtimeFailureObservation(error));
-    evidence = buildGuestBuyNowCanaryEvidence({
+    evidence = buildGuestBuyNowProbeEvidence({
       checkedAt: options.checkedAt,
       environment: options.environment,
       flow: options.flow,
@@ -413,7 +413,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
       readyLatencyMs: evidence.readyLatencyMs,
     });
 
-    if (evidence.promotionDecision === "promote" || !retryableCanaryFailure(evidence.failureReason)) {
+    if (evidence.promotionDecision === "promote" || !retryableProbeFailure(evidence.failureReason)) {
       break;
     }
   }
@@ -422,7 +422,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
 
   const leaks = assertRedactedEvidence(evidence);
   if (leaks.length > 0) {
-    throw new Error(`Guest Buy Now canary evidence leaked sensitive values: ${leaks.join(", ")}`);
+    throw new Error(`Guest Buy Now probe evidence leaked sensitive values: ${leaks.join(", ")}`);
   }
 
   if (options.outPath) {
@@ -432,7 +432,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
   return evidence;
 }
 
-function retryableCanaryFailure(failureReason) {
+function retryableProbeFailure(failureReason) {
   return (
     failureReason === "checkout-ready-slo-exceeded" ||
     failureReason === "browser-navigation-timeout" ||
@@ -588,9 +588,9 @@ async function observeBuyNowCheckout(options) {
       return checkoutStartRecoveryObservation;
     }
 
-    throw new Error("Guest Buy Now canary found no checkout-ready marketplace fixture candidates.");
+    throw new Error("Guest Buy Now probe found no checkout-ready marketplace fixture candidates.");
   } catch (error) {
-    throw canaryRuntimeError(stage, error);
+    throw probeRuntimeError(stage, error);
   } finally {
     await browser.close();
   }
@@ -633,7 +633,7 @@ async function checkoutStartRecoveryObservationFromPage({
   };
 }
 
-function canaryRuntimeError(stage, error) {
+function probeRuntimeError(stage, error) {
   const failure = normalizeRuntimeError(error, stage);
   const runtimeError = new Error(failure.message ?? failure.reason);
   runtimeError.stage = failure.stage;
@@ -650,21 +650,21 @@ async function startAccountSession(page, context, options, baseUrl) {
       data: { email: accountEmail, password: accountPassword },
     });
     if (response.status() !== 200) {
-      throw canaryHttpError(`Buy Now canary account sign-in failed with HTTP ${response.status()}.`, response.status());
+      throw probeHttpError(`Buy Now probe account sign-in failed with HTTP ${response.status()}.`, response.status());
     }
     sessionToken = (await response.json())?.sessionToken;
   } else {
     const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const response = await page.request.post(`${baseUrl}/api/auth/register`, {
       data: {
-        displayName: `Buy Now Canary Account ${nonce}`,
-        email: `buy-now-canary+account-${nonce}@chasesets.test`,
-        password: `buy-now-canary-${nonce}`,
+        displayName: `Buy Now Probe Account ${nonce}`,
+        email: `buy-now-probe+account-${nonce}@chasesets.test`,
+        password: `buy-now-probe-${nonce}`,
       },
     });
     if (response.status() !== 201) {
-      throw canaryHttpError(
-        `Buy Now canary synthetic account registration failed with HTTP ${response.status()}.`,
+      throw probeHttpError(
+        `Buy Now probe synthetic account registration failed with HTTP ${response.status()}.`,
         response.status(),
       );
     }
@@ -672,7 +672,7 @@ async function startAccountSession(page, context, options, baseUrl) {
   }
 
   if (!sessionToken) {
-    throw new Error("Buy Now canary account session did not return a session token.");
+    throw new Error("Buy Now probe account session did not return a session token.");
   }
 
   await context.addCookies([
@@ -687,7 +687,7 @@ async function startAccountSession(page, context, options, baseUrl) {
   ]);
 }
 
-function canaryHttpError(message, status) {
+function probeHttpError(message, status) {
   const error = new Error(message);
   if (Number(status) >= 500) {
     error.reason = "platform-temporary-unavailable";
@@ -794,7 +794,7 @@ async function watchCheckoutReadiness(page, startedAt, readySloMs) {
 
 async function runNegativeProbe(page, baseUrl, options) {
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const probeUrl = new URL(`/checkout/buy/session/chk_canary_negative_probe_${nonce}`, baseUrl);
+  const probeUrl = new URL(`/checkout/buy/session/chk_probe_negative_${nonce}`, baseUrl);
   const response = await page
     .goto(probeUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs })
     .catch(() => null);
@@ -841,7 +841,7 @@ export async function resolveGuestBuyNowItemCandidates(options, fetchImpl = fetc
   const baseUrl = normalizeUrl(options.baseUrl);
   const searchQuery = normalizeString(options.searchQuery);
   if (!baseUrl || !searchQuery) {
-    throw new Error("Guest Buy Now canary requires a base URL and either an item path or search query.");
+    throw new Error("Guest Buy Now probe requires a base URL and either an item path or search query.");
   }
 
   const searchUrl = new URL("/api/marketplace/items", baseUrl);
@@ -849,7 +849,7 @@ export async function resolveGuestBuyNowItemCandidates(options, fetchImpl = fetc
   searchUrl.searchParams.set("includeTotal", "true");
   const response = await fetchImpl(searchUrl);
   if (!response.ok) {
-    throw new Error(`Guest Buy Now canary fixture search failed with HTTP ${response.status}.`);
+    throw new Error(`Guest Buy Now probe fixture search failed with HTTP ${response.status}.`);
   }
 
   const body = await response.json();
@@ -891,7 +891,7 @@ export async function resolveGuestBuyNowItemCandidates(options, fetchImpl = fetc
     return boundedCandidates;
   }
 
-  throw new Error(`Guest Buy Now canary found no active buyable marketplace item for search query '${searchQuery}'.`);
+  throw new Error(`Guest Buy Now probe found no active buyable marketplace item for search query '${searchQuery}'.`);
 }
 
 function buyNowCandidatesFromDetail(slug, detail) {
@@ -928,7 +928,7 @@ function pathFromBuyableListing(slug, listing) {
 function checkoutPreviewRequestForListing(listing) {
   const listingId = normalizeString(listing?.listing_id) ?? "";
   return {
-    checkoutSessionId: `chk_canary_fixture_preview_${listingId.replace(/[^A-Za-z0-9_:-]/g, "_").slice(0, 80)}`,
+    checkoutSessionId: `chk_probe_fixture_preview_${listingId.replace(/[^A-Za-z0-9_:-]/g, "_").slice(0, 80)}`,
     sourceType: "buy-now",
     shippingOption: "standard",
     optimizationGoal: "lowest-total",
@@ -991,7 +991,7 @@ function normalizeFlow(value) {
   const normalized = String(value ?? "")
     .trim()
     .toLowerCase();
-  return CANARY_FLOWS.includes(normalized) ? normalized : null;
+  return PROBE_FLOWS.includes(normalized) ? normalized : null;
 }
 
 function normalizeWaitMode(value) {
@@ -1078,15 +1078,15 @@ function readFlag(argv, name) {
 
 async function main(argv, env = process.env) {
   try {
-    const options = parseGuestBuyNowCanaryArgs(argv, env);
-    const evidence = await runGuestBuyNowFreshnessCanary({
+    const options = parseGuestBuyNowProbeArgs(argv, env);
+    const evidence = await runGuestBuyNowFreshnessProbe({
       ...options,
       guestEmail: options.guestEmail ?? DEFAULT_GUEST_EMAIL,
     });
     console.log(JSON.stringify(evidence, null, 2));
     if (evidence.promotionDecision === "warn") {
       console.error(
-        `WARNING: Buy Now freshness canary exceeded the ready SLO (${evidence.readySloMs}ms) with user-safe final state '${evidence.finalState}'. Recorded as a release-health warning; the release is not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md).`,
+        `WARNING: Buy Now freshness probe exceeded the ready SLO (${evidence.readySloMs}ms) with user-safe final state '${evidence.finalState}'. Recorded as a release-health warning; the release is not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md).`,
       );
     }
     return evidence.promotionDecision === "abort" ? 1 : 0;

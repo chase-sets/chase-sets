@@ -95,7 +95,7 @@ Production and previews already run in this posture by default; this recipe is t
    - Relay: `projection-wake-relay.session.ended` (status `no-enabled-sources` once idle), `projection-wake-relay.fan_out.*`, `projection-wake-relay.listener.*`, `projection-wake-relay.catch_up.*`.
    - Scheduler: `projection-wake.intent.claimed/completed/not_ready/deferred/unknown_target/run_failed/attempts_exhausted`, `work-signals.cleanup.completed`.
    - Controls: `projection-wake.controls.projections_disabled` (worker startup, includes `unknownDisabledProjectionKeys`).
-4. Confirm the invariant: run the [Buy Now Freshness Canary](./guest-buy-now-freshness-canary.md) (`pnpm run guest-buy-now:freshness-canary`) against the affected environment and verify it still reaches pay-ready checkout within the readiness budget on polling alone; cross-check the route audit via the [Projection Freshness Audit runbook](./projection-freshness-audit.md). A rollback that leaves the canary failing is not a completed rollback — keep the release held and escalate per [Push-Wake Operations](./push-wake-operations.md).
+4. Confirm the invariant: run the [Buy Now Freshness Probe](./guest-buy-now-freshness-probe.md) (`pnpm run guest-buy-now:freshness-probe`) against the affected environment and verify it still reaches pay-ready checkout within the readiness budget on polling alone; cross-check the route audit via the [Projection Freshness Audit runbook](./projection-freshness-audit.md). A rollback that leaves the probe failing is not a completed rollback — keep the release held and escalate per [Push-Wake Operations](./push-wake-operations.md).
 
 ## Related Documents
 

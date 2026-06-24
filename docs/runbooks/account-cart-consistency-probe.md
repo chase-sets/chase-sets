@@ -1,8 +1,8 @@
-# Account Cart Consistency Canary
+# Account Cart Consistency Probe
 
 ## Purpose
 
-Use `scripts/account-cart-consistency-canary.mjs` to record release evidence for account cart post-write consistency without storing account, cart, checkout, token, or URL identifiers. The script is intentionally a doc-backed observation canary: the Checkout/runtime owner supplies a redacted observation from a browser smoke, runtime test, or deployed probe, and the script turns it into a stable gate artifact.
+Use `scripts/account-cart-consistency-probe.mjs` to record release evidence for account cart post-write consistency without storing account, cart, checkout, token, or URL identifiers. The script is intentionally a doc-backed observation probe: the Checkout/runtime owner supplies a redacted observation from a browser smoke, runtime test, or deployed probe, and the script turns it into a stable gate artifact.
 
 The script does not create live cart mutations. Full automation needs account-cart fixture ownership, cleanup, and route selectors from the runtime/UI owner. Until that exists, this artifact is the privacy-safe handoff format for issue #1810 closeout evidence.
 
@@ -31,14 +31,14 @@ Passing evidence must observe:
 - `reconciliation`: the server-confirmed state replaces or confirms the local state.
 - `stale_response_discard`: an older command/read response cannot overwrite a newer local or server-confirmed cart state.
 
-Optional `rollback` evidence is allowed when it comes from an intentional validation/conflict probe. Set `unexpectedRollback: true` when rollback happened on the happy path; the canary aborts.
+Optional `rollback` evidence is allowed when it comes from an intentional validation/conflict probe. Set `unexpectedRollback: true` when rollback happened on the happy path; the probe aborts.
 
-The canary aborts on `missing_strategy`, `freshness_timeout`, missing optimistic application, missing reconciliation, missing stale-response discard, unexpected rollback, or any sensitive value in the observation.
+The probe aborts on `missing_strategy`, `freshness_timeout`, missing optimistic application, missing reconciliation, missing stale-response discard, unexpected rollback, or any sensitive value in the observation.
 
 ## Run
 
 ```powershell
-node ./scripts/account-cart-consistency-canary.mjs `
+node ./scripts/account-cart-consistency-probe.mjs `
   --observation-file artifacts/private/account-cart-observation.json `
   --out artifacts/release-health/account-cart-consistency.json `
   --environment staging `
@@ -54,7 +54,7 @@ Allowed in the observation and generated evidence:
 
 - Strategy name, route template, context/surface, outcome codes, boolean state, latency buckets or durations, rollback reason category, and an operator evidence reference.
 
-Forbidden everywhere in canary input, output, logs, PR comments, and launch checklist evidence:
+Forbidden everywhere in probe input, output, logs, PR comments, and launch checklist evidence:
 
 - Account ids, cart ids, user ids, emails, names, cookies, bearer tokens, session tokens, raw `afterWrite` values, event ids, checkout session ids, payment ids, order ids, full URLs, item details, provider payloads, or screenshots containing those values.
 

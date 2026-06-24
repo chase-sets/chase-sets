@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 
-export const ACCOUNT_CART_CONSISTENCY_CANARY_VERSION = "account-cart-consistency-canary/v1";
-export const ACCOUNT_CART_CANARY_OUTCOMES = Object.freeze([
+export const ACCOUNT_CART_CONSISTENCY_PROBE_VERSION = "account-cart-consistency-probe/v1";
+export const ACCOUNT_CART_PROBE_OUTCOMES = Object.freeze([
   "missing_strategy",
   "optimistic_applied",
   "freshness_timeout",
@@ -14,12 +14,12 @@ export const ACCOUNT_CART_CANARY_OUTCOMES = Object.freeze([
   "reconciliation",
   "stale_response_discard",
 ]);
-export const ACCOUNT_CART_CANARY_AUTOMATION_CONTRACT = Object.freeze({
+export const ACCOUNT_CART_PROBE_AUTOMATION_CONTRACT = Object.freeze({
   mode: "doc-backed-observation",
   reason:
-    "The canary records and gates redacted account-cart post-write consistency observations supplied by the owning runtime or browser smoke. It does not create live cart mutations itself until account-cart fixture ownership and cleanup are explicit.",
+    "The probe records and gates redacted account-cart post-write consistency observations supplied by the owning runtime or browser smoke. It does not create live cart mutations itself until account-cart fixture ownership and cleanup are explicit.",
   routeTemplate: "/account/cart",
-  interpretationRunbook: "docs/runbooks/account-cart-consistency-canary.md",
+  interpretationRunbook: "docs/runbooks/account-cart-consistency-probe.md",
   telemetryMetric: "chase_sets_post_write_consistency_events_total",
 });
 
@@ -31,27 +31,27 @@ const RAW_AFTER_WRITE_PATTERN = /afterWrite=[^&\s")]+|Chase-Sets-Read-After-Writ
 const COOKIE_OR_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._-]+|chase_sets_(?:session|guest_checkout)=[^;\s]+/gi;
 const FULL_URL_PATTERN = /https?:\/\/[^\s"]+/gi;
 
-export function parseAccountCartConsistencyCanaryArgs(argv, env = process.env) {
+export function parseAccountCartConsistencyProbeArgs(argv, env = process.env) {
   return {
-    outPath: readOption(argv, "--out") ?? readEnv("ACCOUNT_CART_CONSISTENCY_CANARY_OUT", env),
+    outPath: readOption(argv, "--out") ?? readEnv("ACCOUNT_CART_CONSISTENCY_PROBE_OUT", env),
     observationPath:
-      readOption(argv, "--observation-file") ?? readEnv("ACCOUNT_CART_CONSISTENCY_CANARY_OBSERVATION_FILE", env),
+      readOption(argv, "--observation-file") ?? readEnv("ACCOUNT_CART_CONSISTENCY_PROBE_OBSERVATION_FILE", env),
     environment:
-      readOption(argv, "--environment") ?? readEnv("ACCOUNT_CART_CONSISTENCY_CANARY_ENVIRONMENT", env) ?? "staging",
+      readOption(argv, "--environment") ?? readEnv("ACCOUNT_CART_CONSISTENCY_PROBE_ENVIRONMENT", env) ?? "staging",
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
     evidenceReference:
-      readOption(argv, "--evidence-reference") ?? readEnv("ACCOUNT_CART_CONSISTENCY_CANARY_EVIDENCE_REFERENCE", env),
+      readOption(argv, "--evidence-reference") ?? readEnv("ACCOUNT_CART_CONSISTENCY_PROBE_EVIDENCE_REFERENCE", env),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     routeTemplate:
       readOption(argv, "--route-template") ??
-      readEnv("ACCOUNT_CART_CONSISTENCY_CANARY_ROUTE_TEMPLATE", env) ??
+      readEnv("ACCOUNT_CART_CONSISTENCY_PROBE_ROUTE_TEMPLATE", env) ??
       "/account/cart",
   };
 }
 
-export async function runAccountCartConsistencyCanary(options) {
+export async function runAccountCartConsistencyProbe(options) {
   if (!options.observationPath && typeof options.observe !== "function") {
-    throw new Error("ACCOUNT_CART_CONSISTENCY_CANARY_OBSERVATION_FILE or --observation-file is required.");
+    throw new Error("ACCOUNT_CART_CONSISTENCY_PROBE_OBSERVATION_FILE or --observation-file is required.");
   }
 
   const observation =
@@ -59,12 +59,12 @@ export async function runAccountCartConsistencyCanary(options) {
       ? await options.observe(options)
       : JSON.parse(await readFile(options.observationPath, "utf8"));
   if (assertRedactedAccountCartConsistencyEvidence({ observation }).length > 0) {
-    throw new Error("Account-cart consistency canary evidence leaked sensitive values.");
+    throw new Error("Account-cart consistency probe evidence leaked sensitive values.");
   }
-  const evidence = buildAccountCartConsistencyCanaryEvidence({ ...options, observation });
+  const evidence = buildAccountCartConsistencyProbeEvidence({ ...options, observation });
   const leaks = assertRedactedAccountCartConsistencyEvidence(evidence);
   if (leaks.length > 0) {
-    throw new Error(`Account-cart consistency canary evidence leaked sensitive values: ${leaks.join(", ")}`);
+    throw new Error(`Account-cart consistency probe evidence leaked sensitive values: ${leaks.join(", ")}`);
   }
 
   if (options.outPath) {
@@ -74,7 +74,7 @@ export async function runAccountCartConsistencyCanary(options) {
   return evidence;
 }
 
-export function buildAccountCartConsistencyCanaryEvidence(input) {
+export function buildAccountCartConsistencyProbeEvidence(input) {
   const observation = input.observation ?? {};
   const outcomes = classifyAccountCartConsistencyOutcomes(observation);
   const blockers = [];
@@ -83,19 +83,19 @@ export function buildAccountCartConsistencyCanaryEvidence(input) {
     blockers.push("Account cart mutation did not declare a post-write consistency strategy.");
   }
   if (!outcomes.includes("optimistic_applied")) {
-    blockers.push("Account cart canary did not observe the optimistic cart update.");
+    blockers.push("Account cart probe did not observe the optimistic cart update.");
   }
   if (!outcomes.includes("reconciliation")) {
-    blockers.push("Account cart canary did not observe server reconciliation after the write.");
+    blockers.push("Account cart probe did not observe server reconciliation after the write.");
   }
   if (!outcomes.includes("stale_response_discard")) {
-    blockers.push("Account cart canary did not observe stale response discard protection.");
+    blockers.push("Account cart probe did not observe stale response discard protection.");
   }
   if (outcomes.includes("freshness_timeout")) {
-    blockers.push("Account cart canary observed a post-write freshness timeout.");
+    blockers.push("Account cart probe observed a post-write freshness timeout.");
   }
   if (observation.unexpectedRollback === true) {
-    blockers.push("Account cart canary observed an unexpected rollback.");
+    blockers.push("Account cart probe observed an unexpected rollback.");
   }
   if (assertRedactedAccountCartConsistencyEvidence({ observation }).length > 0) {
     blockers.push(
@@ -104,7 +104,7 @@ export function buildAccountCartConsistencyCanaryEvidence(input) {
   }
 
   return {
-    schemaVersion: ACCOUNT_CART_CONSISTENCY_CANARY_VERSION,
+    schemaVersion: ACCOUNT_CART_CONSISTENCY_PROBE_VERSION,
     checkedAt: input.checkedAt,
     releaseCommit: normalizeString(input.releaseCommit) ?? "",
     environment: normalizeString(input.environment) ?? "staging",
@@ -128,9 +128,9 @@ export function buildAccountCartConsistencyCanaryEvidence(input) {
         route_template: sanitizeRouteTemplate(input.routeTemplate),
         correction_source: "fresh-read:loader-revalidation",
       },
-      outcomes: ACCOUNT_CART_CANARY_OUTCOMES,
+      outcomes: ACCOUNT_CART_PROBE_OUTCOMES,
     },
-    automation: ACCOUNT_CART_CANARY_AUTOMATION_CONTRACT,
+    automation: ACCOUNT_CART_PROBE_AUTOMATION_CONTRACT,
     redaction: {
       accountId: "never-recorded",
       cartId: "never-recorded",
@@ -237,7 +237,7 @@ function normalizeOptionalNonNegativeInteger(value) {
 
 async function main(argv, env = process.env) {
   try {
-    const evidence = await runAccountCartConsistencyCanary(parseAccountCartConsistencyCanaryArgs(argv, env));
+    const evidence = await runAccountCartConsistencyProbe(parseAccountCartConsistencyProbeArgs(argv, env));
     console.log(JSON.stringify(evidence, null, 2));
     return evidence.promotionDecision === "promote" ? 0 : 1;
   } catch (error) {

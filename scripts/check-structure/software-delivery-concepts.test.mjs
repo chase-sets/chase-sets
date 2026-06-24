@@ -125,7 +125,7 @@ describe("software delivery concepts guard", () => {
   it("allows freshness canaries and bare release vocabulary in product code", () => {
     const freshnessCanary = `
       // Guest Buy Now freshness canary covers the signed-out path.
-      const runbook = "docs/runbooks/guest-buy-now-freshness-canary.md";
+      const runbook = "docs/runbooks/guest-buy-now-freshness-probe.md";
       const note = "release the cart hold after checkout";
     `;
     expect(labelsFor("bounded-contexts/checkout/features/cart/domain/cart.ts", freshnessCanary)).toEqual([]);

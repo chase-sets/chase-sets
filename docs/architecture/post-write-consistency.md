@@ -228,7 +228,7 @@ Canonical outcomes are:
 
 Labels must never contain account ids, cart ids, checkout session ids, item ids, event ids, raw `afterWrite`, cookies, emails, full URLs, or provider payloads. Use route templates such as `/account/cart` and stable surface names such as `account-cart`.
 
-Account cart release evidence uses the [Account Cart Consistency Canary](../runbooks/account-cart-consistency-canary.md). The canary is a redacted observation artifact until the Marketplace/runtime owner adds fixture-owned browser automation with cleanup.
+Account cart release evidence uses the [Account Cart Consistency Probe](../runbooks/account-cart-consistency-probe.md). The probe is a redacted observation artifact until the Marketplace/runtime owner adds fixture-owned browser automation with cleanup.
 
 ## Privacy And Redaction
 

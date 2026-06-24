@@ -3,15 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
-  ACCOUNT_CART_CANARY_AUTOMATION_CONTRACT,
-  ACCOUNT_CART_CANARY_OUTCOMES,
-  ACCOUNT_CART_CONSISTENCY_CANARY_VERSION,
+  ACCOUNT_CART_PROBE_AUTOMATION_CONTRACT,
+  ACCOUNT_CART_PROBE_OUTCOMES,
+  ACCOUNT_CART_CONSISTENCY_PROBE_VERSION,
   assertRedactedAccountCartConsistencyEvidence,
-  buildAccountCartConsistencyCanaryEvidence,
+  buildAccountCartConsistencyProbeEvidence,
   classifyAccountCartConsistencyOutcomes,
-  parseAccountCartConsistencyCanaryArgs,
-  runAccountCartConsistencyCanary,
-} from "./account-cart-consistency-canary.mjs";
+  parseAccountCartConsistencyProbeArgs,
+  runAccountCartConsistencyProbe,
+} from "./account-cart-consistency-probe.mjs";
 
 const checkedAt = "2026-06-15T18:10:00.000Z";
 const releaseCommit = "0123456789abcdef0123456789abcdef01234567";
@@ -28,7 +28,7 @@ const passingObservation = {
   staleResponseAgeMs: 75,
 };
 
-describe("account cart consistency canary", () => {
+describe("account cart consistency probe", () => {
   it("classifies the canonical post-write consistency outcomes", () => {
     expect(
       classifyAccountCartConsistencyOutcomes({
@@ -40,11 +40,11 @@ describe("account cart consistency canary", () => {
         reconciliationObserved: true,
         staleResponseDiscarded: true,
       }),
-    ).toEqual(ACCOUNT_CART_CANARY_OUTCOMES);
+    ).toEqual(ACCOUNT_CART_PROBE_OUTCOMES);
   });
 
   it("builds redacted promotion evidence for account-cart optimistic reconciliation", () => {
-    const evidence = buildAccountCartConsistencyCanaryEvidence({
+    const evidence = buildAccountCartConsistencyProbeEvidence({
       checkedAt,
       releaseCommit,
       environment: "staging",
@@ -54,7 +54,7 @@ describe("account cart consistency canary", () => {
     });
 
     expect(evidence).toMatchObject({
-      schemaVersion: ACCOUNT_CART_CONSISTENCY_CANARY_VERSION,
+      schemaVersion: ACCOUNT_CART_CONSISTENCY_PROBE_VERSION,
       checkedAt,
       releaseCommit,
       environment: "staging",
@@ -77,9 +77,9 @@ describe("account cart consistency canary", () => {
           route_template: "/account/cart/:id",
           correction_source: "fresh-read:loader-revalidation",
         },
-        outcomes: ACCOUNT_CART_CANARY_OUTCOMES,
+        outcomes: ACCOUNT_CART_PROBE_OUTCOMES,
       },
-      automation: ACCOUNT_CART_CANARY_AUTOMATION_CONTRACT,
+      automation: ACCOUNT_CART_PROBE_AUTOMATION_CONTRACT,
       redaction: {
         accountId: "never-recorded",
         cartId: "never-recorded",
@@ -92,7 +92,7 @@ describe("account cart consistency canary", () => {
   });
 
   it("aborts when required optimistic, reconciliation, and stale-discard observations are absent", () => {
-    const evidence = buildAccountCartConsistencyCanaryEvidence({
+    const evidence = buildAccountCartConsistencyProbeEvidence({
       checkedAt,
       releaseCommit,
       observation: {
@@ -105,14 +105,14 @@ describe("account cart consistency canary", () => {
 
     expect(evidence.promotionDecision).toBe("abort");
     expect(evidence.blockers).toEqual([
-      "Account cart canary did not observe the optimistic cart update.",
-      "Account cart canary did not observe server reconciliation after the write.",
-      "Account cart canary did not observe stale response discard protection.",
+      "Account cart probe did not observe the optimistic cart update.",
+      "Account cart probe did not observe server reconciliation after the write.",
+      "Account cart probe did not observe stale response discard protection.",
     ]);
   });
 
   it("aborts on missing strategy, freshness timeout, and unexpected rollback", () => {
-    const evidence = buildAccountCartConsistencyCanaryEvidence({
+    const evidence = buildAccountCartConsistencyProbeEvidence({
       checkedAt,
       releaseCommit,
       observation: {
@@ -136,13 +136,13 @@ describe("account cart consistency canary", () => {
     expect(evidence.promotionDecision).toBe("abort");
     expect(evidence.blockers).toEqual([
       "Account cart mutation did not declare a post-write consistency strategy.",
-      "Account cart canary observed a post-write freshness timeout.",
-      "Account cart canary observed an unexpected rollback.",
+      "Account cart probe observed a post-write freshness timeout.",
+      "Account cart probe observed an unexpected rollback.",
     ]);
   });
 
   it("detects sensitive values without returning them in the evidence blocker", () => {
-    const evidence = buildAccountCartConsistencyCanaryEvidence({
+    const evidence = buildAccountCartConsistencyProbeEvidence({
       checkedAt,
       releaseCommit,
       observation: {
@@ -163,12 +163,12 @@ describe("account cart consistency canary", () => {
   });
 
   it("writes redacted evidence from an observation file", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "chase-sets-account-cart-consistency-canary-"));
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-account-cart-consistency-probe-"));
     const observationFile = join(directory, "observation.json");
     const outFile = join(directory, "evidence.json");
     await writeFile(observationFile, `${JSON.stringify(passingObservation, null, 2)}\n`);
 
-    const evidence = await runAccountCartConsistencyCanary({
+    const evidence = await runAccountCartConsistencyProbe({
       outPath: outFile,
       observationPath: observationFile,
       checkedAt,
@@ -183,7 +183,7 @@ describe("account cart consistency canary", () => {
 
   it("refuses to write evidence that still contains sensitive values", async () => {
     await expect(
-      runAccountCartConsistencyCanary({
+      runAccountCartConsistencyProbe({
         checkedAt,
         releaseCommit,
         observe: async () => ({
@@ -191,15 +191,15 @@ describe("account cart consistency canary", () => {
           note: "cart_123 buyer@example.com afterWrite=raw-token",
         }),
       }),
-    ).rejects.toThrow("Account-cart consistency canary evidence leaked sensitive values");
+    ).rejects.toThrow("Account-cart consistency probe evidence leaked sensitive values");
   });
 
   it("parses CLI and environment defaults", () => {
-    const parsed = parseAccountCartConsistencyCanaryArgs(["--route-template", "/account/cart"], {
-      ACCOUNT_CART_CONSISTENCY_CANARY_OUT: "artifacts/account-cart-consistency.json",
-      ACCOUNT_CART_CONSISTENCY_CANARY_OBSERVATION_FILE: "artifacts/account-cart-observation.json",
-      ACCOUNT_CART_CONSISTENCY_CANARY_ENVIRONMENT: "staging",
-      ACCOUNT_CART_CONSISTENCY_CANARY_EVIDENCE_REFERENCE: "STAGING-ACCOUNT-CART-CONSISTENCY-2026-06-15",
+    const parsed = parseAccountCartConsistencyProbeArgs(["--route-template", "/account/cart"], {
+      ACCOUNT_CART_CONSISTENCY_PROBE_OUT: "artifacts/account-cart-consistency.json",
+      ACCOUNT_CART_CONSISTENCY_PROBE_OBSERVATION_FILE: "artifacts/account-cart-observation.json",
+      ACCOUNT_CART_CONSISTENCY_PROBE_ENVIRONMENT: "staging",
+      ACCOUNT_CART_CONSISTENCY_PROBE_EVIDENCE_REFERENCE: "STAGING-ACCOUNT-CART-CONSISTENCY-2026-06-15",
       RELEASE_COMMIT: releaseCommit,
     });
 

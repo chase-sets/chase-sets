@@ -39,8 +39,8 @@ describe("ops CLI subcommand table", () => {
 
 describe("ops CLI argument parsing", () => {
   it("passes arguments after the subcommand through unchanged", () => {
-    expect(parseOpsArgs(["guest-buy-now:freshness-canary", "--out", "report.json"])).toEqual({
-      subcommand: "guest-buy-now:freshness-canary",
+    expect(parseOpsArgs(["guest-buy-now:freshness-probe", "--out", "report.json"])).toEqual({
+      subcommand: "guest-buy-now:freshness-probe",
       args: ["--out", "report.json"],
     });
   });

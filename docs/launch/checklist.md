@@ -49,7 +49,7 @@
 - [ ] Buyer and seller transactional notifications send only from the owning committed facts and include correct totals/support references where customer-visible.
 - [ ] Notification failure does not block checkout completion, and retries suppress duplicates.
 - [ ] Checkout entry, recovery, confirmation, provider-return, failure, and no-side-effect states emit redacted observability signals usable by support.
-- [ ] Account cart post-write consistency evidence uses the redacted canary artifact, covers optimistic apply, reconciliation, stale-response discard, and rollback/freshness outcomes, and keeps `missing_strategy` plus `freshness_timeout` telemetry at zero once runtime emission is live (see `docs/runbooks/account-cart-consistency-canary.md`).
+- [ ] Account cart post-write consistency evidence uses the redacted probe artifact, covers optimistic apply, reconciliation, stale-response discard, and rollback/freshness outcomes, and keeps `missing_strategy` plus `freshness_timeout` telemetry at zero once runtime emission is live (see `docs/runbooks/account-cart-consistency-probe.md`).
 - [x] Support runbooks cover stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests (covered by PR #1513 and PR #1606).
 
 ## Security, Performance, And Fresh State
