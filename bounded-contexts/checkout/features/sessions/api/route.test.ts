@@ -590,6 +590,7 @@ describe("checkout session routes", () => {
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         quantity: 2,
         shippingOption: "priority",
+        fulfillmentPreviewRevision: "buy_now_supply_ready",
       }),
       expect.any(Object),
     );
@@ -638,6 +639,7 @@ describe("checkout session routes", () => {
         lockedListingId: "lst_guest",
         fulfillmentMode: "locked-listing",
         productId: "cat_1::form:raw",
+        fulfillmentPreviewRevision: "buy_now_supply_ready",
       }),
       expect.objectContaining({
         audit: expect.objectContaining({
@@ -951,6 +953,7 @@ describe("checkout session routes", () => {
       expect.objectContaining({
         accountId: "acc_buyer",
         productId: "cat_1::form:raw",
+        fulfillmentPreviewRevision: "buy_now_supply_ready",
       }),
       expect.objectContaining({
         audit: expect.objectContaining({
