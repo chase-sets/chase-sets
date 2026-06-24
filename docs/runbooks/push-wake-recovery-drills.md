@@ -144,6 +144,7 @@ These dispatchers are scheduled/poll-driven over durable outbox rows (documented
 ## Evidence And Reporting
 
 - Executable drills: the workflow artifact (`staging-wake-drill-<kind>-<run>-<attempt>`) is the evidence of record — redacted JSON (`staging-wake-drills/v1`), wake-status snapshots, per-iteration canary evidence, the no-secret load evaluation (`push-wake-load-evidence/v1`) for `load` drills, and the step summary. Evidence never contains connection strings, credentials, tokens, or emails (the scripts fail closed on leak detection).
+- Release-health reporting: pass the redacted `staging-wake-drill-<kind>.json` artifact to `pnpm run ops release-health:report --file <artifact>` when preparing the release-health summary. The report surfaces wake-before-wait as low-cardinality single-write, load, and durable-convergence segment posture without copying correlation ids, database URLs, credentials, tokens, or full paths.
 - Operator drills: record the date, operator, switch/console actions, log line references, dashboard screenshots, and the bracketing drill-run URLs in the milestone issue (#1234) until a recurring drill log home exists.
 - Recovery metrics/alerts: every drill observes the #1228 surfaces (Projection Wake Pipeline dashboard, `platform-worker-wake-alerts`); a drill that trips an alert must say so in its record.
 

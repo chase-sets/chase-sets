@@ -205,6 +205,17 @@ Build a Markdown dashboard from release-health artifacts with:
 pnpm run ops release-health:report --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
 ```
 
+The report classifies mixed artifact directories by `schemaVersion`: `release-health/v1` records drive release counts and queue SLOs, while Buy Now freshness probes, account-cart consistency probes, wake-drill artifacts, and Non-Buy-Now Chrome UAT evidence feed the Projection Freshness Evidence section. Probe artifacts in `artifacts/release-health` no longer count as release attempts. Add wake-drill artifacts with repeated `--file` flags when they live under `artifacts/wake-drills`, for example:
+
+```powershell
+pnpm run ops release-health:report `
+  --dir .\artifacts\release-health `
+  --file .\artifacts\wake-drills\staging-wake-drill-load.json `
+  --out .\artifacts\release-health\summary.md
+```
+
+The freshness section reports only support-safe labels: environment, flow or route template, promotion decision, verdict, and segment summaries. It fails the posture when evidence contains raw URLs, account/cart/session/payment/payout/event identifiers, email addresses, cookies, tokens, or raw `afterWrite` values; fix the source artifact instead of copying private details into the report.
+
 The report includes SLO posture for cautious merge-queue batch tuning. Initial thresholds are deliberately conservative:
 
 | Signal | Hold/increase threshold |

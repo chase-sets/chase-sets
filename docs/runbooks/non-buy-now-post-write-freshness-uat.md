@@ -11,7 +11,7 @@ Record only structural evidence:
 - environment, release commit, checked timestamp, browser name, operator evidence reference
 - route template or route id, never the full URL
 - outcome code, visible state category, and latency bucket
-- telemetry query result category: `zero`, `non_zero`, or `missing`
+- telemetry query result category: `zero`, `within-slo`, `non_zero`, or `missing`
 
 Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`, session ids, emails, cookies, payment ids, order ids, listing ids, item details, provider payloads, full URLs, or screenshots containing those values. If a screenshot is needed for private triage, keep it outside PR comments, launch checklist rows, and release-health artifacts.
 
@@ -29,6 +29,16 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
 10. Query the same window in Grafana/Prometheus using the Projection Freshness dashboard and the starter queries in [Observability](./observability.md).
 11. Confirm the telemetry observations are `zero` or within SLO: `account-cart-post-write-consistency`, `sell-rail-accept-checkout-handoff`, `payout-ready-handoff`, `marketplace-listing-freshness-slo`, `settlement-payout-errors`, and `projection-lag-poison-events`.
 12. Record remaining gaps separately: listing freshness has low-cardinality telemetry but no dedicated live mutation canary or automated comparison gate until fixture ownership and cleanup are explicit.
+13. Include the generated UAT JSON in the release-health report input so the Projection Freshness Evidence section records account cart, Sell List, payout, and listing coverage:
+
+```powershell
+pnpm run ops release-health:report `
+  --dir .\artifacts\release-health `
+  --file .\artifacts\release-health\non-buy-now-post-write-freshness-uat.json `
+  --out .\artifacts\release-health\summary.md
+```
+
+The report fails the UAT row when any required flow is missing, when telemetry is `missing` or `non_zero`, or when the artifact contains private identifiers. Keep screenshots and private browser notes outside the report artifact.
 
 ## Passing Evidence Shape
 
@@ -50,7 +60,7 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
     "account-cart-post-write-consistency": "zero",
     "sell-rail-accept-checkout-handoff": "zero",
     "payout-ready-handoff": "zero",
-    "marketplace-listing-freshness-slo": "zero",
+    "marketplace-listing-freshness-slo": "within-slo",
     "settlement-payout-errors": "zero",
     "projection-lag-poison-events": "zero"
   },

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildReleaseHealthReport, parseReleaseHealthReportArgs } from "./release-health-report.mjs";
+import {
+  buildReleaseHealthReport,
+  classifyReleaseHealthArtifacts,
+  parseReleaseHealthReportArgs,
+} from "./release-health-report.mjs";
 
 function record(overrides = {}) {
   return {
@@ -82,9 +86,153 @@ describe("release health report", () => {
     expect(result.markdown).toContain("Batch-size posture");
     expect(result.markdown).toContain("## CI Flake Posture");
     expect(result.markdown).toContain("| verify:static | 1 | 1 |");
+    expect(result.markdown).toContain("## Projection Freshness Evidence");
+    expect(result.markdown).toContain("Projection freshness evidence posture: not-provided");
     expect(result.markdown).toContain("## Release Process Review Checklist");
     expect(result.markdown).toContain("## Image Group Decision Inputs");
     expect(result.markdown).toContain("| productionFailureRate | <= 2% | 33.3% | fail |");
+  });
+
+  it("classifies mixed release-health directories without treating probe artifacts as releases", () => {
+    const release = record();
+    const probe = {
+      schemaVersion: "guest-buy-now-freshness-probe/v2",
+      environment: "staging",
+      flow: "guest",
+      promotionDecision: "promote",
+      failureReason: null,
+      readyLatencyMs: 1200,
+      segments: { writeToCheckoutReadyMs: 1200, documentToReadyMs: 300 },
+    };
+    const classified = classifyReleaseHealthArtifacts([
+      { file: "release.json", record: release },
+      { file: "guest-buy-now-freshness-probe.json", record: probe },
+      { file: "production-readiness-gate.json", record: { schemaVersion: "marketplace-production-readiness/v1" } },
+    ]);
+
+    expect(classified.releaseRecords).toEqual([release]);
+    expect(classified.evidenceArtifacts.map((artifact) => artifact.record)).toEqual([probe]);
+    expect(classified.ignoredArtifacts).toHaveLength(1);
+  });
+
+  it("summarizes projection freshness evidence with low-cardinality segment rows", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-05-31T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          record: {
+            schemaVersion: "guest-buy-now-freshness-probe/v2",
+            environment: "production",
+            flow: "account",
+            promotionDecision: "abort",
+            failureReason: "checkout-ready-slo-exceeded",
+            readyLatencyMs: 14000,
+            segments: { writeToCheckoutReadyMs: 14000, documentToReadyMs: 12000 },
+          },
+        },
+        {
+          record: {
+            schemaVersion: "staging-wake-drills/v1",
+            environment: "staging",
+            drillKind: "load",
+            verdict: "pass",
+            segmentSlo: {
+              browser: { singleWrite: { sloStatus: "pass" }, load: { sloStatus: "pass" } },
+              durableConvergence: { status: "pass" },
+            },
+          },
+        },
+        {
+          record: {
+            schemaVersion: "account-cart-consistency-probe/v1",
+            environment: "staging",
+            routeTemplate: "/account/cart",
+            promotionDecision: "promote",
+            observedOutcomes: ["optimistic_applied", "reconciliation", "stale_response_discard"],
+            blockers: [],
+          },
+        },
+        {
+          record: {
+            schemaVersion: "non-buy-now-post-write-freshness-uat/v1",
+            environment: "staging",
+            flows: [
+              { name: "account-cart", routeTemplate: "/account/cart", outcome: "promote" },
+              { name: "sell-list-accept-to-checkout", routeTemplate: "/account/sell", outcome: "fresh" },
+              { name: "payout-ready-return", routeTemplate: "/account/sell", outcome: "fresh" },
+              {
+                name: "listing-freshness",
+                routeTemplate: "/account/listings/:id",
+                outcome: "fresh-or-owned-temporary",
+              },
+            ],
+            telemetry: {
+              "account-cart-post-write-consistency": "zero",
+              "sell-rail-accept-checkout-handoff": "zero",
+              "payout-ready-handoff": "zero",
+              "marketplace-listing-freshness-slo": "within-slo",
+              "settlement-payout-errors": "zero",
+              "projection-lag-poison-events": "zero",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.freshness).toMatchObject({
+      artifactCount: 4,
+      posture: "fail",
+      buyNowAbortCount: 1,
+      wakeDrillFailureCount: 0,
+      accountCartFailureCount: 0,
+      nonBuyNowUatFailureCount: 0,
+    });
+    expect(result.markdown).toContain("Projection freshness evidence posture: fail");
+    expect(result.markdown).toContain(
+      "| buy-now-checkout | production | account | abort | ready 14000ms; write-ready 14000ms; doc-ready 12000ms; failure checkout-ready-slo-exceeded | fail |",
+    );
+    expect(result.markdown).toContain(
+      "| wake-before-wait | staging | load | pass | single-write pass; load pass; durable pass | pass |",
+    );
+    expect(result.markdown).toContain(
+      "| account-cart | staging | /account/cart | promote | 3 outcomes; 0 blockers | pass |",
+    );
+    expect(result.markdown).toContain(
+      "| chrome-uat | staging | account-cart/sell-list/payout/listing | complete | 4/4 flows; 6/6 telemetry | pass |",
+    );
+  });
+
+  it("fails freshness evidence when UAT coverage is incomplete or support-safe redaction fails", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-05-31T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          record: {
+            schemaVersion: "non-buy-now-post-write-freshness-uat/v1",
+            environment: "staging",
+            evidenceReference: "STAGING-NON-BUY-NOW-FRESHNESS-2026-06-24",
+            note: "operator@example.com",
+            flows: [{ name: "account-cart", routeTemplate: "/account/cart", outcome: "promote" }],
+            telemetry: {
+              "account-cart-post-write-consistency": "zero",
+              "sell-rail-accept-checkout-handoff": "missing",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.freshness).toMatchObject({
+      posture: "fail",
+      redactionFailureCount: 1,
+      nonBuyNowUatFailureCount: 1,
+    });
+    expect(result.markdown).toContain(
+      "| chrome-uat | staging | account-cart/sell-list/payout/listing | redaction-failed |",
+    );
+    expect(result.markdown).not.toContain("operator@example.com");
   });
 
   it("recommends a batch increase only after enough healthy deployable attempts", () => {

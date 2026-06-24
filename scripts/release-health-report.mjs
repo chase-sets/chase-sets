@@ -6,6 +6,42 @@ import { fileURLToPath } from "node:url";
 import { readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
 
 export const RELEASE_HEALTH_REPORT_VERSION = "release-health-report/v1";
+const RELEASE_HEALTH_RECORD_VERSION = "release-health/v1";
+const BUY_NOW_FRESHNESS_PROBE_PREFIX = "guest-buy-now-freshness-probe/";
+const WAKE_DRILL_VERSION = "staging-wake-drills/v1";
+const ACCOUNT_CART_PROBE_VERSION = "account-cart-consistency-probe/v1";
+const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
+const FRESHNESS_EVIDENCE_SCHEMA_VERSIONS = new Set([
+  WAKE_DRILL_VERSION,
+  ACCOUNT_CART_PROBE_VERSION,
+  NON_BUY_NOW_UAT_VERSION,
+]);
+const SUPPORT_SAFE_EVIDENCE_PATTERNS = [
+  { label: "email", pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
+  { label: "full-url", pattern: /https?:\/\/[^\s"]+/gi },
+  { label: "account-id", pattern: /\b(?:account|acct|usr|user)_[0-9A-Za-z_:-]+\b/g },
+  { label: "cart-id", pattern: /\b(?:cart|crt)_[0-9A-Za-z_:-]+\b/g },
+  { label: "checkout-session-id", pattern: /\bchk_[0-9A-Za-z_:-]+\b/g },
+  { label: "payment-id", pattern: /\bpay_[0-9A-Za-z_:-]+\b/g },
+  { label: "payout-id", pattern: /\bpo_[0-9A-Za-z_:-]+\b/g },
+  { label: "event-id", pattern: /\bevt_[0-9A-Za-z_:-]+\b/g },
+  { label: "token-or-cookie", pattern: /\bBearer\s+[A-Za-z0-9._-]+|chase_sets_[A-Za-z0-9_=-]+/gi },
+  { label: "after-write", pattern: /afterWrite=[^&\s")]+|Chase-Sets-Read-After-Write["':=\s]+[^"',\s)]+/gi },
+];
+const REQUIRED_NON_BUY_NOW_UAT_FLOWS = [
+  "account-cart",
+  "sell-list-accept-to-checkout",
+  "payout-ready-return",
+  "listing-freshness",
+];
+const REQUIRED_NON_BUY_NOW_UAT_TELEMETRY = [
+  "account-cart-post-write-consistency",
+  "sell-rail-accept-checkout-handoff",
+  "payout-ready-handoff",
+  "marketplace-listing-freshness-slo",
+  "settlement-payout-errors",
+  "projection-lag-poison-events",
+];
 
 export function parseReleaseHealthReportArgs(argv, env = process.env) {
   return {
@@ -18,8 +54,19 @@ export function parseReleaseHealthReportArgs(argv, env = process.env) {
 
 export async function runReleaseHealthReport(options) {
   const files = [...options.files, ...(options.dir ? await findJsonFiles(options.dir) : [])];
-  const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(file, "utf8"))));
-  const report = buildReleaseHealthReport({ ...options, records });
+  const artifacts = await Promise.all(
+    files.map(async (file) => ({
+      file,
+      record: JSON.parse(await readFile(file, "utf8")),
+    })),
+  );
+  const classified = classifyReleaseHealthArtifacts(artifacts);
+  const report = buildReleaseHealthReport({
+    ...options,
+    records: classified.releaseRecords,
+    evidenceArtifacts: classified.evidenceArtifacts,
+    ignoredArtifactCount: classified.ignoredArtifacts.length,
+  });
 
   if (options.outPath) {
     await writeFile(options.outPath, report.markdown);
@@ -34,6 +81,7 @@ export function buildReleaseHealthReport(input) {
   const slo = evaluateReleaseSloPosture(records, timing);
   const deployableRecords = records.filter((record) => record.deploymentRequired !== false);
   const ci = summarizeCiPosture(records);
+  const freshness = summarizeFreshnessEvidence(input.evidenceArtifacts ?? []);
   const summary = {
     releaseCount: records.length,
     deployableReleaseCount: deployableRecords.length,
@@ -48,6 +96,7 @@ export function buildReleaseHealthReport(input) {
     ci,
     timing,
     slo,
+    freshness,
   };
 
   const lines = [
@@ -72,6 +121,8 @@ export function buildReleaseHealthReport(input) {
     `- Average merge to staging start: ${formatOptionalSeconds(summary.timing.averageMergeToStagingSeconds)}`,
     `- Batch-size posture: ${summary.slo.batchSizeRecommendation}`,
     `- Batch-size reason: ${summary.slo.batchSizeReason}`,
+    `- Projection freshness evidence posture: ${summary.freshness.posture}`,
+    `- Projection freshness evidence reason: ${summary.freshness.reason}`,
     "",
     "## CI Flake Posture",
     "",
@@ -83,6 +134,19 @@ export function buildReleaseHealthReport(input) {
     "| Job | Retries | Flaky failures |",
     "| --- | --- | --- |",
     ...formatCiRows(summary.ci),
+    "",
+    "## Projection Freshness Evidence",
+    "",
+    `- Evidence artifacts: ${summary.freshness.artifactCount}`,
+    `- Support-safe redaction failures: ${summary.freshness.redactionFailureCount}`,
+    `- Buy Now probe aborts: ${summary.freshness.buyNowAbortCount}`,
+    `- Wake-before-wait drill failures: ${summary.freshness.wakeDrillFailureCount}`,
+    `- Account cart probe failures: ${summary.freshness.accountCartFailureCount}`,
+    `- Non-Buy-Now UAT failures: ${summary.freshness.nonBuyNowUatFailureCount}`,
+    "",
+    "| Surface | Environment | Flow or route | Decision | Segment evidence | Status |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...formatFreshnessEvidenceRows(summary.freshness),
     "",
     "## Release Process Review Checklist",
     "",
@@ -119,6 +183,26 @@ export function buildReleaseHealthReport(input) {
     summary,
     markdown: `${lines.join("\n")}\n`,
   };
+}
+
+export function classifyReleaseHealthArtifacts(artifacts) {
+  const releaseRecords = [];
+  const evidenceArtifacts = [];
+  const ignoredArtifacts = [];
+
+  for (const artifact of artifacts) {
+    const record = artifact.record;
+    const schemaVersion = typeof record?.schemaVersion === "string" ? record.schemaVersion : "";
+    if (schemaVersion === RELEASE_HEALTH_RECORD_VERSION) {
+      releaseRecords.push(record);
+    } else if (isFreshnessEvidenceRecord(record)) {
+      evidenceArtifacts.push({ ...artifact, record });
+    } else {
+      ignoredArtifacts.push(artifact);
+    }
+  }
+
+  return { releaseRecords, evidenceArtifacts, ignoredArtifacts };
 }
 
 function formatReleaseRow(record) {
@@ -224,6 +308,182 @@ export function evaluateReleaseSloPosture(records, timing = summarizeTimings(rec
           ? "Release-health evidence supports testing a merge queue batch size of 2."
           : "Hold batch size until release-health evidence is complete.",
   };
+}
+
+function summarizeFreshnessEvidence(artifacts) {
+  const rows = [];
+
+  for (const artifact of artifacts) {
+    const record = artifact.record ?? artifact;
+    const redactionFailures = findSupportSafeEvidenceFailures(record);
+    const row = summarizeFreshnessArtifact(record);
+    rows.push({
+      ...row,
+      redactionFailures,
+      status: redactionFailures.length > 0 ? "fail" : row.status,
+      decision: redactionFailures.length > 0 ? "redaction-failed" : row.decision,
+    });
+  }
+
+  const redactionFailureCount = rows.filter((row) => row.redactionFailures.length > 0).length;
+  const buyNowAbortCount = rows.filter((row) => row.kind === "buy-now" && row.status === "fail").length;
+  const wakeDrillFailureCount = rows.filter((row) => row.kind === "wake-drill" && row.status === "fail").length;
+  const accountCartFailureCount = rows.filter((row) => row.kind === "account-cart" && row.status === "fail").length;
+  const nonBuyNowUatFailureCount = rows.filter((row) => row.kind === "non-buy-now-uat" && row.status === "fail").length;
+  const artifactCount = rows.length;
+  const failureCount =
+    redactionFailureCount +
+    buyNowAbortCount +
+    wakeDrillFailureCount +
+    accountCartFailureCount +
+    nonBuyNowUatFailureCount;
+
+  return {
+    artifactCount,
+    rows,
+    redactionFailureCount,
+    buyNowAbortCount,
+    wakeDrillFailureCount,
+    accountCartFailureCount,
+    nonBuyNowUatFailureCount,
+    posture: artifactCount === 0 ? "not-provided" : failureCount === 0 ? "pass" : "fail",
+    reason:
+      artifactCount === 0
+        ? "No projection freshness evidence artifacts were included in the report input."
+        : failureCount === 0
+          ? "Included projection freshness evidence artifacts are passing and support-safe."
+          : "One or more projection freshness evidence artifacts failed or were not support-safe.",
+  };
+}
+
+function summarizeFreshnessArtifact(record) {
+  if (isBuyNowFreshnessProbe(record)) {
+    return {
+      kind: "buy-now",
+      surface: "buy-now-checkout",
+      environment: normalizeEvidenceLabel(record.environment),
+      flowOrRoute: normalizeEvidenceLabel(record.flow),
+      decision: normalizeEvidenceLabel(record.promotionDecision),
+      segmentEvidence: formatBuyNowSegmentEvidence(record),
+      status: record.promotionDecision === "promote" || record.promotionDecision === "warn" ? "pass" : "fail",
+    };
+  }
+  if (record.schemaVersion === WAKE_DRILL_VERSION) {
+    const segmentSlo = record.segmentSlo ?? {};
+    return {
+      kind: "wake-drill",
+      surface: "wake-before-wait",
+      environment: normalizeEvidenceLabel(record.environment),
+      flowOrRoute: normalizeEvidenceLabel(record.drillKind),
+      decision: normalizeEvidenceLabel(record.verdict),
+      segmentEvidence: [
+        `single-write ${segmentSlo.browser?.singleWrite?.sloStatus ?? "unknown"}`,
+        `load ${segmentSlo.browser?.load?.sloStatus ?? "unknown"}`,
+        `durable ${segmentSlo.durableConvergence?.status ?? "unknown"}`,
+      ].join("; "),
+      status: record.verdict === "pass" ? "pass" : "fail",
+    };
+  }
+  if (record.schemaVersion === ACCOUNT_CART_PROBE_VERSION) {
+    return {
+      kind: "account-cart",
+      surface: "account-cart",
+      environment: normalizeEvidenceLabel(record.environment),
+      flowOrRoute: normalizeEvidenceLabel(record.routeTemplate),
+      decision: normalizeEvidenceLabel(record.promotionDecision),
+      segmentEvidence: `${record.observedOutcomes?.length ?? 0} outcomes; ${record.blockers?.length ?? 0} blockers`,
+      status: record.promotionDecision === "promote" ? "pass" : "fail",
+    };
+  }
+  if (record.schemaVersion === NON_BUY_NOW_UAT_VERSION) {
+    const evaluation = evaluateNonBuyNowUatEvidence(record);
+    return {
+      kind: "non-buy-now-uat",
+      surface: "chrome-uat",
+      environment: normalizeEvidenceLabel(record.environment),
+      flowOrRoute: "account-cart/sell-list/payout/listing",
+      decision: evaluation.failures.length === 0 ? "complete" : "incomplete",
+      segmentEvidence: `${evaluation.coveredFlows}/${REQUIRED_NON_BUY_NOW_UAT_FLOWS.length} flows; ${evaluation.coveredTelemetry}/${REQUIRED_NON_BUY_NOW_UAT_TELEMETRY.length} telemetry`,
+      status: evaluation.failures.length === 0 ? "pass" : "fail",
+    };
+  }
+
+  return {
+    kind: "unknown",
+    surface: "unknown",
+    environment: "unknown",
+    flowOrRoute: "unknown",
+    decision: "ignored",
+    segmentEvidence: "unknown schema",
+    status: "fail",
+  };
+}
+
+function evaluateNonBuyNowUatEvidence(record) {
+  const flowOutcomes = new Map(
+    (Array.isArray(record.flows) ? record.flows : []).map((flow) => [flow.name, normalizeEvidenceLabel(flow.outcome)]),
+  );
+  const telemetry = record.telemetry && typeof record.telemetry === "object" ? record.telemetry : {};
+  const failures = [];
+  let coveredFlows = 0;
+  let coveredTelemetry = 0;
+
+  for (const flowName of REQUIRED_NON_BUY_NOW_UAT_FLOWS) {
+    const outcome = flowOutcomes.get(flowName);
+    if (!outcome) {
+      failures.push(`missing-flow:${flowName}`);
+    } else if (["fallback-failure", "freshness-timeout", "permanent-not-found", "5xx"].includes(outcome)) {
+      failures.push(`failed-flow:${flowName}`);
+    } else {
+      coveredFlows += 1;
+    }
+  }
+
+  for (const telemetryName of REQUIRED_NON_BUY_NOW_UAT_TELEMETRY) {
+    const value = normalizeEvidenceLabel(telemetry[telemetryName]);
+    if (value === "zero" || value === "within-slo") {
+      coveredTelemetry += 1;
+    } else {
+      failures.push(`failed-telemetry:${telemetryName}`);
+    }
+  }
+
+  return { coveredFlows, coveredTelemetry, failures };
+}
+
+function formatFreshnessEvidenceRows(freshness) {
+  if (freshness.rows.length === 0) {
+    return ["| none | unknown | unknown | not-provided | no evidence artifacts included | warn |"];
+  }
+
+  return freshness.rows.map((row) =>
+    [row.surface, row.environment, row.flowOrRoute, row.decision, row.segmentEvidence, row.status]
+      .map(escapeMarkdownCell)
+      .join(" | ")
+      .replace(/^/, "| ")
+      .replace(/$/, " |"),
+  );
+}
+
+function formatBuyNowSegmentEvidence(record) {
+  const segments = record.segments ?? {};
+  return [
+    `ready ${formatOptionalMs(record.readyLatencyMs)}`,
+    `write-ready ${formatOptionalMs(segments.writeToCheckoutReadyMs)}`,
+    `doc-ready ${formatOptionalMs(segments.documentToReadyMs)}`,
+    `failure ${normalizeEvidenceLabel(record.failureReason)}`,
+  ].join("; ");
+}
+
+function isFreshnessEvidenceRecord(record) {
+  if (isBuyNowFreshnessProbe(record)) {
+    return true;
+  }
+  return FRESHNESS_EVIDENCE_SCHEMA_VERSIONS.has(record?.schemaVersion);
+}
+
+function isBuyNowFreshnessProbe(record) {
+  return typeof record?.schemaVersion === "string" && record.schemaVersion.startsWith(BUY_NOW_FRESHNESS_PROBE_PREFIX);
 }
 
 function summarizeTimings(records) {
@@ -424,6 +684,32 @@ function formatPercent(value) {
 
 function formatOptionalSeconds(seconds) {
   return seconds === null ? "unknown" : formatSeconds(seconds);
+}
+
+function formatOptionalMs(value) {
+  const normalized = nonNegativeInteger(value);
+  return normalized === 0 && value !== 0 ? "unknown" : `${normalized}ms`;
+}
+
+function normalizeEvidenceLabel(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_./:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "unknown";
+}
+
+function findSupportSafeEvidenceFailures(record) {
+  const serialized = JSON.stringify(record);
+  const failures = [];
+  for (const { label, pattern } of SUPPORT_SAFE_EVIDENCE_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(serialized)) {
+      failures.push(label);
+    }
+  }
+  return [...new Set(failures)].sort();
 }
 
 function escapeMarkdownCell(value) {
