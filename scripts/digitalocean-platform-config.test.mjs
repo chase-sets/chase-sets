@@ -34,6 +34,10 @@ const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
 );
+const sourceContextWakeRegistry = readFileSync(
+  resolve("infrastructure/platform-runtime/source-context-wake-registry.ts"),
+  "utf8",
+);
 const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.config.ts"), "utf8");
 
 function occurrenceCount(source, needle) {
@@ -76,9 +80,20 @@ function terraformJobBlock(source, jobName) {
 }
 
 function terraformStringList(source, localName) {
-  const match = new RegExp(`${localName} = \\[([\\s\\S]*?)\\n  \\]`).exec(source);
+  const match = new RegExp(`${localName}\\s+=\\s+\\[([\\s\\S]*?)\\]`).exec(source);
   expect(match).not.toBeNull();
   return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+}
+
+function hotRelaySourceContextsFromRegistry(source) {
+  return [...source.matchAll(/registryEntry\(\{([\s\S]*?)\n  \}\),/g)]
+    .flatMap((entry) => {
+      const sourceContextName = /sourceContextName:\s*"([^"]+)"/.exec(entry[1])?.[1];
+      const hotLane = /priorityLane:\s*"hot"/.test(entry[1]);
+      const relayFanOut = /relayFanOut:\s*true/.test(entry[1]);
+      return sourceContextName && hotLane && relayFanOut ? [sourceContextName] : [];
+    })
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function terraformStringMap(source, localName) {
@@ -324,8 +339,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"')).toBe(1);
-    expect(platformLocals).toContain(
-      'worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]',
+    expect(terraformStringList(platformLocals, "worker_listener_source_contexts").sort()).toEqual(
+      hotRelaySourceContextsFromRegistry(sourceContextWakeRegistry),
     );
     expect(platformLocals).toContain("worker_listener_database_urls");
     expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
