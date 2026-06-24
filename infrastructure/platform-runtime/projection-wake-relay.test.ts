@@ -11,6 +11,7 @@ import {
 } from "./projection-interest-index";
 import {
   fanOutEventStoreWakeNotification,
+  type ProjectionInterestIndexLookupCompletedEvent,
   ProjectionWakeRelayNotificationRejectedError,
   runProjectionWakeRelayActiveSession,
   type ProjectionWakeRelayFanOutFailedEvent,
@@ -44,6 +45,7 @@ describe("projection wake relay fan-out", () => {
     const relayConfigs = checkoutRelayConfigs();
     const { store, inputs } = recordingWorkSignalStore();
     const succeeded: ProjectionWakeRelayFanOutSucceededEvent[] = [];
+    const lookups: ProjectionInterestIndexLookupCompletedEvent[] = [];
 
     const result = await fanOutEventStoreWakeNotification({
       notification: checkoutWakeNotification(),
@@ -51,6 +53,7 @@ describe("projection wake relay fan-out", () => {
       workSignalStore: store,
       relayConfigs,
       observer: {
+        interestIndexLookupCompleted: (event) => lookups.push(event),
         fanOutSucceeded: (event) => succeeded.push(event),
       },
     });
@@ -71,6 +74,18 @@ describe("projection wake relay fan-out", () => {
     });
     expect(succeeded).toHaveLength(1);
     expect(succeeded[0].notificationAgeMs === null || succeeded[0].notificationAgeMs >= 0).toBe(true);
+    expect(lookups).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        priorityLane: "hot",
+        projectionInterestIndexVersion: index.indexVersion,
+        outcome: "matched",
+        intentCount: 1,
+      },
+    ]);
+    expect(lookups[0].durationMs).toBeGreaterThanOrEqual(0);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toMatchObject({
       sourceContextName: "checkout",
@@ -269,6 +284,7 @@ describe("projection wake relay fan-out", () => {
   it("skips enabled sources that have no interested projections", async () => {
     const { store, inputs } = recordingWorkSignalStore();
     const skipped: ProjectionWakeRelayFanOutSkippedEvent[] = [];
+    const lookups: ProjectionInterestIndexLookupCompletedEvent[] = [];
 
     const result = await fanOutEventStoreWakeNotification({
       notification: checkoutWakeNotification({ eventTypes: ["CheckoutSessionCreated"] }),
@@ -276,6 +292,7 @@ describe("projection wake relay fan-out", () => {
       workSignalStore: store,
       relayConfigs: checkoutRelayConfigs(),
       observer: {
+        interestIndexLookupCompleted: (event) => lookups.push(event),
         fanOutSkipped: (event) => skipped.push(event),
       },
     });
@@ -290,6 +307,16 @@ describe("projection wake relay fan-out", () => {
       enqueuedCount: 0,
     });
     expect(inputs).toEqual([]);
+    expect(lookups).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        targetContextName: null,
+        projectionName: null,
+        priorityLane: "hot",
+        outcome: "no-interests",
+        intentCount: 0,
+      },
+    ]);
     expect(skipped).toMatchObject([{ reason: "no-interests", sourceContextName: "checkout" }]);
   });
 

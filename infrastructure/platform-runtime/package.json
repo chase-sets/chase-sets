@@ -19,6 +19,7 @@
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",
     "./projection-operations-routes": "./projection-operations-routes.ts",
+    "./post-write-token-store": "./post-write-token-store.ts",
     "./process-lifecycle": "./process-lifecycle.ts",
     "./post-write-consistency": "./post-write-consistency.ts",
     "./projection-interest-index": "./projection-interest-index.ts",

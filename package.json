@@ -68,6 +68,7 @@
     "test:process": "vitest run scripts/process.test.mjs",
     "test:guest-buy-now-freshness-canary": "vitest run scripts/guest-buy-now-freshness-canary.test.mjs",
     "test:staging-wake-drills": "vitest run scripts/staging-wake-drills.test.mjs",
+    "test:push-wake-load-evidence": "vitest run scripts/push-wake-load-evidence.test.mjs",
     "test:release-lock": "vitest run scripts/release-lock.test.mjs",
     "test:release-lock-commands": "vitest run scripts/release-lock-commands.test.mjs",
     "test:release-health": "vitest run scripts/release-health.test.mjs",

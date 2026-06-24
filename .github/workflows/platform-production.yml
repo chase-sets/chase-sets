@@ -1875,6 +1875,7 @@ jobs:
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "true"
           SMOKE_EMAIL: ops+smoke@chasesets.com
+          SMOKE_EMAIL_SUFFIX: production-${{ github.run_id }}-${{ github.run_attempt }}
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-main
           SMOKE_FETCH_ATTEMPTS: "24"

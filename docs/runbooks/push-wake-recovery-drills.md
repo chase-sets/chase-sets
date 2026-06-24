@@ -26,6 +26,8 @@ Each evidence artifact also includes `segmentSlo`: browser-visible canary segmen
 
 What the `load` drill adds: a bounded synthetic burst (iterations hard-capped at 12, concurrency hard-capped at 4, guest or account flow) through the same canary machinery, followed by the same convergence audit, reporting write-to-checkout-ready min/p50/p95/max and readiness pass rate. This is bounded staging burst evidence for #1237 — explicitly not a production-like volume load test.
 
+After every `load` drill, the workflow runs the no-secret artifact evaluator (`pnpm run ops push-wake:load-evidence`) against the captured JSON and uploads `staging-wake-drill-load-evaluation.json`. The default `bounded-staging` profile checks the current bounded drill budget: at least 6 iterations, concurrency at least 2, zero config errors, every iteration producing evidence, durable convergence inside 120 seconds, no checkout relay/checkpoint gap, and no failed or stale wake intents in the after snapshot when one is present. Operators can dispatch the stricter `representative-volume` profile for a captured artifact that intentionally uses the hard caps (12 iterations, concurrency 4) and requires wake-status snapshots, an available wake store, at least one active wake-capable worker, and a lower post-load queue-age budget. The evaluator is CI-safe because it reads only the uploaded artifact; it does not read secrets or contact staging.
+
 Scheduling guidance: do not dispatch drills while a Platform Deploy run is mid-staging (the deploy's own canaries and worker restarts will skew convergence timing). Check the Actions queue first.
 
 ## Drill Catalog
@@ -60,8 +62,9 @@ Honest status: drills 1-2 are fully executable from Actions on demand and produc
 
 1. Same workflow, `drill: load`, `load_iterations` (cap 12), `load_concurrency` (cap 4), `load_flow: guest`.
 2. Pass criteria: green run; all iterations produce evidence (no config errors); post-burst convergence passes; readiness pass rate and p95 recorded in the artifact and step summary.
-3. Interpretation: queue-age behavior during the burst is on the **Projection Wake Pipeline** dashboard (`chase_sets_projection_wake_intent_queue_age_ms` by lane) joined by the drill's correlation prefix window; the hot-lane queue-age p95 alert must not fire for a burst this small. If it does, treat as a capacity finding per [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md).
-4. This drill does not prove production-like volume; see the load-proof gap in [Push-Wake SLO And Load Proof](../architecture/push-wake-slo-load-proof.md).
+3. Check `staging-wake-drill-load-evaluation.json`: `verdict: pass` under `bounded-staging` means the captured artifact met the bounded load/convergence/wake-store budget. `representative-volume` is expected to fail unless the dispatch used the 12x4 cap and captured wake-status snapshots.
+4. Interpretation: queue-age behavior during the burst is on the **Projection Wake Pipeline** dashboard (`chase_sets_projection_wake_intent_queue_age_ms` by lane) joined by the drill's correlation prefix window; the hot-lane queue-age p95 alert must not fire for a burst this small. If it does, treat as a capacity finding per [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md).
+5. This drill does not prove production-like volume; see the load-proof gap in [Push-Wake SLO And Load Proof](../architecture/push-wake-slo-load-proof.md).
 
 ### 3. Relay failover (operator-driven)
 
@@ -140,7 +143,7 @@ These dispatchers are scheduled/poll-driven over durable outbox rows (documented
 
 ## Evidence And Reporting
 
-- Executable drills: the workflow artifact (`staging-wake-drill-<kind>-<run>-<attempt>`) is the evidence of record — redacted JSON (`staging-wake-drills/v1`), wake-status snapshots, per-iteration canary evidence, and the step summary. Evidence never contains connection strings, credentials, tokens, or emails (the script fails closed on leak detection).
+- Executable drills: the workflow artifact (`staging-wake-drill-<kind>-<run>-<attempt>`) is the evidence of record — redacted JSON (`staging-wake-drills/v1`), wake-status snapshots, per-iteration canary evidence, the no-secret load evaluation (`push-wake-load-evidence/v1`) for `load` drills, and the step summary. Evidence never contains connection strings, credentials, tokens, or emails (the scripts fail closed on leak detection).
 - Operator drills: record the date, operator, switch/console actions, log line references, dashboard screenshots, and the bracketing drill-run URLs in the milestone issue (#1234) until a recurring drill log home exists.
 - Recovery metrics/alerts: every drill observes the #1228 surfaces (Projection Wake Pipeline dashboard, `platform-worker-wake-alerts`); a drill that trips an alert must say so in its record.
 

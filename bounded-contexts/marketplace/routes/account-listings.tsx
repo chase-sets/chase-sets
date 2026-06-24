@@ -7,8 +7,8 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import { type FreshWriteReadErrorClassification, type ListResponse } from "@chase-sets/http/responses";
 import {
   loadAfterWrite,
-  navigateAfterWrite,
-  navigateAfterWriteFromSources,
+  navigateAfterWriteFromSourcesWithCompactToken,
+  navigateAfterWriteWithCompactToken,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import {
@@ -21,6 +21,10 @@ import {
   type MarketplaceSellerListingAvailability,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
+import {
+  resolveMarketplacePostWriteRequest,
+  resolveMarketplacePostWriteTokenStore,
+} from "../support/route-support/post-write-tokens";
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
 import { createInventoryRequestApiClient, type InventoryItemDetail } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
@@ -311,11 +315,29 @@ function availabilityStatusFromAction(value: string | null): MarketplaceSellerLi
   return null;
 }
 
+async function navigateToAccountListingsAfterWrite(commandResult: unknown, destinationRoute: string) {
+  return navigateAfterWriteWithCompactToken(commandResult, destinationRoute, {
+    postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
+    telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
+  });
+}
+
+async function navigateToAccountListingsAfterWriteFromSources(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+) {
+  return navigateAfterWriteFromSourcesWithCompactToken(commandResults, destinationRoute, {
+    postWriteTokenStore: await resolveMarketplacePostWriteTokenStore(),
+    telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY,
+  });
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
-  const searchParams = new URL(request.url).searchParams;
+  const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
+  const marketplaceApi = createMarketplaceRequestApiClient(resolvedRequest);
+  const inventoryApi = createInventoryRequestApiClient(resolvedRequest);
+  const searchParams = new URL(resolvedRequest.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
   const selectedOptions = parseSelectedOptions(searchParams.get("selectedOptions"));
@@ -327,7 +349,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let inventoryHandoffError: string | null = null;
 
   if (claimListingIntentId) {
-    const anonymousOwnerId = readAnonymousListingDraftOwnerId(request);
+    const anonymousOwnerId = readAnonymousListingDraftOwnerId(resolvedRequest);
     if (!anonymousOwnerId) {
       claimError = t("marketplace.routes.accountListings.listing.draft.not.found");
     } else {
@@ -341,7 +363,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const pageRead = await loadAfterWrite<AccountListingsPageReads>({
-    request,
+    request: resolvedRequest,
     isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
     load: async () => {
       const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
@@ -462,23 +484,21 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "disable-listing-availability") {
       return redirect(
-        navigateAfterWrite(
+        await navigateToAccountListingsAfterWrite(
           await api.disableSellerListingAvailability({
             reasonCategory: String(formData.get("reasonCategory") ?? ""),
             availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
           }),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=disabled`,
-          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }
 
     if (intent === "enable-listing-availability") {
       return redirect(
-        navigateAfterWrite(
+        await navigateToAccountListingsAfterWrite(
           await api.enableSellerListingAvailability(),
           `/account/listings?${AVAILABILITY_ACTION_PARAM}=enabled`,
-          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }
@@ -557,12 +577,11 @@ export async function action({ request }: ActionFunctionArgs) {
           : [result];
 
       return redirect(
-        navigateAfterWriteFromSources(
+        await navigateToAccountListingsAfterWriteFromSources(
           redirectReceipts,
           intent === "create-and-publish-listing"
             ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
             : `/account/listings/${result.id}`,
-          { telemetry: ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY },
         ),
       );
     }

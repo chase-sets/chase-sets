@@ -375,7 +375,7 @@
         "routeId": "account-listing",
         "actions": ["Update listing", "Publish listing"],
         "command": "Marketplace listing commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithCompactToken"]
       },
       "destination": {
         "routeId": "account-listing",
@@ -402,7 +402,7 @@
         "routeId": "account-listings",
         "actions": ["Create listing", "Create and publish listing"],
         "command": "Marketplace listing commands",
-        "helperUses": ["navigateAfterWriteFromSources"]
+        "helperUses": ["navigateAfterWriteFromSourcesWithCompactToken"]
       },
       "destination": {
         "routeId": "account-listing",
@@ -429,7 +429,7 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Marketplace listing list commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithCompactToken"]
       },
       "destination": {
         "routeId": "account-listings",
@@ -456,7 +456,7 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Marketplace listing list commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithCompactToken"]
       },
       "destination": {
         "routeId": "account-listings",
@@ -573,7 +573,7 @@
         "routeId": "account-listings",
         "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Seller Listing Availability commands",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWriteWithCompactToken"]
       },
       "destination": {
         "routeId": "account-listings",
