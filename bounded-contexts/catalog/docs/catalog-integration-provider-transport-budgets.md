@@ -73,7 +73,7 @@ Provider option-query cache policy remains:
 Scrydex One Piece imports are paid-provider work. Every transport design and UAT
 proof must minimize provider calls and expose call/credit evidence to operators.
 The One Piece start gate is documented in
-[Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md).
+[Catalog Integration One Piece Production Signoff](./catalog-integration-production-signoff.md#one-piece).
 
 | Surface | Requirement | Forbidden normal path | Evidence |
 | --- | --- | --- | --- |

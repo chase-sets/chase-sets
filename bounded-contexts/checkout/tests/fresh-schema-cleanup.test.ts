@@ -212,13 +212,11 @@ describe("fresh checkout read-model schemas", () => {
   it("keeps current-flow docs and runbooks on fresh buy route names", () => {
     const currentFlowDocs = [
       "bounded-contexts/checkout/docs/guest-buy-now-freshness-verification.md",
-      "docs/architecture/checkout-surface-audit.md",
       "docs/architecture/cookie-backed-continuation-handoff.md",
       "docs/architecture/projection-freshness-slos.md",
       "docs/architecture/projection-freshness-worker-capacity.md",
       "docs/architecture/read-after-write-route-author-checklist.md",
       "docs/runbooks/guest-buy-now-freshness-probe.md",
-      "docs/runbooks/guest-buy-now-projection-lag-root-cause.md",
       "docs/runbooks/projection-freshness-audit.md",
       "docs/runbooks/push-wake-operations.md",
     ].map((file) => join(repoRoot, file));

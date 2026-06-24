@@ -23,8 +23,7 @@ indicator, line-item image placeholder, action-hierarchy helpers).
   motion reference tokens from `packages/design-system/src/theme/tokens.ts`.
 - **Cart/readiness solves fulfillment; checkout never does.** Checkout summarizes
   a ready plan and collects contact/delivery/shipping/payment. It must not ask the
-  customer to solve fulfillment assignment (carried forward from
-  `checkout-visual-targets.md`).
+  customer to solve fulfillment assignment.
 - **No side effects before valid confirmation.** Recovery and pre-payment surfaces
   show no-side-effect facts; "no payment until checkout" / "not charged yet" stays
   honest.

@@ -39,7 +39,7 @@ const scrydexOnePieceSourceContract = {
   owner: "chase-sets/catalog",
   repository: "chase-sets/chase-sets",
   commit: null,
-  documentPath: "bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md",
+  documentPath: "bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#one-piece",
   fixtureSetVersion: "scrydex-one-piece-production-v1",
 } as const;
 

@@ -76,7 +76,7 @@ Scrydex readiness may show only provider key, unit key, environment label, crede
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
-- [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+- [Catalog Integration One Piece Production Signoff](./catalog-integration-production-signoff.md#one-piece)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Provider Integration Profiles](./provider-integration-profiles.md)
 - [TCGplayer Automation Operations](../../../docs/runbooks/tcgplayer-automation-operations.md)

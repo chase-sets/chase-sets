@@ -54,8 +54,6 @@ Semantic handoffs are part of the existing `fresh-read` strategy. They are not a
 
 Marketplace and admin audits should migrate only flows where stale reads can hide a successful command. An empty account cart after add-line, a listing detail `404` after publish, or a stale account detail after create/update are candidates. Durable job/status pages, operator work queues with explicit lag states, and command responses that already return the visible committed snapshot are not candidates by default.
 
-The current migration inventory lives in [Semantic Post-Write Handoff Audit](./semantic-post-write-handoff-audit.md). Update it before adding new cross-platform handoff kinds.
-
 ## Observability
 
 Semantic handoff diagnostics compose with the existing post-write consistency telemetry. Do not add a new metric family unless the existing one cannot express the outcome.

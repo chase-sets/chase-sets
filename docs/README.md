@@ -1,6 +1,17 @@
 # Documentation
 
-This folder is a curated map for cross-cutting product, language, API, ADR, and operator documentation. Bounded-context behavior belongs in `bounded-contexts/`, shared contracts belong in `contracts/`, infrastructure behavior belongs in `infrastructure/`, and design-system guidance belongs in `packages/design-system/`.
+This folder is a curated map for cross-cutting product, language, API, architecture, ADR, and operator documentation.
+
+Documentation is organized by lifecycle:
+
+- **Reference & architecture** — living cross-cutting design and policy in `docs/architecture/` and the context-owned `docs/` folders.
+- **Operator runbooks** — how to run the system, in `docs/runbooks/`.
+- **Decision records (ADRs)** — immutable architecture decisions, in `docs/adr/`.
+- **Design system & shared contracts** — canonical UI and cross-context contracts in `packages/design-system/` and `contracts/`.
+
+Bounded-context behavior lives with each context under `bounded-contexts/<context>/`. Start at the [Bounded Context Map](../bounded-contexts/README.md) and each context's `README.md` and `docs/`. Context-owned deep dives are intentionally found through their owning context rather than re-listed here.
+
+Completed milestone evidence, signoff checklists, and audits live in the closing GitHub issue/PR and git history, not in this folder.
 
 ## Core References
 
@@ -13,51 +24,32 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Guest Rail Intent Persistence](./architecture/guest-rail-intent-persistence.md): context-owned anonymous listing draft and Watch alert intent persistence, registration return, claim, expiry, replay, and privacy contract for the simplified item-detail rail.
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
 - [Post-Write Consistency Policy](./architecture/post-write-consistency.md): product-wide strategy taxonomy and default-safe route path for `navigateAfterWrite`, `loadAfterWrite`, recovery boundaries, lag-vs-readiness classification, and realtime as a bounded correction channel.
-- [Post-M43 Checkout Consistency Baseline](./architecture/post-m43-checkout-consistency-baseline.md): route/source baseline, issue sequencing, and new-issue rules for the Post-M43 checkout consistency follow-ups.
 - [Advanced Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): advanced/bespoke exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Semantic Post-Write Handoffs](./architecture/semantic-post-write-handoffs.md): lightweight `postWriteHandoff` query metadata paired with `navigateAfterWrite`/`loadAfterWrite` for `fresh-read` routes where stale `200` empty, stale resource, or `404` responses can hide a successful command.
-- [Semantic Post-Write Handoff Audit](./architecture/semantic-post-write-handoff-audit.md): Marketplace and Admin candidate inventory with migration decisions, negative classifications, and phase guidance.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
 - [Projection Freshness Worker Capacity](./architecture/projection-freshness-worker-capacity.md): worker topology, capacity defaults, operator evidence, and scaling order for critical projection freshness.
 - [Push-Driven Projection Runtime Phase Map](./architecture/push-driven-projection-runtime-phase-map.md): phased rollout gates for the worker-owned relay, durable wake store, Checkout hot path, and platform work-signal composite.
-- [Projection Wake Signal Model](./architecture/projection-wake-signal-model.md): mental model for relay, scheduler, store, registry, and interest-index responsibilities, plus consumer guidance for store/registry versus worker-host wiring.
-- [Push-Wake SLO And Load Proof](./architecture/push-wake-slo-load-proof.md): consolidated numeric SLO, canary, load, and capacity evidence for the push-first runtime — segment inventory, live latency record, production proof-mode miss analysis, ratification status, and open load-proof gaps.
+- [Push-Wake SLO And Load Proof](./architecture/push-wake-slo-load-proof.md): consolidated numeric SLO, canary, load, and capacity evidence for the push-first runtime.
 - [Event-Store Wake Notifications](./architecture/event-store-wake-notifications.md): after-commit source wake channel, envelope, privacy, failure, and relay expectations for push-driven projections.
 - [Source-Context Wake Registry](./architecture/source-context-wake-registry.md): platform rollout contract for source wake eligibility, event-store wake emission, relay fan-out, and production evidence gates.
 - [Projection Wake Relay](./architecture/projection-wake-relay.md): worker-owned relay runtime and fan-out core that catches up from durable event rows and maps source wakes into control-plane projection wake intents.
-- [Projection Interest Index](./architecture/projection-interest-index.md): the versioned source-to-projection wake mapping — coarse-payload lookup semantics, safe over-wake invariant, stale-index policy, migration-driven owner/opt-out overrides, and operator surfaces.
-- [Push-First Projection Migration Inventory](./architecture/push-first-projection-migration.md): migration report with a push-first disposition for every projection group and read-after-write route entry, opt-out evidence policy, rollout-wave timeline, and documented polling exceptions.
+- [Projection Interest Index](./architecture/projection-interest-index.md): the versioned source-to-projection wake mapping — coarse-payload lookup semantics, safe over-wake invariant, stale-index policy, and operator surfaces.
+- [Push-First Projection Migration Inventory](./architecture/push-first-projection-migration.md): migration report with a push-first disposition for every projection group and read-after-write route entry, opt-out evidence policy, and rollout-wave timeline.
 - [Projection Wake-Intent Scheduler](./architecture/projection-wake-scheduler.md): worker-side consumer that claims durable wake intents by lane, runs projection groups under existing leases, and completes only on durable checkpoint advancement.
-- [Push-Wake Connection Budget](./architecture/push-wake-connection-budget.md): per-environment DigitalOcean connection ledger, listener/channel inventory, PgBouncer-vs-direct semantics, topology parity contract, and plan-time Terraform budget checks for push-driven projection wakes.
+- [Push-Wake Connection Budget](./architecture/push-wake-connection-budget.md): per-environment DigitalOcean connection ledger, listener/channel inventory, PgBouncer-vs-direct semantics, topology parity contract, and plan-time Terraform budget checks.
 - [Platform Work-Signal Composite](./architecture/work-signal-composite.md): internal wake-notification envelope contract, emitter/waiter primitives, adapter channels, rolling-deploy compatibility, and the tracked origin disposition inventory.
-- [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
-- [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
-- [Event Projections](./architecture/event-projections.md): consumer-owned subscriptions, replay, lag metrics, and ownership rules.
+- [Event Projection Runtime](./architecture/event-projection-runtime.md): consumer-owned subscriptions, projection consumer states, scaling, idempotency, poison-event behavior, lag metrics, and ownership/reset-strategy rules.
 - [Projection Helper Toolkit](./architecture/projection-toolkit.md): typed row/JSONB helper mapping, escape-hatch guidance, and row-identity migration proof.
 - [Event Projection Operations](./architecture/event-projection-operations.md): durable operation queue, leases, fencing, rebuild strategies, and handler transaction rules.
 - [Durable Job Workflows](./architecture/durable-job-workflows.md): durable job tables, worker claims, SSE progress, and migration expectations for long-running workflows.
 - [Event Projection Query Plans](./architecture/event-projection-query-plans.md): projection read query shape, supporting indexes, and backlog validation expectations.
-- [Event Projection Runtime](./architecture/event-projection-runtime.md): projection consumer states, scaling, idempotency, and poison-event behavior.
 - [Stream-Isolated Projection Errors](./architecture/stream-isolated-projection-errors.md): poison-event isolation, blocked-stream semantics, and degraded projection health.
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
-- [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
-- [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
-- [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md): admin section taxonomy, Commercial Terms placement, shell navigation model, operations authorization, root hub, and admin page primitive direction.
-- [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md): no-go decision for route-time projection catchup, baseline freshness contract, and reopening criteria.
-- [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md): worker-owned projection wake relay, durable control-plane wake store, and phased platform work-signal composite.
-- [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md): single notification outbox, retired transactional email outbox, and channel adapters behind one delivery contract.
-- [ADR 0013: Checkout Payments Dependency Direction](./adr/0013-checkout-payments-dependency-direction.md): Checkout-owned payment handoff, published session/payment linkage fact, and package-cycle cut rule.
-- [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, old route disposition, readiness guardrails, and kill-switch behavior.
-- [Checkout Visual Targets](../bounded-contexts/checkout/docs/checkout-visual-targets.md): image-first design references for buy/sell checkout, readiness, recovery, capability, and support states.
-- [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
-- [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): redacted telemetry profiles consumed by checkout observability code.
-- [Guest Buy Now Freshness Verification](../bounded-contexts/checkout/docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, shared test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
-- [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
 - [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.
@@ -69,12 +61,11 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Checkout Support Operations](./runbooks/checkout-support-operations.md): support playbook for stuck checkout, payment dispute, downstream handoff, and refund request scenarios.
 - [Marketplace Production Promotion](./runbooks/marketplace-production-promotion.md): public promotion gates, proof mode, owner approval variables, and final readiness preflight.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
-- [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
-- [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
 - [Account Cart Consistency Probe](./runbooks/account-cart-consistency-probe.md): redacted account-cart post-write consistency evidence for optimistic apply, reconciliation, stale-response discard, rollback probes, and privacy constraints.
 - [Non-Buy-Now Post-Write Freshness UAT](./runbooks/non-buy-now-post-write-freshness-uat.md): Chrome staging checklist and redacted evidence shape for account cart, Sell List, payout-ready, and listing freshness flows not covered by the Buy Now freshness probe.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
+- [Catalog Game Provider Sync Operations](./runbooks/catalog-game-provider-sync-operations.md): Magic, One Piece, and Lorcana provider credential posture, production defaults, bulk-first imports, rotation, UI-only UAT, and emergency disablement.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, post-deploy production verification, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
@@ -82,103 +73,39 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Playwright E2E](./runbooks/playwright-e2e.md): e2e charter (what the browser layer owns vs vitest), suite coverage, local setup, and sandbox-aware run commands.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
-- [Catalog Alias Equivalence Staging Proof](./runbooks/catalog-alias-equivalence-staging-proof.md): UI-driven staging walkthrough for Japanese TCGdex import -> alias review -> promotion -> English search and display, with expected stage counts, revocation, and alias backfill / Discovery reindex / display recompute rollback.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
-- [Magic Provider Sync Operations](./runbooks/magic-provider-sync-operations.md): MTGJSON, Scryfall, and TCGplayer credential posture, production defaults, rotation, and emergency disablement.
-- [One Piece Provider Sync Operations](./runbooks/one-piece-provider-sync-operations.md): Scrydex and TCGplayer One Piece credential posture, bulk-first credit-aware imports, UI-only UAT, and emergency disablement.
-- [Lorcana Provider Sync Operations](./runbooks/lorcana-provider-sync-operations.md): LorcanaJSON, Lorcast, Scrydex, and TCGplayer Lorcana runtime posture, bulk-first imports, shared Scrydex credentials, UI-only UAT, and emergency disablement.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
-- [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
-- [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
+- [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, rebuild triage, and poison-event/blocked-stream repair.
 - [Push-Wake Rollout Controls](./runbooks/push-wake-rollout-controls.md): kill-switch matrix, rollback recipes, verification, and scope assessment for the push-first projection wake runtime.
 - [Push-Wake Operations](./runbooks/push-wake-operations.md): incident playbook for the push-wake pipeline — Grafana-first latency stage map, structural status inspection, failure classes, Checkout triage, and safe inspection commands.
-- [Push-Wake Recovery Drills](./runbooks/push-wake-recovery-drills.md): disaster-recovery drill catalog — on-demand staging reconciliation/burst drill workflow, operator-driven failover/kill-switch/cursor-loss/failover procedures, and evidence rules.
+- [Push-Wake Recovery Drills](./runbooks/push-wake-recovery-drills.md): disaster-recovery drill catalog — staging reconciliation/burst drill workflow, operator-driven failover/kill-switch/cursor-loss procedures, and evidence rules.
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
-- [Guest Buy Now Projection Lag Root Cause](./runbooks/guest-buy-now-projection-lag-root-cause.md): staging incident classification, evidence limits, failed contract, and follow-up mapping for Checkout projection lag.
 - [Guest Buy Now Freshness Probe](./runbooks/guest-buy-now-freshness-probe.md): guest and account Buy Now readiness probe, write-to-checkout-ready release gate, negative invalid-session probe, production proof-mode runs, fixture ownership, redacted evidence, and no-payment/no-order safety.
+- [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
-- [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): Milestone #13 admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
+- [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
 - [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center launch checklist, worker config, operating cadence, pause/withdrawal, diagnostics owner routing, and provider incident response.
 - [Catalog Display Identity Propagation](./runbooks/catalog-display-identity-propagation.md): recomputation health, backfill, repair, downstream projection diagnosis, and rollout verification for resolved display identity.
+- [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): tax readiness evidence, no-provider launch posture, and provider-required collection gating.
+- [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 
-## Owner-Owned Documentation
+## Design System and Shared Contracts
 
-- [Design System](../packages/design-system/README.md)
+- [Design System](../packages/design-system/README.md): foundations, props vocabulary, spacing/type scales, composition rules, forms, and motion.
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
 - [Dense Admin Workbench Pattern](../packages/design-system/DENSE_ADMIN_WORKBENCH.md)
 - [Progressive Disclosure](../packages/design-system/PROGRESSIVE_DISCLOSURE.md)
 - [Reference Info Popup](../packages/design-system/REFERENCE_INFO.md)
 - [Panel Interaction Patterns](../packages/design-system/PANEL_INTERACTIONS.md)
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
+- [Checkout Primitives](../packages/design-system/CHECKOUT_PRIMITIVES.md)
+- [Operational Workflows](../packages/design-system/OPERATIONAL_WORKFLOWS.md)
+- [Embedded Stripe Appearance](../packages/design-system/EMBEDDED_STRIPE_APPEARANCE.md)
+- [Design System Milestones](../packages/design-system/DESIGN_SYSTEM_MILESTONES.md): completed form-system (#10) and legacy-eradication (#12) traceability and verification commands.
 - [Localization Contract](../contracts/localization/README.md)
-- [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
-- [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
-- [Catalog Integration Control Plane](../bounded-contexts/catalog/docs/catalog-integration-control-plane.md)
-- [Catalog Integration Diagnostic Taxonomy](../bounded-contexts/catalog/docs/catalog-integration-diagnostic-taxonomy.md)
-- [Catalog Integration Data Governance](../bounded-contexts/catalog/docs/catalog-integration-data-governance.md)
-- [Catalog Integration Credential Readiness](../bounded-contexts/catalog/docs/catalog-integration-credential-readiness.md)
-- [Catalog Integration Audit Evidence](../bounded-contexts/catalog/docs/catalog-integration-audit-evidence.md)
-- [Catalog Integration Fixture Lifecycle](../bounded-contexts/catalog/docs/catalog-integration-fixture-lifecycle.md)
-- [Catalog Integration Job Consistency](../bounded-contexts/catalog/docs/catalog-integration-job-consistency.md)
-- [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
-- [Catalog Integration Magic Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md)
-- [Catalog Integration One Piece Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-one-piece-production-signoff.md)
-- [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
-- [Catalog Integration Provider Transport Budgets](../bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md)
-- [Catalog Integration Real-Provider Proof](../bounded-contexts/catalog/docs/catalog-integration-real-provider-proof.md)
-- [Catalog Integration Security Privacy Launch Gate](../bounded-contexts/catalog/docs/catalog-integration-security-privacy-launch-gate.md)
-- [Catalog Integration No-Confusion UX Acceptance](../bounded-contexts/catalog/docs/catalog-integration-no-confusion-ux-acceptance.md)
-- [Catalog Integration Impact Analysis](../bounded-contexts/catalog/docs/catalog-integration-impact-analysis.md)
-- [Catalog Integration Admin Control Plane RBAC](../bounded-contexts/catalog/docs/catalog-integration-admin-control-plane-rbac.md)
-- [Catalog Integration Observability](../bounded-contexts/catalog/docs/catalog-integration-observability.md)
-- [Catalog Integration Test Architecture](../bounded-contexts/catalog/docs/catalog-integration-test-architecture.md)
-- [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
-- [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)
-- [Catalog Integration Legacy Cleanup](../bounded-contexts/catalog/docs/catalog-integration-legacy-cleanup.md)
-- [Catalog Control Plane Primary Path](../bounded-contexts/catalog/docs/catalog-control-plane-primary-path.md)
-- [Catalog Control Plane Information Architecture](../bounded-contexts/catalog/docs/catalog-control-plane-information-architecture.md)
-- [Catalog Control Plane Section Navigation](../bounded-contexts/catalog/docs/catalog-control-plane-section-navigation.md)
-- [Catalog Control Plane Operator Copy](../bounded-contexts/catalog/docs/catalog-control-plane-operator-copy.md)
-- [Catalog Control Plane Clean Contract Handoff](../bounded-contexts/catalog/docs/catalog-control-plane-clean-contract-handoff.md)
-- [Catalog Control Plane First-Slice Stage Board](../bounded-contexts/catalog/docs/catalog-control-plane-first-slice-stage-board.md)
-- [Catalog Primary Workbench Admin Contract](../bounded-contexts/catalog/docs/primary-workbench-admin-contract.md)
-- [Catalog Integration New-Provider Walkthrough](../bounded-contexts/catalog/docs/catalog-integration-new-provider-walkthrough.md)
-- [Catalog Integration MTGJSON And Scryfall Validation](../bounded-contexts/catalog/docs/catalog-integration-mtgjson-scryfall-validation.md)
-- [Catalog Integration Lorcana Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-lorcana-production-signoff.md)
-- [Catalog Integration Milestone Release Plan](../bounded-contexts/catalog/docs/catalog-integration-milestone-release-plan.md)
-- [Catalog Source Conflict Resolution](../bounded-contexts/catalog/docs/source-conflict-resolution.md)
-- [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)
-- [Catalog Provider Integration Admin Module](../bounded-contexts/catalog/docs/provider-integration-admin-module.md)
-- [Catalog Integration Operator Acceptance Journeys](../bounded-contexts/catalog/docs/catalog-integration-operator-acceptance-journeys.md)
-- [Catalog Admin Control Plane Query Contracts](../bounded-contexts/catalog/docs/admin-control-plane-query-contracts.md)
-- [Catalog Admin Control Plane Read-Model SLOs](../bounded-contexts/catalog/docs/admin-control-plane-read-model-slos.md)
-- [Catalog External Product References](../bounded-contexts/catalog/docs/external-product-references.md)
-- [Catalog Resolved Display Identity](../bounded-contexts/catalog/docs/resolved-display-identity.md)
-- [Catalog TCGplayer Automation Client Contract](../bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md)
-- [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
-- [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
-- [Catalog Item Imagery](../bounded-contexts/catalog/docs/catalog-item-imagery.md)
-- [Notifications](../bounded-contexts/notifications/README.md)
-- [Discovery Dynamic Search Filters](../bounded-contexts/discovery/docs/dynamic-search-filters.md)
-- [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md)
-- [Discovery Item Detail Rail Analytics](../bounded-contexts/discovery/docs/item-detail-rail-analytics.md)
-- [Discovery Product Alerts](../bounded-contexts/discovery/docs/product-alerts.md)
-- [Ordering Self-Service Purchase Cancellation](../bounded-contexts/ordering/docs/self-service-purchase-cancellation.md)
-- [Fulfillment Purchase Cancellation Cutoff](../bounded-contexts/fulfillment/docs/purchase-cancellation-cutoff.md)
-- [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md)
-- [Marketplace Limited Offer Demand Signals](../bounded-contexts/marketplace/docs/limited-offer-demand-signals.md)
-- [Marketplace Seller Listing Availability](../bounded-contexts/marketplace/docs/seller-listing-availability.md)
-- [Auth Social Login Journey Policy](../bounded-contexts/auth/docs/social-login.md)
-- [Marketplace Standard Listing Inventory Disclosure](../bounded-contexts/marketplace/docs/standard-listing-inventory-disclosure.md)
-- [Inventory Automatic Listing Stock](../bounded-contexts/inventory/docs/automatic-listing-stock.md)
-- [Inventory Import Product Resolution](../bounded-contexts/inventory/docs/import-product-resolution.md)
-- [Inventory Agent Listing Integrations](../bounded-contexts/inventory/docs/agent-listing-integrations.md)
-- [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
-- [Settlement Account Money Navigation](../bounded-contexts/settlement/docs/account-money-navigation.md)
-- [Platform Operations](../bounded-contexts/platform-operations/README.md)
 
 ## ADRs
 
@@ -196,10 +123,6 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md)
 - [ADR 0013: Checkout Payments Dependency Direction](./adr/0013-checkout-payments-dependency-direction.md)
 
-## Maintenance
-
-- [Documentation Cleanup Tasks](./documentation-cleanup-tasks.md): completed cleanup checklist from the Markdown documentation review.
-
 ## Generated Markdown
 
-Markdown under `artifacts/` is generated local output. Regenerate those files through the owning script instead of editing them by hand.
+`packages/design-system/COMPONENT_INDEX.md` and Markdown under `artifacts/` are generated output. Regenerate them through the owning script instead of editing them by hand.

@@ -116,7 +116,7 @@ Operator copy may say a removed behavior is unavailable only to explain why the 
 
 ## Related References
 
-- [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
+- [Catalog Control Plane Primary Path](./catalog-control-plane-architecture.md)
 - [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md)
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
 - [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)

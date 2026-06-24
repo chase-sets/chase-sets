@@ -81,7 +81,7 @@ Use `text-2xs` for compact labels, pills, and dense secondary metadata that prev
 
 ## Forms
 
-Production forms must use the exported `Form` primitive or an approved design-system adapter. Application code must not render lowercase JSX/HTML `<form>` directly, and route modules must not import framework `Form` directly outside an approved adapter boundary. The complete primitive acceptance checklist lives in [Form Acceptance Matrix](./FORM_TEST_MATRIX.md), and the milestone traceability artifact lives in [Form System Milestone 10 Audit](./FORM_SYSTEM_AUDIT.md).
+Production forms must use the exported `Form` primitive or an approved design-system adapter. Application code must not render lowercase JSX/HTML `<form>` directly, and route modules must not import framework `Form` directly outside an approved adapter boundary. The complete primitive acceptance checklist lives in [Form Acceptance Matrix](./DESIGN_SYSTEM_MILESTONES.md), and the milestone traceability artifact lives in [Form System Milestone 10 Audit](./DESIGN_SYSTEM_MILESTONES.md).
 
 Use `Form` for native-post, GET filter, multipart upload, destructive action, sign-out, checkout, and external-submit flows:
 

@@ -100,7 +100,7 @@ MTGJSON, and TCGplayer Magic providers may record normalized Source Observation
 facts, provenance, source hashes, and diagnostics, but they do not write Catalog
 Items, Products, Reference Records, External Catalog Item References, or External
 Product References directly. The production authority and retained-data rules
-are tracked in [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md):
+are tracked in [Catalog Integration Magic Production Signoff](./catalog-integration-production-signoff.md#magic):
 
 - Scryfall is the primary Magic card-print and image-evidence source.
 - MTGJSON is the Magic set/reference-data and cross-check source.

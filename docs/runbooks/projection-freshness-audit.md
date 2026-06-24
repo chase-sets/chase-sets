@@ -122,7 +122,7 @@ Do not add labels or log filters for checkout session ids, account ids, event id
 Repair follows the owning runbook:
 
 - Worker absent, stale heartbeat, or source lag: use [Projection Operations](./projection-operations.md) and [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md).
-- Poison or degraded projection: use [Projection Poison Events](./projection-poison-events.md).
+- Poison or degraded projection: use [Projection Poison Events](./projection-operations.md).
 - Missing receipt, target context, or exact dependency: fix the route/request/platform contract before tuning timeouts.
 - Timeout with customer-safe temporary recovery but sustained SLO breach: hold rollout expansion and open a capacity or projection-performance follow-up.
 

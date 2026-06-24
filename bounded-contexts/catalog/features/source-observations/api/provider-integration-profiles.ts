@@ -3246,7 +3246,7 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
   connector: {
     kind: "mtgjson-json",
     baseUrl: "https://mtgjson.com/api/v5",
-    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md",
+    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#magic",
     authentication: {
       scheme: "public-json",
       credentialsRequired: false,
@@ -3521,7 +3521,7 @@ export const lorcanajsonLorcanaCardReferenceProviderProfile = {
   connector: {
     kind: "lorcanajson-json",
     baseUrl: "https://lorcanajson.org/files/current/en",
-    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-lorcana-production-signoff.md",
+    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-production-signoff.md#lorcana",
     authentication: {
       scheme: "public-json",
       credentialsRequired: false,

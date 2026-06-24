@@ -111,7 +111,7 @@ Future audit persistence should append `rollout-control-denied` records to the C
 
 Magic production sync has an additional start gate. MTGJSON, Scryfall, and
 TCGplayer Magic may be implemented behind disabled or dry-run-only controls, but
-production activation must wait for [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md)
+production activation must wait for [Catalog Integration Magic Production Signoff](./catalog-integration-production-signoff.md#magic)
 and the interface-only staging UAT. During the UAT, operators must be able to
 verify dry-run-only, provider emergency stop, imports disabled, promotion
 disabled, and reapply disabled controls for each provider without using direct
@@ -120,7 +120,7 @@ APIs, CLI commands, SQL, provider endpoints, or hidden routes.
 One Piece production sync has the same start-gate shape plus a paid-provider
 efficiency requirement. Scrydex and TCGplayer One Piece may be implemented
 behind disabled or dry-run-only controls, but production activation must wait
-for [Catalog Integration One Piece Production Signoff](./catalog-integration-one-piece-production-signoff.md)
+for [Catalog Integration One Piece Production Signoff](./catalog-integration-production-signoff.md#one-piece)
 and the interface-only staging UAT. Scrydex rollout evidence must show
 operator-visible readiness, credit/rate/cache state, preflight estimated request
 count or an `estimate-unavailable` diagnostic, and post-run actual request
@@ -153,4 +153,4 @@ Rollback verification should record the active env values, Admin readiness rollo
 - [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md)
 - [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
-- [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md)
+- [Catalog Integration Magic Production Signoff](./catalog-integration-production-signoff.md#magic)

@@ -65,8 +65,7 @@ PR and release evidence for this gate should name:
 ## Related References
 
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
-- [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
-- [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md)
+- [Catalog Control Plane Architecture](./catalog-control-plane-architecture.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)

@@ -2,7 +2,7 @@
 
 This note is the Catalog-specific application contract for grouped section navigation. It applies the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern to the Catalog Control Plane.
 
-> The control plane is not a single `?section=` mini-app. It is split into four real nested routes — the daily import-to-promotion route plus the `providers`, `governance`, and `health` (Integration Health) surfaces — each with its own loader and composed from a shared workbench shell. See [Catalog Integrations Route IA](./catalog-integrations-route-ia.md) for the route map. The route path is the screen router; `?section=` only names the precise workspace inside a multi-workspace surface (active-nav highlight and detour telemetry).
+> The control plane is not a single `?section=` mini-app. It is split into four real nested routes — the daily import-to-promotion route plus the `providers`, `governance`, and `health` (Integration Health) surfaces — each with its own loader and composed from a shared workbench shell. See [Catalog Integrations Route IA](./catalog-control-plane-architecture.md) for the route map. The route path is the screen router; `?section=` only names the precise workspace inside a multi-workspace surface (active-nav highlight and detour telemetry).
 
 ## Product Priority
 
