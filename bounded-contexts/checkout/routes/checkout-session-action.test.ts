@@ -926,6 +926,71 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
+  it("retries payment start without editing shipping once checkout orders are committed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockGetCheckoutSession.mockResolvedValue(
+      checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
+    );
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set(
+      "marketplaceCheckoutFeeQuoteFingerprint",
+      "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+    );
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
+      requestedBalanceCreditAmount: null,
+      paymentMethodCategory: "card",
+      marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+      savedCheckoutInstrumentId: null,
+      savePaymentMethodForFuture: false,
+      fulfillmentPreviewRevision: null,
+      acknowledgedMaterialChanges: false,
+      shippingAddress: {
+        shippingAddressId: null,
+        name: "Jane Smith",
+        company: null,
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: null,
+        email: null,
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+  });
+
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
