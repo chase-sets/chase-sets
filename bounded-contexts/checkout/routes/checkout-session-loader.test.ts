@@ -81,6 +81,15 @@ vi.mock("@chase-sets/settlement/server", () => ({
 
 import { loader as checkoutSessionLoader } from "./checkout-session";
 
+class MockPaymentsApiError extends Error {
+  public constructor(
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(`Payments API error ${status}`);
+  }
+}
+
 describe("checkout web routes: checkout session loader", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -528,6 +537,112 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
+  });
+
+  it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: {
+        shippingAddressId: "__manual",
+        name: "Stripe QA Buyer",
+        company: "",
+        line1: "123 Test Market St",
+        line2: "",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: "5125550101",
+        email: "buyer@example.com",
+      },
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: "lowest-total#rev_1",
+      order_ids: ["ord_checkout_1"],
+      order_write_commit_positions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable after order commit"));
+    mockGetCheckoutStatus.mockRejectedValue(
+      new MockPaymentsApiError(400, {
+        error: {
+          code: "order_input_not_ready",
+          message: "Order ord_checkout_1 was not found.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
+      orderIds: ["ord_checkout_1"],
+      currencyCode: "usd",
+      requestedBalanceCreditAmount: "0.00",
+      paymentMethodCategory: "card",
+    });
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(recoveryResponse?.status).toBe(202);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      recoveryKind?: string;
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.recoveryKind).toBe("stale-projection");
+    expect(recoveryBody.primaryAction?.href).toBe(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
+    );
+    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
   });
 
   it("loads Auth-owned guest checkout contact as checkout defaults", async () => {
