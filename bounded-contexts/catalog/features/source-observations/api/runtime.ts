@@ -31,6 +31,7 @@ import { withCatalogAdminRealtimeInvalidation } from "../../../support/projectio
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
+import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -89,6 +90,7 @@ import {
   type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
+import { extractApprovedLorcanaImageEvidence, normalizeLorcanaImageAsset } from "./product-asset-normalization";
 import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
@@ -1371,6 +1373,8 @@ export function createSourceObservationRuntime(
           providerProfile,
           providerProfileVersion,
           catalogMapping,
+          sourceUpdatedAt: input.observation.source_updated_at,
+          observedAt: input.observation.observed_at,
           context: input.context,
         })
       : await createCatalogDraftFromObservation({
@@ -1384,6 +1388,8 @@ export function createSourceObservationRuntime(
           providerProfile,
           providerProfileVersion,
           catalogMapping,
+          sourceUpdatedAt: input.observation.source_updated_at,
+          observedAt: input.observation.observed_at,
           context: input.context,
         });
 
@@ -1626,6 +1632,8 @@ export function createSourceObservationRuntime(
       providerProfile,
       providerProfileVersion,
       catalogMapping: await loadCatalogItemPromotionProfile(deps, providerProfile),
+      sourceUpdatedAt: input.observation.source_updated_at,
+      observedAt: input.observation.observed_at,
       context: input.context,
     });
 
@@ -6197,6 +6205,8 @@ async function createCatalogDraftFromObservation(input: {
   providerProfile: CatalogProviderIntegrationProfile;
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
+  sourceUpdatedAt: string | null;
+  observedAt: string;
   context: EventStoreContext;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
@@ -6212,17 +6222,7 @@ async function createCatalogDraftFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
-  const productAssetSet =
-    input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl
-      ? await normalizeTcgdexImageAsset({
-          profile: input.providerProfile,
-          imageBaseUrl: input.normalized.imageBaseUrl,
-          storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
-          observedAt: new Date().toISOString(),
-          fetcher: globalThis.fetch,
-          assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
-        })
-      : null;
+  const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
     input.normalized.kind === "magic-sealed-product" ||
@@ -6274,6 +6274,8 @@ async function refreshCatalogItemFromObservation(input: {
   providerProfile: CatalogProviderIntegrationProfile;
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
+  sourceUpdatedAt: string | null;
+  observedAt: string;
   context: EventStoreContext;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
@@ -6289,17 +6291,7 @@ async function refreshCatalogItemFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
-  const productAssetSet =
-    input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl
-      ? await normalizeTcgdexImageAsset({
-          profile: input.providerProfile,
-          imageBaseUrl: input.normalized.imageBaseUrl,
-          storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
-          observedAt: new Date().toISOString(),
-          fetcher: globalThis.fetch,
-          assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
-        })
-      : null;
+  const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
     input.normalized.kind === "magic-sealed-product" ||
@@ -6478,6 +6470,51 @@ function requirePromotionAssetPorts(input: {
   if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
     requireCatalogAssetStorage(input.deps.assetStorage);
   }
+}
+
+async function normalizePromotionProductAssetSet(input: {
+  deps: CatalogRuntimeDeps;
+  catalogItemId: CatalogItemId;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
+  providerKey: string;
+  providerProfile: CatalogProviderIntegrationProfile;
+  sourceUpdatedAt: string | null;
+  observedAt: string;
+}): Promise<ProductAssetSet | null> {
+  if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
+    return normalizeTcgdexImageAsset({
+      profile: input.providerProfile,
+      imageBaseUrl: input.normalized.imageBaseUrl,
+      storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+      observedAt: input.observedAt,
+      fetcher: globalThis.fetch,
+      assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+    });
+  }
+
+  if (input.normalized.kind === "lorcana-card-print" || input.normalized.kind === "lorcana-sealed-product") {
+    const evidence = extractApprovedLorcanaImageEvidence({
+      providerKey: input.providerKey,
+      imageUrls: input.normalized.imageUrls,
+      sourceUpdatedAt: input.sourceUpdatedAt,
+      observedAt: input.observedAt,
+    });
+    if (evidence.status !== "current") {
+      return null;
+    }
+
+    return normalizeLorcanaImageAsset({
+      providerKey: input.providerKey,
+      imageUrls: evidence.imageUrls,
+      sourceUpdatedAt: input.sourceUpdatedAt,
+      observedAt: input.observedAt,
+      storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+      fetcher: globalThis.fetch,
+      assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+    });
+  }
+
+  return null;
 }
 
 function requireCatalogItemPromotionObservation(

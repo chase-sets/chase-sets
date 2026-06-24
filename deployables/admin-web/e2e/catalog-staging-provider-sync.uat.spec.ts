@@ -8,6 +8,7 @@ const pageReadyTimeoutMs = 90_000;
 const sourceOptionTimeoutMs = 90_000;
 const syncTimeoutMs = 120_000;
 const terminalSyncTimeoutMs = 300_000;
+const downstreamProjectionTimeoutMs = 300_000;
 
 type SelectChoice = Readonly<{
   labels?: readonly string[];
@@ -47,6 +48,16 @@ type SelectedProviderScope = Readonly<{
 type SelectedProviderScopeField = Readonly<{
   name: string;
   value: string;
+}>;
+
+type LorcanaDownstreamSmokeResult = Readonly<{
+  mode: "promote" | "reapply";
+  providerKey: string;
+  unitKey: string;
+  selectedScope: string;
+  selectedObservationIds: readonly string[];
+  promotionPreviewId: string | null;
+  jobId: string | null;
 }>;
 
 type MissingOptionRecovery = () => Promise<boolean>;
@@ -215,25 +226,6 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
     requiresTerminalSync: true,
   },
   {
-    name: "Lorcana sealed products through Scrydex bulk-first shared importer",
-    providerKey: "scrydex",
-    unitKey: "scrydex:lorcana:sealed-product:source-observation-import",
-    scope: [{ label: "Set", choice: lorcanaSetChoice }],
-    preflight: {
-      requestStrategy: "bulk-first",
-      allowedUsageStates: ["checked", "not-configured", "unknown"],
-      visibleText: [
-        "Import preflight",
-        "100",
-        "id, name, type, images, language, language_code, expansion",
-        "Bulk-first",
-        "Fetch Scrydex Lorcana expansion sealed products with max page size",
-        /scrydex:lorcana:expansion:[a-z0-9-]+:sealed/i,
-      ],
-    },
-    requiresTerminalSync: true,
-  },
-  {
     name: "Lorcana card set through LorcanaJSON bulk-first shared importer",
     providerKey: "lorcanajson",
     unitKey: "lorcanajson:lorcana:single-card:reference-data",
@@ -359,6 +351,13 @@ const providerSyncJourneys =
       ? lorcanaLaunchProviderSyncJourneys
       : onePieceLaunchProviderSyncJourneys;
 
+const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
+  name: "Lorcana downstream Catalog Items projection through LorcanaJSON",
+  providerKey: "lorcanajson",
+  unitKey: "lorcanajson:lorcana:single-card:reference-data",
+  scope: [{ label: "Set", choice: lorcanaSetChoice }],
+};
+
 test.describe("catalog staging provider sync UAT", () => {
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
     test.setTimeout(1_800_000);
@@ -386,6 +385,12 @@ test.describe("catalog staging provider sync UAT", () => {
         if (journey.requiresTerminalSync) {
           await expectImportJobSettledForSelectedUnit(page, journey.unitKey, selectedScope, previousJobRows);
         }
+      });
+    }
+
+    if (providerUatJourneyScope === "lorcana-launch" || providerUatJourneyScope === "all-provider-regression") {
+      await test.step("Lorcana Catalog Items downstream projection through shared UI", async () => {
+        await expectLorcanaCatalogItemsDownstreamProjection(page);
       });
     }
   });
@@ -615,6 +620,261 @@ async function expectImportJobSettledForSelectedUnit(
   );
 }
 
+async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promise<void> {
+  await openCatalogImporter(page);
+  const selectedScope = await selectProviderScope(page, lorcanaDownstreamCatalogItemsJourney);
+  const promoted = await promoteFirstEligibleObservationFromReview(page, selectedScope);
+  const result = promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope));
+
+  await openCatalogItemsHandoff(page, result.providerKey);
+  await expectCatalogItemsProjectionForProvider(page, result);
+
+  console.log(
+    `[catalog-staging-provider-uat] Lorcana downstream Catalog Items projection verified: mode=${result.mode}, provider=${result.providerKey}, unit=${result.unitKey}, scope=${result.selectedScope}, selectedObservationIds=${
+      result.selectedObservationIds.join(",") || "scope"
+    }, promotionPreviewId=${result.promotionPreviewId ?? "none"}, jobId=${result.jobId ?? "none"}`,
+  );
+}
+
+async function promoteFirstEligibleObservationFromReview(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<LorcanaDownstreamSmokeResult | null> {
+  await expandWorkflowStage(page, /^Review changes\b/i);
+  await expect(page.getByRole("heading", { name: "Source Observation review" })).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+
+  const previewForms = page.locator(
+    'form[data-catalog-primary-workbench-command="preview-promotion"]:not([data-catalog-source-scope-unit])',
+  );
+  const preview = await clickFirstEnabledObservationCommand(previewForms, {
+    requireSelectedObservationIds: true,
+  });
+  if (!preview) {
+    return null;
+  }
+
+  await expectPromotionPreviewReady(page);
+  const promotionPreviewId = currentSearchParam(page, "promotionPreviewId") ?? preview.promotionPreviewId;
+  await executePromotionFromFreshPreview(page);
+  const jobId = currentSearchParam(page, "jobId");
+
+  return {
+    mode: "promote",
+    providerKey: selectedScope.providerKey,
+    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    selectedScope: selectedScope.displayLabel,
+    selectedObservationIds: preview.selectedObservationIds,
+    promotionPreviewId,
+    jobId,
+  };
+}
+
+async function reapplyPromotedObservationFromSharedImporter(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<LorcanaDownstreamSmokeResult> {
+  const sourceScopeReapplyForm = sourceScopeCommandForms(
+    page,
+    lorcanaDownstreamCatalogItemsJourney.unitKey,
+    "start-reapply",
+  ).first();
+  if (await clickCommandFormButtonIfEnabled(sourceScopeReapplyForm)) {
+    await expectCommandQueued(page);
+    return {
+      mode: "reapply",
+      providerKey: selectedScope.providerKey,
+      unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+      selectedScope: selectedScope.displayLabel,
+      selectedObservationIds: [],
+      promotionPreviewId: null,
+      jobId: currentSearchParam(page, "jobId"),
+    };
+  }
+
+  await expandWorkflowStage(page, /^Review changes\b/i);
+  const rowReapplyForms = page.locator(
+    'form[data-catalog-primary-workbench-command="start-reapply"]:not([data-catalog-source-scope-unit])',
+  );
+  const reapplied = await clickFirstEnabledObservationCommand(rowReapplyForms, {
+    requireSelectedObservationIds: true,
+  });
+  if (!reapplied) {
+    throw new Error(
+      `Lorcana downstream smoke could not find an eligible Source Observation to promote or a promoted Source Observation to reapply for ${selectedScope.displayLabel}.`,
+    );
+  }
+
+  await expectCommandQueued(page);
+  return {
+    mode: "reapply",
+    providerKey: selectedScope.providerKey,
+    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    selectedScope: selectedScope.displayLabel,
+    selectedObservationIds: reapplied.selectedObservationIds,
+    promotionPreviewId: null,
+    jobId: currentSearchParam(page, "jobId"),
+  };
+}
+
+async function clickFirstEnabledObservationCommand(
+  forms: Locator,
+  input: Readonly<{ requireSelectedObservationIds: boolean }>,
+): Promise<{ selectedObservationIds: readonly string[]; promotionPreviewId: string | null } | null> {
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  while (Date.now() < deadline) {
+    const count = await forms.count();
+    for (let index = 0; index < count; index += 1) {
+      const form = forms.nth(index);
+      const selectedObservationIds = await selectedObservationIdsFromForm(form);
+      if (input.requireSelectedObservationIds && selectedObservationIds.length === 0) {
+        continue;
+      }
+
+      const promotionPreviewId = await hiddenInputValue(form, "promotionPreviewId")
+        .then(emptyToNull)
+        .catch(() => null);
+      if (await clickCommandFormButtonIfEnabled(form)) {
+        return {
+          selectedObservationIds,
+          promotionPreviewId,
+        };
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  return null;
+}
+
+async function selectedObservationIdsFromForm(form: Locator): Promise<readonly string[]> {
+  return hiddenInputValue(form, "selectedObservationIds")
+    .then((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    )
+    .catch(() => []);
+}
+
+async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> {
+  if (!(await form.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    return false;
+  }
+
+  const button = form.getByRole("button").first();
+  if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    return false;
+  }
+  if (!(await button.isEnabled().catch(() => false))) {
+    return false;
+  }
+
+  await button.click();
+  return true;
+}
+
+async function expectPromotionPreviewReady(page: Page): Promise<void> {
+  await expect(page.getByText("Promotion preview ready").first()).toBeVisible({ timeout: syncTimeoutMs });
+  await expect(
+    page
+      .getByText("Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.")
+      .first(),
+  ).toBeVisible({ timeout: syncTimeoutMs });
+  await waitForSearchParam(page, "promotionPreviewId", syncTimeoutMs);
+}
+
+async function executePromotionFromFreshPreview(page: Page): Promise<void> {
+  await expandWorkflowStage(page, /^Create \/ update items\b/i);
+  await expect(page.getByText("Previewed impact is current").first()).toBeVisible({ timeout: syncTimeoutMs });
+
+  const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
+  await expect(confirmation).toBeEnabled({ timeout: syncTimeoutMs });
+  if (!(await confirmation.isChecked().catch(() => false))) {
+    await confirmation.check();
+  }
+
+  const executeForm = page
+    .locator('form[data-catalog-primary-workbench-command="execute-promotion"]')
+    .filter({ has: page.getByRole("button", { name: "Create or update Catalog Items" }) })
+    .first();
+  const executeButton = executeForm.getByRole("button", { name: "Create or update Catalog Items" });
+  await expect(executeButton).toBeEnabled({ timeout: syncTimeoutMs });
+  await executeButton.click();
+  await expectCommandQueued(page);
+}
+
+async function openCatalogItemsHandoff(page: Page, providerKey: string): Promise<void> {
+  await expandWorkflowStage(page, /^Create \/ update items\b/i);
+  const handoff = page.getByRole("link", { name: `Open Catalog Items for ${providerKey}` }).first();
+  await expect(handoff).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expect(handoff).toHaveAttribute("href", `/catalog/catalog-items?source=${providerKey}`, {
+    timeout: sourceOptionTimeoutMs,
+  });
+  await handoff.click();
+  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
+}
+
+async function expectCatalogItemsProjectionForProvider(
+  page: Page,
+  result: LorcanaDownstreamSmokeResult,
+): Promise<void> {
+  await expect(page).toHaveURL(new RegExp(`/catalog/catalog-items\\?source=${result.providerKey}`), {
+    timeout: pageReadyTimeoutMs,
+  });
+  await expect(page.getByRole("heading", { name: "Catalog Items" })).toBeVisible({ timeout: pageReadyTimeoutMs });
+
+  const deadline = Date.now() + downstreamProjectionTimeoutMs;
+  let observedRows: readonly string[] = [];
+  while (Date.now() < deadline) {
+    await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+    observedRows = await catalogItemProviderRowTexts(page, result.providerKey);
+    const projected = observedRows.find((row) => /\b(?:draft|active)\b/i.test(row));
+    if (projected) {
+      console.log(`[catalog-staging-provider-uat] Lorcana Catalog Items row observed: ${projected}`);
+      return;
+    }
+
+    await page.waitForTimeout(5_000);
+    await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
+  }
+
+  throw new Error(
+    `Catalog Items did not show a ${result.providerKey} draft or active downstream projection after ${
+      result.mode
+    } for ${result.selectedScope}. Observed provider rows: ${observedRows.join(" | ") || "none"}`,
+  );
+}
+
+async function catalogItemProviderRowTexts(page: Page, providerKey: string): Promise<readonly string[]> {
+  return page
+    .getByRole("row")
+    .filter({ hasText: providerKey })
+    .allInnerTexts()
+    .then((rows) => rows.map(normalizeWhitespace).filter(Boolean))
+    .catch(() => []);
+}
+
+async function waitForSearchParam(page: Page, name: string, timeout: number): Promise<string> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = currentSearchParam(page, name);
+    if (value) {
+      return value;
+    }
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(`Expected the current operator route to include ${name} before the timeout.`);
+}
+
+function currentSearchParam(page: Page, name: string): string | null {
+  return emptyToNull(new URL(page.url()).searchParams.get(name) ?? "");
+}
+
 function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
   return /\bimport job \S+ is (?:failed|cancelled)\b/i.test(row);
 }
@@ -623,12 +883,16 @@ function importJobRowReachedCompletedTerminal(row: string): boolean {
   return /\bimport job \S+ is completed\b/i.test(row);
 }
 
+function sourceScopeCommandForms(page: Page, unitKey: string, command: string): Locator {
+  return page.locator(
+    `form[data-catalog-primary-workbench-command="${command}"][data-catalog-source-scope-unit="${unitKey}"]`,
+  );
+}
+
 function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
-  return page
-    .locator(
-      `form[data-catalog-primary-workbench-command="start-provider-import"][data-catalog-source-scope-unit="${unitKey}"]`,
-    )
-    .filter({ has: page.getByRole("button", { name: /^Sync / }) });
+  return sourceScopeCommandForms(page, unitKey, "start-provider-import").filter({
+    has: page.getByRole("button", { name: /^Sync / }),
+  });
 }
 
 async function expectCommandQueued(page: Page): Promise<void> {

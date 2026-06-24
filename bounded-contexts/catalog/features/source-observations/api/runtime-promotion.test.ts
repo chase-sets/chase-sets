@@ -604,6 +604,32 @@ describe("source observation runtime: promotion and reapply", () => {
     expect(harness.appendedSourceEvents).toEqual([]);
   });
 
+  it("fails current Lorcana image promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "card:TFC:41",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-card-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-card:2026.06.23",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: lorcanaCardPrintObservation({
+        imageUrls: ["https://images.lorcanajson.org/cards/en/1/041.webp"],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Catalog asset storage is required to promote source observation image assets.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
   it("reuses a partially promoted TCGdex draft Catalog Item when retrying an observed Source Observation", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",
@@ -1136,6 +1162,8 @@ describe("source observation runtime: promotion and reapply", () => {
   });
 
   it("promotes Lorcana card prints through the shared Catalog Item command pipeline", async () => {
+    const originalFetch = globalThis.fetch;
+    const storedAssetKeys: string[] = [];
     const harness = createChangedObservationRefreshHarness({
       providerKey: "lorcanajson",
       externalKey: "card:TFC:41",
@@ -1146,6 +1174,7 @@ describe("source observation runtime: promotion and reapply", () => {
       status: "observed",
       promotedCatalogItemId: null,
       normalized: lorcanaCardPrintObservation({
+        imageUrls: ["https://images.lorcanajson.org/cards/en/1/041.webp"],
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
         externalProductReferences: [
           {
@@ -1155,13 +1184,31 @@ describe("source observation runtime: promotion and reapply", () => {
           },
         ],
       }),
+      assetStorage: {
+        async putObject(input) {
+          storedAssetKeys.push(input.key);
+          return {
+            key: input.key,
+            publicUrl: `https://assets.chasesets.test/${input.key}`,
+          };
+        },
+      },
     });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+    globalThis.fetch = (async () =>
+      new Response(lorcanaCardSvg(), {
+        status: 200,
+        headers: { "content-type": "image/svg+xml" },
+      })) as typeof globalThis.fetch;
 
-    const result = await services.promoteObservation({
-      observationId: "obs_changed",
-      context,
-    });
+    const result = await services
+      .promoteObservation({
+        observationId: "obs_changed",
+        context,
+      })
+      .finally(() => {
+        globalThis.fetch = originalFetch;
+      });
 
     expect(result.catalogItemId).toMatch(/^cat_/);
     expect(harness.itemCommands).toEqual(
@@ -1200,6 +1247,38 @@ describe("source observation runtime: promotion and reapply", () => {
             selectedOptions: [{ dimensionId: "dim_language", optionId: "opt_english" }],
           }),
         }),
+      ]),
+    );
+    const setImageUrlsCommand = harness.itemCommands.find(
+      (entry) => entry.command.type === "SetCatalogItemImageUrls",
+    )?.command;
+    expect(setImageUrlsCommand).toMatchObject({
+      type: "SetCatalogItemImageUrls",
+      imageUrls: [expect.stringMatching(/^https:\/\/assets\.chasesets\.test\/catalog\/items\/cat_/)],
+    });
+    expect(JSON.stringify(setImageUrlsCommand)).not.toContain("images.lorcanajson.org");
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "SetCatalogItemProductAssetSets",
+          productAssetSets: [
+            expect.objectContaining({
+              sourcePolicy: expect.objectContaining({
+                sourceProviderKey: "lorcanajson",
+                sourceUrlHost: "images.lorcanajson.org",
+                sourceUrlHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+              }),
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(JSON.stringify(harness.itemCommands)).not.toContain("https://images.lorcanajson.org/cards/en/1/041.webp");
+    expect(storedAssetKeys).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("/source-"),
+        expect.stringContaining("/thumbnail-"),
+        expect.stringContaining("/catalog-detail-"),
       ]),
     );
     expect(harness.itemCommands.map((entry) => entry.command.type)).not.toContain("SetCatalogItemPrice");
@@ -1614,3 +1693,13 @@ describe("source observation runtime: promotion and reapply", () => {
     });
   });
 });
+
+function lorcanaCardSvg(): string {
+  return `
+    <svg width="120" height="168" viewBox="0 0 120 168" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="120" height="168" rx="8" ry="8" fill="rgb(78, 52, 121)" />
+      <rect x="10" y="12" width="100" height="72" rx="4" ry="4" fill="rgb(244, 217, 119)" />
+      <rect x="10" y="96" width="100" height="48" rx="4" ry="4" fill="rgb(240, 240, 246)" />
+    </svg>
+  `;
+}

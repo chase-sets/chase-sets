@@ -286,15 +286,6 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "scrydex",
         value: "scrydex",
-        label: "Scrydex Lorcana Sealed Products",
-        metadata: expect.objectContaining({
-          status: "active",
-          connectorKind: "scrydex-json",
-        }),
-      }),
-      expect.objectContaining({
-        providerKey: "scrydex",
-        value: "scrydex",
         label: "Scrydex One Piece Cards",
         metadata: expect.objectContaining({
           status: "active",
