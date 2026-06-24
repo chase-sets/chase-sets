@@ -23,6 +23,12 @@ import {
 export type CheckoutSourceType = "cart" | "buy-now" | "offer-intent";
 export type CheckoutOptimizationGoal = "lowest-total" | "fewest-shipments";
 
+export type CheckoutSourceCommitPosition = Readonly<{
+  sourceContextName: string;
+  maxGlobalPosition: string;
+  eventIds: readonly string[];
+}>;
+
 export type CheckoutSessionLine = Readonly<{
   listingId: string | null;
   cartLineId: string | null;
@@ -72,6 +78,7 @@ export type CheckoutSessionState = Readonly<{
   shippingAddress: CheckoutShippingAddress | null;
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
+  orderWriteCommitPositions: readonly CheckoutSourceCommitPosition[];
   paymentId: PaymentId | null;
   submittedOfferId: string | null;
   createdAt: string | null;
@@ -90,6 +97,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   shippingAddress: null,
   lines: [],
   orderIds: [],
+  orderWriteCommitPositions: [],
   paymentId: null,
   submittedOfferId: null,
   createdAt: null,
@@ -136,6 +144,7 @@ export type SetShippingAddressCommand = Readonly<{
 export type RecordOrdersCreatedCommand = Readonly<{
   type: "RecordOrdersCreated";
   orderIds: readonly OrderId[];
+  orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
   recordedAt: string;
 }>;
 
@@ -218,6 +227,7 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
   Readonly<{
     sessionId: CheckoutSessionId;
     orderIds: OrderId[];
+    orderWriteCommitPositions: CheckoutSourceCommitPosition[];
     recordedAt: string;
   }>
 >;
@@ -396,6 +406,17 @@ function normalizeOrderIds(orderIds: readonly OrderId[]) {
   return normalized;
 }
 
+function normalizeCommitPositions(positions: readonly CheckoutSourceCommitPosition[] = []) {
+  return positions.flatMap((position) => {
+    const sourceContextName = position.sourceContextName.trim();
+    const maxGlobalPosition = position.maxGlobalPosition.trim();
+    const eventIds = [...new Set(position.eventIds.map((eventId) => eventId.trim()).filter(Boolean))];
+    return sourceContextName && /^(0|[1-9]\d*)$/.test(maxGlobalPosition) && eventIds.length > 0
+      ? [{ sourceContextName, maxGlobalPosition, eventIds }]
+      : [];
+  });
+}
+
 export const decideCheckoutSession: AggregateDecider<
   CheckoutSessionState,
   CheckoutSessionCommand,
@@ -503,6 +524,7 @@ export const decideCheckoutSession: AggregateDecider<
           data: {
             sessionId: state.sessionId,
             orderIds: normalizeOrderIds(command.orderIds),
+            orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
             recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
@@ -566,6 +588,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         shippingAddress: null,
         lines: event.data.lines,
         orderIds: [],
+        orderWriteCommitPositions: [],
         paymentId: null,
         submittedOfferId: null,
         createdAt: event.data.createdAt,
@@ -600,6 +623,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
       return {
         ...state,
         orderIds: event.data.orderIds,
+        orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
         updatedAt: event.data.recordedAt,
       };
     case "checkout.session.payment-started":

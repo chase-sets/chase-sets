@@ -53,6 +53,7 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
       },
     ],
     order_ids: [],
+    order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
     created_at: "2026-05-16T00:00:00.000Z",

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   shipping_address jsonb NULL,
   lines jsonb NOT NULL DEFAULT '[]'::jsonb,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb,
   payment_id text NULL,
   submitted_offer_id text NULL,
   created_at timestamptz NOT NULL,
@@ -28,4 +29,7 @@ CREATE INDEX IF NOT EXISTS checkout_session_pages_support_reference_idx
 CREATE INDEX IF NOT EXISTS checkout_session_pages_split_group_handoff_idx
   ON checkout_session_pages USING GIN (split_group_handoff)
   WHERE split_group_handoff IS NOT NULL;
+
+ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb;
 `;

@@ -10,6 +10,7 @@ import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-set
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
 import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
+import type { CheckoutSessionRow } from "../read-model/queries";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
@@ -246,6 +247,27 @@ type CommitMetadata = Readonly<{
   commitEventIds?: readonly string[];
   commitPositions?: readonly SourceCommitPosition[];
 }>;
+
+function orderingCommitPositionsFromSource(source: unknown): SourceCommitPosition[] {
+  const metadata = commitMetadataFromSource(source);
+  return (metadata?.commitPositions ?? []).filter((position) => position.sourceContextName === "ordering");
+}
+
+function paymentOrderInputFreshnessSource(session: CheckoutSessionRow, orderCreationWriteResult: unknown) {
+  const orderingCommitPositions =
+    orderCreationWriteResult === undefined
+      ? [...session.order_write_commit_positions]
+      : orderingCommitPositionsFromSource(orderCreationWriteResult);
+
+  return orderingCommitPositions.length > 0
+    ? {
+        commandReceipt: {
+          commitEventIds: [...new Set(orderingCommitPositions.flatMap((position) => position.eventIds))],
+          commitPositions: orderingCommitPositions,
+        },
+      }
+    : orderCreationWriteResult;
+}
 
 function maxCommitPosition(left: string | undefined, right: string | undefined) {
   if (!left) {
@@ -1046,11 +1068,17 @@ export function createAccountCheckoutSessionRoutes(
             accountId: access.actor.accountId as AccountId,
             orderIds,
             fulfilledLineKeys: checkoutOrders.readyLineKeys,
+            orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
           },
           context,
         );
         writeSources.push(ordersResult);
         session = ordersResult.session;
+      }
+
+      const orderInputFreshnessSource = paymentOrderInputFreshnessSource(session, orderCreationWriteResult);
+      if (orderCreationWriteResult === undefined && orderInputFreshnessSource !== undefined) {
+        writeSources.push(orderInputFreshnessSource);
       }
 
       const payment = await createCheckoutPaymentThroughPayments(
@@ -1064,7 +1092,7 @@ export function createAccountCheckoutSessionRoutes(
         savePaymentMethodForFuture,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
         null,
-        orderCreationWriteResult,
+        orderInputFreshnessSource,
       );
       const paymentId = payment.payment_id;
       const paymentResult = await services.recordPaymentStarted(

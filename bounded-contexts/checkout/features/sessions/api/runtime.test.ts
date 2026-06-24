@@ -258,6 +258,7 @@ function createSessionPageRow(
       },
     ],
     order_ids: [],
+    order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
     created_at: "2026-06-09T00:00:00.000Z",
