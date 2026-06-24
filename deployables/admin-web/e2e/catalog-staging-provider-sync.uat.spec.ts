@@ -53,7 +53,6 @@ type SelectedProviderScopeField = Readonly<{
 
 type ProviderSyncAttempt = Readonly<{
   previousJobRows: readonly string[];
-  acceptedCompletedRow: string | null;
 }>;
 
 type LorcanaDownstreamSmokeResult = Readonly<{
@@ -389,18 +388,12 @@ test.describe("catalog staging provider sync UAT", () => {
         }
         const syncAttempt = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
         if (journey.requiresTerminalSync) {
-          if (syncAttempt.acceptedCompletedRow) {
-            console.log(
-              `[catalog-staging-provider-uat] ${journey.unitKey} already completed for ${selectedScope.displayLabel}: ${syncAttempt.acceptedCompletedRow}`,
-            );
-          } else {
-            await expectImportJobSettledForSelectedUnit(
-              page,
-              journey.unitKey,
-              selectedScope,
-              syncAttempt.previousJobRows,
-            );
-          }
+          await expectImportJobSettledForSelectedUnit(
+            page,
+            journey.unitKey,
+            selectedScope,
+            syncAttempt.previousJobRows,
+          );
         }
       });
     }
@@ -557,17 +550,12 @@ async function syncSelectedProviderUnit(
     if (await syncButton.isEnabled().catch(() => false)) {
       await syncButton.click();
       await expectCommandQueuedOrActiveImport(page, unitKey, selectedScope);
-      return { previousJobRows, acceptedCompletedRow: null };
+      return { previousJobRows };
     }
 
     if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 1_000)) {
       await expectActiveImportJobForSelectedUnit(page, unitKey, selectedScope);
-      return { previousJobRows, acceptedCompletedRow: null };
-    }
-
-    const completed = await completedImportJobRowForSelectedUnit(page, unitKey, selectedScope, 1_000);
-    if (completed) {
-      return { previousJobRows, acceptedCompletedRow: completed };
+      return { previousJobRows };
     }
 
     await page.waitForTimeout(1_000);
@@ -1076,7 +1064,7 @@ function currentSearchParam(page: Page, name: string): string | null {
 }
 
 function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
-  return /\bimport job \S+ is (?:failed|cancelled)\b/i.test(row);
+  return /\bimport job \S+ is (?:failed|cancelled|partial)\b/i.test(row);
 }
 
 function importJobRowReachedCompletedTerminal(row: string): boolean {
@@ -1174,23 +1162,6 @@ async function expectActiveImportJobForSelectedUnit(
   throw new Error(
     `Selected unit ${unitKey} should have a visible current or covering queued/running import job row for ${selectedScope.displayLabel}.`,
   );
-}
-
-async function completedImportJobRowForSelectedUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-  timeout: number,
-): Promise<string | null> {
-  const row = await completedImportJobRowLocatorForSelectedUnit(page, unitKey, selectedScope, timeout);
-  if (!row) {
-    return null;
-  }
-
-  return row
-    .innerText()
-    .then(normalizeWhitespace)
-    .catch(() => null);
 }
 
 async function completedImportJobRowLocatorForSelectedUnit(
@@ -1298,14 +1269,22 @@ async function selectedProviderScopeFieldsFromCommandForm(
     "seriesName",
     "expansionId",
     "expansionName",
+    "setId",
+    "setCode",
+    "setName",
   ];
   const fields = await Promise.all(
     fieldNames.map(async (name) => ({
       name,
-      value: (await hiddenInputValue(commandForm, name)).trim(),
+      value: (await optionalHiddenInputValue(commandForm, name)).trim(),
     })),
   );
   return fields.filter((field) => field.value.length > 0);
+}
+
+async function optionalHiddenInputValue(form: Locator, name: string): Promise<string> {
+  const input = form.locator(`input[name="${name}"]`).first();
+  return (await input.count()) > 0 ? input.inputValue() : "";
 }
 
 function selectedProviderScopeDisplayLabel(
@@ -1322,21 +1301,44 @@ function selectedProviderScopeDisplayLabelCandidates(
   fields: readonly SelectedProviderScopeField[],
 ): readonly string[] {
   const value = (name: string) => fields.find((field) => field.name === name)?.value;
-  const structured = [
-    providerKey,
-    value("languageCode"),
-    value("productLineName") ?? value("productLineId"),
-    value("seriesName") ?? value("seriesId"),
-    value("expansionName") ?? value("expansionId"),
-  ]
-    .filter((segment): segment is string => Boolean(segment))
-    .join(" / ");
+  const productLineSegments = uniqueTruthy([value("productLineName"), value("productLineId")]);
+  const seriesSegments = uniqueTruthy([value("seriesName"), value("seriesId")]);
+  const expansionSegments = uniqueTruthy([
+    value("expansionName"),
+    value("expansionId"),
+    value("setName"),
+    value("setCode"),
+    value("setId"),
+  ]);
+  const structured = cartesianScopeLabels([
+    [providerKey],
+    uniqueTruthy([value("languageCode")]),
+    productLineSegments,
+    seriesSegments,
+    expansionSegments,
+  ]);
   const importScopeLabel = importScope ? scopeDisplayLabelFromImportScope(providerKey, importScope) : null;
-  const candidates = [structured, importScopeLabel]
+  const candidates = [...structured, importScopeLabel]
     .filter((candidate): candidate is string => Boolean(candidate))
     .sort((left, right) => right.split(" / ").length - left.split(" / ").length);
 
   return [...new Set(candidates)];
+}
+
+function cartesianScopeLabels(segmentGroups: readonly (readonly string[])[]): readonly string[] {
+  return segmentGroups.reduce<readonly string[]>(
+    (labels, segments) => {
+      const availableSegments = segments.length > 0 ? segments : [""];
+      return labels.flatMap((label) =>
+        availableSegments.map((segment) => [label, segment].filter(Boolean).join(" / ")),
+      );
+    },
+    [""],
+  );
+}
+
+function uniqueTruthy(values: readonly (string | undefined)[]): readonly string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function scopeDisplayLabelFromImportScope(providerKey: string, importScope: string): string {
