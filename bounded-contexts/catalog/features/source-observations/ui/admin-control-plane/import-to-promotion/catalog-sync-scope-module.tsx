@@ -18,6 +18,7 @@ import {
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchCatalogSyncUnitReadModel,
   CatalogPrimaryWorkbenchReadModel,
@@ -44,7 +45,7 @@ export function CatalogSyncScopeModule({
     () => [
       {
         key: "selection",
-        header: "Sync",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.sync"),
         cell: (unit) => {
           const unitKey = unit.unitKey ?? "";
           const checked = Boolean(unit.unitKey && selectedUnitKeys.has(unit.unitKey));
@@ -69,7 +70,7 @@ export function CatalogSyncScopeModule({
       },
       {
         key: "unit",
-        header: "Provider unit",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.providerUnit"),
         cell: (unit) => (
           <WorkbenchDataCell
             title={unit.displayName}
@@ -80,7 +81,7 @@ export function CatalogSyncScopeModule({
       },
       {
         key: "readiness",
-        header: "Readiness",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.readiness"),
         cell: (unit) => (
           <WorkbenchStack gap="sm">
             <Badge tone={unit.eligibility === "eligible" ? "success" : "danger"}>{stateLabel(unit.eligibility)}</Badge>
@@ -95,7 +96,7 @@ export function CatalogSyncScopeModule({
       },
       {
         key: "child",
-        header: "Child scope",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.childScope"),
         cell: (unit) => (
           <WorkbenchText size="xs" tone="secondary">
             {unit.childExecutionScope
@@ -116,15 +117,17 @@ export function CatalogSyncScopeModule({
 
   return (
     <WorkflowModule
-      title="Catalog scope sync"
-      description="Select provider participation inside this Catalog scope, preview the fan-out, and start one parent sync run."
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.title")}
+      description={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.description")}
       status={
         <BadgeCluster
           items={[
             { key: "status", label: stateLabel(catalogSync.status), tone: syncStatusTone(catalogSync.status) },
             {
               key: "units",
-              label: `${selectedEligibleCount} selected`,
+              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.selected", {
+                value: selectedEligibleCount,
+              }),
               tone: selectedEligibleCount > 0 ? "info" : "warning",
             },
           ]}
@@ -161,8 +164,8 @@ export function CatalogSyncScopeModule({
           caption="Catalog sync provider participation"
           getRowId={(unit) => unit.unitKey ?? unit.providerKey}
           density="compact"
-          emptyTitle="No provider units"
-          emptyDescription="Select a Catalog scope that can be planned by active provider units."
+          emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.title")}
+          emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.description")}
         />
 
         <WorkbenchForm
@@ -195,7 +198,7 @@ export function CatalogSyncScopeModule({
               <HiddenInput key={unit.unitKey} name="excludedUnitKeys" value={unit.unitKey ?? ""} />
             ))}
           <Button type="submit" leadingIcon="refreshCcw" disabled={disabled || selectedEligibleCount === 0}>
-            Start Catalog sync
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.start")}
           </Button>
         </WorkbenchForm>
 
@@ -218,7 +221,9 @@ function DeferredCatalogSyncRunProgress({
     <Suspense
       fallback={
         <WorkbenchDetailPanel>
-          <WorkbenchText>Loading Catalog sync progress...</WorkbenchText>
+          <WorkbenchText>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.loading")}
+          </WorkbenchText>
         </WorkbenchDetailPanel>
       }
     >
@@ -234,10 +239,12 @@ function CatalogSyncRunProgress({ run }: Readonly<{ run: CatalogSyncRun }>) {
         <WorkbenchActionRow align="between" stackOnMobile>
           <WorkbenchStack gap="sm">
             <WorkbenchText tone="foreground" weight="semibold">
-              Parent sync run {run.syncRunId}
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.parentRun", {
+                value: run.syncRunId,
+              })}
             </WorkbenchText>
             <WorkbenchText size="sm" tone="secondary">
-              Child retry, resume, and cancel remain delegated to provider import jobs.
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.delegatedChildren")}
             </WorkbenchText>
           </WorkbenchStack>
           <Badge tone={syncRunTone(run.status)}>{stateLabel(run.status)}</Badge>
@@ -260,19 +267,19 @@ function CatalogSyncRunProgress({ run }: Readonly<{ run: CatalogSyncRun }>) {
           columns={[
             {
               key: "provider",
-              header: "Provider child",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.providerChild"),
               cell: (child) => (
                 <WorkbenchDataCell title={child.displayName} description={child.childJobId ?? "No child job"} />
               ),
             },
             {
               key: "status",
-              header: "Status",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.status"),
               cell: (child) => <Badge tone={syncRunTone(child.status)}>{stateLabel(child.status)}</Badge>,
             },
             {
               key: "link",
-              header: "Link",
+              header: t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.link"),
               cell: (child) => (
                 <WorkbenchText size="xs" tone="secondary">
                   {stateLabel(child.syncRunLinkState)}
