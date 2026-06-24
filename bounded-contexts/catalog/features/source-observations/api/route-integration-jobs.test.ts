@@ -245,6 +245,116 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
+  it("enqueues a Catalog sync scope parent run with selected provider fan-out", async () => {
+    const run = {
+      syncRunId: "job_catalog_sync_run",
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+      },
+      status: "queued",
+      progress: {
+        childJobs: { total: 1, queued: 1, running: 0, completed: 0, partial: 0, failed: 0, cancelled: 0, stale: 0 },
+        providerTargets: { completed: 0, total: 1 },
+      },
+      selectedUnits: [],
+      childJobs: [],
+      consistency: {
+        duplicateSubmissionPolicy: "reuse-active-sync-run",
+        childScopePolicy: "deterministic-from-provider-participation-preview",
+        profileSnapshotPolicy: "selected-active-provider-units-snapshotted-at-enqueue",
+        childRetryResumeCancelPolicy: "delegated-to-provider-import-jobs",
+        partialFailurePolicy: "visible-per-provider-child-job",
+      },
+      preview: {
+        previewVersion: "catalog-sync-provider-participation-preview-v1",
+        scope: {
+          scopeVersion: "catalog-sync-scope-v1",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          languageCode: "en",
+          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        },
+        status: "ready",
+        startAllowed: true,
+        units: [],
+        blockers: [],
+        explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
+      },
+      errorMessage: null,
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:02.000Z",
+    };
+    const enqueueCatalogSyncRun = vi.fn(async () => run);
+    const services = {
+      enqueueCatalogSyncRun,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/catalog-sync-scope/runs", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: {
+          productDomain: "pokemon",
+          productForm: "single-card",
+          languageCode: "en",
+          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          providerParticipation: {
+            selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+          },
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual(run);
+    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
+        providerHints: [],
+        providerParticipation: {
+          requiredUnitKeys: [],
+          selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+          excludedUnitKeys: [],
+        },
+      },
+      context,
+    });
+  });
+
+  it("returns Catalog sync scope parent run progress", async () => {
+    const run = {
+      syncRunId: "job_catalog_sync_run",
+      status: "completed",
+      progress: {
+        childJobs: { total: 1, queued: 0, running: 0, completed: 1, partial: 0, failed: 0, cancelled: 0, stale: 0 },
+        providerTargets: { completed: 1, total: 1 },
+      },
+    };
+    const getCatalogSyncRun = vi.fn(async () => run);
+    const services = {
+      getCatalogSyncRun,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/catalog-sync-scope/runs/job_catalog_sync_run");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(run);
+    expect(getCatalogSyncRun).toHaveBeenCalledWith({
+      syncRunId: "job_catalog_sync_run",
+      context,
+    });
+  });
+
   it("returns a validation error when a provider integration job is not importable", async () => {
     const enqueueIntegrationJob = vi.fn(async () => {
       throw new Error("Provider 'tcgplayer' does not support background import.");

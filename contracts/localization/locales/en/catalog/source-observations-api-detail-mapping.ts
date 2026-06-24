@@ -1,6 +1,7 @@
 export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
+  "catalog.features.sourceObservations.api.route.catalog.sync.run.not.found": "Catalog sync run was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
   "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":
     "Integration job lifecycle command is not available for this job state.",

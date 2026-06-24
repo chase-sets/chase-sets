@@ -1038,15 +1038,34 @@ export function createIntegrationJobDedupeHarness(
 
         if (sql.includes("INSERT INTO catalog_source_observation_integration_durable_jobs")) {
           const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
-          const row = integrationJobRow({
-            jobId: String(values[0]),
-            action: String(values[1]),
-            scope: payload.scope as Record<string, unknown>,
-            profileSnapshot: payload.profileSnapshot as Record<string, unknown> | null,
-            reapplyProfileMode: payload.reapplyProfileMode as string | null,
-            eventContext: JSON.parse(String(values[4])) as EventStoreContext,
-            progress: JSON.parse(String(values[3])) as Record<string, unknown>,
-          });
+          const row =
+            values[1] === "catalog-sync-scope"
+              ? {
+                  job_id: String(values[0]),
+                  job_kind: String(values[1]),
+                  payload,
+                  event_context: JSON.parse(String(values[4])) as EventStoreContext,
+                  status: "queued",
+                  progress: JSON.parse(String(values[3])) as Record<string, unknown>,
+                  result: null,
+                  error_message: null,
+                  claim_owner_id: null,
+                  claimed_until: null,
+                  created_at: "2026-05-28T00:00:00.000Z",
+                  started_at: null,
+                  completed_at: null,
+                  updated_at: "2026-05-28T00:00:00.000Z",
+                }
+              : integrationJobRow({
+                  jobId: String(values[0]),
+                  action: String(values[1]),
+                  scope: payload.scope as Record<string, unknown>,
+                  syncRunId: payload.syncRunId as string | null,
+                  profileSnapshot: payload.profileSnapshot as Record<string, unknown> | null,
+                  reapplyProfileMode: payload.reapplyProfileMode as string | null,
+                  eventContext: JSON.parse(String(values[4])) as EventStoreContext,
+                  progress: JSON.parse(String(values[3])) as Record<string, unknown>,
+                });
           insertedJobs.push(row);
           return { rowCount: 1, rows: [row] as T[] };
         }
@@ -1078,6 +1097,23 @@ export function createIntegrationJobDedupeHarness(
 
         if (sql.includes("SELECT pg_notify")) {
           return { rowCount: 1, rows: [] as T[] };
+        }
+
+        if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("job_kind = 'catalog-sync-scope'")
+        ) {
+          const row = insertedJobs.find((job) => job.job_id === values[0]);
+          if (!row) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          row.status = values[1] as string;
+          row.progress = JSON.parse(String(values[2])) as Record<string, unknown>;
+          row.result = JSON.parse(String(values[3])) as Record<string, unknown>;
+          row.error_message = values[4] as string | null;
+          row.completed_at = "2026-05-28T00:00:10.000Z";
+          row.updated_at = "2026-05-28T00:00:10.000Z";
+          return { rowCount: 1, rows: [row] as T[] };
         }
 
         if (
@@ -1168,6 +1204,7 @@ export function integrationJobRow(input: {
   scope: Record<string, unknown>;
   profileSnapshot?: Record<string, unknown> | null;
   reapplyProfileMode?: string | null;
+  syncRunId?: string | null;
   eventContext: EventStoreContext;
   progress?: Record<string, unknown>;
 }) {
@@ -1177,6 +1214,7 @@ export function integrationJobRow(input: {
     payload: {
       action: input.action,
       scope: input.scope,
+      syncRunId: input.syncRunId ?? null,
       profileSnapshot: input.profileSnapshot ?? null,
       reapplyProfileMode: input.reapplyProfileMode ?? null,
     },

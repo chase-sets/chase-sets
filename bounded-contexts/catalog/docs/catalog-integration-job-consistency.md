@@ -5,6 +5,8 @@ Catalog owns consistency for provider profile lifecycle work, integration jobs, 
 ## Submission And Lifecycle Rules
 
 - Duplicate import or reapply submissions reuse an active job only when action, normalized scope, actor/account context, and profile snapshot match.
+- Duplicate Catalog sync scope parent submissions reuse an active parent run when actor/account context, normalized Catalog scope, selected provider units, profile versions, and child execution scopes match.
+- Catalog sync parent runs snapshot selected eligible provider units and fan out child provider import jobs; newly created child import jobs carry the parent `syncRunId`, while reused active child jobs are linked from the parent run result without rewriting their existing payload.
 - Import jobs snapshot provider key, profile key, profile version, ingestion-unit key, lifecycle, connector kind, connector source version, and Source Observation mapping fingerprint at enqueue time.
 - Reapply integration jobs snapshot `current-active-profile` mode plus the selected active profile/unit version and enqueue one work unit per eligible promoted Source Observation.
 - Provider-only active profile lookup is compatibility sugar. When a provider has multiple active units, import, option-query, reapply, rollback, and Admin profile paths must select by profile key, ingestion-unit key, or an observation-compatible profile snapshot instead of silently choosing one active provider row.
@@ -17,6 +19,7 @@ Catalog owns consistency for provider profile lifecycle work, integration jobs, 
 - Retrying an import requeues the same durable job id, preserves the snapshotted profile, keeps successful expansion or target outcomes, and prunes failed outcomes so only failed provider work runs again.
 - Resuming an import requeues the same durable job only when it is queued or the running claim is stale. A live running claim returns the current job snapshot instead of creating duplicate provider work.
 - Cancelling an import marks the durable job as failed with operator status `cancelled`, clears live claims, records a status event, and leaves successful mixed outcomes visible for audit. Completed jobs and unsupported actions fail closed.
+- Catalog sync parent retry, resume, and cancel are delegated to the child provider import jobs. Parent progress remains visible as an aggregate of child status and child fan-out errors.
 - Reapply work units are claimed independently and use Source Observation IDs as unit IDs, so replaying worker setup does not enqueue duplicate units for completed observations.
 - Lost parent-job or work-unit leases cause a handoff instead of marking the job failed. The next worker resumes from durable outcomes and terminal work-unit states.
 - API and worker deploy skew is safe because jobs execute against their snapshotted profile version instead of whichever version is active after deployment.

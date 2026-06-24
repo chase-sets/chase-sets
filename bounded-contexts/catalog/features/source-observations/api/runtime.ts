@@ -13,6 +13,7 @@ import {
   runDurableJobSideEffect,
   type DurableJobEvent,
   type DurableJobExecutionContext,
+  type DurableJobPublicSnapshot,
   type DurableJobRecord,
   type DurableJobStatus,
 } from "@chase-sets/platform-runtime/durable-job-store";
@@ -384,6 +385,7 @@ export type SourceObservationIntegrationJobScope = Readonly<{
 type SourceObservationIntegrationJobPayload = Readonly<{
   action: SourceObservationIntegrationJobAction;
   scope: SourceObservationIntegrationJobScope;
+  syncRunId?: string | null;
   profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
@@ -500,6 +502,32 @@ type SourceObservationIntegrationDurableJobRecord = DurableJobRecord<
   SourceObservationIntegrationJobResult
 >;
 
+type CatalogSyncRunPayload = Readonly<{
+  runVersion: "catalog-sync-run-v1";
+  idempotencyKey: string;
+  scope: CatalogSyncScope;
+  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[];
+  preview: CatalogSyncProviderParticipationPreview;
+}>;
+
+type CatalogSyncRunFanoutProgress = Readonly<{
+  phase: "queued" | "processing" | "completed" | "failed";
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: "child-job-enqueued" | "child-job-failed" | null;
+}>;
+
+type CatalogSyncRunFanoutResult = Readonly<{
+  childJobs: readonly CatalogSyncRunChildJobLink[];
+}>;
+
+type CatalogSyncRunDurableJobRecord = DurableJobRecord<
+  CatalogSyncRunPayload,
+  CatalogSyncRunFanoutProgress,
+  CatalogSyncRunFanoutResult
+>;
+
 export type SourceObservationIntegrationJobOperatorStatus =
   | "queued"
   | "running"
@@ -543,6 +571,7 @@ export type SourceObservationIntegrationJobConsistency = Readonly<{
 
 export type SourceObservationIntegrationJob = Readonly<{
   jobId: string;
+  syncRunId: string | null;
   action: SourceObservationIntegrationJobAction;
   scope: SourceObservationIntegrationJobScope;
   profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
@@ -556,6 +585,87 @@ export type SourceObservationIntegrationJob = Readonly<{
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  updatedAt: string;
+}>;
+
+export type CatalogSyncRunChildStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "stale"
+  | "retried"
+  | "reused-active-job";
+
+export type CatalogSyncRunOperatorStatus = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+
+export type CatalogSyncRunSelectedUnitSnapshot = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  role: CatalogSyncProviderParticipationPreview["units"][number]["role"];
+  requirement: CatalogSyncProviderParticipationPreview["units"][number]["requirement"];
+  childExecutionScope: SourceObservationIntegrationJobScope;
+}>;
+
+export type CatalogSyncRunChildJobLink = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  childExecutionScope: SourceObservationIntegrationJobScope;
+  childJobId: string | null;
+  syncRunLinkState: "attached-to-child-payload" | "reused-active-child-job" | "child-enqueue-failed";
+  errorMessage: string | null;
+}>;
+
+export type CatalogSyncRunChildJob = CatalogSyncRunChildJobLink &
+  Readonly<{
+    status: CatalogSyncRunChildStatus;
+    job: SourceObservationIntegrationJob | null;
+  }>;
+
+export type CatalogSyncRunProgress = Readonly<{
+  childJobs: Readonly<{
+    total: number;
+    queued: number;
+    running: number;
+    completed: number;
+    partial: number;
+    failed: number;
+    cancelled: number;
+    stale: number;
+  }>;
+  providerTargets: Readonly<{
+    completed: number;
+    total: number;
+  }>;
+}>;
+
+export type CatalogSyncRunConsistency = Readonly<{
+  duplicateSubmissionPolicy: "reuse-active-sync-run";
+  childScopePolicy: "deterministic-from-provider-participation-preview";
+  profileSnapshotPolicy: "selected-active-provider-units-snapshotted-at-enqueue";
+  childRetryResumeCancelPolicy: "delegated-to-provider-import-jobs";
+  partialFailurePolicy: "visible-per-provider-child-job";
+}>;
+
+export type CatalogSyncRun = Readonly<{
+  syncRunId: string;
+  scope: CatalogSyncScope;
+  status: CatalogSyncRunOperatorStatus;
+  progress: CatalogSyncRunProgress;
+  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[];
+  childJobs: readonly CatalogSyncRunChildJob[];
+  consistency: CatalogSyncRunConsistency;
+  preview: CatalogSyncProviderParticipationPreview;
+  errorMessage: string | null;
+  createdAt: string;
   updatedAt: string;
 }>;
 
@@ -853,6 +963,8 @@ export type IntegrationJobServices = Readonly<{
     scope: CatalogSyncScope;
     context: EventStoreContext;
   }) => Promise<CatalogSyncProviderParticipationPreview>;
+  enqueueCatalogSyncRun: (input: { scope: CatalogSyncScope; context: EventStoreContext }) => Promise<CatalogSyncRun>;
+  getCatalogSyncRun: (input: { syncRunId: string; context: EventStoreContext }) => Promise<CatalogSyncRun | null>;
   previewIntegrationImport: (input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
@@ -860,6 +972,7 @@ export type IntegrationJobServices = Readonly<{
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    syncRunId?: string | null;
     reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
@@ -1045,6 +1158,19 @@ export function createSourceObservationRuntime(
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
     { eventSnapshot: toSourceObservationIntegrationJobEventSnapshot },
+  );
+  const catalogSyncRunStore = createPostgresDurableJobStore<
+    CatalogSyncRunPayload,
+    CatalogSyncRunFanoutProgress,
+    CatalogSyncRunFanoutResult
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_integration_durable_jobs",
+      eventsTable: "catalog_source_observation_integration_job_events",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    { eventSnapshot: toCatalogSyncRunFanoutEventSnapshot },
   );
   const integrationWorkUnitStore = createPostgresDurableJobWorkUnitStore<
     SourceObservationIntegrationJobPayload,
@@ -2531,9 +2657,213 @@ export function createSourceObservationRuntime(
     });
   }
 
+  async function enqueueCatalogSyncRun(input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+  }): Promise<CatalogSyncRun> {
+    const preview = await previewCatalogSyncScope(input);
+    if (!preview.startAllowed) {
+      throw new Error(
+        `Catalog sync scope is not ready to start: ${
+          preview.blockers[0]?.message ?? "Required provider units are blocked."
+        }`,
+      );
+    }
+
+    const selectedUnits = selectedCatalogSyncRunUnits(preview);
+    if (selectedUnits.length === 0) {
+      throw new Error("Catalog sync scope has no selected eligible provider units.");
+    }
+
+    const idempotencyKey = catalogSyncRunIdempotencyKey(input.context, preview.scope, selectedUnits);
+    const existingRun = await findReusableCatalogSyncRun(idempotencyKey, input.context);
+    if (existingRun) {
+      return existingRun;
+    }
+
+    const syncRunId = createId("job");
+    let parentRecord: CatalogSyncRunDurableJobRecord;
+    try {
+      parentRecord = await catalogSyncRunStore.enqueue({
+        jobId: syncRunId,
+        jobKind: "catalog-sync-scope",
+        payload: {
+          runVersion: "catalog-sync-run-v1",
+          idempotencyKey,
+          scope: preview.scope,
+          selectedUnits,
+          preview,
+        },
+        progress: catalogSyncRunFanoutProgress(0, selectedUnits.length, null, null, "processing"),
+        eventContext: input.context,
+      });
+    } catch (error) {
+      const racedRun = await findReusableCatalogSyncRun(idempotencyKey, input.context);
+      if (racedRun) {
+        return racedRun;
+      }
+      throw error;
+    }
+
+    const childJobs: CatalogSyncRunChildJobLink[] = [];
+    for (const unit of selectedUnits) {
+      try {
+        const childJob = await enqueueIntegrationJob({
+          action: "import",
+          scope: unit.childExecutionScope,
+          syncRunId,
+          context: input.context,
+        });
+        childJobs.push({
+          providerKey: unit.providerKey,
+          unitKey: unit.unitKey,
+          profileKey: unit.profileKey,
+          profileVersion: unit.profileVersion,
+          displayName: unit.displayName,
+          childExecutionScope: unit.childExecutionScope,
+          childJobId: childJob.jobId,
+          syncRunLinkState: childJob.syncRunId === syncRunId ? "attached-to-child-payload" : "reused-active-child-job",
+          errorMessage: null,
+        });
+      } catch (error) {
+        childJobs.push({
+          providerKey: unit.providerKey,
+          unitKey: unit.unitKey,
+          profileKey: unit.profileKey,
+          profileVersion: unit.profileVersion,
+          displayName: unit.displayName,
+          childExecutionScope: unit.childExecutionScope,
+          childJobId: null,
+          syncRunLinkState: "child-enqueue-failed",
+          errorMessage: error instanceof Error ? error.message : "Provider child job could not be enqueued.",
+        });
+      }
+    }
+
+    parentRecord = await completeCatalogSyncRunFanout(parentRecord, childJobs);
+    return toCatalogSyncRun(parentRecord);
+  }
+
+  async function getCatalogSyncRun(input: {
+    syncRunId: string;
+    context: EventStoreContext;
+  }): Promise<CatalogSyncRun | null> {
+    const job = await catalogSyncRunStore.get(input.syncRunId);
+    if (!job || job.jobKind !== "catalog-sync-scope" || !jobMatchesContext(job, input.context)) {
+      return null;
+    }
+
+    return toCatalogSyncRun(job);
+  }
+
+  async function findReusableCatalogSyncRun(
+    idempotencyKey: string,
+    context: EventStoreContext,
+  ): Promise<CatalogSyncRun | null> {
+    const candidates = await catalogSyncRunStore.listRecent({
+      jobKinds: ["catalog-sync-scope"],
+      eventContext: context,
+      limit: 50,
+    });
+
+    for (const candidate of candidates) {
+      if (!jobMatchesContext(candidate, context) || candidate.payload.idempotencyKey !== idempotencyKey) {
+        continue;
+      }
+
+      const run = await toCatalogSyncRun(candidate);
+      if (run.status === "queued" || run.status === "running") {
+        return run;
+      }
+    }
+
+    return null;
+  }
+
+  async function completeCatalogSyncRunFanout(
+    job: CatalogSyncRunDurableJobRecord,
+    childJobs: readonly CatalogSyncRunChildJobLink[],
+  ): Promise<CatalogSyncRunDurableJobRecord> {
+    const failedChildren = childJobs.filter((childJob) => childJob.syncRunLinkState === "child-enqueue-failed");
+    const progress = catalogSyncRunFanoutProgress(
+      childJobs.length,
+      job.payload.selectedUnits.length,
+      null,
+      failedChildren.length > 0 ? "child-job-failed" : "child-job-enqueued",
+      failedChildren.length > 0 ? "failed" : "completed",
+    );
+    const result: CatalogSyncRunFanoutResult = { childJobs };
+    await deps.db.query(
+      `UPDATE catalog_source_observation_integration_durable_jobs
+       SET status = $2,
+           progress = $3::jsonb,
+           result = $4::jsonb,
+           error_message = $5,
+           completed_at = now(),
+           updated_at = now()
+       WHERE job_id = $1
+         AND job_kind = 'catalog-sync-scope'`,
+      [
+        job.jobId,
+        failedChildren.length > 0 ? "failed" : "completed",
+        JSON.stringify(progress),
+        JSON.stringify(result),
+        failedChildren[0]?.errorMessage ?? null,
+      ],
+    );
+
+    return (
+      (await catalogSyncRunStore.get(job.jobId)) ?? {
+        ...job,
+        status: failedChildren.length > 0 ? "failed" : "completed",
+        progress,
+        result,
+        errorMessage: failedChildren[0]?.errorMessage ?? null,
+        completedAt: new Date().toISOString(),
+      }
+    );
+  }
+
+  async function toCatalogSyncRun(job: CatalogSyncRunDurableJobRecord): Promise<CatalogSyncRun> {
+    const childLinks = job.result?.childJobs ?? [];
+    const childJobs = await Promise.all(
+      childLinks.map(async (link): Promise<CatalogSyncRunChildJob> => {
+        const childJob = link.childJobId ? await integrationJobStore.get(link.childJobId) : null;
+        const jobSnapshot = childJob ? toSourceObservationIntegrationJob(childJob) : null;
+        return {
+          ...link,
+          status: catalogSyncRunChildStatus(link, jobSnapshot),
+          job: jobSnapshot,
+        };
+      }),
+    );
+    const progress = catalogSyncRunProgress(childJobs, job.payload.selectedUnits.length);
+
+    return {
+      syncRunId: job.jobId,
+      scope: job.payload.scope,
+      status: catalogSyncRunOperatorStatus(childJobs, job.payload.selectedUnits.length, job.status),
+      progress,
+      selectedUnits: job.payload.selectedUnits,
+      childJobs,
+      consistency: {
+        duplicateSubmissionPolicy: "reuse-active-sync-run",
+        childScopePolicy: "deterministic-from-provider-participation-preview",
+        profileSnapshotPolicy: "selected-active-provider-units-snapshotted-at-enqueue",
+        childRetryResumeCancelPolicy: "delegated-to-provider-import-jobs",
+        partialFailurePolicy: "visible-per-provider-child-job",
+      },
+      preview: job.payload.preview,
+      errorMessage: job.errorMessage,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+  }
+
   async function enqueueIntegrationJob(input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    syncRunId?: string | null;
     reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
@@ -2589,7 +2919,13 @@ export function createSourceObservationRuntime(
     const job = await integrationJobStore.enqueue({
       jobId,
       jobKind: input.action,
-      payload: { action: input.action, scope, profileSnapshot, reapplyProfileMode },
+      payload: {
+        action: input.action,
+        scope,
+        syncRunId: normalizeOptionalKey(input.syncRunId),
+        profileSnapshot,
+        reapplyProfileMode,
+      },
       progress,
       eventContext: input.context,
     });
@@ -4243,6 +4579,8 @@ export function createSourceObservationRuntime(
     processNextBulkReviewJob,
     getBulkReviewWorkUnitSummary: (input = {}) => bulkReviewWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     previewCatalogSyncScope,
+    enqueueCatalogSyncRun,
+    getCatalogSyncRun,
     previewIntegrationImport,
     enqueueIntegrationJob,
     retryIntegrationJob,
@@ -7340,6 +7678,7 @@ function toSourceObservationIntegrationJob(
   const result = job.result;
   return {
     jobId: job.jobId,
+    syncRunId: job.payload.syncRunId ?? null,
     action,
     scope: normalizeIntegrationJobScope(job.payload.scope),
     profileSnapshot: job.payload.profileSnapshot ?? null,
@@ -7420,6 +7759,173 @@ function toSourceObservationIntegrationJobEventSnapshot(
         ...snapshot,
         result: null,
       };
+}
+
+function toCatalogSyncRunFanoutEventSnapshot(
+  job: CatalogSyncRunDurableJobRecord,
+): DurableJobPublicSnapshot<CatalogSyncRunFanoutProgress, CatalogSyncRunFanoutResult> {
+  return {
+    jobId: job.jobId,
+    jobKind: job.jobKind,
+    status: job.status,
+    progress: job.progress,
+    result: job.result,
+    errorMessage: job.errorMessage,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function selectedCatalogSyncRunUnits(
+  preview: CatalogSyncProviderParticipationPreview,
+): readonly CatalogSyncRunSelectedUnitSnapshot[] {
+  return preview.units
+    .filter((unit) => unit.selected && unit.eligibility === "eligible" && unit.childExecutionScope)
+    .map((unit) => ({
+      providerKey: unit.providerKey,
+      unitKey: unit.unitKey,
+      profileKey: unit.profileKey,
+      profileVersion: unit.profileVersion,
+      displayName: unit.displayName,
+      role: unit.role,
+      requirement: unit.requirement,
+      childExecutionScope: normalizeIntegrationJobScope(unit.childExecutionScope ?? {}),
+    }))
+    .sort((left, right) => left.unitKey.localeCompare(right.unitKey));
+}
+
+function catalogSyncRunIdempotencyKey(
+  context: EventStoreContext,
+  scope: CatalogSyncScope,
+  selectedUnits: readonly CatalogSyncRunSelectedUnitSnapshot[],
+): string {
+  return createHash("sha256")
+    .update(
+      stableJsonStringify({
+        tenantId: context.tenantId,
+        forAccountId: context.audit?.forAccountId ?? null,
+        performedByUserId: context.audit?.performedByUserId ?? null,
+        scope,
+        selectedUnits,
+      }),
+    )
+    .digest("hex");
+}
+
+function catalogSyncRunFanoutProgress(
+  completed: number,
+  total: number,
+  currentName: string | null,
+  status: CatalogSyncRunFanoutProgress["status"],
+  phase: CatalogSyncRunFanoutProgress["phase"],
+): CatalogSyncRunFanoutProgress {
+  return {
+    phase,
+    completed,
+    total,
+    currentName,
+    status,
+  };
+}
+
+function catalogSyncRunChildStatus(
+  link: CatalogSyncRunChildJobLink,
+  job: SourceObservationIntegrationJob | null,
+): CatalogSyncRunChildStatus {
+  if (!job) {
+    return link.syncRunLinkState === "child-enqueue-failed" ? "failed" : "queued";
+  }
+  if (link.syncRunLinkState === "reused-active-child-job" && job.status === "queued") {
+    return "reused-active-job";
+  }
+  return job.operatorStatus;
+}
+
+function catalogSyncRunProgress(
+  childJobs: readonly CatalogSyncRunChildJob[],
+  selectedUnitCount: number,
+): CatalogSyncRunProgress {
+  const providerTargetTotals = childJobs.reduce(
+    (totals, childJob) => {
+      const progress = childJob.job?.progress;
+      return {
+        completed: totals.completed + (progress?.completed ?? (isCatalogSyncRunTerminalChild(childJob) ? 1 : 0)),
+        total: totals.total + (progress?.total ?? 1),
+      };
+    },
+    { completed: 0, total: 0 },
+  );
+
+  return {
+    childJobs: {
+      total: selectedUnitCount,
+      queued: childJobs.filter((childJob) => childJob.status === "queued" || childJob.status === "reused-active-job")
+        .length,
+      running: childJobs.filter((childJob) => childJob.status === "running").length,
+      completed: childJobs.filter((childJob) => childJob.status === "completed").length,
+      partial: childJobs.filter((childJob) => childJob.status === "partial").length,
+      failed: childJobs.filter((childJob) => childJob.status === "failed").length,
+      cancelled: childJobs.filter((childJob) => childJob.status === "cancelled").length,
+      stale: childJobs.filter((childJob) => childJob.status === "stale").length,
+    },
+    providerTargets: {
+      completed: providerTargetTotals.completed,
+      total: providerTargetTotals.total || selectedUnitCount,
+    },
+  };
+}
+
+function catalogSyncRunOperatorStatus(
+  childJobs: readonly CatalogSyncRunChildJob[],
+  selectedUnitCount: number,
+  fanoutStatus: DurableJobStatus,
+): CatalogSyncRunOperatorStatus {
+  if (childJobs.length === 0) {
+    return fanoutStatus === "failed" ? "failed" : "queued";
+  }
+
+  const failed = childJobs.some((childJob) => childJob.status === "failed");
+  const cancelled = childJobs.some((childJob) => childJob.status === "cancelled");
+  const partial = childJobs.some((childJob) => childJob.status === "partial");
+  const active = childJobs.some(
+    (childJob) =>
+      childJob.status === "queued" ||
+      childJob.status === "running" ||
+      childJob.status === "stale" ||
+      childJob.status === "retried" ||
+      childJob.status === "reused-active-job",
+  );
+  const running = childJobs.some(
+    (childJob) =>
+      childJob.status === "running" ||
+      childJob.status === "stale" ||
+      childJob.status === "retried" ||
+      childJob.status === "partial",
+  );
+  const completed = childJobs.filter((childJob) => childJob.status === "completed").length;
+
+  if (active) {
+    return completed === 0 && !running ? "queued" : "running";
+  }
+  if (cancelled && completed === 0 && !partial) {
+    return "cancelled";
+  }
+  if (failed || partial || cancelled || childJobs.length < selectedUnitCount) {
+    return completed > 0 || partial ? "partial" : "failed";
+  }
+
+  return "completed";
+}
+
+function isCatalogSyncRunTerminalChild(childJob: CatalogSyncRunChildJob): boolean {
+  return (
+    childJob.status === "completed" ||
+    childJob.status === "partial" ||
+    childJob.status === "failed" ||
+    childJob.status === "cancelled"
+  );
 }
 
 function toClaimedSourceObservationIntegrationJob(
@@ -7522,6 +8028,26 @@ function normalizeIntegrationJobScope(
     setName: scope.setName?.trim() || undefined,
     productId: scope.productId?.trim() || undefined,
   };
+}
+
+function normalizeOptionalKey(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
 }
 
 function profileSelectorFromScope(

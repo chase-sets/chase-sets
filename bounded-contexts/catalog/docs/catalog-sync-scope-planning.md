@@ -46,6 +46,31 @@ ingestion-unit key, language, series ID, set ID, product-line ID, set name, or
 product ID. Catalog sync planning produces these child scopes only after the
 provider-neutral Catalog scope and provider participation are resolved.
 
+## Durable Parent Runs
+
+Catalog sync enqueue creates a parent Catalog sync run before provider work
+starts. The parent run snapshots the normalized `CatalogSyncScope`, the selected
+eligible provider units, their active profile keys and versions, and the
+deterministic child `SourceObservationIntegrationJobScope` values produced by
+the participation preview. Duplicate parent submissions reuse an active run
+when the actor/account context, normalized scope, and selected provider-unit
+snapshot match.
+
+The parent run fans out child provider imports through the existing
+`SourceObservationIntegrationJobScope` job API. Newly created child jobs carry
+the parent `syncRunId` in their durable payload. If the duplicate-submission
+policy reuses an already-active child provider job, the parent records that
+child job id as a reused active child instead of mutating the existing child
+payload. This keeps the existing child retry, resume, cancel, profile snapshot,
+and mixed-outcome behavior authoritative.
+
+Parent progress is an aggregate view over the durable child jobs. It reports
+child job counts by queued, running, completed, partial, failed, cancelled, and
+stale status, plus provider target progress when child jobs expose target
+counts. A child enqueue failure is stored on the parent child link so operators
+can see partial fan-out failures even when no child job id exists for that
+provider unit.
+
 Providers never directly write canonical Catalog Item or Product truth. Provider
 pulls write Source Observations and evidence. Promotion, reapply, split, update,
 and delete decisions remain Catalog review actions that produce Catalog commands
