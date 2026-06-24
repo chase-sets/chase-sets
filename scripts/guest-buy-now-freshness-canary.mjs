@@ -82,6 +82,13 @@ export function buyNowRouteTransitionWaitOptions(timeoutMs) {
   };
 }
 
+export function buyNowItemPageNavigationWaitOptions(timeoutMs) {
+  return {
+    waitUntil: "commit",
+    timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS),
+  };
+}
+
 export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
   return {
     outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_CANARY_OUT", env),
@@ -498,7 +505,7 @@ async function observeBuyNowCheckout(options) {
     for (const fixtureCandidate of fixtureCandidates) {
       const itemUrl = new URL(fixtureCandidate.path, baseUrl);
       stage = "load-buy-now-item-page";
-      await page.goto(itemUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
+      await page.goto(itemUrl.toString(), buyNowItemPageNavigationWaitOptions(options.timeoutMs));
       const buyNowButton = page
         .locator(
           'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
