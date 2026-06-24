@@ -190,7 +190,11 @@ export const sourceContextWakeRegistry = [
     priorityLane: "hot",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
-    affectedProjectionNames: ["checkout:checkout.cart-projection", "checkout:checkout.session-projection"],
+    affectedProjectionNames: [
+      "checkout:checkout.cart-projection",
+      "checkout:checkout.sell-list-projection",
+      "checkout:checkout.session-projection",
+    ],
     routeDependencyIds: [
       "checkout.cart-self-refresh",
       "checkout.guest-cart-add-line-handoff",

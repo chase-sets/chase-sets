@@ -137,7 +137,7 @@ locals {
   # full-DML App Platform bindings. Previews intentionally omit listener URLs:
   # push rollout never targets preview environments and the relay falls back
   # to catch-up-only behavior.
-  worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]
+  worker_listener_source_contexts = ["checkout", "inventory", "marketplace", "ordering", "payments"]
   wake_listener_database_users = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"
