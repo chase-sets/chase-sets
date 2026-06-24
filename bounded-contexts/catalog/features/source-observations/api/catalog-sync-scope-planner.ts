@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import type { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import type { ProviderUsageEstimate } from "./provider-adapters/provider-adapter";
@@ -124,7 +125,9 @@ export async function previewCatalogSyncProviderParticipation(input: {
     .map((unitKey) => ({
       code: "required-provider-unit-missing",
       severity: "error",
-      message: `${unitKey} was required for this Catalog scope but no provider profile unit is available.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.requiredUnitMissing", {
+        unitKey,
+      }),
       action: "Activate the provider profile unit or remove it from the required provider selection.",
     }));
   if (requiredDefaults.size === 0) {
@@ -220,14 +223,18 @@ async function planProviderUnit(input: {
     blockers.push({
       code: "provider-adapter-missing",
       severity: "error",
-      message: `No provider adapter is registered for ${input.version.providerKey}.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing", {
+        providerKey: input.version.providerKey,
+      }),
       action: "Register and configure this provider adapter before selecting the unit.",
     });
   } else if (!adapter.capabilities.supportsImportPlanning) {
     blockers.push({
       code: "provider-transport-unavailable",
       severity: "error",
-      message: `${input.version.providerKey} does not expose import planning for this unit.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable", {
+        providerKey: input.version.providerKey,
+      }),
       action: "Enable import planning on the provider adapter or deselect this unit.",
     });
   }
@@ -305,7 +312,9 @@ function eligibilityBlockers(
     blockers.push({
       code: "inactive-profile-unit",
       severity: "error",
-      message: `${unitKey} is not an active provider profile unit.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.inactiveProfileUnit", {
+        unitKey,
+      }),
       action: "Activate a provider profile unit for this scope or leave it unselected.",
     });
   }
@@ -313,7 +322,10 @@ function eligibilityBlockers(
     blockers.push({
       code: "scope-product-domain-mismatch",
       severity: "error",
-      message: `${unitKey} does not match the ${scope.productDomain} Catalog product domain.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.productDomainMismatch", {
+        unitKey,
+        productDomain: scope.productDomain,
+      }),
       action: "Select a provider unit for the same Catalog product domain.",
     });
   }
@@ -321,7 +333,10 @@ function eligibilityBlockers(
     blockers.push({
       code: "scope-product-form-mismatch",
       severity: "error",
-      message: `${unitKey} does not match the ${scope.productForm} Catalog product form.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.productFormMismatch", {
+        unitKey,
+        productForm: scope.productForm,
+      }),
       action: "Select a provider unit with the same Catalog product form.",
     });
   }
@@ -329,7 +344,10 @@ function eligibilityBlockers(
     blockers.push({
       code: "scope-reference-unsupported",
       severity: "error",
-      message: `${unitKey} does not support ${scope.reference.kind} source-scope planning.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.referenceUnsupported", {
+        unitKey,
+        referenceKind: scope.reference.kind,
+      }),
       action: "Select a provider unit that supports Expansion or Set source scopes.",
     });
   }
@@ -338,7 +356,9 @@ function eligibilityBlockers(
     blockers.push({
       code: "scope-parent-required",
       severity: "error",
-      message: `${unitKey} requires a provider set name for this Catalog scope.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNameRequired", {
+        unitKey,
+      }),
       action: "Choose or map the provider set-name value before selecting this provider unit.",
     });
   }
@@ -346,7 +366,9 @@ function eligibilityBlockers(
     blockers.push({
       code: "scope-parent-required",
       severity: "error",
-      message: `${unitKey} requires a provider product-line/category parent for this Catalog scope.`,
+      message: t("catalog.features.sourceObservations.api.catalogSyncScopePlanner.productLineRequired", {
+        unitKey,
+      }),
       action: "Choose or map the provider product-line/category value before selecting this provider unit.",
     });
   }
