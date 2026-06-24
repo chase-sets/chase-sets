@@ -60,6 +60,19 @@ const orderingWriteResult = {
   },
 } as const;
 
+const orderingApiWriteResult = {
+  orderIds: ["ord_1"],
+  commitPosition: "42",
+  commitEventIds: ["evt_order_created"],
+  commitPositions: [
+    {
+      sourceContextName: "ordering",
+      maxGlobalPosition: "42",
+      eventIds: ["evt_order_created"],
+    },
+  ],
+} as const;
+
 function createGuestBuyerActor(): CheckoutApiEnv["Variables"]["actor"] {
   return createAccountUserTestActor({
     sessionId: "guest:tok_1",
@@ -1040,7 +1053,7 @@ describe("checkout session routes", () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
-      writeResult: orderingWriteResult,
+      writeResult: orderingApiWriteResult,
     });
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
@@ -1096,7 +1109,7 @@ describe("checkout session routes", () => {
       expect.objectContaining({
         sessionId: "chk_1",
         orderIds: ["ord_1"],
-        orderWriteCommitPositions: orderingWriteResult.commandReceipt.commitPositions,
+        orderWriteCommitPositions: orderingApiWriteResult.commitPositions,
       }),
       expect.any(Object),
     );
@@ -1114,7 +1127,7 @@ describe("checkout session routes", () => {
       {
         commandReceipt: {
           commitEventIds: ["evt_order_created"],
-          commitPositions: orderingWriteResult.commandReceipt.commitPositions,
+          commitPositions: orderingApiWriteResult.commitPositions,
         },
       },
     );

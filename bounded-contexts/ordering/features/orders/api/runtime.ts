@@ -4,8 +4,9 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import {
   buildPackagePlan,
@@ -275,6 +276,17 @@ export type CheckoutFulfillmentPreview = Readonly<{
   materialChangeReasons: readonly string[];
 }>;
 
+type OrderingCommitMetadata = Readonly<{
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly SourceCommitPosition[];
+}>;
+
+export type OrderingOrderCreationResult = Readonly<{
+  orderIds: readonly OrderId[];
+}> &
+  OrderingCommitMetadata;
+
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
   createOrdersFromCheckout: (
@@ -292,7 +304,7 @@ export type OrderingOrderServices = Readonly<{
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
-  ) => Promise<{ orderIds: readonly OrderId[] }>;
+  ) => Promise<OrderingOrderCreationResult>;
   previewCheckoutFulfillment: (
     params: Readonly<{
       buyerAccountId: AccountId;
@@ -327,7 +339,7 @@ export type OrderingOrderServices = Readonly<{
       orderIdsOverride?: readonly OrderId[];
     }>,
     context: EventStoreContext,
-  ) => Promise<{ orderIds: readonly OrderId[] }>;
+  ) => Promise<OrderingOrderCreationResult>;
   createOrdersFromAcceptedOfferBatch: (
     params: Readonly<{
       acceptanceBatchId: string;
@@ -368,6 +380,40 @@ export type OrderingOrderServices = Readonly<{
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+function maxCommitPosition(left: string | undefined, right: string | undefined) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return BigInt(right) > BigInt(left) ? right : left;
+}
+
+function orderingCommitMetadataFromStoredEvents(storedEvents: readonly StoredEvent[]): OrderingCommitMetadata {
+  const commitEventIds = storedEvents.map((event) => String(event.eventId)).filter(Boolean);
+  const maxGlobalPosition = storedEvents.reduce<string | undefined>(
+    (current, event) => maxCommitPosition(current, String(event.globalPosition)),
+    undefined,
+  );
+
+  if (!maxGlobalPosition) {
+    return {};
+  }
+
+  return {
+    commitPosition: maxGlobalPosition,
+    commitEventIds,
+    commitPositions: [
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition,
+        eventIds: commitEventIds,
+      },
+    ],
+  };
+}
 
 function groupDemands(cartLines: readonly CheckoutOrderLineSnapshot[]) {
   const grouped = new Map<string, MarketplaceDemand & Readonly<{ quantity: number }>>();
@@ -1050,6 +1096,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     }
 
     const orderIds: OrderId[] = [];
+    const storedEvents: StoredEvent[] = [];
 
     for (const [draftIndex, draft] of plan.orderDrafts.entries()) {
       const marketplaceSalesFeeAmount = numberToMoneyAmount(
@@ -1069,7 +1116,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         ? (planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString())
         : new Date().toISOString();
       const orderId = orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
-      await commandHandler({
+      const result = await commandHandler({
         streamId: `ordering.order-${orderId}`,
         command: {
           type: "CreateOrder",
@@ -1122,11 +1169,15 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         },
         context,
       });
+      storedEvents.push(...result.storedEvents);
 
       orderIds.push(orderId);
     }
 
-    return orderIds;
+    return {
+      orderIds,
+      ...orderingCommitMetadataFromStoredEvents(storedEvents),
+    };
   };
 
   const buildAcceptedOfferPlan = async (
@@ -1224,14 +1275,14 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     context: EventStoreContext,
   ) => {
     const taxAdjustedPlan = await buildAcceptedOfferPlan(params);
-    const orderIds = await createOrdersFromPlan(
+    const result = await createOrdersFromPlan(
       params.buyerAccountId,
       taxAdjustedPlan,
       normalizeAddressSnapshot(params.shippingDestinationSnapshot, "Shipping destination"),
       context,
       params.orderIdsOverride,
     );
-    return { orderIds };
+    return result;
   };
 
   const createOrdersFromAcceptedOfferBatch: OrderingOrderServices["createOrdersFromAcceptedOfferBatch"] = async (
@@ -1353,13 +1404,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         group.shippingDestinationSnapshot,
         taxQuoteResolver,
       );
-      const buyerOrderIds = await createOrdersFromPlan(
+      const buyerOrderResult = await createOrdersFromPlan(
         group.buyerAccountId,
         taxAdjustedPlan,
         group.shippingDestinationSnapshot,
         context,
       );
-      orderIds.push(...buyerOrderIds);
+      orderIds.push(...buyerOrderResult.orderIds);
     }
 
     return { orderIds };
@@ -1601,7 +1652,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
         taxQuoteResolver,
       );
-      const orderIds = await createOrdersFromPlan(
+      const result = await createOrdersFromPlan(
         params.buyerAccountId,
         taxAdjustedPlan,
         normalizeAddressSnapshot(params.shippingAddress, "Shipping destination"),
@@ -1609,7 +1660,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.orderIdsOverride,
       );
 
-      return { orderIds };
+      return result;
     },
     createOrdersFromAcceptedOffer,
     createOrdersFromAcceptedOfferBatch,

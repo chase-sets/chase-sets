@@ -508,6 +508,15 @@ describe("ordering order runtime: checkout supply and grouping", () => {
     );
 
     expect(result.orderIds).toHaveLength(1);
+    expect(result.commitPosition).toBe("1");
+    expect(result.commitEventIds).toEqual(["evt_1"]);
+    expect(result.commitPositions).toEqual([
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "1",
+        eventIds: ["evt_1"],
+      },
+    ]);
 
     const createdEvents = readAllEvents()
       .filter((event) => event.eventType === "ordering.order.created")

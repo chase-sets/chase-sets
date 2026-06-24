@@ -348,6 +348,72 @@ describe("ordering purchase routes", () => {
     );
   });
 
+  it("returns checkout order commit metadata for downstream payment freshness", async () => {
+    const services = {
+      ...createServices(),
+      createOrdersFromCheckout: vi.fn(async () => ({
+        orderIds: ["ord_checkout" as never],
+        commitPosition: "42",
+        commitEventIds: ["evt_order_created"],
+        commitPositions: [
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
+          },
+        ],
+      })),
+    } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_buyer",
+        roleKey: "member",
+        permissions: ["accounts.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/purchases/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutSessionId: "chk_1",
+          sourceType: "cart-checkout",
+          shippingOption: "standard",
+          shippingAddress: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          lines: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      orderIds: ["ord_checkout"],
+      status: "created",
+      commitPosition: "42",
+      commitEventIds: ["evt_order_created"],
+      commitPositions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    });
+  });
+
   it("returns sign-in-required when guest confirmation hits account-scoped limits", async () => {
     const services = {
       ...createServices(),
