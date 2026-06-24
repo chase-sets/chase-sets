@@ -38,6 +38,7 @@ export const DEFAULT_CONVERGENCE_BUDGET_MS = 120_000;
 export const MIN_CONVERGENCE_BUDGET_MS = 5_000;
 export const MAX_CONVERGENCE_BUDGET_MS = 600_000;
 export const DEFAULT_POLL_INTERVAL_MS = 5_000;
+export const DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS = 120_000;
 export const DEFAULT_SOURCE_CONTEXTS = Object.freeze(["checkout"]);
 export const DEFAULT_FIXTURE_KEY = "staging-guest-buy-now-fixture";
 export const DEFAULT_LOAD_ITERATIONS = 6;
@@ -84,6 +85,19 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
     ),
     pollIntervalMs: clampInteger(
       readOption(optionArgs, "--poll-interval-ms") ?? readEnv("WAKE_DRILL_POLL_INTERVAL_MS", env),
+      DEFAULT_POLL_INTERVAL_MS,
+      250,
+      30_000,
+    ),
+    wakeRuntimeReadyBudgetMs: clampInteger(
+      readOption(optionArgs, "--wake-runtime-ready-budget-ms") ?? readEnv("WAKE_DRILL_RUNTIME_READY_BUDGET_MS", env),
+      DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS,
+      0,
+      MAX_CONVERGENCE_BUDGET_MS,
+    ),
+    wakeRuntimeReadyPollIntervalMs: clampInteger(
+      readOption(optionArgs, "--wake-runtime-ready-poll-interval-ms") ??
+        readEnv("WAKE_DRILL_RUNTIME_READY_POLL_INTERVAL_MS", env),
       DEFAULT_POLL_INTERVAL_MS,
       250,
       30_000,
@@ -413,6 +427,8 @@ export function buildDrillEvidence(input) {
     sourceContexts: input.sourceContexts,
     convergenceBudgetMs: input.convergenceBudgetMs,
     pollIntervalMs: input.pollIntervalMs,
+    wakeRuntimeReadyBudgetMs: input.wakeRuntimeReadyBudgetMs ?? null,
+    wakeRuntimeReadyPollIntervalMs: input.wakeRuntimeReadyPollIntervalMs ?? null,
     readySloMs: input.readySloMs ?? null,
     canaryWrite: input.canaryWrite ?? { attempted: false },
     loadPlan: input.loadPlan ?? null,
@@ -421,6 +437,7 @@ export function buildDrillEvidence(input) {
     loadReadinessDecision,
     convergence: input.convergence ?? null,
     segmentSlo,
+    wakeRuntimePreflight: input.wakeRuntimePreflight ?? null,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -671,6 +688,102 @@ export async function pollForConvergence(options, deps) {
   };
 }
 
+export function evaluateWakeRuntimeReadiness(snapshot) {
+  const reasons = [];
+  const schedulers = snapshot?.schedulers ?? null;
+  const relay = snapshot?.relay ?? null;
+  const activeWakeCapableWorkerCount = toFiniteNumber(schedulers?.activeWakeCapableWorkerCount) ?? 0;
+  const relayLeaseState = relay?.lease?.state ?? null;
+
+  if (!schedulers || schedulers.available === false) {
+    reasons.push("wake-scheduler-status-unavailable");
+  } else if (activeWakeCapableWorkerCount < 1) {
+    reasons.push("no-active-wake-capable-workers");
+  }
+
+  if (!relay || relay.available === false) {
+    reasons.push("wake-relay-status-unavailable");
+  } else if (relayLeaseState !== "active") {
+    reasons.push("projection-wake-relay-lease-not-active");
+  }
+
+  return {
+    ready: reasons.length === 0,
+    activeWakeCapableWorkerCount,
+    relayLeaseState,
+    relayOwnerId: relay?.lease?.ownerId ?? null,
+    reasons,
+  };
+}
+
+export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = null) {
+  if (!deps.fetchWakeStatus) {
+    return { attempted: false, ready: null, readyAfterMs: null, sampleCount: 0, initial: null, final: null };
+  }
+
+  const startedAt = deps.now();
+  const deadline = startedAt + Math.max(0, options.wakeRuntimeReadyBudgetMs ?? 0);
+  const pollIntervalMs = Math.max(250, options.wakeRuntimeReadyPollIntervalMs ?? options.pollIntervalMs ?? 5_000);
+  let sampleCount = 0;
+  let snapshot = initialSnapshot;
+  let initial = null;
+  let final = null;
+
+  for (;;) {
+    if (!snapshot) {
+      try {
+        snapshot = await deps.fetchWakeStatus();
+      } catch {
+        const failed = {
+          ready: false,
+          activeWakeCapableWorkerCount: 0,
+          relayLeaseState: null,
+          relayOwnerId: null,
+          reasons: ["wake-status-preflight-fetch-failed"],
+        };
+        return {
+          attempted: true,
+          ready: false,
+          readyAfterMs: null,
+          sampleCount,
+          initial: initial ?? failed,
+          final: failed,
+        };
+      }
+    }
+    sampleCount += 1;
+    const evaluation = evaluateWakeRuntimeReadiness(snapshot);
+    initial ??= evaluation;
+    final = evaluation;
+    if (evaluation.ready) {
+      return {
+        attempted: true,
+        ready: true,
+        readyAfterMs: Math.max(0, deps.now() - startedAt),
+        sampleCount,
+        initial,
+        final,
+      };
+    }
+
+    const remainingMs = deadline - deps.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await deps.sleep(Math.min(pollIntervalMs, remainingMs));
+    snapshot = null;
+  }
+
+  return {
+    attempted: true,
+    ready: false,
+    readyAfterMs: null,
+    sampleCount,
+    initial,
+    final,
+  };
+}
+
 export function classifyCanaryWriteResult(result) {
   if (result.exitCode === null || result.exitCode === 2) {
     return "canary-write-config-error";
@@ -711,7 +824,43 @@ export async function runStagingWakeDrill(options, deps) {
   let loadResults = null;
   let loadSummary = null;
 
-  const wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
+  let wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
+  let wakeRuntimePreflight = null;
+  const needsRuntimeReady =
+    options.drillKind === "load" || (options.drillKind === "reconciliation" && !options.skipCanaryWrite);
+  if (needsRuntimeReady && wakeStatusBefore) {
+    wakeRuntimePreflight = await waitForWakeRuntimeReady(options, deps, wakeStatusBefore);
+    if (wakeRuntimePreflight.ready === true) {
+      wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before-ready");
+    } else if (wakeRuntimePreflight.ready === false) {
+      verdictReasons.push("wake-runtime-not-ready-before-drill");
+    }
+  }
+
+  if (wakeRuntimePreflight?.ready === false) {
+    const wakeStatusAfterRuntimeMiss = await safeWakeStatus(deps, verdictReasons, "after");
+    return buildDrillEvidence({
+      drillKind: options.drillKind,
+      checkedAt: options.checkedAt,
+      completedAt: new Date(deps.now()).toISOString(),
+      correlationPrefix: options.correlationPrefix,
+      sourceContexts: options.sourceContexts,
+      convergenceBudgetMs: options.convergenceBudgetMs,
+      pollIntervalMs: options.pollIntervalMs,
+      wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
+      wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
+      readySloMs: options.readySloMs,
+      canaryWrite,
+      loadPlan,
+      loadResults,
+      loadSummary,
+      convergence: null,
+      wakeRuntimePreflight,
+      wakeStatusBefore: wakeStatusBefore ?? null,
+      wakeStatusAfter: wakeStatusAfterRuntimeMiss ?? null,
+      verdictReasons,
+    });
+  }
 
   if (options.drillKind === "load") {
     loadPlan = clampLoadPlan({ iterations: options.iterations, concurrency: options.concurrency });
@@ -757,12 +906,15 @@ export async function runStagingWakeDrill(options, deps) {
     sourceContexts: options.sourceContexts,
     convergenceBudgetMs: options.convergenceBudgetMs,
     pollIntervalMs: options.pollIntervalMs,
+    wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
+    wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
     readySloMs: options.readySloMs,
     canaryWrite,
     loadPlan,
     loadResults,
     loadSummary,
     convergence,
+    wakeRuntimePreflight,
     wakeStatusBefore: wakeStatusBefore ?? null,
     wakeStatusAfter: wakeStatusAfter ?? null,
     verdictReasons,

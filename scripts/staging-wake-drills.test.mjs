@@ -16,6 +16,7 @@ import {
   contextDatabaseEnvName,
   deriveLoadReadinessDecision,
   evaluateConvergenceSample,
+  evaluateWakeRuntimeReadiness,
   parseStagingWakeDrillArgs,
   pollForConvergence,
   renderDrillStepSummary,
@@ -24,6 +25,7 @@ import {
   summarizeSegmentSlo,
   summarizeLoadResults,
   validateStagingWakeDrillOptions,
+  waitForWakeRuntimeReady,
 } from "./staging-wake-drills.mjs";
 
 const baseEnv = {
@@ -68,6 +70,41 @@ function fakeDeps(overrides = {}) {
     fetchWakeStatus: null,
     ...overrides,
   };
+}
+
+function readyWakeStatus(overrides = {}) {
+  return {
+    generatedAt: "2026-06-11T00:00:00.000Z",
+    wakeStore: { available: true },
+    relay: {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+      },
+    },
+    schedulers: {
+      available: true,
+      activeWakeCapableWorkerCount: 1,
+    },
+    ...overrides,
+  };
+}
+
+function noWorkerWakeStatus() {
+  return readyWakeStatus({
+    relay: {
+      available: true,
+      lease: {
+        state: "expired",
+        ownerId: "worker-old",
+      },
+    },
+    schedulers: {
+      available: true,
+      activeWakeCapableWorkerCount: 0,
+    },
+  });
 }
 
 describe("staging wake drills argument handling", () => {
@@ -237,6 +274,45 @@ describe("convergence polling", () => {
     expect(result.converged).toBe(false);
     expect(result.convergedAfterMs).toBeNull();
     expect(result.finalSamples.checkout.relayCursorGap).toBe("6");
+  });
+});
+
+describe("wake runtime preflight", () => {
+  it("requires an active wake-capable worker and active relay lease before synthetic writes", () => {
+    expect(evaluateWakeRuntimeReadiness(noWorkerWakeStatus())).toMatchObject({
+      ready: false,
+      activeWakeCapableWorkerCount: 0,
+      relayLeaseState: "expired",
+      reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+    });
+
+    expect(evaluateWakeRuntimeReadiness(readyWakeStatus())).toMatchObject({
+      ready: true,
+      activeWakeCapableWorkerCount: 1,
+      relayLeaseState: "active",
+      reasons: [],
+    });
+  });
+
+  it("waits until the wake runtime is ready and reports the startup wait", async () => {
+    const snapshots = [noWorkerWakeStatus(), readyWakeStatus()];
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => snapshots.shift() ?? readyWakeStatus(),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 10_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 1_000,
+      sampleCount: 2,
+      initial: { ready: false },
+      final: { ready: true },
+    });
   });
 });
 
@@ -567,7 +643,7 @@ describe("drill orchestration", () => {
       ...fakeDeps(),
       fetchWakeStatus: async () => {
         snapshots.push("snapshot");
-        return { generatedAt: "2026-06-11T00:00:00.000Z", wakeStore: { available: true } };
+        return readyWakeStatus();
       },
     });
 
@@ -575,9 +651,80 @@ describe("drill orchestration", () => {
     expect(evidence.canaryWrite.attempted).toBe(true);
     expect(evidence.canaryWrite.correlationId).toBe("wake-drill-test-w1");
     expect(evidence.convergence.converged).toBe(true);
-    expect(snapshots).toHaveLength(2);
+    expect(snapshots).toHaveLength(3);
+    expect(evidence.wakeRuntimePreflight).toMatchObject({
+      attempted: true,
+      ready: true,
+      sampleCount: 1,
+    });
     expect(evidence.wakeStatusBefore).not.toBeNull();
     expect(evidence.wakeStatusAfter).not.toBeNull();
+  });
+
+  it("waits for post-deploy wake runtime readiness before writing the reconciliation canary", async () => {
+    const wakeSnapshots = [noWorkerWakeStatus(), noWorkerWakeStatus(), readyWakeStatus(), readyWakeStatus()];
+    let writeCount = 0;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        wakeRuntimeReadyBudgetMs: 10_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => wakeSnapshots.shift() ?? readyWakeStatus(),
+        runCanaryWrite: async (_options, iteration) => {
+          writeCount += 1;
+          return {
+            iteration,
+            correlationId: `wake-drill-test-${iteration}`,
+            exitCode: 0,
+            finalState: "pass",
+            promotionDecision: "promote",
+            failureReason: null,
+            readyLatencyMs: 1200,
+            segments: { writeToCheckoutReadyMs: 1200 },
+          };
+        },
+      },
+    );
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.wakeRuntimePreflight).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 2_000,
+      sampleCount: 3,
+      initial: { ready: false },
+      final: { ready: true },
+    });
+    expect(evidence.canaryWrite.attempted).toBe(true);
+    expect(writeCount).toBe(1);
+  });
+
+  it("fails explicitly without writing when the wake runtime never becomes ready", async () => {
+    let wrote = false;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        wakeRuntimeReadyBudgetMs: 1_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => noWorkerWakeStatus(),
+        runCanaryWrite: async () => {
+          wrote = true;
+          throw new Error("should not write");
+        },
+      },
+    );
+
+    expect(wrote).toBe(false);
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-before-drill");
+    expect(evidence.canaryWrite.attempted).toBe(false);
+    expect(evidence.convergence).toBeNull();
   });
 
   it("fails the drill when durable positions never converge", async () => {

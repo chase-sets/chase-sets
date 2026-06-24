@@ -13,16 +13,17 @@ Every drill verifies the same contract: no wake-path failure loses data or perma
 What the `reconciliation` drill does:
 
 1. Snapshots `GET /api/platform/projections/wake-status` (admin credentials, structural fields only).
-2. Generates one synthetic guest Buy Now write via the existing [freshness probe](./guest-buy-now-freshness-probe.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus).
-3. Audits durable positions until convergence or budget exhaustion, per staging-enabled source context:
+2. Before any synthetic write, waits for wake-runtime readiness when wake-status is available: at least one active wake-capable worker and an active projection-wake relay lease. A post-deploy no-worker window fails explicitly as `wake-runtime-not-ready-before-drill` instead of producing warning-only checkout readiness evidence.
+3. Generates one synthetic guest Buy Now write via the existing [freshness probe](./guest-buy-now-freshness-probe.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus).
+4. Audits durable positions until convergence or budget exhaustion, per staging-enabled source context:
    - event-store head: `MAX(global_position)` of `event_store_events` for the source context;
    - relay high-water cursor: `platform_projection_wake_relay_cursors.last_fanout_position` (control database);
    - projection checkpoints: `event_subscription_checkpoints.last_global_position` rows for that source context (highest subscription version per projection).
-4. Re-snapshots wake-status, writes redacted evidence JSON (`staging-wake-drills/v1`), uploads it as a run artifact, and fails the run if the cursor or any checkpoint stays behind the head past the budget (default 120 s, poll every 5 s).
+5. Re-snapshots wake-status, writes redacted evidence JSON (`staging-wake-drills/v1`), uploads it as a run artifact, and fails the run if the cursor or any checkpoint stays behind the head past the budget (default 120 s, poll every 5 s).
 
 This is the #1234 review-update reconciliation gate made executable: a missed relay fan-out shows up as `relay-cursor-behind-event-store-head` even when no fresh notification arrives, and a missed projection wake shows up as `projection-checkpoint-behind-event-store-head` (fallback polling should close that gap in seconds, so a sustained gap is a real failure).
 
-Each evidence artifact also includes `segmentSlo`: browser-visible canary segment summaries (`writeToRedirectMs`, `redirectToDocumentMs`, `documentToReadyMs`, `writeToCheckoutReadyMs`), durable convergence posture by source context, and the current metric gaps. Unmeasured readiness segments stay `null`/`not measured`; a missing checkout-ready observation must never be read as zero latency. The artifact intentionally keeps server-side notify/relay/store/claim distributions out of the JSON until those histograms exist; join those stages in Grafana by the drill correlation window.
+Each evidence artifact also includes `wakeRuntimePreflight` when the drill has wake-status access, plus `segmentSlo`: browser-visible canary segment summaries (`writeToRedirectMs`, `redirectToDocumentMs`, `documentToReadyMs`, `writeToCheckoutReadyMs`), durable convergence posture by source context, and the current metric gaps. Unmeasured readiness segments stay `null`/`not measured`; a missing checkout-ready observation must never be read as zero latency. The artifact intentionally keeps server-side notify/relay/store/claim distributions out of the JSON until those histograms exist; join those stages in Grafana by the drill correlation window.
 
 What the `load` drill adds: a bounded synthetic burst (iterations hard-capped at 12, concurrency hard-capped at 4, guest or account flow) through the same canary machinery, followed by the same convergence audit, reporting write-to-checkout-ready min/p50/p95/max and readiness pass rate. If any load iteration misses the checkout-ready budget, the artifact records `loadReadinessDecision` with the ratified burst/saturation decision from the SLO document; without that explicit decision the captured-artifact evaluator fails the load evidence. This is bounded staging burst evidence for #1237 — explicitly not a production-like volume load test.
 
