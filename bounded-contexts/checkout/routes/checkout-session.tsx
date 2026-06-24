@@ -33,6 +33,7 @@ import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/req
 import {
   checkoutRecoveryForError,
   checkoutRecoveryForFreshWriteError,
+  checkoutRecoveryForKind,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
@@ -63,6 +64,7 @@ const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
 const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
+const PAYMENT_ORDER_READINESS_PENDING_CODES = new Set(["order_input_not_ready", "order_not_payment_ready"]);
 
 type GuestCheckoutContact = Readonly<{
   contactEmail: string;
@@ -341,6 +343,43 @@ function shouldRefreshPaymentStart(error: unknown) {
   return readApiErrorCode(error.body) === "payment_start_pending";
 }
 
+function responseLikeErrorStatus(error: unknown) {
+  return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
+    ? error.status
+    : null;
+}
+
+function responseLikeErrorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error ? (error as { body?: unknown }).body : null;
+}
+
+function paymentStatusReadIsPending(error: unknown) {
+  const status = responseLikeErrorStatus(error);
+  const code = readApiErrorCode(responseLikeErrorBody(error));
+
+  if (status === 503 && code === "projection_freshness_timeout") {
+    return true;
+  }
+
+  if (status === 400 && PAYMENT_ORDER_READINESS_PENDING_CODES.has(code ?? "")) {
+    return true;
+  }
+
+  return false;
+}
+
+function checkoutRecoveryForPaymentStatusReadError(error: unknown, request: Request, currentPath: string) {
+  if (!paymentStatusReadIsPending(error)) {
+    return null;
+  }
+
+  return checkoutRecoveryForKind(
+    "checkout-preparing",
+    currentPath,
+    readFreshWriteToken(request) ? "refreshable-catching-up" : "stale-projection",
+  );
+}
+
 function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: string) {
   return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&quote=required`;
 }
@@ -579,7 +618,11 @@ async function loadPaymentPreview(
       requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
       paymentMethodCategory,
     });
-  } catch {
+  } catch (error) {
+    if (committedOrderIds.length > 0) {
+      throw error;
+    }
+
     return null;
   }
 }
@@ -643,7 +686,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     wallet,
     selectedPaymentMethodCategory,
     session.order_ids,
-  );
+  ).catch((error) => {
+    const recovery = checkoutRecoveryForPaymentStatusReadError(error, resolvedRequest, currentPathWithSearch(request));
+    if (recovery) {
+      throw createCheckoutRecoveryResponse(recovery);
+    }
+
+    return null;
+  });
 
   return {
     session,
