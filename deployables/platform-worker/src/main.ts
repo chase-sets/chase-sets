@@ -52,6 +52,7 @@ import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from
 import {
   assertRunnerCapacity,
   assertRunnerLaneIsolation,
+  summarizeDatabasePoolPressure,
   summarizeRunnerCapacity,
 } from "@chase-sets/platform-runtime/worker-capacity";
 import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
@@ -458,6 +459,7 @@ void projectionWakeRelaySupervisor?.done.catch((error: unknown) => {
 });
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
 const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
+const getDatabasePoolPressure = () => summarizeDatabasePoolPressure(config.pool.max, pools);
 assertRunnerCapacity(runnerCapacity, {
   workerName: "Platform worker",
   allowOverPoolCapacity: process.env.ALLOW_WORKER_OVER_POOL_CAPACITY === "true",
@@ -467,7 +469,12 @@ assertRunnerLaneIsolation(runnerCapacity, { workerName: "Platform worker" });
 await controlPlane.heartbeatWorker({
   workerId: config.workerId,
   workerKind: "platform-worker",
-  metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups), runnerCapacity },
+  metadata: {
+    runnerCount,
+    runnerGroups: runnerGroupMetadata(runnerGroups),
+    runnerCapacity,
+    databasePoolPressure: getDatabasePoolPressure(),
+  },
 });
 const heartbeatTimer = setInterval(
   () => {
@@ -475,7 +482,12 @@ const heartbeatTimer = setInterval(
       .heartbeatWorker({
         workerId: config.workerId,
         workerKind: "platform-worker",
-        metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups), runnerCapacity },
+        metadata: {
+          runnerCount,
+          runnerGroups: runnerGroupMetadata(runnerGroups),
+          runnerCapacity,
+          databasePoolPressure: getDatabasePoolPressure(),
+        },
       })
       .catch((error) => {
         logger.error("Platform worker heartbeat failed.", {
@@ -526,6 +538,7 @@ app.get("/internal/workers/status", async (c) => {
     status: "ok",
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
     capacity: runnerCapacity,
+    databasePoolPressure: getDatabasePoolPressure(),
     loops: loopStatuses,
     durableWorkflows,
     projectionWakeControls: {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assertRunnerCapacity, assertRunnerLaneIsolation, summarizeRunnerCapacity } from "./worker-capacity";
+import {
+  assertRunnerCapacity,
+  assertRunnerLaneIsolation,
+  summarizeDatabasePoolPressure,
+  summarizeRunnerCapacity,
+} from "./worker-capacity";
 
 describe("worker capacity", () => {
   it("summarizes configured runner concurrency against the database pool budget", () => {
@@ -138,5 +143,83 @@ describe("worker capacity", () => {
     expect(() => assertRunnerLaneIsolation(capacity, { workerName: "Platform worker" })).toThrow(
       "Platform worker runner group 'wakes' must allow 2 concurrent runner(s) to keep 1 reserved slot(s) isolated from shared work.",
     );
+  });
+
+  it("summarizes live database pool pressure with shared pool aliases deduped", () => {
+    const sharedPool = {
+      totalCount: 6,
+      idleCount: 0,
+      waitingCount: 2,
+    };
+    const settlementPool = {
+      totalCount: 3,
+      idleCount: 1,
+      waitingCount: 0,
+    };
+
+    expect(
+      summarizeDatabasePoolPressure(6, {
+        control: sharedPool,
+        checkout: sharedPool,
+        settlement: settlementPool,
+      }),
+    ).toEqual({
+      databasePoolMax: 6,
+      poolCount: 2,
+      totalClients: 9,
+      idleClients: 1,
+      activeClients: 8,
+      waitingClients: 2,
+      saturatedPoolCount: 1,
+      waitingPoolCount: 1,
+      pools: [
+        {
+          names: ["checkout", "control"],
+          totalClients: 6,
+          idleClients: 0,
+          activeClients: 6,
+          waitingClients: 2,
+          saturated: true,
+          waiting: true,
+        },
+        {
+          names: ["settlement"],
+          totalClients: 3,
+          idleClients: 1,
+          activeClients: 2,
+          waitingClients: 0,
+          saturated: false,
+          waiting: false,
+        },
+      ],
+    });
+  });
+
+  it("keeps pool pressure nullable when a test double does not expose node-postgres counters", () => {
+    expect(
+      summarizeDatabasePoolPressure(4, {
+        control: { query: async () => ({ rows: [] }) },
+      }),
+    ).toEqual({
+      databasePoolMax: 4,
+      poolCount: 1,
+      totalClients: null,
+      idleClients: null,
+      activeClients: null,
+      waitingClients: null,
+      saturatedPoolCount: null,
+      waitingPoolCount: null,
+      pools: [
+        {
+          names: ["control"],
+          totalClients: null,
+          idleClients: null,
+          activeClients: null,
+          waitingClients: null,
+          saturated: null,
+          waiting: null,
+        },
+      ],
+    });
   });
 });

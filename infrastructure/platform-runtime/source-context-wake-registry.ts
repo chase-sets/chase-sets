@@ -446,7 +446,11 @@ export const sourceContextWakeRegistry = [
       "payments:payments-payment-projection",
       "settlement:settlement-payment-input-projection",
     ],
-    routeDependencyIds: ["payments.create-to-detail", "payments.detail-self-refresh"],
+    routeDependencyIds: [
+      "payments.checkout-status-order-input-fresh-read",
+      "payments.create-to-detail",
+      "payments.detail-self-refresh",
+    ],
   }),
   registryEntry({
     sourceContextName: "platform-operations",
