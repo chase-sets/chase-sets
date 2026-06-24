@@ -12,7 +12,10 @@ export type CurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
 
 export class PaymentsDomainError extends Error {
-  public constructor(message: string) {
+  public constructor(
+    message: string,
+    public readonly code = "validation_failed",
+  ) {
     super(message);
     this.name = "PaymentsDomainError";
   }

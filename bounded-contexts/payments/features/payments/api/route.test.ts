@@ -4,6 +4,7 @@ import { buildPaymentsApi } from "../../../api";
 import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
 import type { PaymentServices } from "./runtime";
+import { PaymentsDomainError } from "../../../support/runtime-support/common";
 
 const checkoutFeeQuote = {
   payment_method_category: "card" as const,
@@ -295,6 +296,44 @@ describe("payments routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("preserves temporary order readiness error codes for checkout payment start", async () => {
+    const services = createServices();
+    vi.mocked(services.createAccountPayment).mockRejectedValue(
+      new PaymentsDomainError(
+        "Order ord_1 is not eligible for payment in status pending-reservation.",
+        "order_not_payment_ready",
+      ),
+    );
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "order_not_payment_ready",
+        message: "Order ord_1 is not eligible for payment in status pending-reservation.",
+      },
+    });
   });
 
   it("passes checkout source metadata into account payment creation", async () => {

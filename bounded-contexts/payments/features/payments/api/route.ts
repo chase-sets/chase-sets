@@ -60,6 +60,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("payments.features.payments.api.route.request.failed");
 }
 
+function errorCode(error: unknown) {
+  return error instanceof Error && "code" in error && typeof error.code === "string" && error.code.trim()
+    ? error.code
+    : "validation_failed";
+}
+
 function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (!message.startsWith("fee_quote_stale:")) {
@@ -223,7 +229,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       if (stale) {
         return stale;
       }
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -253,7 +259,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(status);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
@@ -276,7 +282,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
       return c.json(status);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }
   });
 
