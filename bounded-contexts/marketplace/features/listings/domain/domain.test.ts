@@ -31,6 +31,20 @@ const createListingCommand = {
   itemSubtitle: null,
   selectedOptions: [],
   productSummary: null,
+  productMeasureSnapshot: {
+    catalogItemId: "cat_test",
+    productId: "cat_test::",
+    selectedOptions: [],
+    measureVersion: "pm_test_v1",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.01,
+    unitWeightOunces: 0.1,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    source: "profile",
+    confidence: "measured",
+  },
   storageLocationName: "Main",
   shipFromCode: "AUS",
   shipFromAddress,
@@ -197,5 +211,22 @@ describe("marketplace listing photos", () => {
         feeQuoteFingerprint: "fee_test",
       }),
     ).not.toThrow();
+  });
+
+  it("requires a resolved shipping measure before publishing", () => {
+    const draft = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      listingId: "lst_missing_measure" as never,
+      productMeasureSnapshot: null,
+    }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+
+    expect(() =>
+      decideMarketplaceListing(draft, {
+        type: "PublishListing",
+        marketplaceSalesFeeUnitAmount: "1.00",
+        sellerNetUnitAmount: "9.00",
+        feeQuoteFingerprint: "fee_test",
+      }),
+    ).toThrow("Listings require a resolved shipping measure before publication.");
   });
 });

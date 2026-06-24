@@ -1055,6 +1055,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       assert(listing.inventoryItemId, "Listing inventory item is missing.");
       assert(listing.priceAmount, "Listing price is missing.");
+      assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(
         !requiresListingPhotoEvidence(listing) || listing.listingPhotos.length > 0,
         "Pristine and Mint listings require at least one listing photo before publication.",

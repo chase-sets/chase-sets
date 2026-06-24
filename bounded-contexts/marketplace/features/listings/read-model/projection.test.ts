@@ -45,6 +45,45 @@ class ProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO marketplace_listing_pages (")) {
+      const row = listingPage({
+        listing_id: String(values[0]),
+        account_id: String(values[1]),
+        inventory_item_id: String(values[2]),
+        catalog_catalog_item_id: String(values[3]),
+        product_id: String(values[4]),
+        item_language_code: values[5] === null ? null : String(values[5]),
+        item_title: values[6] === null ? null : String(values[6]),
+        item_subtitle: values[7] === null ? null : String(values[7]),
+        selected_options: JSON.parse(String(values[8])),
+        product_summary: values[9] === null ? null : String(values[9]),
+        product_measure_snapshot: values[10] === null ? null : JSON.parse(String(values[10])),
+        graded_card: values[11] === null ? null : JSON.parse(String(values[11])),
+        storage_location_name: values[12] === null ? null : String(values[12]),
+        ship_from_code: values[13] === null ? null : String(values[13]),
+        ship_from_address: JSON.parse(String(values[14])),
+        price_amount: String(values[15]),
+        marketplace_sales_fee_unit_amount: String(values[16]),
+        seller_net_unit_amount: String(values[17]),
+        shipping_allowance_percentage_bps: Number(values[18]),
+        terms_schedule_id: values[19] === null ? null : String(values[19]),
+        terms_agreement_id: values[20] === null ? null : String(values[20]),
+        terms_resolved_at: values[21] === null ? null : String(values[21]),
+        fee_quote_fingerprint: String(values[22]),
+        quantity_cap: Number(values[23]),
+        max_units_per_order: values[24] === null ? null : Number(values[24]),
+        max_units_per_day: values[25] === null ? null : Number(values[25]),
+        max_units_per_customer_account: values[26] === null ? null : Number(values[26]),
+        listing_photos: JSON.parse(String(values[27])),
+        status: "draft",
+        created_at: String(values[28]),
+        updated_at: String(values[28]),
+      });
+
+      this.listings.set(row.listing_id, row);
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("UPDATE marketplace_listing_pages AS listing")) {
       const catalogItemId = String(values[0]);
       const products = JSON.parse(String(values[1])) as { productId?: unknown }[];
@@ -60,6 +99,24 @@ class ProjectionDb implements PgQueryable {
       }
 
       return { rows: updated as Row[], rowCount: updated.length };
+    }
+
+    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = 'active'")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      row.status = "active";
+      row.marketplace_sales_fee_unit_amount = String(values[1]);
+      row.seller_net_unit_amount = String(values[2]);
+      row.shipping_allowance_percentage_bps = Number(values[3]);
+      row.terms_schedule_id = values[4] === null ? null : String(values[4]);
+      row.terms_agreement_id = values[5] === null ? null : String(values[5]);
+      row.terms_resolved_at = values[6] === null ? null : String(values[6]);
+      row.fee_quote_fingerprint = String(values[7]);
+      row.updated_at = String(values[8]);
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("SELECT * FROM marketplace_listing_pages WHERE listing_id = $1")) {
@@ -128,11 +185,86 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
   };
 }
 
-function event(type: string, data: Record<string, unknown>): TransportEvent {
+const productMeasureSnapshot = {
+  catalogItemId: "cat_1",
+  productId: "prd_1",
+  selectedOptions: [],
+  measureVersion: "pm_test_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.01,
+  unitWeightOunces: 0.1,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+} as const;
+
+function listingCreatedData(overrides: Record<string, unknown> = {}) {
+  return {
+    listingId: "lst_1",
+    accountId: "acc_seller",
+    inventoryItemId: "inv_1",
+    catalogItemId: "cat_1",
+    productId: "prd_1",
+    itemLanguageCode: "en",
+    itemTitle: "Charizard",
+    itemSubtitle: "Base Set",
+    selectedOptions: [],
+    productSummary: "Raw",
+    productMeasureSnapshot,
+    gradedCard: null,
+    storageLocationName: "Vault",
+    shipFromCode: "VAULT",
+    shipFromAddress: {
+      name: "Vault",
+      line1: "1 Main",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+    },
+    priceAmount: "120.00",
+    marketplaceSalesFeeUnitAmount: "6.00",
+    sellerNetUnitAmount: "114.00",
+    shippingAllowancePercentageBps: 500,
+    termsScheduleId: "cts_default",
+    termsAgreementId: null,
+    termsResolvedAt: "2026-05-09T00:00:00.000Z",
+    feeQuoteFingerprint: "fee_1",
+    quantityCap: 1,
+    purchaseLimits: {
+      maxUnitsPerOrder: null,
+      maxUnitsPerDay: null,
+      maxUnitsPerCustomerAccount: null,
+    },
+    listingPhotos: [],
+    ...overrides,
+  };
+}
+
+function listingPublishedData(overrides: Record<string, unknown> = {}) {
+  return {
+    marketplaceSalesFeeUnitAmount: "6.25",
+    sellerNetUnitAmount: "113.75",
+    shippingAllowancePercentageBps: 500,
+    termsScheduleId: "cts_default",
+    termsAgreementId: null,
+    termsResolvedAt: "2026-05-09T00:01:00.000Z",
+    feeQuoteFingerprint: "fee_2",
+    ...overrides,
+  };
+}
+
+function event(
+  type: string,
+  data: Record<string, unknown>,
+  streamId = "catalog.product-measures-cat_1",
+): TransportEvent {
   return {
     id: "evt_1" as never,
     type,
-    streamId: "catalog.product-measures-cat_1" as never,
+    streamId: streamId as never,
     streamVersion: 1 as never,
     globalPosition: 1 as never,
     tenantId: "tnt_1" as never,
@@ -151,6 +283,51 @@ function event(type: string, data: Record<string, unknown>): TransportEvent {
 }
 
 describe("marketplace listing projection", () => {
+  it("creates seller listing pages from listing created events", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
+    );
+
+    expect(db.listings.get("lst_1")).toMatchObject({
+      listing_id: "lst_1",
+      status: "draft",
+      product_measure_snapshot: productMeasureSnapshot,
+    });
+  });
+
+  it("publishes existing seller listing pages", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
+    );
+    await handlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-lst_1"),
+    );
+
+    expect(db.listings.get("lst_1")).toMatchObject({
+      status: "active",
+      marketplace_sales_fee_unit_amount: "6.25",
+      seller_net_unit_amount: "113.75",
+      fee_quote_fingerprint: "fee_2",
+    });
+  });
+
+  it("fails listing lifecycle events when the seller listing row is missing", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await expect(
+      handlers["marketplace.listing.published"]!(
+        event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-missing"),
+      ),
+    ).rejects.toThrow("Cannot project marketplace.listing.published for missing marketplace listing missing.");
+  });
+
   it("refreshes existing listing product measures from Catalog resolved-measure facts", async () => {
     const db = new ProjectionDb();
     db.listings.set("lst_1", listingPage());

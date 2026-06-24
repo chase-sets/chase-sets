@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { buyerVisibleListingPredicateSql, buyerVisibleListingQuantitySql } from "./listing-visibility";
 
 export type DiscoveryPublicListingRow = Readonly<{
   listing_id: string;
@@ -96,13 +97,7 @@ export async function getDiscoveryPublicListingBySlug(
          account.average_rating::text AS seller_average_rating,
          COALESCE(account.review_count, 0)::integer AS seller_review_count,
          google_feed.payload AS google_shopping_structured_data_payload,
-         LEAST(
-           listing.quantity_cap,
-           GREATEST(
-             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-             0
-           )
-         ) AS visible_quantity
+       ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        LEFT JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
@@ -187,22 +182,14 @@ export async function getDiscoveryPublicAccountBySlug(
            account.average_rating::text AS seller_average_rating,
            COALESCE(account.review_count, 0)::integer AS seller_review_count,
            NULL::jsonb AS google_shopping_structured_data_payload,
-           LEAST(
-             listing.quantity_cap,
-             GREATEST(
-               COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-               0
-             )
-           ) AS visible_quantity
+           ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
          FROM discovery_market_listings AS listing
          LEFT JOIN discovery_market_accounts AS account
            ON account.account_id = listing.account_id
          LEFT JOIN discovery_item_detail_pages AS item
            ON item.catalog_item_id = listing.catalog_catalog_item_id
          WHERE listing.account_id = $1
-           AND listing.status = 'active'
-           AND account.seller_listing_availability_status = 'available'
-           AND listing.product_measure_snapshot IS NOT NULL
+           AND ${buyerVisibleListingPredicateSql("listing", "account")}
        )
        SELECT *
        FROM startable_listing
@@ -266,16 +253,7 @@ export async function listDiscoveryPublicSitemapUrls(
            SELECT 1
              FROM discovery_market_listings AS listing
              WHERE listing.account_id = account.account_id
-               AND listing.status = 'active'
-               AND account.seller_listing_availability_status = 'available'
-               AND listing.product_measure_snapshot IS NOT NULL
-               AND LEAST(
-                 listing.quantity_cap,
-                 GREATEST(
-                   COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-                   0
-                 )
-               ) > 0
+               AND ${buyerVisibleListingPredicateSql("listing", "account")}
          )
        ORDER BY account.updated_at DESC
        LIMIT 5000`,
@@ -286,16 +264,7 @@ export async function listDiscoveryPublicSitemapUrls(
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
        WHERE listing.listing_slug <> ''
-         AND listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
-         AND listing.product_measure_snapshot IS NOT NULL
-         AND LEAST(
-           listing.quantity_cap,
-           GREATEST(
-             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-             0
-           )
-         ) > 0
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}
        ORDER BY listing.updated_at DESC
        LIMIT 5000`,
     ),

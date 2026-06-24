@@ -34,6 +34,14 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(Number(readyOrders.rows[0]?.count ?? 0)).toBeGreaterThan(0);
 
+    const publishedListingsMissingMeasures = await pools.marketplace.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM marketplace_listing_pages
+       WHERE status <> 'draft'
+         AND product_measure_snapshot IS NULL`,
+    );
+    expect(Number(publishedListingsMissingMeasures.rows[0]?.count ?? 0)).toBe(0);
+
     const checkoutCartLines = await pools.checkout.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM checkout_cart_line_pages",
     );

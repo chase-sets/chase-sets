@@ -24,7 +24,19 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: false,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(9);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(11);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "pokemon-graded-slab",
+        matchSelectedOptions: [
+          expect.objectContaining({
+            dimensionId: expect.any(String),
+            optionId: expect.any(String),
+          }),
+        ],
+        precedence: 25,
+      }),
+    );
     expect(productMeasures.resolveAllCatalogItemMeasures).not.toHaveBeenCalled();
   });
 
@@ -35,7 +47,7 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: true,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(9);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(11);
     expect(productMeasures.resolveAllCatalogItemMeasures).toHaveBeenCalledTimes(1);
   });
 });

@@ -488,6 +488,7 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.status !== "active", "Listing is already active.");
+      assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(
         !requiresListingPhotoEvidence(state) || state.listingPhotos.length > 0,
         "Pristine and Mint listings require at least one listing photo before publication.",

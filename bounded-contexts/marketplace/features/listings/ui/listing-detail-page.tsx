@@ -188,6 +188,9 @@ export function MarketplaceListingDetailPage({
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
 }) {
+  const publishDisabled =
+    listing.status === "active" || listing.status === "withdrawn" || listing.product_measure_snapshot === null;
+
   return (
     <Page>
       <PageHeader
@@ -592,9 +595,14 @@ export function MarketplaceListingDetailPage({
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="publish" />
                 <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
-                <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
+                <Button type="submit" disabled={publishDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>
+                {listing.status !== "active" && listing.status !== "withdrawn" && !listing.product_measure_snapshot ? (
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.publish.requires.shipping.measure")}
+                  </Text>
+                ) : null}
               </Form>
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="pause" />

@@ -1,6 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
+import {
+  buyerVisibleListingPredicateSql,
+  buyerVisibleListingQuantitySql,
+} from "../../../support/market-support/listing-visibility";
 import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValueOrderSql } from "./facet-ordering";
 
 const FACET_VALUE_LIMIT = 50;
@@ -127,20 +131,12 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
        SELECT
          listing.catalog_catalog_item_id,
          listing.price_amount,
-         LEAST(
-           listing.quantity_cap,
-           GREATEST(
-             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-             0
-           )
-         ) AS visible_quantity
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
-       WHERE listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
-         AND listing.product_measure_snapshot IS NOT NULL
-         AND listing.catalog_catalog_item_id = ANY($1::text[])
+       WHERE listing.catalog_catalog_item_id = ANY($1::text[])
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )
      SELECT
        catalog_catalog_item_id,
@@ -335,8 +331,7 @@ function buildMarketActivityFilter(
          INNER JOIN discovery_market_accounts AS account
            ON account.account_id = listing.account_id
          WHERE listing.catalog_catalog_item_id = ${itemIdColumn}
-           AND listing.status = 'active'
-           AND account.seller_listing_availability_status = 'available'
+           AND ${buyerVisibleListingPredicateSql("listing", "account")}
            ${selectedOptionSqlForListings}
        )`;
   const offerExists = `EXISTS (
@@ -373,8 +368,7 @@ function buildMarketActivityFacetSource(
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
-       WHERE listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
+       WHERE ${buyerVisibleListingPredicateSql("listing", "account")}
          ${selectedOptionSqlForListings}`;
   const offerRows = `SELECT
          'offer:' || offer.offer_id AS activity_id,

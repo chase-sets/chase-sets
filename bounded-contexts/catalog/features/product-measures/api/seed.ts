@@ -55,6 +55,27 @@ export async function seedProductMeasures(
   });
 
   await services.productMeasures.upsertProfile({
+    profileId: "pmp_seed_pokemon_graded_slab",
+    key: "pokemon-graded-slab",
+    name: "Pokemon graded slab",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+    ],
+    precedence: 25,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
+
+  await services.productMeasures.upsertProfile({
     profileId: "pmp_seed_pokemon_booster_pack",
     key: "pokemon-booster-pack",
     name: "Pokemon booster pack",
@@ -139,6 +160,27 @@ export async function seedProductMeasures(
       },
     ],
     precedence: 20,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
+
+  await services.productMeasures.upsertProfile({
+    profileId: "pmp_seed_magic_graded_slab",
+    key: "magic-graded-slab",
+    name: "Magic graded slab",
+    matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+    ],
+    precedence: 25,
     unitLengthInches: 5.375,
     unitWidthInches: 3.25,
     unitHeightInches: 0.375,
