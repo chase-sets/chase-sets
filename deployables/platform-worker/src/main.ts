@@ -533,7 +533,11 @@ app.get("/internal/workers/status", async (c) => {
     runnerCount: runnerLoop.runners.length,
     ...runnerLoop.loop.status(),
   }));
-  const durableWorkflows = await collectDurableWorkflowStatuses(runtime.services);
+  const [durableWorkflows, projectionWakeIntents, projectionWakeIntentBreakdown] = await Promise.all([
+    collectDurableWorkflowStatuses(runtime.services),
+    workSignalStore.summarizeProjectionWakeIntents(),
+    workSignalStore.summarizeProjectionWakeIntentBreakdown(),
+  ]);
   return c.json({
     status: "ok",
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
@@ -554,7 +558,8 @@ app.get("/internal/workers/status", async (c) => {
       hotLaneReservedRunnerSlots: loopStatuses.find((status) => status.name === "wakes")?.reservedRunnerSlots ?? 0,
       disabledProjectionKeys: config.projectionWakeDisabledProjections,
     },
-    projectionWakeIntents: await workSignalStore.summarizeProjectionWakeIntents(),
+    projectionWakeIntents,
+    projectionWakeIntentBreakdown,
     projectionWakeRelay: projectionWakeRelaySupervisor
       ? {
           enabled: true,
