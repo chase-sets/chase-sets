@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  appendFreshWriteToken,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 
 const { mockCreateAccountPayment, mockCreatePaymentsRequestApiClient, mockGetCheckoutStatus } = vi.hoisted(() => {
   const mockCreateAccountPayment = vi.fn();
@@ -156,6 +161,56 @@ describe("checkout confirmation request support", () => {
 
     expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledTimes(1);
     expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
+      orderIds: ["ord_1"],
+      requestedBalanceCreditAmount: null,
+      paymentMethodCategory: "card",
+    });
+    expect(mockGetCheckoutStatus.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCreateAccountPayment.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("forwards header-carried retry freshness to Payments checkout status", async () => {
+    mockGetCheckoutStatus.mockResolvedValue({ orderIds: ["ord_1"] });
+    mockCreateAccountPayment.mockResolvedValue({ payment_id: "pay_retry" });
+    const encodedReceipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm", {
+      headers: {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodedReceipt,
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "checkout",
+      },
+    });
+
+    await createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+    );
+
+    expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledTimes(1);
+    const paymentsApiClientCalls = mockCreatePaymentsRequestApiClient.mock.calls as unknown as Array<
+      [Request, { headers?: HeadersInit }?]
+    >;
+    const options = paymentsApiClientCalls[0]?.[1];
+    const headers = new Headers(options?.headers);
+    expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBe(encodedReceipt);
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("payments");
     expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
       orderIds: ["ord_1"],
       requestedBalanceCreditAmount: null,

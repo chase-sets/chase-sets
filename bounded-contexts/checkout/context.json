@@ -267,7 +267,7 @@
         "routeId": "buy-checkout-session",
         "actions": ["Confirm checkout", "Continue to payment"],
         "command": "ConfirmCheckoutSession",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["appendFreshWriteTokenFromSources", "navigateAfterWrite"]
       },
       "destination": {
         "routeId": "buy-checkout-confirmation",
