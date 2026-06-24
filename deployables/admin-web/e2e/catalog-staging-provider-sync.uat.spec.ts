@@ -756,12 +756,12 @@ async function promoteSelectedScopeFromSharedImporter(
   page: Page,
   selectedScope: SelectedProviderScope,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
-  const scopePreviewForm = sourceScopeCommandForms(
+  const scopePreviewForms = sourceScopeCommandForms(
     page,
     lorcanaDownstreamCatalogItemsJourney.unitKey,
     "preview-promotion",
-  ).first();
-  if (!(await clickCommandFormButtonIfEnabled(scopePreviewForm))) {
+  ).filter({ has: page.getByRole("button", { name: /^Preview / }) });
+  if (!(await clickFirstEnabledCommandForm(scopePreviewForms))) {
     return null;
   }
 
@@ -785,12 +785,12 @@ async function reapplyPromotedObservationFromSharedImporter(
   page: Page,
   selectedScope: SelectedProviderScope,
 ): Promise<LorcanaDownstreamSmokeResult> {
-  const sourceScopeReapplyForm = sourceScopeCommandForms(
+  const sourceScopeReapplyForms = sourceScopeCommandForms(
     page,
     lorcanaDownstreamCatalogItemsJourney.unitKey,
     "start-reapply",
-  ).first();
-  if (await clickCommandFormButtonIfEnabled(sourceScopeReapplyForm)) {
+  ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
+  if (await clickFirstEnabledCommandForm(sourceScopeReapplyForms)) {
     await expectCommandQueued(page);
     return {
       mode: "reapply",
@@ -859,6 +859,22 @@ async function clickFirstEnabledObservationCommand(
   return null;
 }
 
+async function clickFirstEnabledCommandForm(forms: Locator): Promise<boolean> {
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  while (Date.now() < deadline) {
+    const count = await forms.count();
+    for (let index = 0; index < count; index += 1) {
+      if (await clickCommandFormButtonIfEnabled(forms.nth(index))) {
+        return true;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  return false;
+}
+
 async function selectedObservationIdsFromForm(form: Locator): Promise<readonly string[]> {
   return hiddenInputValue(form, "selectedObservationIds")
     .then((value) =>
@@ -871,10 +887,6 @@ async function selectedObservationIdsFromForm(form: Locator): Promise<readonly s
 }
 
 async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> {
-  if (!(await form.isVisible({ timeout: 1_000 }).catch(() => false))) {
-    return false;
-  }
-
   const button = form.getByRole("button").first();
   if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) {
     return false;
