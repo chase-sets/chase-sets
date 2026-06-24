@@ -108,6 +108,10 @@ export const SUBCOMMANDS = {
     script: "postage-policy-cleanup-evidence.mjs",
     description: "Postage policy cleanup evidence from ordering/fulfillment data.",
   },
+  "projection:hot-lag-evidence": {
+    script: "projection-hot-lag-evidence.mjs",
+    description: "Support-safe hot projection lag attribution evidence for projection worker pressure.",
+  },
   "push-wake:capacity-evidence": {
     script: "push-wake-capacity-evidence.mjs",
     description: "CI-safe push-wake connection budget and listener expansion evidence.",

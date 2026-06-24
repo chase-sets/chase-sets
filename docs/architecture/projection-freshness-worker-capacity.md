@@ -51,9 +51,18 @@ For guest Buy Now staging canary or release evidence, collect:
 - `outcome=fresh` p95 and p99 wait durations against the SLO in `docs/architecture/projection-freshness-slos.md`;
 - timeout records with pending `checkout.session-projection` state, required global position, last global position, and global-position lag;
 - worker heartbeats from `/api/platform/projections`, with at least one active `platform-worker` during the observation window;
+- worker status from `/internal/workers/status`, including `databasePoolPressure`, runner loop status, and `projectionWakeIntentBreakdown`;
 - runner status for `projection-group:checkout.checkout.session-projection`;
 - projection status snapshot source, source lag, applicable lag, blocked stream count, and poison event count for `checkout.session-projection`;
 - confirmation that exact-dependency wait mode stayed enabled for normal canary runs.
+
+For #2515 production-push handoffs, turn the captured worker/projection JSON into a no-secret evidence record:
+
+```powershell
+pnpm run ops projection:hot-lag-evidence -- --worker-status <worker-status.json> --projection-status <projection-status.json> --out artifacts/projection-hot-lag-evidence.json
+```
+
+Add `--wake-outcomes <wake-outcomes.json>` when Grafana/log counters show `projection-wake.intent.*` outcomes; `outcome: "deferred"` or `reason: "projection-group-lease-busy"` lets the record distinguish projection-group lease contention from hot-lane queueing. The command records only structural counts and never reads URLs, secrets, wake payloads, or database rows directly.
 
 The canary fails the platform freshness gate when:
 
