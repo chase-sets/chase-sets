@@ -94,6 +94,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
   "checkout.features.sessions.api.route.payment.quote.required":
     "Review the latest payable total before payment starts.",
+  "checkout.features.sessions.api.route.payment.start.pending":
+    "Payment setup is still catching up. Review checkout again before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
     "Register or sign in before placing purchase intent.",
   "checkout.features.sessions.api.route.request.failed": "Request failed.",

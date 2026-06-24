@@ -325,8 +325,20 @@ function shouldRefreshPaymentQuote(error: unknown) {
   return code === "payment_quote_required" || code === "fee_quote_stale";
 }
 
+function shouldRefreshPaymentStart(error: unknown) {
+  if (!(error instanceof CheckoutApiError) || error.status !== 409) {
+    return false;
+  }
+
+  return readApiErrorCode(error.body) === "payment_start_pending";
+}
+
 function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: string) {
   return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&quote=required`;
+}
+
+function paymentStartRefreshPath(sessionId: string, paymentMethodCategory: string) {
+  return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated`;
 }
 
 function checkoutPreviewRealtimeTopics(
@@ -686,13 +698,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
           shippingAddress,
         });
       } catch (error) {
-        if (shouldRefreshPaymentQuote(error)) {
+        const refreshPath = shouldRefreshPaymentQuote(error)
+          ? paymentQuoteRefreshPath(params.sessionId, visiblePaymentMethodCategory)
+          : shouldRefreshPaymentStart(error)
+            ? paymentStartRefreshPath(params.sessionId, visiblePaymentMethodCategory)
+            : null;
+        if (refreshPath) {
           return redirect(
             navigateAfterWriteFromSources(
               reviewedPreviewWriteSources([
                 error instanceof CheckoutApiError ? visibleFreshWriteSource(error.body) : null,
               ]),
-              paymentQuoteRefreshPath(params.sessionId, visiblePaymentMethodCategory),
+              refreshPath,
             ),
           );
         }
