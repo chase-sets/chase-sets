@@ -5,10 +5,19 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
-import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVersionReview } from "./contracts";
+import type {
+  CatalogIntegrationControlPlaneOverview,
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationScope,
+} from "./contracts";
 import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
-import { scopeContextFromRouteContext } from "./primary-workbench-scope-context";
+import {
+  importScopeFromScopeContext,
+  scopeContextFromProviderScope,
+  scopeContextFromRouteContext,
+  scopeKey,
+} from "./primary-workbench-scope-context";
 import {
   comparableImportScopeKey,
   importScopeMatchesProviderScope,
@@ -85,6 +94,7 @@ export function selectedImportScopeFor(input: {
 export function importJobsFor(
   overview: CatalogIntegrationControlPlaneOverview | null,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
+  scopes: readonly SourceObservationIntegrationScope[] = [],
 ): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"] {
   const providerTransport = providerTransportFor(overview, routeContext.providerKey);
   const seenJobIds = new Set<string>();
@@ -126,6 +136,7 @@ export function importJobsFor(
 
   return rows.map(({ unitKey, job }) => {
     const scopeMatchesRoute = jobMatchesRouteScope(job, routeContext);
+    const matchingScope = matchingProviderScopeForJob(scopes, job);
     const state = importJobState(job);
     const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
     if (job.operatorStatus === "stale") {
@@ -169,12 +180,12 @@ export function importJobsFor(
         job.operatorStatus === "cancelled",
       resumeAvailable: job.operatorStatus === "stale" || job.operatorStatus === "retried",
       cancelAvailable: job.phase === "enqueued" || job.phase === "fetching" || job.phase === "processing",
-      sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, job),
+      sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, unitKey, job, matchingScope),
       auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(
         { ...routeContext, jobId: job.jobId, importScope: job.importScope ?? routeContext.importScope },
         "audit-evidence",
       ),
-      observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
+      observationLinks: [sourceObservationReviewHrefFor(routeContext, unitKey, job, matchingScope)],
       result: jobResultFor(routeContext, job),
       blockers: [...blockers],
     };
@@ -223,20 +234,84 @@ function replayOrReapplyStateFor(
 
 function sourceObservationReviewHrefFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
+  unitKey: string | null,
   job: CatalogIntegrationRecentJobReadModel,
+  matchingScope: SourceObservationIntegrationScope | null,
 ): string {
+  const jobScope = matchingScope ? scopeContextFromProviderScope(matchingScope) : routeContext.scope;
+  const importScope = job.importScope ?? importScopeFromScopeContext(jobScope) ?? routeContext.importScope;
+
   return catalogPrimaryWorkbenchHref(
     {
       ...routeContext,
+      providerKey: job.providerKey,
+      unitKey: job.unitKey ?? unitKey ?? routeContext.unitKey,
       jobId: job.jobId,
-      importScope: job.importScope ?? routeContext.importScope,
-      sourceObservationFilters: {
-        ...routeContext.sourceObservationFilters,
-        providerKey: job.providerKey,
-      },
+      importScope,
+      scope: jobScope,
+      profileVersion: job.profileVersion ?? routeContext.profileVersion,
+      selectedObservationIds: [],
+      reviewOffset: null,
+      reviewLimit: null,
+      promotionPreviewId: null,
+      sourceObservationFilters: {},
     },
     "source-observation-review",
   );
+}
+
+function matchingProviderScopeForJob(
+  scopes: readonly SourceObservationIntegrationScope[],
+  job: CatalogIntegrationRecentJobReadModel,
+): SourceObservationIntegrationScope | null {
+  const jobScope = normalizedProviderScopeCandidate(job.importScope, job.providerKey);
+  if (!jobScope) {
+    return null;
+  }
+
+  return (
+    scopes.find(
+      (scope) =>
+        scope.provider_key === job.providerKey &&
+        providerScopeImportScopeCandidates(scope).some(
+          (candidate) => normalizedProviderScopeCandidate(candidate, scope.provider_key) === jobScope,
+        ),
+    ) ?? null
+  );
+}
+
+function providerScopeImportScopeCandidates(scope: SourceObservationIntegrationScope): readonly string[] {
+  const candidates = new Set<string>();
+  const addCandidate = (...segments: readonly (string | null | undefined)[]) => {
+    const value = segments
+      .map((segment) => segment?.trim())
+      .filter((segment): segment is string => Boolean(segment))
+      .join(":");
+    if (value) {
+      candidates.add(value);
+    }
+  };
+
+  addCandidate(scopeKey(scope));
+  addCandidate(scope.language_code, scope.product_line_id);
+  addCandidate(scope.language_code, scope.product_line_id, scope.expansion_id);
+  addCandidate(scope.language_code, scope.product_line_id, scope.expansion_name);
+  addCandidate(scope.language_code, scope.series_id);
+  addCandidate(scope.language_code, scope.series_id, scope.expansion_id);
+  addCandidate(scope.language_code, scope.series_id, scope.expansion_name);
+  addCandidate(scope.language_code, scope.expansion_id);
+  addCandidate(scope.language_code, scope.expansion_name);
+
+  return [...candidates];
+}
+
+function normalizedProviderScopeCandidate(value: string | null | undefined, providerKey: string | null): string | null {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return providerKey === "tcgdex" ? normalized.toLowerCase() : normalized;
 }
 
 function importJobState(

@@ -364,10 +364,24 @@ function importScopeForStructuredMerge(
   const segments = importScopeSegments(importScope);
   const expansionSegment = segments.at(-1) ?? null;
   const explicitExpansion = explicitScope.expansionId ?? explicitScope.expansionName;
+  const languageMatches = !explicitScope.languageCode || segments[0] === explicitScope.languageCode;
   if (
     explicitExpansion &&
     expansionSegment &&
     comparableScopeValue(explicitExpansion, explicitScope.providerKey) !==
+      comparableScopeValue(expansionSegment, explicitScope.providerKey)
+  ) {
+    return null;
+  }
+
+  if (
+    explicitScope.expansionId &&
+    !explicitScope.productLineId &&
+    !explicitScope.seriesId &&
+    expansionSegment &&
+    segments.length === 2 &&
+    languageMatches &&
+    comparableScopeValue(explicitScope.expansionId, explicitScope.providerKey) ===
       comparableScopeValue(expansionSegment, explicitScope.providerKey)
   ) {
     return null;
@@ -380,7 +394,7 @@ function importScopeForStructuredMerge(
     segments.length === 3 &&
     segments[1] === explicitScope.productLineId &&
     segments[2] === explicitExpansion &&
-    (!explicitScope.languageCode || segments[0] === explicitScope.languageCode)
+    languageMatches
   ) {
     return null;
   }
