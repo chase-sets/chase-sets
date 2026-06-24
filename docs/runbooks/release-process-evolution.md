@@ -8,7 +8,7 @@ The operating goals are:
 - Production deploys stay automatic for routine deployable changes after required checks pass.
 - Launch, live-money, provider, and tax gates block only the capability exposure they protect.
 - Operators can lock production promotion during incidents and use one audited emergency path for fix-forward or revert.
-- Capability exposure moves from broad environment switches toward deterministic account-level rollout controls and canary analysis.
+- Capability exposure moves from broad environment switches toward deterministic account-level rollout controls.
 
 ## Release Queue Policy
 
@@ -89,37 +89,25 @@ pnpm run ops release-lock:commands --action unlock --environment production
 
 The generator reads the current production lock inputs, validates lock reason requirements, and produces the `gh variable set` shape to run against the production GitHub Environment. Release locks are GitHub Environment state operated from CI and `scripts/`; the application does not host a release-lock console.
 
-## Production Canary Path
+## Post-Deploy Production Verification
 
-Canary is an additional production phase after staging, not a staging replacement.
+The platform ships via a DigitalOcean App Platform rolling deploy. There is no canary deployment: production is not split into cohorts and traffic is never weighted between an old and new release. After the rolling deploy reaches `ACTIVE`, the workflow runs synthetic, operator-safe post-deploy checks against the already-deployed release before advancing the `production` marker. The intent is to catch a broken production reality early, not to gate a traffic split that does not exist.
 
-Phase 1 uses synthetic and operator-safe production probes after the production deployment smoke check and before the production marker is advanced:
+The post-deploy checks are:
 
-- landing host HEAD probe
-- admin host HEAD probe
-- marketplace host HEAD probe only when public marketplace is enabled
-- immutable release commit and production workflow run recorded in `release-health/v1`
+- Stage 1 production URL smoke: landing host HEAD probe, admin host HEAD probe, and (only when public marketplace is enabled) marketplace host HEAD probe;
+- with proof mode enabled, the authenticated proof-mode [Buy Now Freshness Probe](./guest-buy-now-freshness-probe.md) and the Settlement provider-health probe against the gated proof topology;
+- the immutable release commit and production workflow run recorded in `release-health/v1`.
 
-This phase is intentionally not random public traffic splitting. A failure blocks the production marker and leaves the workflow evidence behind for fix-forward or rollback readiness.
+These checks are post-deploy verification, not random public traffic splitting. They run against the single rolled-out release. Unsafe outcomes (a host that fails its HEAD probe, or a freshness probe in a customer-failure state) block the production marker and leave the workflow evidence behind for fix-forward or rollback readiness. The SLO clause of the Buy Now freshness probe is advisory/warn-mode (issue #1323) until the #1237 numeric SLO/load proof ratifies the budget; see the probe runbook for the warn-versus-gate contract.
 
-Phase 1 can expand to operator/internal or account-allowlisted production traffic:
+Post-deploy verification runs only when:
 
-- production root/admin proof APIs already used for private provider proof
-- production marketplace APIs guarded by account allowlists once marketplace is public
-- synthetic production probes with tagged operator accounts
+- the staging job deployed the same immutable commit image and passed smoke, critical-flow, and money-smoke gates;
+- the release-health record names the release commit, workflow run, start, completion, and the recorded decision;
+- no active release lock is set unless this is an emergency release.
 
-Phase 2 may add small deterministic cohorts for public marketplace accounts after release-health metrics and rollout guards are reliable.
-
-Phase 3 may add random production traffic only when DigitalOcean routing, observability, and rollback mechanics prove that the traffic split is reversible and cheap to operate.
-
-Canary promotion requires:
-
-- the staging job deployed the same immutable commit image and passed smoke, critical-flow, and money-smoke gates
-- the canary topology routes only the intended component or cohort
-- the release-health record names the release commit, workflow run, canary start, canary end, and promotion decision
-- no active release lock unless this is an emergency release
-
-Abort canary by returning traffic to the last smoke-verified production release, disabling the rollout or kill-switching the capability, and preserving the canary health record for investigation.
+When a check fails, recover by fix-forward or by rolling back to the last smoke-verified production release through the emergency-recovery and rollback-readiness workflows, and preserve the release-health record for investigation. Wider capability exposure stays governed by the deterministic rollout controls below, not by a deployment-time traffic split.
 
 ## Release Health Metrics
 
