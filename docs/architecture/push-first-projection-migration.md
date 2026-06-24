@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-23.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-24.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -115,7 +115,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 33 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (61)
+## Read-After-Write Route Inventory (62)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -177,6 +177,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
 | `ordering.purchase-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
 | `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
+| `payments.checkout-status-order-input-fresh-read` | payments | critical | exact wait | push-accelerated |
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `reputation.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
