@@ -16,6 +16,7 @@ import {
   contextDatabaseEnvName,
   deriveLoadReadinessDecision,
   evaluateConvergenceSample,
+  evaluateWakeRuntimeReadiness,
   parseStagingWakeDrillArgs,
   pollForConvergence,
   renderDrillStepSummary,
@@ -24,6 +25,7 @@ import {
   summarizeSegmentSlo,
   summarizeLoadResults,
   validateStagingWakeDrillOptions,
+  waitForWakeRuntimeReady,
 } from "./staging-wake-drills.mjs";
 
 const baseEnv = {
@@ -70,17 +72,63 @@ function fakeDeps(overrides = {}) {
   };
 }
 
+function readyWakeStatus(overrides = {}) {
+  return {
+    generatedAt: "2026-06-11T00:00:00.000Z",
+    wakeStore: { available: true },
+    relay: {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+      },
+    },
+    schedulers: {
+      available: true,
+      activeWakeCapableWorkerCount: 1,
+    },
+    ...overrides,
+  };
+}
+
+function noWorkerWakeStatus() {
+  return readyWakeStatus({
+    relay: {
+      available: true,
+      lease: {
+        state: "expired",
+        ownerId: "worker-old",
+      },
+    },
+    schedulers: {
+      available: true,
+      activeWakeCapableWorkerCount: 0,
+    },
+  });
+}
+
 describe("staging wake drills argument handling", () => {
   it("parses the drill kind, defaults, and env-derived database URLs", () => {
     const options = parsedOptions(["reconciliation", "--base-url", "https://marketplace.staging.chasesets.com"]);
 
     expect(options.drillKind).toBe("reconciliation");
     expect(options.sourceContexts).toEqual([...DEFAULT_SOURCE_CONTEXTS]);
+    expect(options.convergenceProjectionNames).toEqual(["checkout.session-projection"]);
     expect(options.convergenceBudgetMs).toBe(DEFAULT_CONVERGENCE_BUDGET_MS);
     expect(options.searchQuery).toBe("air balloon");
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
     expect(options.controlDatabaseUrl).toBe(baseEnv.PLATFORM_CONTROL_DATABASE_URL);
     expect(validateStagingWakeDrillOptions(options)).toEqual([]);
+  });
+
+  it("defaults synthetic Buy Now convergence to the session projection and lets operators opt into all checkpoints", () => {
+    expect(parsedOptions(["load"]).convergenceProjectionNames).toEqual(["checkout.session-projection"]);
+    expect(parsedOptions(["reconciliation", "--skip-canary-write"]).convergenceProjectionNames).toEqual([]);
+    expect(
+      parsedOptions(["load", "--convergence-projection-names", "checkout.cart-projection, checkout.session-projection"])
+        .convergenceProjectionNames,
+    ).toEqual(["checkout.cart-projection", "checkout.session-projection"]);
+    expect(parsedOptions(["load", "--convergence-projection-names", "all"]).convergenceProjectionNames).toEqual([]);
   });
 
   it("maps hyphenated context names onto database env names", () => {
@@ -192,6 +240,63 @@ describe("checkpoint selection and convergence evaluation", () => {
     expect(missing.reasons).toContain("relay-cursor-missing");
     expect(missing.reasons).toContain("no-projection-checkpoints-found");
   });
+
+  it("can gate convergence to the projection required by the synthetic checkout surface", () => {
+    const evaluation = evaluateConvergenceSample(
+      {
+        head: "1772",
+        relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+        checkpoints: [
+          {
+            checkpointKey: "checkout.cart-projection:checkout:v1",
+            projectionName: "checkout.cart-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.sell-list-projection:checkout:v1",
+            projectionName: "checkout.sell-list-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.session-projection:checkout:v1",
+            projectionName: "checkout.session-projection",
+            subscriptionVersion: 1,
+            position: "1772",
+          },
+        ],
+      },
+      { projectionNames: ["checkout.session-projection"] },
+    );
+
+    expect(evaluation.converged).toBe(true);
+    expect(evaluation.checkpointGaps.map((entry) => entry.checkpointKey)).toEqual([
+      "checkout.session-projection:checkout:v1",
+    ]);
+    expect(evaluation.checkpointScope).toMatchObject({
+      mode: "projection-names",
+      projectionNames: ["checkout.session-projection"],
+      excludedCheckpointCount: 2,
+      excludedLaggingCheckpointCount: 2,
+      excludedMaxCheckpointGap: "12",
+    });
+  });
+
+  it("fails scoped convergence when the required projection checkpoint is missing", () => {
+    const evaluation = evaluateConvergenceSample(
+      {
+        head: "42",
+        relayCursor: { position: "42" },
+        checkpoints: [{ checkpointKey: "a:checkout:v1", projectionName: "a", subscriptionVersion: 1, position: "42" }],
+      },
+      { projectionNames: ["checkout.session-projection"] },
+    );
+
+    expect(evaluation.converged).toBe(false);
+    expect(evaluation.reasons).toContain("required-projection-checkpoint-not-found");
+    expect(evaluation.checkpointScope.missingProjectionNames).toEqual(["checkout.session-projection"]);
+  });
 });
 
 describe("convergence polling", () => {
@@ -237,6 +342,88 @@ describe("convergence polling", () => {
     expect(result.converged).toBe(false);
     expect(result.convergedAfterMs).toBeNull();
     expect(result.finalSamples.checkout.relayCursorGap).toBe("6");
+  });
+
+  it("does not fail a scoped Buy Now convergence poll on unrelated checkout checkpoint gaps", async () => {
+    const deps = fakeDeps({
+      sampleSourceContext: async () => ({
+        head: "1772",
+        relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+        checkpoints: [
+          {
+            checkpointKey: "checkout.cart-projection:checkout:v1",
+            projectionName: "checkout.cart-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.sell-list-projection:checkout:v1",
+            projectionName: "checkout.sell-list-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.session-projection:checkout:v1",
+            projectionName: "checkout.session-projection",
+            subscriptionVersion: 1,
+            position: "1772",
+          },
+        ],
+      }),
+    });
+
+    const result = await pollForConvergence(
+      {
+        sourceContexts: ["checkout"],
+        convergenceProjectionNames: ["checkout.session-projection"],
+        convergenceBudgetMs: 120_000,
+        pollIntervalMs: 5_000,
+      },
+      deps,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.sampleCount).toBe(1);
+    expect(result.finalSamples.checkout.checkpointScope.excludedLaggingCheckpointCount).toBe(2);
+  });
+});
+
+describe("wake runtime preflight", () => {
+  it("requires an active wake-capable worker and active relay lease before synthetic writes", () => {
+    expect(evaluateWakeRuntimeReadiness(noWorkerWakeStatus())).toMatchObject({
+      ready: false,
+      activeWakeCapableWorkerCount: 0,
+      relayLeaseState: "expired",
+      reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+    });
+
+    expect(evaluateWakeRuntimeReadiness(readyWakeStatus())).toMatchObject({
+      ready: true,
+      activeWakeCapableWorkerCount: 1,
+      relayLeaseState: "active",
+      reasons: [],
+    });
+  });
+
+  it("waits until the wake runtime is ready and reports the startup wait", async () => {
+    const snapshots = [noWorkerWakeStatus(), readyWakeStatus()];
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => snapshots.shift() ?? readyWakeStatus(),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 10_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 1_000,
+      sampleCount: 2,
+      initial: { ready: false },
+      final: { ready: true },
+    });
   });
 });
 
@@ -567,7 +754,7 @@ describe("drill orchestration", () => {
       ...fakeDeps(),
       fetchWakeStatus: async () => {
         snapshots.push("snapshot");
-        return { generatedAt: "2026-06-11T00:00:00.000Z", wakeStore: { available: true } };
+        return readyWakeStatus();
       },
     });
 
@@ -575,9 +762,80 @@ describe("drill orchestration", () => {
     expect(evidence.canaryWrite.attempted).toBe(true);
     expect(evidence.canaryWrite.correlationId).toBe("wake-drill-test-w1");
     expect(evidence.convergence.converged).toBe(true);
-    expect(snapshots).toHaveLength(2);
+    expect(snapshots).toHaveLength(3);
+    expect(evidence.wakeRuntimePreflight).toMatchObject({
+      attempted: true,
+      ready: true,
+      sampleCount: 1,
+    });
     expect(evidence.wakeStatusBefore).not.toBeNull();
     expect(evidence.wakeStatusAfter).not.toBeNull();
+  });
+
+  it("waits for post-deploy wake runtime readiness before writing the reconciliation canary", async () => {
+    const wakeSnapshots = [noWorkerWakeStatus(), noWorkerWakeStatus(), readyWakeStatus(), readyWakeStatus()];
+    let writeCount = 0;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        wakeRuntimeReadyBudgetMs: 10_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => wakeSnapshots.shift() ?? readyWakeStatus(),
+        runCanaryWrite: async (_options, iteration) => {
+          writeCount += 1;
+          return {
+            iteration,
+            correlationId: `wake-drill-test-${iteration}`,
+            exitCode: 0,
+            finalState: "pass",
+            promotionDecision: "promote",
+            failureReason: null,
+            readyLatencyMs: 1200,
+            segments: { writeToCheckoutReadyMs: 1200 },
+          };
+        },
+      },
+    );
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.wakeRuntimePreflight).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 2_000,
+      sampleCount: 3,
+      initial: { ready: false },
+      final: { ready: true },
+    });
+    expect(evidence.canaryWrite.attempted).toBe(true);
+    expect(writeCount).toBe(1);
+  });
+
+  it("fails explicitly without writing when the wake runtime never becomes ready", async () => {
+    let wrote = false;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        wakeRuntimeReadyBudgetMs: 1_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => noWorkerWakeStatus(),
+        runCanaryWrite: async () => {
+          wrote = true;
+          throw new Error("should not write");
+        },
+      },
+    );
+
+    expect(wrote).toBe(false);
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-before-drill");
+    expect(evidence.canaryWrite.attempted).toBe(false);
+    expect(evidence.convergence).toBeNull();
   });
 
   it("fails the drill when durable positions never converge", async () => {
@@ -668,6 +926,59 @@ describe("drill orchestration", () => {
     expect(seenIterations).toHaveLength(5);
     expect(evidence.loadSummary.promoted).toBe(5);
     expect(evidence.loadResults.map((result) => result.iteration)).toEqual(["l1", "l2", "l3", "l4", "l5"]);
+  });
+
+  it("passes load drill convergence when Buy Now readiness projection converges and unrelated checkout projections lag", async () => {
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        drillKind: "load",
+        iterations: "2",
+        concurrency: "2",
+        convergenceProjectionNames: ["checkout.session-projection"],
+      },
+      fakeDeps({
+        sampleSourceContext: async () => ({
+          head: "1772",
+          relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+          checkpoints: [
+            {
+              checkpointKey: "checkout.cart-projection:checkout:v1",
+              projectionName: "checkout.cart-projection",
+              subscriptionVersion: 1,
+              position: "1760",
+            },
+            {
+              checkpointKey: "checkout.sell-list-projection:checkout:v1",
+              projectionName: "checkout.sell-list-projection",
+              subscriptionVersion: 1,
+              position: "1760",
+            },
+            {
+              checkpointKey: "checkout.session-projection:checkout:v1",
+              projectionName: "checkout.session-projection",
+              subscriptionVersion: 1,
+              position: "1772",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.convergenceProjectionNames).toEqual(["checkout.session-projection"]);
+    expect(evidence.convergence.finalSamples.checkout.checkpointGaps).toEqual([
+      expect.objectContaining({ checkpointKey: "checkout.session-projection:checkout:v1", gap: "0" }),
+    ]);
+    expect(evidence.segmentSlo.durableConvergence.sourceContexts.checkout).toMatchObject({
+      maxCheckpointGap: "0",
+      laggingCheckpointCount: 0,
+      checkpointScope: expect.objectContaining({
+        excludedCheckpointCount: 2,
+        excludedLaggingCheckpointCount: 2,
+        excludedMaxCheckpointGap: "12",
+      }),
+    });
   });
 
   it("keeps degraded wake-status snapshots from masking the drill verdict reasons", async () => {

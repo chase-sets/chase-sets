@@ -38,7 +38,9 @@ export const DEFAULT_CONVERGENCE_BUDGET_MS = 120_000;
 export const MIN_CONVERGENCE_BUDGET_MS = 5_000;
 export const MAX_CONVERGENCE_BUDGET_MS = 600_000;
 export const DEFAULT_POLL_INTERVAL_MS = 5_000;
+export const DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS = 120_000;
 export const DEFAULT_SOURCE_CONTEXTS = Object.freeze(["checkout"]);
+export const DEFAULT_BUY_NOW_CONVERGENCE_PROJECTION_NAMES = Object.freeze(["checkout.session-projection"]);
 export const DEFAULT_FIXTURE_KEY = "staging-guest-buy-now-fixture";
 export const DEFAULT_LOAD_ITERATIONS = 6;
 export const DEFAULT_LOAD_CONCURRENCY = 2;
@@ -63,6 +65,16 @@ export function contextDatabaseEnvName(sourceContextName) {
 export function parseStagingWakeDrillArgs(argv, env = process.env) {
   const drillKind = argv[0] && !argv[0].startsWith("--") ? argv[0] : (readEnv("WAKE_DRILL_KIND", env) ?? "");
   const optionArgs = argv[0] && !argv[0].startsWith("--") ? argv.slice(1) : argv;
+  const sourceContexts = readCsv(
+    readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
+    DEFAULT_SOURCE_CONTEXTS,
+  );
+  const skipCanaryWrite =
+    readFlag(optionArgs, "--skip-canary-write") || readBoolean(readEnv("WAKE_DRILL_SKIP_CANARY_WRITE", env));
+  const convergenceProjectionNames = readConvergenceProjectionNames(
+    readOption(optionArgs, "--convergence-projection-names") ?? readEnv("WAKE_DRILL_CONVERGENCE_PROJECTION_NAMES", env),
+    { drillKind, sourceContexts, skipCanaryWrite },
+  );
 
   return {
     drillKind,
@@ -72,10 +84,8 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       readOption(optionArgs, "--out") ??
       readEnv("WAKE_DRILL_OUT", env) ??
       `artifacts/wake-drills/staging-wake-drill-${drillKind || "unknown"}.json`,
-    sourceContexts: readCsv(
-      readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
-      DEFAULT_SOURCE_CONTEXTS,
-    ),
+    sourceContexts,
+    convergenceProjectionNames,
     convergenceBudgetMs: clampInteger(
       readOption(optionArgs, "--convergence-budget-ms") ?? readEnv("WAKE_DRILL_CONVERGENCE_BUDGET_MS", env),
       DEFAULT_CONVERGENCE_BUDGET_MS,
@@ -88,8 +98,20 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       250,
       30_000,
     ),
-    skipCanaryWrite:
-      readFlag(optionArgs, "--skip-canary-write") || readBoolean(readEnv("WAKE_DRILL_SKIP_CANARY_WRITE", env)),
+    wakeRuntimeReadyBudgetMs: clampInteger(
+      readOption(optionArgs, "--wake-runtime-ready-budget-ms") ?? readEnv("WAKE_DRILL_RUNTIME_READY_BUDGET_MS", env),
+      DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS,
+      0,
+      MAX_CONVERGENCE_BUDGET_MS,
+    ),
+    wakeRuntimeReadyPollIntervalMs: clampInteger(
+      readOption(optionArgs, "--wake-runtime-ready-poll-interval-ms") ??
+        readEnv("WAKE_DRILL_RUNTIME_READY_POLL_INTERVAL_MS", env),
+      DEFAULT_POLL_INTERVAL_MS,
+      250,
+      30_000,
+    ),
+    skipCanaryWrite,
     searchQuery:
       readOption(optionArgs, "--search-query") ??
       readEnv("WAKE_DRILL_SEARCH_QUERY", env) ??
@@ -121,10 +143,7 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
     adminPassword: readEnv("PLATFORM_ADMIN_PASSWORD", env),
     controlDatabaseUrl: readEnv("PLATFORM_CONTROL_DATABASE_URL", env),
     contextDatabaseUrls: Object.fromEntries(
-      readCsv(
-        readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
-        DEFAULT_SOURCE_CONTEXTS,
-      ).map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
+      sourceContexts.map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
     ),
     checkedAt: readOption(optionArgs, "--checked-at") ?? new Date().toISOString(),
   };
@@ -185,6 +204,15 @@ export function clampLoadPlan(input = {}) {
   };
 }
 
+export function defaultConvergenceProjectionNames(input = {}) {
+  const usesSyntheticBuyNowWrite =
+    input.drillKind === "load" || (input.drillKind === "reconciliation" && input.skipCanaryWrite !== true);
+  const sourceContexts = Array.isArray(input.sourceContexts) ? input.sourceContexts : [];
+  return usesSyntheticBuyNowWrite && sourceContexts.includes("checkout")
+    ? [...DEFAULT_BUY_NOW_CONVERGENCE_PROJECTION_NAMES]
+    : [];
+}
+
 // Subscription checkpoint rows can include retired subscription versions
 // (checkpoint_key '<projection>:<source>:v<N>'). Only the highest version per
 // projection participates in convergence: a stale v1 row behind an active v2
@@ -209,9 +237,10 @@ export function selectActiveCheckpoints(rows) {
   return [...byProjection.values()].sort((left, right) => left.checkpointKey.localeCompare(right.checkpointKey));
 }
 
-export function evaluateConvergenceSample(sample) {
+export function evaluateConvergenceSample(sample, scope = {}) {
   const head = toBigInt(sample.head);
   const reasons = [];
+  const requestedProjectionNames = normalizeProjectionNames(scope.projectionNames);
 
   let relayCursorGap = null;
   if (!sample.relayCursor) {
@@ -223,7 +252,17 @@ export function evaluateConvergenceSample(sample) {
     }
   }
 
-  const checkpoints = sample.checkpoints ?? [];
+  const allCheckpoints = sample.checkpoints ?? [];
+  const checkpoints =
+    requestedProjectionNames.length === 0
+      ? allCheckpoints
+      : allCheckpoints.filter((checkpoint) => requestedProjectionNames.includes(checkpoint.projectionName));
+  const missingProjectionNames = requestedProjectionNames.filter(
+    (projectionName) => !checkpoints.some((checkpoint) => checkpoint.projectionName === projectionName),
+  );
+  if (missingProjectionNames.length > 0) {
+    reasons.push("required-projection-checkpoint-not-found");
+  }
   if (checkpoints.length === 0) {
     reasons.push("no-projection-checkpoints-found");
   }
@@ -241,6 +280,22 @@ export function evaluateConvergenceSample(sample) {
   if (checkpointGaps.some((entry) => !entry.converged)) {
     reasons.push("projection-checkpoint-behind-event-store-head");
   }
+  const excludedCheckpointGaps =
+    requestedProjectionNames.length === 0
+      ? []
+      : allCheckpoints
+          .filter((checkpoint) => !requestedProjectionNames.includes(checkpoint.projectionName))
+          .map((checkpoint) => {
+            const gap = head - toBigInt(checkpoint.position);
+            return {
+              checkpointKey: checkpoint.checkpointKey,
+              projectionName: checkpoint.projectionName,
+              subscriptionVersion: checkpoint.subscriptionVersion,
+              position: checkpoint.position,
+              gap: gap.toString(),
+              converged: gap <= 0n,
+            };
+          });
 
   return {
     head: head.toString(),
@@ -248,6 +303,14 @@ export function evaluateConvergenceSample(sample) {
     relayCursorGap: relayCursorGap === null ? null : relayCursorGap.toString(),
     relayCursorAgeMs: sample.relayCursor ? toFiniteNumber(sample.relayCursor.ageMs) : null,
     relayCursorOwnerId: sample.relayCursor ? (sample.relayCursor.ownerId ?? null) : null,
+    checkpointScope: {
+      mode: requestedProjectionNames.length === 0 ? "all-active-projections" : "projection-names",
+      projectionNames: requestedProjectionNames,
+      missingProjectionNames,
+      excludedCheckpointCount: excludedCheckpointGaps.length,
+      excludedLaggingCheckpointCount: excludedCheckpointGaps.filter((entry) => !entry.converged).length,
+      excludedMaxCheckpointGap: maxBigIntString(excludedCheckpointGaps.map((entry) => entry.gap)),
+    },
     checkpointGaps,
     converged: reasons.length === 0,
     reasons,
@@ -411,8 +474,11 @@ export function buildDrillEvidence(input) {
     completedAt: input.completedAt,
     correlationPrefix: input.correlationPrefix,
     sourceContexts: input.sourceContexts,
+    convergenceProjectionNames: normalizeProjectionNames(input.convergenceProjectionNames),
     convergenceBudgetMs: input.convergenceBudgetMs,
     pollIntervalMs: input.pollIntervalMs,
+    wakeRuntimeReadyBudgetMs: input.wakeRuntimeReadyBudgetMs ?? null,
+    wakeRuntimeReadyPollIntervalMs: input.wakeRuntimeReadyPollIntervalMs ?? null,
     readySloMs: input.readySloMs ?? null,
     canaryWrite: input.canaryWrite ?? { attempted: false },
     loadPlan: input.loadPlan ?? null,
@@ -421,6 +487,7 @@ export function buildDrillEvidence(input) {
     loadReadinessDecision,
     convergence: input.convergence ?? null,
     segmentSlo,
+    wakeRuntimePreflight: input.wakeRuntimePreflight ?? null,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -646,7 +713,9 @@ export async function pollForConvergence(options, deps) {
     let allConverged = true;
     for (const contextName of options.sourceContexts) {
       const sample = await deps.sampleSourceContext(contextName);
-      const evaluation = evaluateConvergenceSample(sample);
+      const evaluation = evaluateConvergenceSample(sample, {
+        projectionNames: options.convergenceProjectionNames,
+      });
       finalSamples[contextName] = evaluation;
       if (!evaluation.converged) {
         allConverged = false;
@@ -668,6 +737,102 @@ export async function pollForConvergence(options, deps) {
     convergedAfterMs,
     sampleCount,
     finalSamples,
+  };
+}
+
+export function evaluateWakeRuntimeReadiness(snapshot) {
+  const reasons = [];
+  const schedulers = snapshot?.schedulers ?? null;
+  const relay = snapshot?.relay ?? null;
+  const activeWakeCapableWorkerCount = toFiniteNumber(schedulers?.activeWakeCapableWorkerCount) ?? 0;
+  const relayLeaseState = relay?.lease?.state ?? null;
+
+  if (!schedulers || schedulers.available === false) {
+    reasons.push("wake-scheduler-status-unavailable");
+  } else if (activeWakeCapableWorkerCount < 1) {
+    reasons.push("no-active-wake-capable-workers");
+  }
+
+  if (!relay || relay.available === false) {
+    reasons.push("wake-relay-status-unavailable");
+  } else if (relayLeaseState !== "active") {
+    reasons.push("projection-wake-relay-lease-not-active");
+  }
+
+  return {
+    ready: reasons.length === 0,
+    activeWakeCapableWorkerCount,
+    relayLeaseState,
+    relayOwnerId: relay?.lease?.ownerId ?? null,
+    reasons,
+  };
+}
+
+export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = null) {
+  if (!deps.fetchWakeStatus) {
+    return { attempted: false, ready: null, readyAfterMs: null, sampleCount: 0, initial: null, final: null };
+  }
+
+  const startedAt = deps.now();
+  const deadline = startedAt + Math.max(0, options.wakeRuntimeReadyBudgetMs ?? 0);
+  const pollIntervalMs = Math.max(250, options.wakeRuntimeReadyPollIntervalMs ?? options.pollIntervalMs ?? 5_000);
+  let sampleCount = 0;
+  let snapshot = initialSnapshot;
+  let initial = null;
+  let final = null;
+
+  for (;;) {
+    if (!snapshot) {
+      try {
+        snapshot = await deps.fetchWakeStatus();
+      } catch {
+        const failed = {
+          ready: false,
+          activeWakeCapableWorkerCount: 0,
+          relayLeaseState: null,
+          relayOwnerId: null,
+          reasons: ["wake-status-preflight-fetch-failed"],
+        };
+        return {
+          attempted: true,
+          ready: false,
+          readyAfterMs: null,
+          sampleCount,
+          initial: initial ?? failed,
+          final: failed,
+        };
+      }
+    }
+    sampleCount += 1;
+    const evaluation = evaluateWakeRuntimeReadiness(snapshot);
+    initial ??= evaluation;
+    final = evaluation;
+    if (evaluation.ready) {
+      return {
+        attempted: true,
+        ready: true,
+        readyAfterMs: Math.max(0, deps.now() - startedAt),
+        sampleCount,
+        initial,
+        final,
+      };
+    }
+
+    const remainingMs = deadline - deps.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+    await deps.sleep(Math.min(pollIntervalMs, remainingMs));
+    snapshot = null;
+  }
+
+  return {
+    attempted: true,
+    ready: false,
+    readyAfterMs: null,
+    sampleCount,
+    initial,
+    final,
   };
 }
 
@@ -711,7 +876,44 @@ export async function runStagingWakeDrill(options, deps) {
   let loadResults = null;
   let loadSummary = null;
 
-  const wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
+  let wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
+  let wakeRuntimePreflight = null;
+  const needsRuntimeReady =
+    options.drillKind === "load" || (options.drillKind === "reconciliation" && !options.skipCanaryWrite);
+  if (needsRuntimeReady && wakeStatusBefore) {
+    wakeRuntimePreflight = await waitForWakeRuntimeReady(options, deps, wakeStatusBefore);
+    if (wakeRuntimePreflight.ready === true) {
+      wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before-ready");
+    } else if (wakeRuntimePreflight.ready === false) {
+      verdictReasons.push("wake-runtime-not-ready-before-drill");
+    }
+  }
+
+  if (wakeRuntimePreflight?.ready === false) {
+    const wakeStatusAfterRuntimeMiss = await safeWakeStatus(deps, verdictReasons, "after");
+    return buildDrillEvidence({
+      drillKind: options.drillKind,
+      checkedAt: options.checkedAt,
+      completedAt: new Date(deps.now()).toISOString(),
+      correlationPrefix: options.correlationPrefix,
+      sourceContexts: options.sourceContexts,
+      convergenceProjectionNames: options.convergenceProjectionNames,
+      convergenceBudgetMs: options.convergenceBudgetMs,
+      pollIntervalMs: options.pollIntervalMs,
+      wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
+      wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
+      readySloMs: options.readySloMs,
+      canaryWrite,
+      loadPlan,
+      loadResults,
+      loadSummary,
+      convergence: null,
+      wakeRuntimePreflight,
+      wakeStatusBefore: wakeStatusBefore ?? null,
+      wakeStatusAfter: wakeStatusAfterRuntimeMiss ?? null,
+      verdictReasons,
+    });
+  }
 
   if (options.drillKind === "load") {
     loadPlan = clampLoadPlan({ iterations: options.iterations, concurrency: options.concurrency });
@@ -755,14 +957,18 @@ export async function runStagingWakeDrill(options, deps) {
     completedAt: new Date(deps.now()).toISOString(),
     correlationPrefix: options.correlationPrefix,
     sourceContexts: options.sourceContexts,
+    convergenceProjectionNames: options.convergenceProjectionNames,
     convergenceBudgetMs: options.convergenceBudgetMs,
     pollIntervalMs: options.pollIntervalMs,
+    wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
+    wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
     readySloMs: options.readySloMs,
     canaryWrite,
     loadPlan,
     loadResults,
     loadSummary,
     convergence,
+    wakeRuntimePreflight,
     wakeStatusBefore: wakeStatusBefore ?? null,
     wakeStatusAfter: wakeStatusAfter ?? null,
     verdictReasons,
@@ -861,6 +1067,7 @@ function summarizeDurableConvergence(convergence, convergenceBudgetMs) {
         contextName,
         {
           relayCursorGap: sample.relayCursorGap ?? null,
+          checkpointScope: sample.checkpointScope ?? null,
           maxCheckpointGap: maxBigIntString(sample.checkpointGaps?.map((entry) => entry.gap)),
           laggingCheckpointCount: (sample.checkpointGaps ?? []).filter((entry) => !entry.converged).length,
         },
@@ -899,6 +1106,25 @@ function maxBigIntString(values = []) {
     }
   }
   return max === null ? null : max.toString();
+}
+
+function readConvergenceProjectionNames(value, fallbackInput) {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return defaultConvergenceProjectionNames(fallbackInput);
+  }
+  if (/^(all|\*)$/i.test(normalized)) {
+    return [];
+  }
+  return normalizeProjectionNames(readCsv(normalized, []));
+}
+
+function normalizeProjectionNames(values) {
+  return [
+    ...new Set(
+      (Array.isArray(values) ? values : []).map((value) => normalizeString(value)).filter((value) => Boolean(value)),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
 }
 
 function toBigInt(value) {

@@ -13,6 +13,7 @@ import {
   buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
   detectFreshWriteMetadata,
+  evaluateWakeRuntimeReadiness,
   isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
@@ -21,6 +22,7 @@ import {
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessProbe,
   validateGuestBuyNowProbeOptions,
+  waitForWakeRuntimePreflight,
 } from "./guest-buy-now-freshness-probe.mjs";
 
 const baseOptions = {
@@ -37,6 +39,16 @@ const healthyProbe = {
   temporaryRecoveryVisible: false,
   checkoutReviewVisible: false,
   platformErrorVisible: false,
+};
+
+const readyWakeStatusSnapshot = {
+  schedulers: { available: true, activeWakeCapableWorkerCount: 2 },
+  relay: { available: true, lease: { state: "active", ownerId: "worker-1" } },
+};
+
+const unreadyWakeStatusSnapshot = {
+  schedulers: { available: true, activeWakeCapableWorkerCount: 0 },
+  relay: { available: true, lease: { state: "standby", ownerId: null } },
 };
 
 describe("guest Buy Now freshness probe", () => {
@@ -416,12 +428,17 @@ describe("guest Buy Now freshness probe", () => {
     const parsed = parseGuestBuyNowProbeArgs(["--item-path", "/items/canary", "--skip-negative-probe"], {
       GUEST_BUY_NOW_PROBE_OUT: "artifacts/guest-buy-now.json",
       GUEST_BUY_NOW_PROBE_BASE_URL: "https://marketplace.staging.chasesets.com",
+      GUEST_BUY_NOW_PROBE_ADMIN_BASE_URL: "https://admin.staging.chasesets.com",
       GUEST_BUY_NOW_PROBE_FIXTURE_KEY: "canary-fixture",
       GUEST_BUY_NOW_PROBE_GUEST_EMAIL: "guest-buy-now-canary@example.test",
+      PLATFORM_ADMIN_EMAIL: "platform-admin@example.test",
+      PLATFORM_ADMIN_PASSWORD: "platform-admin-password",
       GUEST_BUY_NOW_PROBE_ENVIRONMENT: "staging",
       GUEST_BUY_NOW_PROBE_TIMEOUT_MS: "1234",
       GUEST_BUY_NOW_PROBE_READY_SLO_MS: "9000",
       GUEST_BUY_NOW_PROBE_ATTEMPTS: "3",
+      GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: "60000",
+      GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: "2000",
       GUEST_BUY_NOW_PROBE_CORRELATION_ID: "diag_1",
       GUEST_BUY_NOW_PROBE_SEARCH_QUERY: "pikachu",
       MARKETPLACE_E2E_EMAIL: "marketplace-e2e@example.test",
@@ -431,16 +448,21 @@ describe("guest Buy Now freshness probe", () => {
     expect(parsed).toMatchObject({
       outPath: "artifacts/guest-buy-now.json",
       baseUrl: "https://marketplace.staging.chasesets.com",
+      adminBaseUrl: "https://admin.staging.chasesets.com",
       flow: "guest",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
       guestEmail: "guest-buy-now-canary@example.test",
       accountEmail: "marketplace-e2e@example.test",
       accountPassword: "marketplace-e2e-password",
+      adminEmail: "platform-admin@example.test",
+      adminPassword: "platform-admin-password",
       searchQuery: "pikachu",
       timeoutMs: 1234,
       readySloMs: 9000,
       maxAttempts: 3,
+      wakeRuntimeReadyBudgetMs: 60000,
+      wakeRuntimeReadyPollIntervalMs: 2000,
       skipNegativeProbe: true,
       diagnosticCorrelationId: "diag_1",
     });
@@ -453,6 +475,19 @@ describe("guest Buy Now freshness probe", () => {
       "GUEST_BUY_NOW_PROBE_FIXTURE_KEY or --fixture-key is required.",
       "GUEST_BUY_NOW_PROBE_GUEST_EMAIL or --guest-email is required for the guest flow.",
     ]);
+    expect(
+      validateGuestBuyNowProbeOptions({
+        flow: "guest",
+        baseUrl: "https://marketplace.staging.chasesets.com",
+        adminBaseUrl: "https://admin.staging.chasesets.com",
+        itemPath: "/items/canary",
+        fixtureKey: "canary-fixture",
+        guestEmail: "guest@example.test",
+        environment: "staging",
+      }),
+    ).toContain(
+      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when --admin-base-url is set for wake-runtime preflight.",
+    );
     expect(
       validateGuestBuyNowProbeOptions({
         flow: "guest",
@@ -491,6 +526,48 @@ describe("guest Buy Now freshness probe", () => {
         environment: "production-proof",
       }),
     ).toEqual([]);
+  });
+
+  it("evaluates wake runtime readiness from wake-status snapshots", () => {
+    expect(evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot)).toEqual({
+      ready: true,
+      activeWakeCapableWorkerCount: 2,
+      relayLeaseState: "active",
+      relayOwnerId: "worker-1",
+      reasons: [],
+    });
+    expect(evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot)).toMatchObject({
+      ready: false,
+      activeWakeCapableWorkerCount: 0,
+      relayLeaseState: "standby",
+      reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+    });
+  });
+
+  it("waits for wake runtime readiness before probing Buy Now", async () => {
+    let now = 1_000;
+    const sleeps = [];
+    const snapshots = [unreadyWakeStatusSnapshot, readyWakeStatusSnapshot];
+    const result = await waitForWakeRuntimePreflight({
+      fetchWakeStatus: async () => snapshots.shift(),
+      now: () => now,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      wakeRuntimeReadyBudgetMs: 5_000,
+      wakeRuntimeReadyPollIntervalMs: 1_000,
+    });
+
+    expect(result).toEqual({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 1_000,
+      sampleCount: 2,
+      initial: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
+      final: evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot),
+    });
+    expect(sleeps).toEqual([1_000]);
   });
 
   it("resolves an explicit item path before searching", async () => {
@@ -832,6 +909,100 @@ describe("guest Buy Now freshness probe", () => {
     expect(evidence.promotionDecision).toBe("warn");
     expect(evidence.failureReason).toBe("checkout-ready-slo-exceeded");
     expect(evidence.attemptCount).toBe(1);
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("records wake runtime preflight evidence before browser observation", async () => {
+    let now = 1_000;
+    const attempts = [];
+    const snapshots = [unreadyWakeStatusSnapshot, readyWakeStatusSnapshot];
+    const evidence = await runGuestBuyNowFreshnessProbe({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      wakeRuntimeReadyBudgetMs: 5_000,
+      wakeRuntimeReadyPollIntervalMs: 1_000,
+      fetchWakeStatus: async () => snapshots.shift(),
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        return {
+          latencyMs: 800,
+          readyLatencyMs: 800,
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          checkoutReviewVisible: true,
+          negativeProbe: healthyProbe,
+        };
+      },
+    });
+
+    expect(attempts).toEqual([1]);
+    expect(evidence.promotionDecision).toBe("promote");
+    expect(evidence.wakeRuntimePreflight).toEqual({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 1_000,
+      sampleCount: 2,
+      initial: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
+      final: evaluateWakeRuntimeReadiness(readyWakeStatusSnapshot),
+    });
+  });
+
+  it("fails explicitly without browser attempts when wake runtime never becomes ready", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now-wake-preflight.json");
+    let now = 1_000;
+    let observed = false;
+    const evidence = await runGuestBuyNowFreshnessProbe({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      wakeRuntimeReadyBudgetMs: 500,
+      wakeRuntimeReadyPollIntervalMs: 250,
+      fetchWakeStatus: async () => unreadyWakeStatusSnapshot,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      observe: async () => {
+        observed = true;
+        return {};
+      },
+    });
+
+    expect(observed).toBe(false);
+    expect(evidence).toMatchObject({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "wake-runtime-not-ready-before-probe",
+      runtimeFailure: {
+        stage: "wake-runtime-preflight",
+        reason: "wake-runtime-not-ready-before-probe",
+      },
+      attemptCount: 0,
+      maxAttempts: 1,
+      attemptSummaries: [],
+      wakeRuntimePreflight: {
+        attempted: true,
+        ready: false,
+        readyAfterMs: null,
+        initial: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
+        final: evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot),
+      },
+    });
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
   });
 

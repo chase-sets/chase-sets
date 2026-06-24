@@ -9,6 +9,8 @@ export const PROBE_STATES = Object.freeze(["pass", "temporary", "fail"]);
 export const PROBE_FLOWS = Object.freeze(["guest", "account"]);
 export const DEFAULT_READY_SLO_MS = 10_000;
 export const DEFAULT_MAX_ATTEMPTS = 1;
+export const DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS = 120_000;
+export const DEFAULT_WAKE_RUNTIME_READY_POLL_INTERVAL_MS = 5_000;
 export const PRODUCTION_FEASIBILITY_DECISION = Object.freeze({
   feasible: false,
   decision: "production-proof-mode-only",
@@ -105,6 +107,7 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
   return {
     outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_PROBE_OUT", env),
     baseUrl: readOption(argv, "--base-url") ?? readEnv("GUEST_BUY_NOW_PROBE_BASE_URL", env),
+    adminBaseUrl: readOption(argv, "--admin-base-url") ?? readEnv("GUEST_BUY_NOW_PROBE_ADMIN_BASE_URL", env),
     flow: readOption(argv, "--flow") ?? readEnv("GUEST_BUY_NOW_PROBE_FLOW", env) ?? "guest",
     itemPath: readOption(argv, "--item-path") ?? readEnv("GUEST_BUY_NOW_PROBE_ITEM_PATH", env),
     searchQuery:
@@ -121,6 +124,8 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
       readOption(argv, "--account-password") ??
       readEnv("GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD", env) ??
       readEnv("MARKETPLACE_E2E_PASSWORD", env),
+    adminEmail: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_EMAIL", env) ?? readEnv("PLATFORM_ADMIN_EMAIL", env),
+    adminPassword: readEnv("GUEST_BUY_NOW_PROBE_ADMIN_PASSWORD", env) ?? readEnv("PLATFORM_ADMIN_PASSWORD", env),
     environment: readOption(argv, "--environment") ?? readEnv("GUEST_BUY_NOW_PROBE_ENVIRONMENT", env) ?? "staging",
     productionProofReference:
       readOption(argv, "--production-proof-reference") ??
@@ -140,6 +145,16 @@ export function parseGuestBuyNowProbeArgs(argv, env = process.env) {
         DEFAULT_MAX_ATTEMPTS,
       ),
       MAX_ATTEMPT_LIMIT,
+    ),
+    wakeRuntimeReadyBudgetMs: normalizeNonNegativeInteger(
+      readOption(argv, "--wake-runtime-ready-budget-ms") ??
+        readEnv("GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS", env) ??
+        DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS,
+    ),
+    wakeRuntimeReadyPollIntervalMs: normalizePositiveInteger(
+      readOption(argv, "--wake-runtime-ready-poll-interval-ms") ??
+        readEnv("GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS", env),
+      DEFAULT_WAKE_RUNTIME_READY_POLL_INTERVAL_MS,
     ),
     skipNegativeProbe:
       readFlag(argv, "--skip-negative-probe") || readBoolean(readEnv("GUEST_BUY_NOW_PROBE_SKIP_NEGATIVE_PROBE", env)),
@@ -161,6 +176,14 @@ export function validateGuestBuyNowProbeOptions(options) {
   }
   if (!normalizeUrl(options.baseUrl)) {
     errors.push("GUEST_BUY_NOW_PROBE_BASE_URL or --base-url is required.");
+  }
+  if (
+    normalizeUrl(options.adminBaseUrl) &&
+    (!normalizeString(options.adminEmail) || !normalizeString(options.adminPassword))
+  ) {
+    errors.push(
+      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when --admin-base-url is set for wake-runtime preflight.",
+    );
   }
   if (!normalizePath(options.itemPath) && !normalizeString(options.searchQuery)) {
     errors.push(
@@ -314,6 +337,7 @@ export function buildGuestBuyNowProbeEvidence(input) {
       writeToCheckoutReadyMs: normalizeOptionalNonNegativeInteger(observation.segments?.writeToCheckoutReadyMs),
     },
     segmentReferences: SEGMENT_METRIC_REFERENCES,
+    wakeRuntimePreflight: normalizeWakeRuntimePreflight(input.wakeRuntimePreflight),
     waitMode: normalizeWaitMode(observation.waitMode),
     afterWritePresent: Boolean(observation.afterWritePresent),
     postWriteTokenPresent: Boolean(observation.postWriteTokenPresent),
@@ -347,6 +371,33 @@ export function buildGuestBuyNowProbeEvidence(input) {
       fullUrls: "redacted",
     },
     productionFeasibility: PRODUCTION_FEASIBILITY_DECISION,
+  };
+}
+
+function normalizeWakeRuntimePreflight(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return {
+    attempted: Boolean(value.attempted),
+    ready: value.ready === true ? true : value.ready === false ? false : null,
+    readyAfterMs: normalizeOptionalNonNegativeInteger(value.readyAfterMs),
+    sampleCount: normalizeNonNegativeInteger(value.sampleCount),
+    initial: normalizeWakeRuntimeReadiness(value.initial),
+    final: normalizeWakeRuntimeReadiness(value.final),
+  };
+}
+
+function normalizeWakeRuntimeReadiness(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return {
+    ready: value.ready === true,
+    activeWakeCapableWorkerCount: normalizeNonNegativeInteger(value.activeWakeCapableWorkerCount),
+    relayLeaseState: normalizeString(value.relayLeaseState),
+    relayOwnerId: normalizeString(value.relayOwnerId),
+    reasons: Array.isArray(value.reasons) ? value.reasons.map((reason) => normalizeString(reason)).filter(Boolean) : [],
   };
 }
 
@@ -411,8 +462,27 @@ export async function runGuestBuyNowFreshnessProbe(options) {
 
   const maxAttempts = Math.min(normalizePositiveInteger(options.maxAttempts, DEFAULT_MAX_ATTEMPTS), MAX_ATTEMPT_LIMIT);
   const observe = typeof options.observe === "function" ? options.observe : observeBuyNowCheckout;
+  const wakeRuntimePreflight = await waitForWakeRuntimePreflight(options);
   const attemptSummaries = [];
   let evidence = null;
+
+  if (wakeRuntimePreflight?.ready === false) {
+    evidence = buildGuestBuyNowProbeEvidence({
+      checkedAt: options.checkedAt,
+      environment: options.environment,
+      flow: options.flow,
+      fixtureKey: options.fixtureKey,
+      diagnosticCorrelationId: options.diagnosticCorrelationId,
+      productionProofReference: options.productionProofReference,
+      readySloMs: options.readySloMs,
+      sloMode: options.sloMode,
+      wakeRuntimePreflight,
+      observation: wakeRuntimePreflightFailureObservation(wakeRuntimePreflight),
+    });
+    evidence = { ...evidence, attemptCount: 0, maxAttempts, attemptSummaries };
+    await persistProbeEvidence(options, evidence);
+    return evidence;
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const observation = await observe(options, attempt).catch((error) => runtimeFailureObservation(error));
@@ -425,6 +495,7 @@ export async function runGuestBuyNowFreshnessProbe(options) {
       productionProofReference: options.productionProofReference,
       readySloMs: options.readySloMs,
       sloMode: options.sloMode,
+      wakeRuntimePreflight,
       observation,
     });
     attemptSummaries.push({
@@ -442,6 +513,12 @@ export async function runGuestBuyNowFreshnessProbe(options) {
 
   evidence = { ...evidence, attemptCount: attemptSummaries.length, maxAttempts, attemptSummaries };
 
+  await persistProbeEvidence(options, evidence);
+
+  return evidence;
+}
+
+async function persistProbeEvidence(options, evidence) {
   const leaks = assertRedactedEvidence(evidence);
   if (leaks.length > 0) {
     throw new Error(`Guest Buy Now probe evidence leaked sensitive values: ${leaks.join(", ")}`);
@@ -450,8 +527,6 @@ export async function runGuestBuyNowFreshnessProbe(options) {
   if (options.outPath) {
     await writeJsonRecord(options.outPath, evidence);
   }
-
-  return evidence;
 }
 
 function retryableProbeFailure(failureReason) {
@@ -487,6 +562,178 @@ function runtimeFailureObservation(error) {
     runtimeFailureStage: runtimeFailure.stage,
     runtimeFailureMessage: runtimeFailure.message,
     negativeProbe: { attempted: false },
+  };
+}
+
+function wakeRuntimePreflightFailureObservation(preflight) {
+  const reasons = preflight?.final?.reasons?.length ? preflight.final.reasons.join(", ") : "unknown";
+  return {
+    latencyMs: 0,
+    readyLatencyMs: null,
+    segments: {},
+    afterWritePresent: false,
+    postWriteTokenPresent: false,
+    freshWriteMetadataPresent: false,
+    guestCookiePresent: false,
+    sessionCookiePresent: false,
+    permanentNotFoundVisible: false,
+    checkoutStartRecoveryVisible: false,
+    temporaryRecoveryVisible: false,
+    temporaryRecoveryObserved: false,
+    checkoutReviewVisible: false,
+    platformErrorVisible: false,
+    checkoutDocumentStatus: null,
+    stateWaitOutcome: null,
+    waitMode: null,
+    pageText: "",
+    runtimeFailureReason: "wake-runtime-not-ready-before-probe",
+    runtimeFailureStage: "wake-runtime-preflight",
+    runtimeFailureMessage: `Wake runtime did not become ready before the Buy Now probe: ${reasons}.`,
+    negativeProbe: { attempted: false },
+  };
+}
+
+export function evaluateWakeRuntimeReadiness(snapshot) {
+  const reasons = [];
+  const schedulers = snapshot?.schedulers ?? null;
+  const relay = snapshot?.relay ?? null;
+  const activeWakeCapableWorkerCount = normalizeNonNegativeInteger(schedulers?.activeWakeCapableWorkerCount);
+  const relayLeaseState = normalizeString(relay?.lease?.state);
+
+  if (!schedulers || schedulers.available === false) {
+    reasons.push("wake-scheduler-status-unavailable");
+  } else if (activeWakeCapableWorkerCount < 1) {
+    reasons.push("no-active-wake-capable-workers");
+  }
+
+  if (!relay || relay.available === false) {
+    reasons.push("wake-relay-status-unavailable");
+  } else if (relayLeaseState !== "active") {
+    reasons.push("projection-wake-relay-lease-not-active");
+  }
+
+  return {
+    ready: reasons.length === 0,
+    activeWakeCapableWorkerCount,
+    relayLeaseState,
+    relayOwnerId: normalizeString(relay?.lease?.ownerId),
+    reasons,
+  };
+}
+
+export async function fetchWakeStatusSnapshot(options, fetchImpl = fetch) {
+  const adminBaseUrl = normalizeUrl(options.adminBaseUrl);
+  if (!adminBaseUrl) {
+    return null;
+  }
+
+  const signInResponse = await fetchImpl(`${adminBaseUrl}/api/auth/password-sign-in`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: options.adminEmail, password: options.adminPassword }),
+  });
+  if (!signInResponse.ok) {
+    throw new Error(`Wake-status admin sign-in failed with HTTP ${signInResponse.status}.`);
+  }
+  const sessionToken = (await signInResponse.json())?.sessionToken;
+  if (!sessionToken) {
+    throw new Error("Wake-status admin sign-in did not return a session token.");
+  }
+
+  const statusResponse = await fetchImpl(`${adminBaseUrl}/api/platform/projections/wake-status`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  if (!statusResponse.ok) {
+    throw new Error(`Wake-status request failed with HTTP ${statusResponse.status}.`);
+  }
+
+  return statusResponse.json();
+}
+
+function readNow(options) {
+  return typeof options.now === "function" ? options.now() : Date.now();
+}
+
+async function sleepFor(options, ms) {
+  if (typeof options.sleep === "function") {
+    await options.sleep(ms);
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function waitForWakeRuntimePreflight(options) {
+  const adminBaseUrl = normalizeUrl(options.adminBaseUrl);
+  if (!adminBaseUrl && !options.fetchWakeStatus) {
+    return null;
+  }
+
+  const startedAt = readNow(options);
+  const deadline =
+    startedAt + normalizeNonNegativeInteger(options.wakeRuntimeReadyBudgetMs ?? DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS);
+  const pollIntervalMs = normalizePositiveInteger(
+    options.wakeRuntimeReadyPollIntervalMs,
+    DEFAULT_WAKE_RUNTIME_READY_POLL_INTERVAL_MS,
+  );
+  const fetchWakeStatus =
+    typeof options.fetchWakeStatus === "function"
+      ? options.fetchWakeStatus
+      : () => fetchWakeStatusSnapshot(options, options.fetchImpl ?? fetch);
+  let sampleCount = 0;
+  let initial = null;
+  let final = null;
+
+  for (;;) {
+    let snapshot;
+    try {
+      snapshot = await fetchWakeStatus();
+    } catch {
+      const failed = {
+        ready: false,
+        activeWakeCapableWorkerCount: 0,
+        relayLeaseState: null,
+        relayOwnerId: null,
+        reasons: ["wake-status-preflight-fetch-failed"],
+      };
+      return {
+        attempted: true,
+        ready: false,
+        readyAfterMs: null,
+        sampleCount,
+        initial: initial ?? failed,
+        final: failed,
+      };
+    }
+
+    sampleCount += 1;
+    const evaluation = evaluateWakeRuntimeReadiness(snapshot);
+    initial ??= evaluation;
+    final = evaluation;
+    if (evaluation.ready) {
+      return {
+        attempted: true,
+        ready: true,
+        readyAfterMs: Math.max(0, readNow(options) - startedAt),
+        sampleCount,
+        initial,
+        final,
+      };
+    }
+
+    const remainingMs = deadline - readNow(options);
+    if (remainingMs <= 0) {
+      break;
+    }
+    await sleepFor(options, Math.min(pollIntervalMs, remainingMs));
+  }
+
+  return {
+    attempted: true,
+    ready: false,
+    readyAfterMs: null,
+    sampleCount,
+    initial,
+    final,
   };
 }
 

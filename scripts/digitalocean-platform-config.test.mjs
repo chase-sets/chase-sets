@@ -1431,6 +1431,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--search-query");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_ITEM_PATH");
     expect(stagingBuyNowProbesStep).toContain('common_args+=(--item-path "${GUEST_BUY_NOW_PROBE_ITEM_PATH}")');
+    expect(stagingBuyNowProbesStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
+    expect(stagingBuyNowProbesStep).toContain("--admin-base-url");
+    expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+    expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
     expect(stagingBuyNowProbesStep).toContain("pnpm run guest-buy-now:freshness-probe");
     expect(stagingBuyNowProbesStep).toContain(
       "GUEST_BUY_NOW_PROBE_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}",
@@ -1438,8 +1442,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain(
       "GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}",
     );
+    expect(stagingBuyNowProbesStep).toContain(
+      "GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_BUDGET_MS || '120000' }}",
+    );
+    expect(stagingBuyNowProbesStep).toContain(
+      "GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}",
+    );
     expect(stagingBuyNowProbesStep).toContain("--ready-slo-ms");
     expect(stagingBuyNowProbesStep).toContain("--attempts");
+    expect(stagingBuyNowProbesStep).toContain("--wake-runtime-ready-budget-ms");
+    expect(stagingBuyNowProbesStep).toContain("--wake-runtime-ready-poll-interval-ms");
     expect(stagingBuyNowProbesStep).toContain("--flow guest");
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("artifacts/release-health/guest-buy-now-freshness-probe.json");

@@ -53,6 +53,14 @@ function passingArtifact(overrides = {}) {
           head: "42",
           relayCursorPosition: "42",
           relayCursorGap: "0",
+          checkpointScope: {
+            mode: "projection-names",
+            projectionNames: ["checkout.session-projection"],
+            missingProjectionNames: [],
+            excludedCheckpointCount: 0,
+            excludedLaggingCheckpointCount: 0,
+            excludedMaxCheckpointGap: null,
+          },
           checkpointGaps: [
             {
               checkpointKey: "checkout.session-projection:checkout:v1",
@@ -124,6 +132,10 @@ describe("push wake load evidence evaluator", () => {
     expect(evidence.observations.loadReadinessDecision).toMatchObject({
       status: "accepted-burst-saturation-degradation",
       reason: "ratified-burst-saturation-slo",
+    });
+    expect(evidence.observations.durableConvergence.sourceContexts.checkout.checkpointScope).toMatchObject({
+      mode: "projection-names",
+      projectionNames: ["checkout.session-projection"],
     });
     expect(evidence.redaction).toMatchObject({
       sourceArtifactStored: "not-copied",
