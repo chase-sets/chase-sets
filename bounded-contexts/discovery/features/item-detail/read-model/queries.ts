@@ -1,5 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
+import {
+  buyerVisibleListingPredicateSql,
+  buyerVisibleListingQuantitySql,
+} from "../../../support/market-support/listing-visibility";
 
 export type DiscoveryItemDetailRow = Readonly<{
   catalog_item_id: string;
@@ -150,20 +154,12 @@ export async function getDiscoveryItemDetail(
     `WITH startable_listing AS (
        SELECT
          listing.price_amount,
-         LEAST(
-           listing.quantity_cap,
-           GREATEST(
-             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-             0
-           )
-         ) AS visible_quantity
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
        WHERE listing.catalog_catalog_item_id = $1
-         AND listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
-         AND listing.product_measure_snapshot IS NOT NULL
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )
      SELECT
        MIN(price_amount::numeric)::text AS lowest_price_amount,
@@ -189,20 +185,12 @@ export async function getDiscoveryItemDetail(
          account.seller_display_name,
          account.average_rating::text AS seller_average_rating,
          COALESCE(account.review_count, 0)::integer AS seller_review_count,
-         LEAST(
-           listing.quantity_cap,
-           GREATEST(
-             COALESCE(listing.supply_total_quantity, listing.quantity_cap) - COALESCE(listing.active_held_quantity, 0),
-             0
-           )
-         ) AS visible_quantity
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        LEFT JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
        WHERE listing.catalog_catalog_item_id = $1
-         AND listing.status = 'active'
-         AND account.seller_listing_availability_status = 'available'
-         AND listing.product_measure_snapshot IS NOT NULL
+         AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )
      SELECT *
      FROM startable_listing

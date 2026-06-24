@@ -26,6 +26,17 @@ function createCapturingDb() {
   return { db, calls };
 }
 
+function expectBuyerVisibleListingPredicate(sql: string | undefined) {
+  expect(sql).toBeDefined();
+  const text = sql ?? "";
+  expect(text).toContain("listing.status = 'active'");
+  expect(text).toContain("account.seller_listing_availability_status = 'available'");
+  expect(text).toContain("listing.product_measure_snapshot IS NOT NULL");
+  expect(text).toContain("COALESCE(listing.supply_total_quantity, listing.quantity_cap)");
+  expect(text).toContain("COALESCE(listing.active_held_quantity, 0)");
+  expect(text).toContain("> 0");
+}
+
 describe("searchDiscoveryItems cursor paging", () => {
   it.each([
     {
@@ -139,7 +150,7 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
-    expect(listCall?.sql).toContain("account.seller_listing_availability_status = 'available'");
+    expectBuyerVisibleListingPredicate(listCall?.sql);
     expect(listCall?.sql).toContain("listing.selected_options @> $4::jsonb");
     expect(listCall?.values).toEqual([
       "active",
@@ -160,6 +171,7 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expectBuyerVisibleListingPredicate(listCall?.sql);
     expect(listCall?.sql).toContain("FROM discovery_offer_demand_matches AS offer");
     expect(listCall?.sql).toContain("offer.status = 'submitted'");
     expect(listCall?.values).toEqual(["active", 25]);
@@ -207,7 +219,7 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
-    expect(facetValueCall?.sql).toContain("account.seller_listing_availability_status = 'available'");
+    expectBuyerVisibleListingPredicate(facetValueCall?.sql);
     expect(facetValueCall?.sql).toContain("COUNT(DISTINCT activity.activity_id)::integer AS count");
     expect(facetValueCall?.sql).toContain("jsonb_array_elements(activity.selected_options)");
     expect(facetValueCall?.sql).toContain("COALESCE(market_counts.count, 0)::integer AS count");
@@ -257,6 +269,7 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expectBuyerVisibleListingPredicate(facetValueCall?.sql);
     expect(facetValueCall?.sql).toContain("UNION ALL");
     expect(facetValueCall?.sql).toContain("FROM discovery_offer_demand_matches AS offer");
     expect(facetValueCall?.sql).toContain("offer.status = 'submitted'");

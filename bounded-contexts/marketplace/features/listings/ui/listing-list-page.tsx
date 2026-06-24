@@ -302,6 +302,8 @@ export function MarketplaceListingListPage({
   catalogItemApiBaseUrl?: string;
 }) {
   const selectedInventory = selectedInventorySummary(inventoryItems, createForm?.inventoryItemId);
+  const selectedInventoryBlocksPublication =
+    selectedInventory !== null && selectedInventory.product_measure_snapshot === null;
   const hasInventory = inventoryItems.length > 0;
   const [catalogItemId, setCatalogItemId] = useState(createForm?.catalogItemId ?? "");
   const [catalogItem, setCatalogItem] = useState<ListingCatalogItemSnapshot | null>(null);
@@ -518,6 +520,13 @@ export function MarketplaceListingListPage({
                   }
                 />
               ) : null}
+              {selectedInventoryBlocksPublication ? (
+                <MarketplaceNotice
+                  tone="warning"
+                  title={t("marketplace.features.listings.ui.listingListPage.shipping.measure.missing")}
+                  description={t("marketplace.features.listings.ui.listingListPage.publish.requires.shipping.measure")}
+                />
+              ) : null}
               <HiddenInput type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
               <Grid columns={{ base: 1, lg: 2 }} gap={5}>
                 <Stack gap={3}>
@@ -697,7 +706,12 @@ export function MarketplaceListingListPage({
                 ]}
               />
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>
-                <Button type="submit" name="intent" value="create-and-publish-listing">
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="create-and-publish-listing"
+                  disabled={selectedInventoryBlocksPublication}
+                >
                   {t("marketplace.features.listings.ui.listingListPage.create.and.publish")}
                 </Button>
                 <Button type="submit" name="intent" value="preview-listing" tone="secondary">

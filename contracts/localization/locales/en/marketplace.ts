@@ -129,6 +129,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.save.quantity.cap": "Save quantity cap",
   "marketplace.features.listings.ui.listingDetailPage.seller": "Seller",
   "marketplace.features.listings.ui.listingDetailPage.seller.net": "Seller net: ",
+  "marketplace.features.listings.ui.listingDetailPage.publish.requires.shipping.measure":
+    "Resolve the catalog shipping measure before publishing this listing.",
   "marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing": "Shipping measure missing",
   "marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing.description":
     "Catalog needs a resolved product measure before checkout can calculate shipping for this listing.",
@@ -245,6 +247,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.selected.inventory": "Selected inventory",
   "marketplace.features.listings.ui.listingListPage.seller": "Seller",
   "marketplace.features.listings.ui.listingListPage.seller.net.report": "Seller net {amount}",
+  "marketplace.features.listings.ui.listingListPage.publish.requires.shipping.measure":
+    "Resolve the catalog shipping measure before creating an active listing from this inventory.",
   "marketplace.features.listings.ui.listingListPage.shipping.measure.missing": "Shipping measure missing",
   "marketplace.features.listings.ui.listingListPage.source.unavailable": "Source unavailable",
   "marketplace.features.listings.ui.listingListPage.status": "Status",

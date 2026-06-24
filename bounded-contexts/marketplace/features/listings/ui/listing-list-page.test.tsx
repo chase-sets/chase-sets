@@ -140,4 +140,49 @@ describe("marketplace listing form migration smoke", () => {
     expect(screen.queryByLabelText("Grading Company")).toBeNull();
     expect(screen.queryByLabelText("Grade")).toBeNull();
   });
+
+  it("blocks create-and-publish for selected inventory without a shipping measure", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        inventoryItems={[
+          {
+            item_id: "inv_missing_measure",
+            catalog_catalog_item_id: "cat_charizard",
+            product_id: "cat_charizard::raw",
+            item_language_code: "en",
+            item_title: "Charizard",
+            item_subtitle: "Base Set",
+            selected_options: [],
+            product_summary: "Raw",
+            product_measure_snapshot: null,
+            graded_card: null,
+            storage_location_name: "North shelf",
+            ship_from_code: "CHI",
+            ship_from_address: {
+              name: "Seller Shipping",
+              line1: "1 Warehouse Way",
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+            },
+            available_quantity: 1,
+          },
+        ]}
+        hasListingStockLocation
+        createForm={{
+          inventoryItemId: "inv_missing_measure",
+          priceAmount: "20.00",
+          quantityCap: "1",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Create and publish" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText("Resolve the catalog shipping measure before creating an active listing from this inventory."),
+    ).toBeTruthy();
+  });
 });

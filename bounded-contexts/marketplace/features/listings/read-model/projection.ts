@@ -72,6 +72,16 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
   });
 }
 
+function assertUpdatedListingRow(
+  result: Awaited<ReturnType<PgQueryable["query"]>>,
+  eventType: string,
+  listingId: string,
+) {
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error(`Cannot project ${eventType} for missing marketplace listing ${listingId}.`);
+  }
+}
+
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
@@ -245,13 +255,14 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const { listingPhotos } = event.data as { listingPhotos: unknown };
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET listing_photos = $2,
              updated_at = $3
          WHERE listing_id = $1`,
         [listingId, JSON.stringify(Array.isArray(listingPhotos) ? listingPhotos : []), event.timing.recordedAt],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
@@ -276,7 +287,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         feeQuoteFingerprint: string;
       };
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET price_amount = $2,
              marketplace_sales_fee_unit_amount = $3,
@@ -301,6 +312,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
@@ -332,7 +344,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       };
       const hasPurchaseLimits = purchaseLimits !== undefined;
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET quantity_cap = $2,
              marketplace_sales_fee_unit_amount = $3,
@@ -364,6 +376,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.purchase-limits-updated": async (event) => {
@@ -376,7 +389,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         };
       };
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET max_units_per_order = $2,
              max_units_per_day = $3,
@@ -391,6 +404,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.published": async (event) => {
@@ -413,7 +427,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         feeQuoteFingerprint: string;
       };
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'active',
              marketplace_sales_fee_unit_amount = $2,
@@ -437,30 +451,33 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.paused": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'paused',
              updated_at = $2
          WHERE listing_id = $1`,
         [listingId, event.timing.recordedAt],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
 
-      await db.query(
+      const result = await db.query(
         `UPDATE marketplace_listing_pages
          SET status = 'withdrawn',
              updated_at = $2
          WHERE listing_id = $1`,
         [listingId, event.timing.recordedAt],
       );
+      assertUpdatedListingRow(result, event.type, listingId);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.seller-listing-availability.disabled": async (event) => {

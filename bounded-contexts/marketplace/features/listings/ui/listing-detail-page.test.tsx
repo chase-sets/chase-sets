@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
 import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
 
@@ -53,6 +53,10 @@ const currentQuote: MarketplaceListingTermsPreview = {
   resolved_at: "2026-04-17T00:00:00.000Z",
   fee_quote_fingerprint: "current-fingerprint",
 };
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("MarketplaceListingDetailPage", () => {
   it("renders the fresh stale-quote fingerprint for browser retry submission", () => {
@@ -161,5 +165,22 @@ describe("MarketplaceListingDetailPage", () => {
     expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 480px, min(100vw, 276px)");
     expect(image.getAttribute("width")).toBe("480");
     expect(image.getAttribute("height")).toBe("640");
+  });
+
+  it("blocks draft publication when shipping measure is unresolved", () => {
+    render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          status: "draft",
+        }}
+        feeHistory={[]}
+        priceDraftAmount="20.00"
+        pricePreview={currentQuote}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Resolve the catalog shipping measure before publishing this listing.")).toBeTruthy();
   });
 });
