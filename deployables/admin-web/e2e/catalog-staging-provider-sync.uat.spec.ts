@@ -379,7 +379,7 @@ test.describe("catalog staging provider sync UAT", () => {
       await test.step(journey.name, async () => {
         const selectedScope = await selectProviderScope(page, journey);
         if (journey.preflight) {
-          await expectImportPreflight(page, journey.preflight);
+          await expectImportPreflight(page, journey.unitKey, selectedScope, journey.preflight);
         }
         const previousJobRows = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
         if (journey.requiresTerminalSync) {
@@ -556,10 +556,23 @@ async function syncSelectedProviderUnit(
   );
 }
 
-async function expectImportPreflight(page: Page, expectation: ImportPreflightExpectation): Promise<void> {
+async function expectImportPreflight(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  expectation: ImportPreflightExpectation,
+): Promise<void> {
   await expandWorkflowStage(page, /^Run sync\b/i);
-  const panel = page.locator('[data-catalog-import-preview="ready"]').filter({ visible: true }).first();
+  const panel = page
+    .locator(`[data-catalog-import-preview="ready"][data-catalog-import-preview-unit="${cssAttrValue(unitKey)}"]`)
+    .filter({ visible: true })
+    .first();
   await expect(panel).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  if (selectedScope.importScope) {
+    await expect(panel).toHaveAttribute("data-catalog-import-preview-scope", selectedScope.importScope, {
+      timeout: sourceOptionTimeoutMs,
+    });
+  }
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
       timeout: sourceOptionTimeoutMs,
@@ -576,6 +589,10 @@ async function expectImportPreflight(page: Page, expectation: ImportPreflightExp
       timeout: sourceOptionTimeoutMs,
     });
   }
+}
+
+function cssAttrValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 async function expandWorkflowStage(page: Page, name: RegExp): Promise<void> {

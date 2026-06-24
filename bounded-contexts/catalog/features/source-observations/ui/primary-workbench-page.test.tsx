@@ -338,6 +338,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(await screen.findByText("Import preflight")).toBeTruthy();
     await waitFor(() => expect(container.querySelector('[data-catalog-import-preview="ready"]')).toBeTruthy());
     const panel = container.querySelector('[data-catalog-import-preview="ready"]');
+    expect(panel?.getAttribute("data-catalog-import-preview-provider")).toBe("scrydex");
+    expect(panel?.getAttribute("data-catalog-import-preview-unit")).toBe(
+      "scrydex:one-piece:single-card:source-observation-import",
+    );
+    expect(panel?.getAttribute("data-catalog-import-preview-scope")).toBe("en:op-01");
     expect(panel?.getAttribute("data-catalog-import-preview-strategy")).toBe("bulk-first");
     expect(panel?.getAttribute("data-catalog-import-preview-usage-state")).toBe("not-configured");
     expect(screen.getByText("Estimate unavailable")).toBeTruthy();
