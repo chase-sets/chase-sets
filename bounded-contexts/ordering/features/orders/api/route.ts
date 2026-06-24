@@ -221,7 +221,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
         context,
       );
 
-      return c.json({ orderIds: result.orderIds, status: "created" }, 201);
+      return c.json({ ...result, status: "created" }, 201);
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }

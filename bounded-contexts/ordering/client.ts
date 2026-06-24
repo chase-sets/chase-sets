@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
-import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse, type SourceCommitPosition } from "@chase-sets/http/responses";
 import type { CheckoutOrderingSourceType } from "@chase-sets/checkout-order-source";
 import type { buildOrderingApi } from "./api";
 
@@ -59,6 +59,13 @@ export type CreateCheckoutOrdersRequest = Readonly<{
   optimizationGoal?: "lowest-total" | "fewest-shipments";
   fulfillmentPreviewRevision?: string | null;
   acknowledgedMaterialChanges?: boolean;
+}>;
+
+export type CreateCheckoutOrdersResponse = Readonly<{
+  orderIds: string[];
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly SourceCommitPosition[];
 }>;
 
 export type PreviewCheckoutFulfillmentRequest = Omit<CreateCheckoutOrdersRequest, "shippingAddress"> &
@@ -245,7 +252,7 @@ export function createOrderingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async createCheckoutOrders(body: CreateCheckoutOrdersRequest): Promise<{ orderIds: string[] }> {
+    async createCheckoutOrders(body: CreateCheckoutOrdersRequest): Promise<CreateCheckoutOrdersResponse> {
       return parseJsonResponse(
         await client.account.purchases.checkout.$post({
           json: body,
