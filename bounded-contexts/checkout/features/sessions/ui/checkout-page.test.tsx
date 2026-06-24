@@ -394,6 +394,39 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Guest checkout contact and shipping details are used");
   });
 
+  it("keeps reviewed address signatures fee-relevant while preserving selected address identity", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        canManageShippingAddresses
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+      />,
+    );
+
+    const reviewedSignature = container.querySelector<HTMLInputElement>(
+      'input[name="reviewedShippingAddressSignature"]',
+    );
+    const selectedAddressId = container.querySelector<HTMLInputElement>('input[name="shippingAddressId"]');
+
+    expect(reviewedSignature).not.toBeNull();
+    expect(JSON.parse(reviewedSignature?.value ?? "{}")).toEqual({
+      name: "Jane Smith",
+      company: "",
+      line1: "100 Market Street",
+      line2: "",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: "312-555-0199",
+      email: "jane@example.com",
+    });
+    expect(selectedAddressId?.value).toBe("adr_home");
+  });
+
   it("renders buy confirmation references without implying downstream completion", () => {
     const markup = renderToString(
       <CheckoutSessionPage

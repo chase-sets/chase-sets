@@ -158,7 +158,6 @@ function contactSupportingText(phone: string) {
 
 function normalizedAddressSignature(
   address: Readonly<{
-    shippingAddressId: string;
     name: string;
     company: string;
     line1: string;
@@ -172,7 +171,6 @@ function normalizedAddressSignature(
   }>,
 ) {
   return JSON.stringify({
-    shippingAddressId: address.shippingAddressId.trim() || "__manual",
     name: address.name.trim(),
     company: address.company.trim(),
     line1: address.line1.trim(),
