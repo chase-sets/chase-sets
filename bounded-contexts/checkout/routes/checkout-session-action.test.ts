@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -954,8 +954,12 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
 
+    const requestPath = appendFreshWriteToken(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
+      checkoutCommit("40", "evt_prior_review"),
+    );
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated", {
+      request: new Request(`http://localhost${requestPath}`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -987,6 +991,67 @@ describe("checkout web routes: checkout session action", () => {
         email: null,
       },
     });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+  });
+
+  it("resumes payment start instead of refreshing quote once checkout orders are committed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockGetCheckoutSession.mockResolvedValue(
+      checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
+    );
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("reviewedShippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const requestPath = appendFreshWriteToken(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
+      checkoutCommit("40", "evt_prior_review"),
+    );
+    const response = (await checkoutSessionAction({
+      request: new Request(`http://localhost${requestPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+    const checkoutApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
+    expect(new URL(checkoutApiRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        marketplaceCheckoutFeeQuoteFingerprint: null,
+        paymentMethodCategory: "card",
+        shippingAddress: expect.objectContaining({
+          name: "Jane Smith",
+          postalCode: "60601",
+        }),
+      }),
+    );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
@@ -1089,6 +1154,10 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockRecordFulfillmentPreview).toHaveBeenCalledWith("chk_1", {
       fulfillmentPreviewRevision: "fulfillment_rev_reviewed",
     });
+    const checkoutApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
+    const orderingApiRequest = mockCreateOrderingRequestApiClient.mock.calls[0]?.[0] as Request;
+    expect(new URL(checkoutApiRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(new URL(orderingApiRequest.url).searchParams.has("afterWrite")).toBe(false);
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&afterWrite=");
