@@ -74,6 +74,19 @@
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
     {
+      "sourceContextName": "checkout",
+      "projectionName": "checkout.sell-list-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "checkout.sell-list.line-added",
+        "checkout.sell-list.line-quantity-set",
+        "checkout.sell-list.line-removed",
+        "checkout.sell-list.checkout-confirmed"
+      ],
+      "order": 1,
+      "projectionHandlerSetNames": ["checkout.sell-list-projection"]
+    },
+    {
       "sourceContextName": "catalog",
       "projectionName": "checkout-marketplace-seller-options-projection",
       "subscriptionVersion": 1,
@@ -114,7 +127,7 @@
     },
     {
       "projectionName": "checkout.sell-list-projection",
-      "sourceContextNames": ["marketplace"],
+      "sourceContextNames": ["checkout", "marketplace"],
       "ownedTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
