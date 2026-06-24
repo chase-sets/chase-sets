@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
+import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
@@ -7,6 +8,7 @@ import { loader as providersLoader, action as providerSetupAction } from "../rou
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
 import {
   controlPlaneOverview,
@@ -22,6 +24,7 @@ const {
   mockIsTransientAuthResolutionError,
   mockResolveActorFromAuthApi,
   mockUseLoaderData,
+  mockUseNavigate,
   mockUseRouteLoaderData,
   mockUseActionData,
 } = vi.hoisted(() => ({
@@ -29,6 +32,7 @@ const {
   mockIsTransientAuthResolutionError: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockUseLoaderData: vi.fn(),
+  mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
 }));
@@ -38,6 +42,7 @@ vi.mock("react-router", async () => {
   return {
     ...actual,
     useLoaderData: mockUseLoaderData,
+    useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     // The import-jobs module polls live progress via useRevalidator and the daily
@@ -61,6 +66,7 @@ describe("Catalog integrations route", () => {
   afterEach(() => {
     cleanup();
     mockUseLoaderData.mockReset();
+    mockUseNavigate.mockReset();
     mockUseRouteLoaderData.mockReset();
     mockUseActionData.mockReset();
   });
@@ -175,6 +181,49 @@ describe("Catalog integrations route", () => {
     render(<IntegrationsRoute />);
 
     expect(screen.getByText("Command queued")).toBeTruthy();
+  });
+
+  it("replaces the daily URL when preview-ready action data carries a routable checkpoint", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    mockUseLoaderData.mockReturnValue({
+      data: scopes,
+      query: {},
+      profileReviews,
+      controlPlaneOverview: null,
+      requestUrl,
+      commandFeedback: null,
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+    mockUseActionData.mockReturnValue({
+      feedback: { status: "success", intent: "preview-promotion", result: "preview-ready" },
+      context: parseCatalogPrimaryWorkbenchRouteContext(
+        `${requestUrl}&selectedObservationIds=obs_001&promotionPreviewId=preview_001`,
+      ),
+      section: "import-to-promotion",
+    });
+
+    render(<IntegrationsRoute />);
+
+    await waitFor(() => expect(mockUseNavigate).toHaveBeenCalledTimes(1));
+    const [href, options] = mockUseNavigate.mock.calls[0] ?? [];
+    const target = new URL(String(href), "https://admin.example");
+    expect(options).toEqual({ replace: true });
+    expect(target.pathname).toBe("/catalog/integrations");
+    expect(target.searchParams.get("selectedObservationIds")).toBe("obs_001");
+    expect(target.searchParams.get("promotionPreviewId")).toBe("preview_001");
+    expect(target.searchParams.get("commandResult")).toBe("preview-ready");
   });
 
   it("scopes durable import jobs to the selected provider unit while keeping overlap conflicts visible", () => {
