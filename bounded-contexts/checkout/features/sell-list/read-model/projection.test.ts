@@ -26,6 +26,14 @@ class SellListProjectionDb implements PgQueryable {
         offer_id: values[3] === null ? null : String(values[3]),
         quantity: Number(values[13]),
       };
+      if (sql.includes("ON CONFLICT (seller_account_id, offer_id)") && row.offer_id) {
+        const existing = [...this.lines.values()].find(
+          (line) => line.seller_account_id === row.seller_account_id && line.offer_id === row.offer_id,
+        );
+        if (existing) {
+          this.lines.delete(this.key(existing.seller_account_id, existing.line_id));
+        }
+      }
       this.lines.set(this.key(row.seller_account_id, row.line_id), row);
       return { rows: [], rowCount: 1 };
     }
@@ -243,6 +251,33 @@ describe("checkout Sell List projection", () => {
     expect(db.getLine("acc_seller", "sll_selected")).toBeUndefined();
     expect(db.getLine("acc_other", "sll_other")).toMatchObject({ offer_id: "off_accepted" });
     expect(db.getLine("acc_seller", "sll_product")).toMatchObject({ line_type: "product" });
+  });
+
+  it("upserts selected-offer lines by seller and offer to keep replay idempotent", async () => {
+    const db = new SellListProjectionDb();
+    const handlers = buildCheckoutSellListProjectionHandlers(db);
+
+    await handlers["checkout.sell-list.line-added"]!(
+      lineAddedEvent("acc_seller", "sll_original", 1, {
+        lineType: "selected-offer",
+        offerId: "off_duplicate",
+        fallbackMode: "none",
+      }),
+    );
+    await handlers["checkout.sell-list.line-added"]!(
+      lineAddedEvent("acc_seller", "sll_retry", 1, {
+        lineType: "selected-offer",
+        offerId: "off_duplicate",
+        fallbackMode: "none",
+      }),
+    );
+
+    expect(db.getLine("acc_seller", "sll_original")).toBeUndefined();
+    expect(db.getLine("acc_seller", "sll_retry")).toMatchObject({
+      line_type: "selected-offer",
+      offer_id: "off_duplicate",
+      quantity: 1,
+    });
   });
 
   it("removes completed selected-offer lines from checkout confirmation events", async () => {

@@ -593,6 +593,64 @@ describe("sell list checkout runtime readiness boundary", () => {
     ]);
   });
 
+  it("treats duplicate selected-offer adds as already merged from the aggregate when projection is stale", async () => {
+    const selectedOptions = [
+      { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+      { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_damaged" },
+    ];
+    const existingSelectedOfferLine: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      catalog_catalog_item_id: "cat_air_balloon",
+      product_id: airBalloonProductId,
+      selected_options: selectedOptions,
+      product_summary: "Raw / Damaged",
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb(
+        [],
+        [
+          {
+            catalog_item_id: "cat_air_balloon",
+            status: "active",
+            product_schema: airBalloonProductSchema,
+          },
+        ],
+      ) as never,
+    });
+    await seedSellListAggregate(services, [existingSelectedOfferLine], allEvents);
+
+    await expect(
+      services.addLine(
+        {
+          sellerAccountId: "acc_seller" as never,
+          lineType: "selected-offer",
+          offerId: "off_ready",
+          buyerAccountId: "acc_buyer",
+          buyerDisplayName: "Jane Buyer",
+          offerPriceAmount: "120.00",
+          catalogItemId: "cat_air_balloon",
+          productId: airBalloonProductId,
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions,
+          productSummary: "Raw / Damaged",
+          quantity: 1,
+          fallbackMode: "none",
+          minimumListingPriceAmount: null,
+        },
+        context,
+      ),
+    ).resolves.toEqual({
+      lineId: "sll_offer",
+      version: 0,
+      status: "merged",
+    });
+    expect(allEvents).toEqual([]);
+  });
+
   it("merges anonymous aggregate lines even when the source projection is still empty", async () => {
     const anonymousProductLine: CheckoutSellListLineRow = {
       ...productLine,

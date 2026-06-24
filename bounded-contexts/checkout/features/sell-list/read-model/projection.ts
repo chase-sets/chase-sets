@@ -32,6 +32,29 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         minimumListingPriceAmount: string | null;
       };
 
+      const values = [
+        data.sellerAccountId,
+        data.lineId,
+        data.lineType === "selected-offer" ? "selected-offer" : "product",
+        data.offerId,
+        data.buyerAccountId,
+        data.buyerDisplayName,
+        data.offerPriceAmount,
+        data.catalogItemId,
+        data.productId,
+        data.itemTitle,
+        data.itemSubtitle,
+        JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+        data.productSummary,
+        data.quantity,
+        data.fallbackMode === "create-listing" ? "create-listing" : "none",
+        data.minimumListingPriceAmount,
+        event.timing.recordedAt,
+      ];
+      const conflictTarget = data.offerId
+        ? "(seller_account_id, offer_id) WHERE offer_id IS NOT NULL"
+        : "(seller_account_id, line_id)";
+
       await db.query(
         `INSERT INTO checkout_sell_list_line_pages (
            seller_account_id,
@@ -53,8 +76,9 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            created_at,
            updated_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
-         ON CONFLICT (seller_account_id, line_id) DO UPDATE
-         SET line_type = EXCLUDED.line_type,
+         ON CONFLICT ${conflictTarget} DO UPDATE
+         SET line_id = EXCLUDED.line_id,
+             line_type = EXCLUDED.line_type,
              offer_id = EXCLUDED.offer_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              buyer_display_name = EXCLUDED.buyer_display_name,
@@ -69,25 +93,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              fallback_mode = EXCLUDED.fallback_mode,
              minimum_listing_price_amount = EXCLUDED.minimum_listing_price_amount,
              updated_at = EXCLUDED.updated_at`,
-        [
-          data.sellerAccountId,
-          data.lineId,
-          data.lineType === "selected-offer" ? "selected-offer" : "product",
-          data.offerId,
-          data.buyerAccountId,
-          data.buyerDisplayName,
-          data.offerPriceAmount,
-          data.catalogItemId,
-          data.productId,
-          data.itemTitle,
-          data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-          data.productSummary,
-          data.quantity,
-          data.fallbackMode === "create-listing" ? "create-listing" : "none",
-          data.minimumListingPriceAmount,
-          event.timing.recordedAt,
-        ],
+        values,
       );
     },
     "checkout.sell-list.line-quantity-set": async (event) => {
