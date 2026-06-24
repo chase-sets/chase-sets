@@ -68,6 +68,7 @@ const session: CheckoutSessionRow = {
     },
   ],
   order_ids: [],
+  order_write_commit_positions: [],
   payment_id: null,
   submitted_offer_id: null,
   created_at: "2026-05-06T00:00:00.000Z",

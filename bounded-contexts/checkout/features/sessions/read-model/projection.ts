@@ -32,11 +32,12 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            shipping_address,
            lines,
            order_ids,
+           order_write_commit_positions,
            payment_id,
            submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, '[]'::jsonb, NULL, NULL, $10, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $10, $10)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
@@ -143,15 +144,22 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
       const data = event.data as {
         sessionId: string;
         orderIds: string[];
+        orderWriteCommitPositions?: unknown;
         recordedAt: string;
       };
 
       await projectionDb.query(
         `UPDATE checkout_session_pages
          SET order_ids = $2,
-             updated_at = $3
+             order_write_commit_positions = $3,
+             updated_at = $4
          WHERE session_id = $1`,
-        [data.sessionId, JSON.stringify(data.orderIds), data.recordedAt],
+        [
+          data.sessionId,
+          JSON.stringify(data.orderIds),
+          JSON.stringify(Array.isArray(data.orderWriteCommitPositions) ? data.orderWriteCommitPositions : []),
+          data.recordedAt,
+        ],
       );
     },
     "checkout.session.payment-started": async (event, context) => {

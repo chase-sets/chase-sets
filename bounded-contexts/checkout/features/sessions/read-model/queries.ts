@@ -1,6 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
-import type { CheckoutSessionLine, CheckoutShippingAddress, CheckoutSplitGroupHandoff } from "../domain/domain";
+import type {
+  CheckoutSessionLine,
+  CheckoutShippingAddress,
+  CheckoutSourceCommitPosition,
+  CheckoutSplitGroupHandoff,
+} from "../domain/domain";
 
 export type CheckoutSessionRow = Readonly<{
   session_id: string;
@@ -15,6 +20,7 @@ export type CheckoutSessionRow = Readonly<{
   shipping_address: CheckoutShippingAddress | null;
   lines: readonly CheckoutSessionLine[];
   order_ids: readonly string[];
+  order_write_commit_positions: readonly CheckoutSourceCommitPosition[];
   payment_id: string | null;
   submitted_offer_id: string | null;
   created_at: string;
@@ -23,7 +29,7 @@ export type CheckoutSessionRow = Readonly<{
 
 type CheckoutSessionPageRow = Omit<
   CheckoutSessionRow,
-  "lines" | "order_ids" | "source_type" | "shipping_option" | "optimization_goal"
+  "lines" | "order_ids" | "order_write_commit_positions" | "source_type" | "shipping_option" | "optimization_goal"
 > &
   Readonly<{
     source_type: string;
@@ -34,7 +40,30 @@ type CheckoutSessionPageRow = Omit<
     split_group_handoff: unknown;
     lines: unknown;
     order_ids: unknown;
+    order_write_commit_positions: unknown;
   }>;
+
+function mapCommitPositions(value: unknown): CheckoutSourceCommitPosition[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((position) => {
+    if (typeof position !== "object" || position === null) {
+      return [];
+    }
+
+    const source = position as Partial<CheckoutSourceCommitPosition>;
+    const eventIds = Array.isArray(source.eventIds)
+      ? source.eventIds.filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0)
+      : [];
+    return typeof source.sourceContextName === "string" &&
+      typeof source.maxGlobalPosition === "string" &&
+      eventIds.length > 0
+      ? [{ sourceContextName: source.sourceContextName, maxGlobalPosition: source.maxGlobalPosition, eventIds }]
+      : [];
+  });
+}
 
 function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
   return {
@@ -60,6 +89,7 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
+    order_write_commit_positions: mapCommitPositions(row.order_write_commit_positions),
   };
 }
 
@@ -82,6 +112,7 @@ export async function getCheckoutSession(
        shipping_address,
        lines,
        order_ids,
+       order_write_commit_positions,
        payment_id,
        submitted_offer_id,
        created_at,

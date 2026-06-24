@@ -42,6 +42,7 @@ import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-servicea
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
+import type { CheckoutSourceCommitPosition } from "../domain/domain";
 
 export type CheckoutSessionMutationResult = Readonly<{
   sessionId: string;
@@ -163,6 +164,7 @@ export type CheckoutSessionServices = Readonly<{
       accountId: AccountId;
       orderIds: readonly string[];
       fulfilledLineKeys?: readonly string[];
+      orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
@@ -228,6 +230,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     shipping_address: state.shippingAddress,
     lines: [...state.lines],
     order_ids: [...state.orderIds],
+    order_write_commit_positions: [...state.orderWriteCommitPositions],
     payment_id: state.paymentId,
     submitted_offer_id: state.submittedOfferId,
     created_at: state.createdAt,
@@ -759,6 +762,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           command: {
             type: "RecordOrdersCreated",
             orderIds: params.orderIds as OrderId[],
+            orderWriteCommitPositions: params.orderWriteCommitPositions,
             recordedAt: new Date().toISOString(),
           },
         },

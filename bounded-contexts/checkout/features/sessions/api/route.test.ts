@@ -119,6 +119,7 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
     ],
     shipping_address: shippingAddress,
     order_ids: [],
+    order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
     created_at: "2026-04-29T00:00:00.000Z",
@@ -1092,7 +1093,11 @@ describe("checkout session routes", () => {
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
     expect(services.recordOrdersCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.objectContaining({
+        sessionId: "chk_1",
+        orderIds: ["ord_1"],
+        orderWriteCommitPositions: orderingWriteResult.commandReceipt.commitPositions,
+      }),
       expect.any(Object),
     );
     expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
@@ -1106,7 +1111,12 @@ describe("checkout session routes", () => {
       false,
       "/account/payments/:paymentId",
       null,
-      orderingWriteResult,
+      {
+        commandReceipt: {
+          commitEventIds: ["evt_order_created"],
+          commitPositions: orderingWriteResult.commandReceipt.commitPositions,
+        },
+      },
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
@@ -1775,7 +1785,11 @@ describe("checkout session routes", () => {
       ],
     });
     expect(services.recordOrdersCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.objectContaining({
+        sessionId: "chk_1",
+        orderIds: ["ord_1"],
+        orderWriteCommitPositions: [],
+      }),
       expect.any(Object),
     );
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
@@ -1850,8 +1864,86 @@ describe("checkout session routes", () => {
       ],
     });
     expect(services.recordOrdersCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.objectContaining({
+        sessionId: "chk_1",
+        orderIds: ["ord_1"],
+        orderWriteCommitPositions: orderingWriteResult.commandReceipt.commitPositions,
+      }),
       expect.any(Object),
+    );
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("uses stored order write positions when retrying payment after orders already exist", async () => {
+    const orderedSession = createSession({
+      order_ids: ["ord_1"],
+      order_write_commit_positions: orderingWriteResult.commandReceipt.commitPositions,
+      payment_id: null,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Order ord_1 was not found."), {
+        status: 400,
+        body: {
+          error: {
+            code: "validation_failed",
+            message: "Order ord_1 was not found.",
+          },
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => orderedSession),
+      assertReadyForOrderCreation: vi.fn(),
+      recordOrdersCreated: vi.fn(),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_start_pending",
+        message: "Payment setup is still catching up. Review checkout again before payment starts.",
+      },
+      commitEventIds: ["evt_order_created"],
+      commitPositions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    });
+    expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+      null,
+      {
+        commandReceipt: {
+          commitEventIds: ["evt_order_created"],
+          commitPositions: orderingWriteResult.commandReceipt.commitPositions,
+        },
+      },
     );
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
@@ -2400,6 +2492,7 @@ describe("checkout session routes", () => {
   it("retries payment without mutating shipping or creating duplicate orders after orders exist", async () => {
     const orderedSession = createSession({
       order_ids: ["ord_1"],
+      order_write_commit_positions: orderingWriteResult.commandReceipt.commitPositions,
       payment_id: null,
       fulfillment_preview_revision: "fulfillment_preview_1",
     });
@@ -2457,7 +2550,12 @@ describe("checkout session routes", () => {
       false,
       "/account/payments/:paymentId",
       null,
-      undefined,
+      {
+        commandReceipt: {
+          commitEventIds: ["evt_order_created"],
+          commitPositions: orderingWriteResult.commandReceipt.commitPositions,
+        },
+      },
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       {
