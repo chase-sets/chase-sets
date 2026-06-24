@@ -106,7 +106,7 @@
     "/api/marketplace/support-requests/{id}/cancel": { "post": { "tags": ["Support"], "summary": "Cancel an unresolved support request.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
 
     "/api/marketplace/account/payments": { "post": { "tags": ["Payments and Settlement"], "summary": "Create account payment.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/checkout/status": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout payment status.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/checkout/status": {"get":{"tags":["Payments and Settlement"],"summary":"Get checkout payment status.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/marketplace-checkout-fee-policy": { "get": { "tags": ["Payments and Settlement"], "summary": "Get active Marketplace Checkout Fee policy and quote audit settings.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout/recover": { "post": { "tags": ["Payments and Settlement"], "summary": "Recover checkout payment.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout/recovery": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout recovery options.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },

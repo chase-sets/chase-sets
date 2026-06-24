@@ -175,6 +175,16 @@ function paymentQuoteRequiredFromStaleFeeQuote(error: unknown, writeSources: rea
 function paymentStartPendingFromMissingOrder(error: unknown, writeSources: readonly unknown[] = []) {
   const status = errorStatus(error);
   const code = readApiErrorCode(errorBody(error));
+  if (status === 503 && code === "projection_freshness_timeout") {
+    return {
+      error: {
+        code: paymentStartPendingCode,
+        message: t("checkout.features.sessions.api.route.payment.start.pending"),
+      },
+      ...checkoutCommitMetadataFromSources(writeSources),
+    };
+  }
+
   if (status !== 400 || (code !== "validation_failed" && code !== "not_found")) {
     return null;
   }
@@ -1003,6 +1013,7 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       let orderIds = [...session.order_ids];
+      let orderCreationWriteResult: unknown;
       if (orderIds.length === 0) {
         const readySession = await services.assertReadyForOrderCreation({
           sessionId,
@@ -1013,6 +1024,7 @@ export function createAccountCheckoutSessionRoutes(
           acknowledgedMaterialChanges,
         });
         orderIds = checkoutOrders.orderIds;
+        orderCreationWriteResult = checkoutOrders.writeResult;
         const ordersResult = await services.recordOrdersCreated(
           {
             sessionId,
@@ -1036,6 +1048,8 @@ export function createAccountCheckoutSessionRoutes(
         savedCheckoutInstrumentId,
         savePaymentMethodForFuture,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
+        null,
+        orderCreationWriteResult,
       );
       const paymentId = payment.payment_id;
       const paymentResult = await services.recordPaymentStarted(

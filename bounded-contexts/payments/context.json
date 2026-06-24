@@ -102,6 +102,15 @@
               "readModelTable": "payments_payment_pages"
             }
           ]
+        },
+        {
+          "routePath": "/account/checkout/status",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "payments_order_inputs"
+            }
+          ]
         }
       ]
     },
@@ -137,6 +146,37 @@
           "kinds": "refreshable-catching-up",
           "behavior": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
         }
+      }
+    },
+    {
+      "id": "payments.checkout-status-order-input-fresh-read",
+      "owner": "payments",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
+      "source": {
+        "routeId": "buy-checkout-session",
+        "actions": ["Create checkout orders before payment start"],
+        "command": "Ordering checkout order creation command"
+      },
+      "destination": {
+        "routeIds": ["account-payment", "checkout-payment"],
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/checkout/status",
+        "readModelTables": ["payments_order_inputs"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Checkout payment start preflights Payments checkout status with the Ordering write receipt so payments_order_inputs catches up before creating the payment."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/support/request-support/checkout-confirmation.test.ts",
+          "bounded-contexts/payments/support/request-support/api-client.test.ts"
+        ]
       }
     },
     {

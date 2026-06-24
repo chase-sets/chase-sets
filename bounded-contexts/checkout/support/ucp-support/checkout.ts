@@ -283,6 +283,7 @@ export function createCheckoutUcpHandlers(
           }
 
           let orderIds = [...refreshedSession.order_ids];
+          let orderCreationWriteResult: unknown;
           if (orderIds.length === 0) {
             const readySession = await checkout.sessions.assertReadyForOrderCreation({
               sessionId,
@@ -296,6 +297,7 @@ export function createCheckoutUcpHandlers(
                 body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
             });
             orderIds = checkoutOrders.orderIds;
+            orderCreationWriteResult = checkoutOrders.writeResult;
             await checkout.sessions.recordOrdersCreated(
               {
                 sessionId,
@@ -318,6 +320,7 @@ export function createCheckoutUcpHandlers(
             false,
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
+            orderCreationWriteResult,
           );
           const paymentId = payment.payment_id;
           await checkout.sessions.recordPaymentStarted(

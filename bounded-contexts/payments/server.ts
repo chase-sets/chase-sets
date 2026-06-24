@@ -13,11 +13,17 @@ export type {
 export { PaymentsDomainError } from "./support/runtime-support/common";
 export { createPaymentsUcpHandoff } from "./support/ucp-support/payment-handlers";
 export type { UcpAp2MandateVerifier, UcpPaymentHandlerHandoff } from "./support/ucp-support/payment-handlers";
-import { createPaymentsApiClient } from "./support/request-support/api-client";
+import {
+  createPaymentsApiClient,
+  createPaymentsRequestApiHeaders,
+  type PaymentsRequestApiClientOptions,
+} from "./support/request-support/api-client";
+export { hasPaymentsFreshReadAfterWriteSource } from "./support/request-support/api-client";
 
-export function createPaymentsRequestApiClient(request: Request) {
+export function createPaymentsRequestApiClient(request: Request, options: PaymentsRequestApiClientOptions = {}) {
   return createPaymentsApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "payments" }),
+    headers: createPaymentsRequestApiHeaders(options),
   });
 }
