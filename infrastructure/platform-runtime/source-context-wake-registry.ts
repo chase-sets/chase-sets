@@ -163,6 +163,7 @@ export const sourceContextWakeRegistry = [
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
       "discovery:discovery-item-detail-projection",
+      "discovery:discovery-market-projection",
       "discovery:discovery-search-item-projection",
       "inventory:inventory-catalog-item-projection",
       "marketplace:marketplace-catalog-item-projection",
@@ -319,6 +320,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
       "checkout:checkout-marketplace-seller-options-projection",
+      "discovery:discovery-market-projection",
       "inventory:inventory-hold-projection",
       "inventory:inventory-item-projection",
       "inventory:inventory-storage-location-projection",
