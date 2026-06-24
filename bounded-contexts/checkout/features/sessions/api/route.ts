@@ -1025,6 +1025,7 @@ export function createAccountCheckoutSessionRoutes(
         });
         orderIds = checkoutOrders.orderIds;
         orderCreationWriteResult = checkoutOrders.writeResult;
+        writeSources.push(orderCreationWriteResult);
         const ordersResult = await services.recordOrdersCreated(
           {
             sessionId,

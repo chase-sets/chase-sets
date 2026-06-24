@@ -1785,6 +1785,7 @@ describe("checkout session routes", () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
     });
     mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
       Object.assign(new Error("Order ord_1 was not found."), {
@@ -1834,12 +1835,17 @@ describe("checkout session routes", () => {
         message: "Payment setup is still catching up. Review checkout again before payment starts.",
       },
       commitPosition: "77",
-      commitEventIds: ["evt_checkout_orders_created"],
+      commitEventIds: ["evt_order_created", "evt_checkout_orders_created"],
       commitPositions: [
         {
           sourceContextName: "checkout",
           maxGlobalPosition: "77",
           eventIds: ["evt_checkout_orders_created"],
+        },
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
         },
       ],
     });
@@ -1854,6 +1860,7 @@ describe("checkout session routes", () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
     });
     mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
       Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
@@ -1903,12 +1910,17 @@ describe("checkout session routes", () => {
         message: "Payment setup is still catching up. Review checkout again before payment starts.",
       },
       commitPosition: "77",
-      commitEventIds: ["evt_checkout_orders_created"],
+      commitEventIds: ["evt_order_created", "evt_checkout_orders_created"],
       commitPositions: [
         {
           sourceContextName: "checkout",
           maxGlobalPosition: "77",
           eventIds: ["evt_checkout_orders_created"],
+        },
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
         },
       ],
     });
