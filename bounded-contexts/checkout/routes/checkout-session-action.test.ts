@@ -855,6 +855,77 @@ describe("checkout web routes: checkout session action", () => {
     },
   );
 
+  it("refreshes checkout review when payment start is waiting on newly created orders", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(409, {
+        error: {
+          code: "payment_start_pending",
+          message: "Payment setup is still catching up. Review checkout again before payment starts.",
+        },
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_orders_created"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_orders_created"],
+          },
+        ],
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set(
+      "marketplaceCheckoutFeeQuoteFingerprint",
+      "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+    );
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    const receipt = readFreshWriteToken(location);
+    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expect(receipt?.commitPosition).toBe("77");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "77",
+        eventIds: ["evt_checkout_orders_created"],
+      },
+    ]);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+      }),
+    );
+  });
+
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});

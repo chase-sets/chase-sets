@@ -63,15 +63,29 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.sessions.api.route.request.failed");
 }
 
+function errorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error && typeof error.body === "object"
+    ? (error.body as { error?: { code?: unknown; message?: unknown } } | null)
+    : null;
+}
+
+function errorStatus(error: unknown) {
+  return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
+    ? error.status
+    : null;
+}
+
+function errorBodyMessage(error: unknown) {
+  const message = errorBody(error)?.error?.message;
+  return typeof message === "string" ? message : errorMessage(error);
+}
+
 function errorCode(error: unknown) {
   if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.trim()) {
     return error.code;
   }
 
-  const body =
-    typeof error === "object" && error !== null && "body" in error && typeof error.body === "object"
-      ? (error.body as { error?: { code?: unknown } } | null)
-      : null;
+  const body = errorBody(error);
   if (body?.error?.code === "account_sign_in_required") {
     return "account_sign_in_required";
   }
@@ -79,8 +93,10 @@ function errorCode(error: unknown) {
 }
 
 const savedCheckoutInstrumentUnavailableCode = "saved_checkout_instrument_unavailable" as const;
+const paymentStartPendingCode = "payment_start_pending" as const;
 const marketplaceCheckoutFeePolicyVersion = "marketplace-checkout-fee-v1";
 const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
+const paymentOrderNotFoundPattern = /^Order ord_[0-9A-Za-z_:-]+ was not found\.$/;
 
 type CheckoutPaymentMethodCategory = (typeof checkoutPaymentMethodCategories)[number];
 
@@ -152,6 +168,26 @@ function paymentQuoteRequiredFromStaleFeeQuote(error: unknown, writeSources: rea
   return {
     ...paymentQuoteRequiredResponse(),
     ...(providerQuote ? { marketplace_checkout_fee: providerQuote } : {}),
+    ...checkoutCommitMetadataFromSources(writeSources),
+  };
+}
+
+function paymentStartPendingFromMissingOrder(error: unknown, writeSources: readonly unknown[] = []) {
+  const status = errorStatus(error);
+  const code = readApiErrorCode(errorBody(error));
+  if (status !== 400 || (code !== "validation_failed" && code !== "not_found")) {
+    return null;
+  }
+
+  if (!paymentOrderNotFoundPattern.test(errorBodyMessage(error))) {
+    return null;
+  }
+
+  return {
+    error: {
+      code: paymentStartPendingCode,
+      message: t("checkout.features.sessions.api.route.payment.start.pending"),
+    },
     ...checkoutCommitMetadataFromSources(writeSources),
   };
 }
@@ -1024,6 +1060,11 @@ export function createAccountCheckoutSessionRoutes(
       const stalePaymentQuote = paymentQuoteRequiredFromStaleFeeQuote(error, writeSources);
       if (stalePaymentQuote) {
         return c.json(stalePaymentQuote, 409);
+      }
+
+      const paymentStartPending = paymentStartPendingFromMissingOrder(error, writeSources);
+      if (paymentStartPending) {
+        return c.json(paymentStartPending, 409);
       }
 
       const code = errorCode(error);

@@ -1756,6 +1756,127 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("asks checkout review to retry when Payments has not observed newly created orders", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Order ord_1 was not found."), {
+        status: 400,
+        body: {
+          error: {
+            code: "validation_failed",
+            message: "Order ord_1 was not found.",
+          },
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_orders_created"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_orders_created"],
+          },
+        ],
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_start_pending",
+        message: "Payment setup is still catching up. Review checkout again before payment starts.",
+      },
+      commitPosition: "77",
+      commitEventIds: ["evt_checkout_orders_created"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "77",
+          eventIds: ["evt_checkout_orders_created"],
+        },
+      ],
+    });
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.any(Object),
+    );
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("keeps unrelated payment validation failures as validation errors after orders are created", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Payment method is unavailable."), {
+        status: 400,
+        body: {
+          error: {
+            code: "validation_failed",
+            message: "Payment method is unavailable.",
+          },
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+        commitPosition: "77",
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Payment method is unavailable.",
+      },
+    });
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.any(Object),
+    );
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("rejects guest saved checkout instruments before checkout side effects", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({
