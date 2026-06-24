@@ -445,7 +445,11 @@ function assertRbac(packet: CatalogSecurityPrivacyLaunchGatePacket): void {
     if (action.method === "POST" && action.requiredPermission !== "catalog.manage") {
       throw new Error(`Primary workbench write action '${action.key}' must require catalog.manage.`);
     }
-    if (action.method === "POST" && !action.routePattern.startsWith("/api/catalog/source-observations/admin/")) {
+    if (
+      action.method === "POST" &&
+      !action.routePattern.startsWith("/api/catalog/source-observations/admin/") &&
+      action.routePattern !== "/api/catalog/source-observations/catalog-sync-scope/runs"
+    ) {
       throw new Error(`Primary workbench write action '${action.key}' must stay on the rebuilt Admin API contract.`);
     }
   }

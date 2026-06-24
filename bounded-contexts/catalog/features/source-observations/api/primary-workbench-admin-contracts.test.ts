@@ -428,7 +428,9 @@ describe("Catalog primary workbench admin contracts", () => {
     });
 
     for (const action of catalogPrimaryWorkbenchActions) {
-      expect(action.routePattern).toMatch(/^\/api\/catalog\/source-observations\/admin\//);
+      expect(action.routePattern).toMatch(
+        /^\/api\/catalog\/source-observations\/(?:admin\/|catalog-sync-scope\/runs$)/,
+      );
       expect(action.routePattern).not.toContain("/catalog/integrations");
       expect(action.routePattern).not.toContain("/admin/catalog/source-observations");
       expect(action.routePattern).not.toMatch(/raw-json|legacy|compat/i);
@@ -721,6 +723,58 @@ describe("Catalog primary workbench admin contracts", () => {
             },
           },
         ],
+      },
+      catalogSync: {
+        status: "ready",
+        generatedAt: "2026-06-09T00:00:00.000Z",
+        scope: {
+          scopeVersion: "catalog-sync-scope-v1",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          languageCode: null,
+          reference: {
+            kind: null,
+            id: null,
+            name: null,
+            seriesId: null,
+            seriesName: null,
+          },
+          label: "tcgdex / changed",
+          hasConcreteScope: true,
+        },
+        preview: {
+          previewVersion: "catalog-sync-provider-participation-preview-v1",
+          status: "ready",
+          startAllowed: true,
+          explanation: "Selected provider units can pull Source Observations for this Catalog scope.",
+          blockers: [],
+          units: [
+            {
+              providerKey: "tcgdex",
+              unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+              displayName: "TCGdex",
+              profileVersion: "2026.06.04",
+              productDomain: "pokemon",
+              productForm: "single-card",
+              role: "primary",
+              requirement: "required",
+              selected: true,
+              eligibility: "eligible",
+              childExecutionScope: {
+                provider: "tcgdex",
+                ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+              },
+              estimate: null,
+              blockers: [],
+            },
+          ],
+        },
+        action: {
+          key: "start-catalog-sync",
+          state: "available",
+          blockers: [],
+          copyKey: null,
+        },
       },
       readiness: {
         freshness: "partial",
