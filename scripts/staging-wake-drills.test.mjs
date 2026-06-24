@@ -12,7 +12,9 @@ import {
   buildDrillEvidence,
   clampLoadPlan,
   classifyCanaryWriteResult,
+  classifySingleWriteReadinessResult,
   contextDatabaseEnvName,
+  deriveLoadReadinessDecision,
   evaluateConvergenceSample,
   parseStagingWakeDrillArgs,
   pollForConvergence,
@@ -253,6 +255,31 @@ describe("canary write classification", () => {
   });
 });
 
+describe("single-write readiness classification", () => {
+  it("fails warning-only checkout readiness misses without rejecting the write as stimulus", () => {
+    const result = {
+      attempted: true,
+      exitCode: 0,
+      finalState: "temporary",
+      promotionDecision: "warn",
+      failureReason: "checkout-ready-slo-exceeded",
+      readyLatencyMs: null,
+    };
+
+    expect(classifyCanaryWriteResult(result)).toBeNull();
+    expect(classifySingleWriteReadinessResult(result, 10_000)).toBe("checkout-ready-slo-missed");
+  });
+
+  it("passes promoted writes inside the configured readiness budget", () => {
+    expect(
+      classifySingleWriteReadinessResult(
+        { attempted: true, promotionDecision: "promote", failureReason: null, readyLatencyMs: 1200 },
+        10_000,
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("load summary", () => {
   it("aggregates readiness pass rate and latency percentiles", () => {
     const summary = summarizeLoadResults([
@@ -336,6 +363,57 @@ describe("segment SLO summary", () => {
     });
     expect(JSON.stringify(summary)).not.toContain("http");
     expect(JSON.stringify(summary)).not.toContain("@");
+  });
+
+  it("keeps null checkout-ready observations unmeasured instead of treating them as zero latency", () => {
+    const summary = summarizeSegmentSlo({
+      readySloMs: 10_000,
+      canaryWrite: {
+        attempted: true,
+        promotionDecision: "warn",
+        readyLatencyMs: null,
+        segments: {
+          writeToRedirectMs: 1836,
+          redirectToDocumentMs: 0,
+          documentToReadyMs: null,
+          writeToCheckoutReadyMs: null,
+        },
+      },
+      convergenceBudgetMs: 120_000,
+      convergence: { converged: false, convergedAfterMs: null, sampleCount: 24, finalSamples: {} },
+    });
+
+    expect(summary.browser.singleWrite.readyLatencyMs).toMatchObject({
+      samples: 0,
+      min: null,
+      p50: null,
+      p95: null,
+      max: null,
+    });
+    expect(summary.browser.singleWrite.segmentLatencyMs.documentToReadyMs.samples).toBe(0);
+    expect(summary.browser.singleWrite.sloStatus).toBe("miss");
+    expect(summary.durableConvergence.convergedAfterMs).toBeNull();
+  });
+});
+
+describe("load readiness decision", () => {
+  it("records the ratified burst/saturation decision when bounded load misses per-write readiness", () => {
+    const decision = deriveLoadReadinessDecision({
+      readySloMs: 10_000,
+      loadSummary: {
+        attempted: 12,
+        promoted: 0,
+        readinessPassRate: 0,
+      },
+      loadSegment: { sloStatus: "miss" },
+      durableConvergence: { status: "pass" },
+    });
+
+    expect(decision).toMatchObject({
+      status: "accepted-burst-saturation-degradation",
+      reason: "ratified-burst-saturation-slo",
+      durableConvergenceStatus: "pass",
+    });
   });
 });
 
@@ -435,6 +513,40 @@ describe("drill evidence", () => {
     expect(summary).toContain("Segment SLO:");
     expect(summary).toContain("push-wake-recovery-drills.md");
   });
+
+  it("adds a load readiness decision to warning-only bounded load evidence", () => {
+    const loadResults = [
+      {
+        exitCode: 0,
+        finalState: "temporary",
+        promotionDecision: "warn",
+        failureReason: "checkout-ready-slo-exceeded",
+        readyLatencyMs: null,
+      },
+    ];
+    const evidence = buildDrillEvidence({
+      drillKind: "load",
+      checkedAt: "2026-06-11T00:00:00.000Z",
+      completedAt: "2026-06-11T00:02:00.000Z",
+      correlationPrefix: "wake-drill-test",
+      sourceContexts: ["checkout"],
+      convergenceBudgetMs: 120_000,
+      pollIntervalMs: 5_000,
+      readySloMs: 10_000,
+      convergence: convergedConvergence,
+      loadPlan: { iterations: 1, concurrency: 1 },
+      loadResults,
+      loadSummary: summarizeLoadResults(loadResults),
+      verdictReasons: [],
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.segmentSlo.browser.load.sloStatus).toBe("miss");
+    expect(evidence.loadReadinessDecision).toMatchObject({
+      status: "accepted-burst-saturation-degradation",
+      readinessPassRate: 0,
+    });
+  });
 });
 
 describe("drill orchestration", () => {
@@ -501,6 +613,31 @@ describe("drill orchestration", () => {
 
     expect(evidence.verdict).toBe("fail");
     expect(evidence.verdictReasons).toContain("canary-write-unverified");
+  });
+
+  it("fails the reconciliation drill when the canary write remains temporary past the ready SLO", async () => {
+    const evidence = await runStagingWakeDrill(reconciliationOptions, {
+      ...fakeDeps(),
+      runCanaryWrite: async (_options, iteration) => ({
+        iteration,
+        correlationId: `wake-drill-test-${iteration}`,
+        exitCode: 0,
+        finalState: "temporary",
+        promotionDecision: "warn",
+        failureReason: "checkout-ready-slo-exceeded",
+        readyLatencyMs: null,
+        segments: {
+          writeToRedirectMs: 1800,
+          redirectToDocumentMs: 1,
+          documentToReadyMs: null,
+          writeToCheckoutReadyMs: null,
+        },
+      }),
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("checkout-ready-slo-missed");
+    expect(evidence.convergence.converged).toBe(true);
   });
 
   it("runs the bounded load drill and aggregates iteration results", async () => {

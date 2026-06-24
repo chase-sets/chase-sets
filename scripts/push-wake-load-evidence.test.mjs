@@ -35,6 +35,15 @@ function passingArtifact(overrides = {}) {
       readinessPassRate: 0.75,
       readyLatencyMs: { samples: 12, min: 900, p50: 2_000, p95: 12_000, max: 14_000 },
     },
+    loadReadinessDecision: {
+      status: "accepted-burst-saturation-degradation",
+      decision: "bounded-load-per-write-readiness-is-best-effort-when-durable-convergence-passes",
+      reason: "ratified-burst-saturation-slo",
+      acceptedBy: "docs/architecture/push-wake-slo-load-proof.md",
+      readySloMs: 10_000,
+      readinessPassRate: 0.75,
+      durableConvergenceStatus: "pass",
+    },
     convergence: {
       converged: true,
       convergedAfterMs: 50_900,
@@ -112,6 +121,10 @@ describe("push wake load evidence evaluator", () => {
     expect(evidence.verdict).toBe("pass");
     expect(evidence.budgets).toMatchObject(LOAD_EVIDENCE_PROFILES["representative-volume"]);
     expect(evidence.observations.loadSummary.evidenceProducedRate).toBe(1);
+    expect(evidence.observations.loadReadinessDecision).toMatchObject({
+      status: "accepted-burst-saturation-degradation",
+      reason: "ratified-burst-saturation-slo",
+    });
     expect(evidence.redaction).toMatchObject({
       sourceArtifactStored: "not-copied",
       sensitiveValues: "not-detected",
@@ -131,10 +144,36 @@ describe("push wake load evidence evaluator", () => {
     expect(evidence.warnings).toContain(
       "bounded-staging validates the existing drill artifact shape; it is not production-like volume proof.",
     );
+    expect(evidence.warnings.some((warning) => warning.includes("load per-write readiness missed"))).toBe(true);
 
     const markdown = renderPushWakeLoadEvidenceMarkdown(evidence);
     expect(markdown).toContain("Verdict: **pass**");
     expect(markdown).toContain("Iterations/concurrency: 6/2");
+    expect(markdown).toContain("Load readiness decision: accepted-burst-saturation-degradation");
+  });
+
+  it("fails warning-only load readiness misses without an explicit accepted decision", () => {
+    const artifact = passingArtifact({
+      loadReadinessDecision: null,
+      loadSummary: {
+        attempted: 12,
+        evidenceProduced: 12,
+        configErrors: 0,
+        promoted: 0,
+        readinessPassRate: 0,
+        readyLatencyMs: { samples: 0, min: null, p50: null, p95: null, max: null },
+      },
+    });
+
+    const evidence = buildPushWakeLoadEvidence({
+      artifact,
+      checkedAt: "2026-06-24T00:03:00.000Z",
+      profile: "bounded-staging",
+      budgetOverrides: {},
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("load-readiness-slo-miss-without-accepted-decision");
   });
 
   it("fails representative evidence that is still only the bounded burst shape", () => {
