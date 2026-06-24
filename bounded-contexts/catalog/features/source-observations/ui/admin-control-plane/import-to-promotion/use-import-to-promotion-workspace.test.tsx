@@ -110,6 +110,28 @@ describe("useImportToPromotionWorkspace — stage reconciliation with server tru
     expect(latest.activeStage).toBe("review-changes");
   });
 
+  it("opens the review stage for a Source Observation review route handoff even when no rows changed", () => {
+    render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?section=source-observation-review&providerKey=tcgdex",
+        })}
+      />,
+    );
+    expect(latest.activeStage).toBe("review-changes");
+  });
+
+  it("opens the create stage for promotion route handoffs", () => {
+    render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex",
+        })}
+      />,
+    );
+    expect(latest.activeStage).toBe("create-items");
+  });
+
   it("derives the create stage once a promotion preview exists", () => {
     render(<Probe model={readModel({ previewId: "preview_1" })} />);
     expect(latest.activeStage).toBe("create-items");
@@ -177,6 +199,31 @@ describe("useImportToPromotionWorkspace — stage reconciliation with server tru
         model={readModel({
           previewId: "preview_1",
           review: { rows: [reviewRow("obs_1")], counts: { observed: 1, changed: 1 } },
+        })}
+      />,
+    );
+    expect(latest.activeStage).toBe("create-items");
+  });
+
+  it("lets an explicit stage click win over a route-section handoff until the route target changes", () => {
+    const { rerender } = render(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?section=source-observation-review&providerKey=tcgdex",
+        })}
+      />,
+    );
+    expect(latest.activeStage).toBe("review-changes");
+
+    act(() => {
+      latest.setActiveStage("run-sync");
+    });
+    expect(latest.activeStage).toBe("run-sync");
+
+    rerender(
+      <Probe
+        model={readModel({
+          requestUrl: "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex",
         })}
       />,
     );

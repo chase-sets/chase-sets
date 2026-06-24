@@ -50,6 +50,23 @@ function serverDerivedActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
   return "run-sync";
 }
 
+function routeTargetStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey | null {
+  switch (readModel.routeContext.section) {
+    case "import-jobs":
+    case "provider-scope-selection":
+    case "readiness":
+      return "run-sync";
+    case "source-observation-review":
+    case "conflict-resolution":
+      return "review-changes";
+    case "promotion-preview":
+    case "promotion-result":
+      return "create-items";
+    default:
+      return null;
+  }
+}
+
 export function useImportToPromotionWorkspace(
   readModel: CatalogPrimaryWorkbenchReadModel,
 ): ImportToPromotionWorkspaceState {
@@ -82,8 +99,8 @@ export function useImportToPromotionWorkspace(
   };
 }
 
-// Reconcile the open stage with server truth while letting an explicit operator
-// stage click win until the next command.
+// Reconcile the open stage with server truth and route-section handoffs while
+// letting an explicit operator stage click win until the next command.
 //
 // The stage is NO LONGER a frozen `useState(useMemo(...))` initial value (which
 // ignored every recomputed default after mount). Instead the server-derived stage
@@ -104,29 +121,33 @@ function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
   activeStage: ImportToPromotionStageKey;
   setActiveStage: (stage: ImportToPromotionStageKey) => void;
 } {
-  const serverStage = serverDerivedActiveStage(readModel);
-  // The operator's explicit choice and the server stage that was in effect when
+  const derivedStage = routeTargetStage(readModel) ?? serverDerivedActiveStage(readModel);
+  // The operator's explicit choice and the derived stage that was in effect when
   // they made it. A null override means "follow server truth".
   const [override, setOverride] = useState<{
     stage: ImportToPromotionStageKey;
-    serverStageAtSelection: ImportToPromotionStageKey;
+    derivedStageAtSelection: ImportToPromotionStageKey;
   } | null>(null);
 
-  // A command moved the work: the override predates it, so discard it and let the
-  // server stage win. Reconciled during render so the very next paint already
-  // shows the server stage — no transitional render on the stale override.
-  const overrideIsStale = override !== null && override.serverStageAtSelection !== serverStage;
+  // A command or routable handoff moved the work: the override predates it, so
+  // discard it and let the derived stage win. Reconciled during render so the
+  // very next paint already shows the derived stage — no transitional render on
+  // the stale override.
+  const overrideIsStale = override !== null && override.derivedStageAtSelection !== derivedStage;
   if (overrideIsStale) {
     setOverride(null);
   }
 
-  const activeStage = overrideIsStale || override === null ? serverStage : override.stage;
+  const activeStage = overrideIsStale || override === null ? derivedStage : override.stage;
 
   const setActiveStage = useCallback(
     (stage: ImportToPromotionStageKey) => {
-      // Capture the server stage in effect at click time so the override is
-      // invalidated the moment a later command changes server truth.
-      setOverride({ stage, serverStageAtSelection: serverDerivedActiveStage(readModel) });
+      // Capture the derived stage in effect at click time so the override is
+      // invalidated the moment a later command or route handoff changes it.
+      setOverride({
+        stage,
+        derivedStageAtSelection: routeTargetStage(readModel) ?? serverDerivedActiveStage(readModel),
+      });
     },
     [readModel],
   );

@@ -3,6 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ButtonHTMLAttributes,
   type ComponentProps,
   type HTMLAttributes,
   type ReactNode,
@@ -45,6 +46,8 @@ export interface AccordionItem {
   trigger: ReactNode;
   content: ReactNode;
   disabled?: boolean;
+  triggerProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "className" | "disabled"> &
+    Record<`data-${string}`, string | number | boolean | undefined>;
 }
 
 export type AccordionSectionEdge = "card" | "compact" | "panel";
@@ -247,6 +250,7 @@ export function Accordion({
           >
             <AccordionPrimitive.Header>
               <AccordionPrimitive.Trigger
+                {...item.triggerProps}
                 disabled={item.disabled}
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
