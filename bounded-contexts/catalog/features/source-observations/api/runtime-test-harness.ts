@@ -9,6 +9,9 @@ import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSetReferenceNormalized,
   SourceObservationMagicSealedProductNormalized,
+  SourceObservationLorcanaCardPrintNormalized,
+  SourceObservationLorcanaSetReferenceNormalized,
+  SourceObservationLorcanaSealedProductNormalized,
   SourceObservationNormalized,
   SourceObservationOnePieceCardPrintNormalized,
   SourceObservationOnePieceSetReferenceNormalized,
@@ -352,6 +355,98 @@ export function magicSetReferenceObservation(
     releaseYear: 2006,
     cardCount: 301,
     productLineName: "Magic: The Gathering",
+    imageUrls: [],
+    externalCatalogItemReferences: [],
+    ...input,
+  };
+}
+
+export function lorcanaCardPrintObservation(
+  input: Partial<SourceObservationLorcanaCardPrintNormalized> = {},
+): SourceObservationLorcanaCardPrintNormalized {
+  return {
+    kind: "lorcana-card-print",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "Elsa - Snow Queen",
+    cardNumber: "41",
+    setId: "1",
+    setCode: "TFC",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    rarity: "Legendary",
+    cardType: "Storyborn Hero Queen Sorcerer",
+    inkColor: "Amethyst",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    productLineName: "Disney Lorcana",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "lorcana",
+      productLineName: "Disney Lorcana",
+      setName: "The First Chapter",
+      printedProductName: "Elsa - Snow Queen",
+      collectorNumber: "41",
+      languageCode: "en",
+      productForm: "lorcana-card-print",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
+  };
+}
+
+export function lorcanaSealedProductObservation(
+  input: Partial<SourceObservationLorcanaSealedProductNormalized> = {},
+): SourceObservationLorcanaSealedProductNormalized {
+  return {
+    kind: "lorcana-sealed-product",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "The First Chapter Booster Box",
+    cardNumber: null,
+    setId: "1",
+    setCode: "TFC",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    sealedProductForm: "booster-box",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    productLineName: "Disney Lorcana",
+    barcode: null,
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "lorcana",
+      productLineName: "Disney Lorcana",
+      setName: "The First Chapter",
+      printedProductName: "The First Chapter Booster Box",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "booster-box",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
+  };
+}
+
+export function lorcanaSetReferenceObservation(
+  input: Partial<SourceObservationLorcanaSetReferenceNormalized> = {},
+): SourceObservationLorcanaSetReferenceNormalized {
+  return {
+    kind: "lorcana-set-reference",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "The First Chapter",
+    cardNumber: null,
+    setId: "1",
+    setCode: "TFC",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    cardCount: 204,
+    productLineName: "Disney Lorcana",
     imageUrls: [],
     externalCatalogItemReferences: [],
     ...input,

@@ -598,7 +598,7 @@ describe("change-scope", () => {
       changedFiles: [
         "scripts/marketplace-tax-readiness-evidence.mjs",
         "scripts/marketplace-stripe-money-operations-evidence.mjs",
-        "bounded-contexts/platform-operations/features/release-controls/domain/rollout.ts",
+        "scripts/release-lock.mjs",
         "docs/adr/0002-adopt-ucp-for-agent-commerce.md",
       ],
       workspaces: [workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations")],

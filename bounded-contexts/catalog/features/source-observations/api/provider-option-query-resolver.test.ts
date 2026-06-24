@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  lorcanajsonLorcanaCardReferenceProviderProfile,
+  lorcastLorcanaCardReferenceProviderProfile,
   mtgjsonMtgCardReferenceProviderProfile,
   scrydexOnePieceConnectorProfile,
   tcgdexPokemonTcgProviderProfile,
@@ -322,6 +324,155 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         metadata: expect.objectContaining({
           collectorNumber: "157",
           scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        }),
+      }),
+    ]);
+  });
+
+  it("maps LorcanaJSON set and card options through profile selectors", async () => {
+    const transports = {
+      listLorcanajsonSets: async () => [
+        {
+          setId: "1",
+          setCode: "1",
+          name: "The First Chapter",
+          releaseDate: "2023-08-18",
+          cardCount: 204,
+          formatVersion: "2.3.2",
+          generatedOn: "2026-05-26T19:11:58",
+        },
+      ],
+      listLorcanajsonCards: async ({ setCode }: { setCode: string | null }) => [
+        {
+          cardId: "1-041",
+          name: "Elsa - Snow Queen #41",
+          setCode,
+          setName: "The First Chapter",
+          cardNumber: "41",
+          rarity: "Super Rare",
+          cardType: "Storyborn Hero Queen",
+          inkColor: "Amethyst",
+          tcgplayerProductId: "1005010",
+          imageUrl: "https://images.lorcanajson.org/cards/en/1/041.webp",
+        },
+      ],
+    };
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [lorcanajsonLorcanaCardReferenceProviderProfile],
+        providerKey: "lorcanajson",
+        queryKind: "sets",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "lorcanajson",
+        queryKind: "sets",
+        value: "1",
+        label: "The First Chapter",
+        description: "2023-08-18",
+        metadata: expect.objectContaining({ cardCount: 204, formatVersion: "2.3.2" }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [lorcanajsonLorcanaCardReferenceProviderProfile],
+        providerKey: "lorcanajson",
+        queryKind: "cards",
+        parentValue: "1",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "lorcanajson",
+        queryKind: "cards",
+        value: "1-041",
+        label: "Elsa - Snow Queen #41",
+        parentValue: "1",
+        imageUrl: "https://images.lorcanajson.org/cards/en/1/041.webp",
+        metadata: expect.objectContaining({
+          cardNumber: "41",
+          inkColor: "Amethyst",
+          tcgplayerProductId: "1005010",
+        }),
+      }),
+    ]);
+  });
+
+  it("maps Lorcast set and card options through profile selectors", async () => {
+    const transports = {
+      listLorcastSets: async () => [
+        {
+          setId: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+          setCode: "1",
+          name: "The First Chapter",
+          releaseDate: "2023-08-18",
+          prereleaseDate: "2023-08-18",
+          cacheGuidance: "cache-at-least-24h",
+        },
+      ],
+      listLorcastCards: async ({ setCode }: { setCode: string | null }) => [
+        {
+          cardId: "crd_elsa_snow_queen_1_041",
+          name: "Elsa - Snow Queen #41",
+          setId: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+          setCode,
+          setName: "The First Chapter",
+          cardNumber: "41",
+          rarity: "Super Rare",
+          cardType: "Character",
+          inkColor: "Amethyst",
+          tcgplayerProductId: "1005010",
+          imageUrl: "https://cards.lorcast.io/card/digital/large/crd_elsa_snow_queen_1_041.avif",
+          releaseDate: "2023-08-18",
+        },
+      ],
+    };
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [lorcastLorcanaCardReferenceProviderProfile],
+        providerKey: "lorcast",
+        queryKind: "sets",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "lorcast",
+        queryKind: "sets",
+        value: "1",
+        label: "The First Chapter",
+        description: "2023-08-18",
+        metadata: expect.objectContaining({ cacheGuidance: "cache-at-least-24h" }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [lorcastLorcanaCardReferenceProviderProfile],
+        providerKey: "lorcast",
+        queryKind: "cards",
+        parentValue: "1",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "lorcast",
+        queryKind: "cards",
+        value: "crd_elsa_snow_queen_1_041",
+        label: "Elsa - Snow Queen #41",
+        parentValue: "1",
+        imageUrl: "https://cards.lorcast.io/card/digital/large/crd_elsa_snow_queen_1_041.avif",
+        metadata: expect.objectContaining({
+          cardNumber: "41",
+          inkColor: "Amethyst",
+          tcgplayerProductId: "1005010",
         }),
       }),
     ]);

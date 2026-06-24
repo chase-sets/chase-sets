@@ -1,0 +1,19 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_set_en_partial",
+  "externalKey": "set:partial",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.partial.json",
+  "sourceUpdatedAt": "2026-05-26T19:11:58",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58"
+  },
+  "externalCatalogItemReferences": [],
+  "releaseDate": null,
+  "releaseYear": null,
+  "cardCount": null,
+  "setId": "partial",
+  "setCode": "1"
+}

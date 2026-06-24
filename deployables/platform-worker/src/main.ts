@@ -49,7 +49,11 @@ import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/pla
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
+import {
+  assertRunnerCapacity,
+  assertRunnerLaneIsolation,
+  summarizeRunnerCapacity,
+} from "@chase-sets/platform-runtime/worker-capacity";
 import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
@@ -304,18 +308,6 @@ const runnerGroups = [
   ),
 ].filter((group) => group.runners.length > 0);
 
-for (const group of runnerGroups) {
-  // A reservation request with no reserved-capacity runners silently clamps
-  // to zero inside the loop; make that regression loud at startup.
-  if ((group.reservedRunnerSlots ?? 0) > 0 && !group.runners.some((runner) => runner.reservedCapacity === true)) {
-    logger.warn("Worker runner group requested reserved slots but no runner carries reservedCapacity.", {
-      type: "platform-worker.runner_group.reservation_unbacked",
-      groupName: group.name,
-      requestedReservedRunnerSlots: group.reservedRunnerSlots,
-    });
-  }
-}
-
 const runnerLoops = runnerGroups.map((group) => ({
   ...group,
   loop: createWorkerRunnerLoop({
@@ -459,6 +451,7 @@ assertRunnerCapacity(runnerCapacity, {
   workerName: "Platform worker",
   allowOverPoolCapacity: process.env.ALLOW_WORKER_OVER_POOL_CAPACITY === "true",
 });
+assertRunnerLaneIsolation(runnerCapacity, { workerName: "Platform worker" });
 
 await controlPlane.heartbeatWorker({
   workerId: config.workerId,
@@ -643,6 +636,9 @@ function runnerGroupCapacityInputs(groups: readonly RunnerGroup[]) {
     name: group.name,
     runnerCount: group.runners.length,
     maxConcurrentRunners: group.maxConcurrentRunners,
+    reservedRunnerSlots: group.reservedRunnerSlots ?? 0,
+    reservedRunnerCount: group.runners.filter((runner) => runner.reservedCapacity === true).length,
+    sharedRunnerCount: group.runners.filter((runner) => runner.reservedCapacity !== true).length,
   }));
 }
 

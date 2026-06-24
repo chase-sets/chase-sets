@@ -8,6 +8,7 @@ import {
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
+  reconcileRepresentativeOrderingSupplyState,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
   type CatalogRepresentativeServices,
@@ -44,6 +45,7 @@ type RepresentativeCommerceStateRun = Readonly<{
   listings: readonly MarketplaceRepresentativeListingResult[];
   offers: readonly MarketplaceRepresentativeOfferResult[];
   acceptedOffers: readonly MarketplaceRepresentativeOfferAcceptanceResult[];
+  orderingSupply: Awaited<ReturnType<typeof reconcileRepresentativeOrderingSupplyState>>;
   discovery: Awaited<ReturnType<typeof reconcileRepresentativeDiscoveryMarketState>>;
 }>;
 
@@ -77,13 +79,26 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     }
 
     await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
     const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
     const offers = await submitRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     const acceptedOffers = await acceptRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
+    const orderingSupply = await reconcileRepresentativeOrderingSupplyState(
+      {
+        inventoryDb: seedRuntime.pools.inventory,
+        marketplaceDb: seedRuntime.pools.marketplace,
+        orderingDb: seedRuntime.pools.ordering,
+      },
+      {
+        listingIds: listings.map((listing) => listing.listingId),
+      },
+    );
     const discovery = await reconcileRepresentativeDiscoveryMarketState(
       {
         discoveryDb: seedRuntime.pools.discovery,
@@ -95,7 +110,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       },
     );
 
-    run = { candidates, stock, listings, offers, acceptedOffers, discovery };
+    run = { candidates, stock, listings, offers, acceptedOffers, orderingSupply, discovery };
   }, 300_000);
 
   it("loads the current Catalog Item with product schema and resolved measures", () => {
@@ -219,6 +234,61 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       accepted_seller_account_id: state.stock[0]?.accountId,
     });
     expect(offer.rows[0]?.selected_options).toEqual(expect.arrayContaining(representativeSelectedOptions()));
+  });
+
+  it("reconciles representative listings into Ordering checkout supply inputs", async () => {
+    const state = requireRepresentativeRun();
+    const listingId = state.listings[0]?.listingId;
+    expect(state.orderingSupply).toMatchObject({
+      listingCount: 1,
+      inventoryItemCount: 1,
+      inventoryHoldCount: 0,
+    });
+    const supply = await seedRuntime.pools.ordering.query<{
+      listing_id: string;
+      status: string;
+      seller_listing_availability_status: string;
+      terms_resolved_at: string | null;
+      product_measure_snapshot: unknown;
+      total_quantity: number;
+      available_quantity: number;
+    }>(
+      `SELECT
+         listing.listing_id,
+         listing.status,
+         listing.seller_listing_availability_status,
+         listing.terms_resolved_at::text AS terms_resolved_at,
+         listing.product_measure_snapshot,
+         item.total_quantity,
+         LEAST(
+           listing.quantity_cap,
+           GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
+         ) AS available_quantity
+       FROM ordering_market_listing_inputs AS listing
+       INNER JOIN ordering_inventory_item_inputs AS item
+         ON item.item_id = listing.inventory_item_id
+       LEFT JOIN (
+         SELECT item_id, SUM(quantity)::integer AS held_quantity
+         FROM ordering_inventory_hold_inputs
+         WHERE status = 'active'
+         GROUP BY item_id
+       ) AS active_holds
+         ON active_holds.item_id = item.item_id
+       WHERE listing.listing_id = $1`,
+      [listingId],
+    );
+
+    expect(supply.rows[0]).toMatchObject({
+      listing_id: listingId,
+      status: "active",
+      seller_listing_availability_status: "available",
+      terms_resolved_at: expect.any(String),
+      total_quantity: 4,
+      available_quantity: 2,
+    });
+    expect(supply.rows[0]?.product_measure_snapshot).toEqual(
+      expect.objectContaining({ productId: representativeProductId() }),
+    );
   });
 
   it("reconciles the representative marketplace facts into Discovery market read models", async () => {

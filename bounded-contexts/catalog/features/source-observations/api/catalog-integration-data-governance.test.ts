@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION,
+  CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV,
   CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV,
   TCGDEX_INDONESIAN_LANGUAGE_CODE,
   catalogAliasAcceptanceAuditRequirements,
@@ -10,9 +11,13 @@ import {
   catalogAliasTranslationProviderRequirements,
   catalogIntegrationDataGovernancePolicies,
   catalogIntegrationDataGovernancePoliciesByKey,
+  catalogIntegrationLorcanaOfficialValidationScopes,
+  catalogIntegrationLorcanaProviderAuthorityPolicies,
+  catalogIntegrationLorcanaValidationChecks,
   catalogIntegrationOnePieceProviderAuthorityPolicies,
   catalogIntegrationOnePieceValidationChecks,
   catalogIntegrationProviderDataSignoffChecklist,
+  catalogIntegrationScrydexLorcanaBulkImportPolicy,
   catalogIntegrationScrydexOnePieceBulkImportPolicy,
   decideCatalogAliasAcceptance,
   evaluateCatalogIntegrationProviderDataUse,
@@ -288,6 +293,174 @@ describe("One Piece provider-data governance (#2269, #2270, #2287)", () => {
         comparedFieldClasses: expect.arrayContaining(["marketplace product/SKU bridge evidence"]),
       },
     );
+  });
+});
+
+describe("Lorcana provider-data governance (#2464, #2466, #2472, #2473)", () => {
+  it("records the production signoff reference environment gate", () => {
+    expect(CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV).toBe(
+      "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+    );
+  });
+
+  it("defines provider authority without making official validation a default ingestion provider", () => {
+    expect(catalogIntegrationLorcanaProviderAuthorityPolicies.map((policy) => policy.key)).toEqual([
+      "lorcanajson-lorcana",
+      "lorcast-lorcana",
+      "tcgplayer-lorcana",
+      "scrydex-lorcana",
+      "ravensburger-lorcana-official",
+    ]);
+
+    const lorcanajson = catalogIntegrationLorcanaProviderAuthorityPolicies.find(
+      (policy) => policy.key === "lorcanajson-lorcana",
+    );
+    const lorcast = catalogIntegrationLorcanaProviderAuthorityPolicies.find(
+      (policy) => policy.key === "lorcast-lorcana",
+    );
+    const tcgplayer = catalogIntegrationLorcanaProviderAuthorityPolicies.find(
+      (policy) => policy.key === "tcgplayer-lorcana",
+    );
+    const scrydex = catalogIntegrationLorcanaProviderAuthorityPolicies.find(
+      (policy) => policy.key === "scrydex-lorcana",
+    );
+    const official = catalogIntegrationLorcanaProviderAuthorityPolicies.find(
+      (policy) => policy.key === "ravensburger-lorcana-official",
+    );
+
+    expect(lorcanajson).toMatchObject({
+      providerKey: "lorcanajson",
+      displayName: "LorcanaJSON",
+    });
+    expect(lorcanajson?.productionRole).toMatch(/bulk-first/i);
+    expect(lorcanajson?.catalogAuthority).toEqual(
+      expect.arrayContaining(["set/chapter identifiers", "card print identifiers"]),
+    );
+
+    expect(lorcast?.catalogAuthority).toEqual(
+      expect.arrayContaining(["set-scoped card lookup evidence", "TCGplayer id bridge candidates"]),
+    );
+    expect(lorcast?.notCatalogTruth).toEqual(expect.arrayContaining([expect.stringMatching(/canonical winner/i)]));
+
+    expect(tcgplayer?.catalogAuthority).toEqual(
+      expect.arrayContaining([
+        "product id external-reference candidates",
+        "SKU external-product-reference candidates after selected options validate",
+      ]),
+    );
+    expect(tcgplayer?.notCatalogTruth).toEqual(
+      expect.arrayContaining(["market prices as Catalog truth", "TCGCSV as a production provider"]),
+    );
+
+    expect(scrydex?.catalogAuthority).toEqual(
+      expect.arrayContaining([
+        "sealed product identifiers and packaging labels",
+        "provider freshness, usage, credit, and cache diagnostics",
+      ]),
+    );
+    expect(scrydex?.notCatalogTruth).toEqual(
+      expect.arrayContaining(["API keys or team ids", "per-game Scrydex credential settings"]),
+    );
+    expect(scrydex?.activationRequirement).toMatch(/bulk-first call-budget evidence/i);
+
+    expect(official?.productionRole).toMatch(/Canonical validation reference/i);
+    expect(official?.notCatalogTruth).toEqual(
+      expect.arrayContaining(["raw official page text", "scraped payload bodies"]),
+    );
+  });
+
+  it("requires Scrydex Lorcana imports to use shared credentials and bulk-first credit-aware transport", () => {
+    expect(catalogIntegrationScrydexLorcanaBulkImportPolicy).toMatchObject({
+      providerKey: "scrydex",
+      productLineKey: "lorcana",
+      requestStrategy: "bulk-first",
+      evidenceDataClass: "provider-usage-summary",
+    });
+    expect(catalogIntegrationScrydexLorcanaBulkImportPolicy.allowedRequestShapes).toEqual(
+      expect.arrayContaining(["paginated-list", "paginated-search", "bulk-filtered-search", "usage-check"]),
+    );
+    expect(catalogIntegrationScrydexLorcanaBulkImportPolicy.forbiddenNormalPatterns).toEqual(
+      expect.arrayContaining([
+        "one Scrydex card request per card",
+        "one Scrydex sealed-product request per sealed product",
+        "per-game Scrydex credential lookup",
+      ]),
+    );
+    expect(catalogIntegrationScrydexLorcanaBulkImportPolicy.requiredPreflightEvidence).toEqual(
+      expect.arrayContaining([
+        "shared credential readiness",
+        "estimated request count or estimate-unavailable diagnostic",
+      ]),
+    );
+    expect(catalogIntegrationScrydexLorcanaBulkImportPolicy.requiredPostRunEvidence).toEqual(
+      expect.arrayContaining(["actual request count", "bulk-first confirmation or per-record fallback reason"]),
+    );
+  });
+
+  it("defines Ravensburger validation checks without making official pages an import source", () => {
+    expect(catalogIntegrationLorcanaValidationChecks.map((check) => check.target)).toEqual([
+      "card",
+      "set",
+      "sealed-product",
+      "official-deck",
+    ]);
+
+    for (const check of catalogIntegrationLorcanaValidationChecks) {
+      expect(check.validationSource).toBe("ravensburger-lorcana-official");
+      expect(check.allowedEvidence.join(" ")).toMatch(/redacted|normalized|diagnostic|checklist/i);
+      expect(check.forbiddenEvidence).toEqual(
+        expect.arrayContaining([expect.stringMatching(/official .*text/i), "official imagery copies"]),
+      );
+      expect(check.operatorEvidenceRequirement).toMatch(/Admin interface/i);
+      expect(check.fallbackSourcePolicy).toMatch(/comparison-only/i);
+    }
+
+    expect(catalogIntegrationLorcanaValidationChecks.find((check) => check.target === "set")).toMatchObject({
+      key: "lorcana-set-release-validation",
+      comparedFieldClasses: expect.arrayContaining(["release date", "official app reference"]),
+    });
+    expect(catalogIntegrationLorcanaValidationChecks.find((check) => check.target === "sealed-product")).toMatchObject({
+      comparedProviders: expect.arrayContaining(["tcgplayer-lorcana"]),
+      comparedFieldClasses: expect.arrayContaining(["marketplace product/SKU bridge evidence"]),
+    });
+  });
+
+  it("requires official validation coverage for a current Lorcana set and the older First Chapter set", () => {
+    expect(catalogIntegrationLorcanaOfficialValidationScopes.map((scope) => scope.releasePosition)).toEqual([
+      "current-or-most-recent-main-set",
+      "older-main-set",
+    ]);
+
+    const current = catalogIntegrationLorcanaOfficialValidationScopes.find(
+      (scope) => scope.releasePosition === "current-or-most-recent-main-set",
+    );
+    const older = catalogIntegrationLorcanaOfficialValidationScopes.find(
+      (scope) => scope.releasePosition === "older-main-set",
+    );
+
+    expect(current).toMatchObject({
+      displayName: "Operator-selected current or most recent main Lorcana set",
+      setCode: null,
+      evidenceDataClass: "audit-evidence",
+    });
+    expect(current?.requiredTargets).toEqual(expect.arrayContaining(["card", "set", "sealed-product"]));
+    expect(current?.requiredFactClasses).toEqual(
+      expect.arrayContaining(["release date", "card-gallery presence", "official product lineup"]),
+    );
+    expect(current?.evidenceRequirement).toMatch(/Admin interface/i);
+    expect(current?.evidenceRequirement).toMatch(/redacted official-reference labels only/i);
+
+    expect(older).toMatchObject({
+      displayName: "The First Chapter",
+      setCode: "TFC",
+      evidenceDataClass: "audit-evidence",
+    });
+    expect(older?.requiredTargets).toEqual(expect.arrayContaining(["card", "set", "sealed-product", "official-deck"]));
+    expect(older?.requiredFactClasses).toEqual(
+      expect.arrayContaining(["printed total", "starter deck or official deck evidence"]),
+    );
+    expect(older?.evidenceRequirement).toMatch(/Admin interface/i);
+    expect(older?.evidenceRequirement).toMatch(/redacted official-reference labels only/i);
   });
 });
 

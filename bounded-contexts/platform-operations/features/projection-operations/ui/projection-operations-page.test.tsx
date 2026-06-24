@@ -150,8 +150,6 @@ describe("ProjectionOperationsPage", () => {
 
     expect(screen.queryByRole("link", { name: "Catalog" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Identity" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Release dashboard" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Release controls" })).toBeTruthy();
   });
 
   it("shows cross-section shortcuts when the platform actor has target permissions", () => {

@@ -15,6 +15,18 @@ import {
   runMtgjsonSourceObservationValidationDryRun,
 } from "./provider-adapters/mtgjson";
 import {
+  LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runLorcanajsonCardReferenceValidationDryRun,
+  runLorcanajsonSetReferenceValidationDryRun,
+} from "./provider-adapters/lorcanajson";
+import {
+  LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runLorcastCardReferenceValidationDryRun,
+  runLorcastSetReferenceValidationDryRun,
+} from "./provider-adapters/lorcast";
+import {
   runYgoprodeckCardReferenceValidationDryRun,
   runYgoprodeckSetReferenceValidationDryRun,
   YGOPRODECK_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
@@ -45,6 +57,12 @@ import {
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
 import {
+  runScrydexLorcanaSealedProductSourceObservationImportProofDryRun,
+  runScrydexLorcanaSetReferenceValidationDryRun,
+  runScrydexLorcanaSingleCardSourceObservationImportProofDryRun,
+  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   runScrydexOnePieceSealedProductSourceObservationImportProofDryRun,
   runScrydexOnePieceSetReferenceValidationDryRun,
   runScrydexOnePieceSingleCardSourceObservationImportProofDryRun,
@@ -69,6 +87,10 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, runTcgdexSourceObservationImportProofDryRun],
     [MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runMtgjsonSourceObservationValidationDryRun],
     [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, runMtgjsonSetReferenceValidationDryRun],
+    [LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runLorcanajsonCardReferenceValidationDryRun],
+    [LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, runLorcanajsonSetReferenceValidationDryRun],
+    [LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runLorcastCardReferenceValidationDryRun],
+    [LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, runLorcastSetReferenceValidationDryRun],
     [SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runScryfallSourceObservationValidationDryRun],
     [SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY, runScryfallImageEvidenceValidationDryRun],
     [YGOPRODECK_YUGIOH_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runYgoprodeckCardReferenceValidationDryRun],
@@ -103,6 +125,15 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [
       SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       runScrydexOnePieceSealedProductSourceObservationImportProofDryRun,
+    ],
+    [
+      SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runScrydexLorcanaSingleCardSourceObservationImportProofDryRun,
+    ],
+    [SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, runScrydexLorcanaSetReferenceValidationDryRun],
+    [
+      SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runScrydexLorcanaSealedProductSourceObservationImportProofDryRun,
     ],
   ],
 ): CatalogIntegrationDryRunProofRegistry {

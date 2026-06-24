@@ -117,6 +117,16 @@ function findLiveFreshnessRoutes(
   );
 }
 
+function expectCriticalRouteTuning(mountPath: string, routePath: string) {
+  expect(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING).toContainEqual({
+    mountPath,
+    routePath,
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  });
+}
+
 describe("read-after-write live wait declarations", () => {
   it("has inventory entries to validate and live entries that point at projection-backed reads", () => {
     expect(diskContexts.length).toBeGreaterThan(0);
@@ -244,7 +254,7 @@ describe("read-after-write live wait declarations", () => {
   });
 });
 
-describe("checkout exact read-after-write waits (#1225)", () => {
+describe("critical exact read-after-write waits", () => {
   // Environment composition is covered by config.test.ts ("loads read
   // consistency rollout controls from environment variables" and "keeps
   // environment read consistency route tuning after critical defaults"):
@@ -411,7 +421,44 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     ]);
   });
 
+  it("backs accepted-offer sales list freshness with the offer process and sale list read models", () => {
+    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/sales");
+    expect(salesLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/sales",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            { projectionName: "ordering-marketplace-offer-acceptance" },
+            { readModelTable: "ordering_order_pages" },
+            { readModelTable: "ordering_order_line_pages" },
+          ],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = [
+      ...new Map(
+        salesLiveRoutes
+          .flatMap(({ route }) =>
+            route.dependencies.flatMap((dependency) =>
+              resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
+            ),
+          )
+          .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
+      ).values(),
+    ];
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
+      { targetContextName: "ordering", projectionName: "ordering-order-projection" },
+    ]);
+  });
+
   it("backs settlement payout detail freshness with the payout projection dependency", () => {
+    expectCriticalRouteTuning("/api/settlement", "/payouts/:id");
+
     const settlementPayoutLiveRoutes = findLiveFreshnessRoutes("settlement", "/payouts/:id");
     expect(settlementPayoutLiveRoutes).toEqual([
       {
@@ -432,6 +479,84 @@ describe("checkout exact read-after-write waits (#1225)", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "settlement", projectionName: "settlement-payout-projection" },
+    ]);
+  });
+
+  it("pins settlement payout readiness freshness to the readiness projection dependency", () => {
+    expectCriticalRouteTuning("/api/settlement", "/payout-readiness");
+
+    const settlementPayoutReadinessLiveRoutes = findLiveFreshnessRoutes("settlement", "/payout-readiness");
+    expect(settlementPayoutReadinessLiveRoutes).toEqual([
+      {
+        mountPath: "/api/settlement",
+        route: {
+          routePath: "/payout-readiness",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "settlement_payout_readiness_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = settlementPayoutReadinessLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("settlement", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "settlement", projectionName: "settlement-payout-readiness-projection" },
+    ]);
+  });
+
+  it("pins payment detail freshness to the payment projection dependency", () => {
+    expectCriticalRouteTuning("/api/marketplace", "/account/payments/:id");
+
+    const paymentDetailLiveRoutes = findLiveFreshnessRoutes("payments", "/account/payments/:id");
+    expect(paymentDetailLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/account/payments/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "payments_payment_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = paymentDetailLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("payments", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "payments", projectionName: "payments-payment-projection" },
+    ]);
+  });
+
+  it("pins Marketplace listing detail freshness to the listing projection dependency", () => {
+    expectCriticalRouteTuning("/api/marketplace", "/account/listings/:id");
+
+    const listingDetailLiveRoutes = findLiveFreshnessRoutes("marketplace", "/account/listings/:id");
+    expect(listingDetailLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/account/listings/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "marketplace_listing_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = listingDetailLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("marketplace", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "marketplace", projectionName: "marketplace-listing-projection" },
     ]);
   });
 

@@ -10,6 +10,7 @@ import {
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
+  reconcileRepresentativeOrderingSupplyState,
   selectDefaultRepresentativeOptions,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
@@ -389,6 +390,166 @@ describe("representative commerce state seed helpers", () => {
     expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
     expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_offer_demand_matches"))).toBe(true);
   });
+
+  it("reconciles selected representative marketplace and inventory facts into Ordering supply inputs", async () => {
+    const orderingQueries: QueryCall[] = [];
+    const orderingDb = queryRecorder(orderingQueries);
+    const marketplaceQueries: QueryCall[] = [];
+    const marketplaceDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        marketplaceQueries.push([sql, values]);
+        if (sql.includes("FROM marketplace_listing_pages")) {
+          return { rows: [marketplaceListing()] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+    const inventoryQueries: QueryCall[] = [];
+    const inventoryDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        inventoryQueries.push([sql, values]);
+        if (sql.includes("FROM inventory_items")) {
+          return { rows: [inventoryItem()] as Row[] };
+        }
+        if (sql.includes("FROM inventory_holds")) {
+          return { rows: [inventoryHold()] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+
+    const result = await reconcileRepresentativeOrderingSupplyState(
+      { inventoryDb, marketplaceDb, orderingDb },
+      { listingIds: ["lst_repr_1", "lst_repr_1"] },
+    );
+
+    expect(result).toEqual({ listingCount: 1, inventoryItemCount: 1, inventoryHoldCount: 1 });
+    expect(marketplaceQueries[0]?.[1]).toEqual([["lst_repr_1"]]);
+    expect(inventoryQueries[0]?.[1]).toEqual([["inv_1"]]);
+    expect(inventoryQueries[1]?.[1]).toEqual([["inv_1"]]);
+
+    const listingInsert = orderingQueries.find(([sql]) => sql.includes("INSERT INTO ordering_market_listing_inputs"));
+    expect(listingInsert?.[1]).toEqual([
+      "lst_repr_1",
+      "acc_seller",
+      "inv_1",
+      "cat_1",
+      "prd_1",
+      "2026 Test Card",
+      "Parallel",
+      JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]),
+      "Condition: Raw",
+      JSON.stringify({ productId: "prd_1" }),
+      "Listing stock",
+      "US-IL",
+      JSON.stringify({ countryCode: "US", regionCode: "IL" }),
+      "9.99",
+      "1.23",
+      "8.76",
+      500,
+      "terms_schedule_1",
+      "terms_agreement_1",
+      "2026-05-27T00:01:00.000Z",
+      2,
+      1,
+      null,
+      1,
+      "available",
+      "active",
+      "2026-05-27T00:00:00.000Z",
+    ]);
+    expect(
+      orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_seller_listing_availability_inputs")),
+    ).toBe(true);
+    expect(orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_inventory_item_inputs"))).toBe(true);
+    expect(orderingQueries.some(([sql]) => sql.includes("DELETE FROM ordering_inventory_hold_inputs"))).toBe(true);
+    expect(orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_inventory_hold_inputs"))).toBe(true);
+  });
+
+  it("repairs existing representative Ordering supply inputs when no untouched listing candidates remain", async () => {
+    const orderingQueries: QueryCall[] = [];
+    const marketplaceQueries: QueryCall[] = [];
+    const inventoryQueries: QueryCall[] = [];
+    const marketplaceDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        marketplaceQueries.push([sql, values]);
+        if (sql.includes("WHERE listing.listing_id LIKE")) {
+          return { rows: [{ listing_id: "lst_repr_existing" }] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_listing_pages")) {
+          return { rows: [marketplaceListing()] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+    const inventoryDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        inventoryQueries.push([sql, values]);
+        if (sql.includes("FROM inventory_items")) {
+          return { rows: [inventoryItem()] as Row[] };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+
+    const result = await reconcileRepresentativeOrderingSupplyState(
+      { inventoryDb, marketplaceDb, orderingDb: queryRecorder(orderingQueries) },
+      { listingIds: [], existingRepresentativeLimit: 25 },
+    );
+
+    expect(result).toEqual({ listingCount: 1, inventoryItemCount: 1, inventoryHoldCount: 0 });
+    expect(String(marketplaceQueries[0]?.[0])).toContain("listing.listing_id LIKE 'lst$_repr$_%' ESCAPE '$'");
+    expect(marketplaceQueries[0]?.[1]).toEqual([25]);
+    expect(marketplaceQueries[1]?.[1]).toEqual([["lst_repr_existing"]]);
+    expect(inventoryQueries[0]?.[1]).toEqual([["inv_1"]]);
+    expect(orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_market_listing_inputs"))).toBe(true);
+  });
+
+  it("repairs existing representative marketplace facts when no untouched catalog candidates remain", async () => {
+    const discoveryQueries: QueryCall[] = [];
+    const discoveryDb = queryRecorder(discoveryQueries);
+    const marketplaceQueries: QueryCall[] = [];
+    const marketplaceDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        marketplaceQueries.push([sql, values]);
+        if (sql.includes("WHERE listing.listing_id LIKE")) {
+          return { rows: [{ listing_id: "lst_repr_existing" }] as Row[] };
+        }
+        if (sql.includes("WHERE offer.offer_id LIKE")) {
+          return { rows: [{ offer_id: "off_repr_existing" }] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_listing_pages")) {
+          return { rows: [marketplaceListing()] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_offer_pages")) {
+          return { rows: [marketplaceOffer()] as Row[] };
+        }
+        if (sql.includes("FROM marketplace_account_pages")) {
+          return {
+            rows: [
+              marketplaceAccount("acc_seller", "Representative Seller"),
+              marketplaceAccount("acc_buyer", "Representative Buyer"),
+            ] as Row[],
+          };
+        }
+        return { rows: [] as Row[] };
+      },
+    };
+
+    const result = await reconcileRepresentativeDiscoveryMarketState(
+      { discoveryDb, marketplaceDb },
+      { listingIds: [], offerIds: [], existingRepresentativeLimit: 25 },
+    );
+
+    expect(result).toEqual({ accountCount: 2, listingCount: 1, offerCount: 1 });
+    expect(String(marketplaceQueries[0]?.[0])).toContain("listing.listing_id LIKE 'lst$_repr$_%' ESCAPE '$'");
+    expect(marketplaceQueries[0]?.[1]).toEqual([25]);
+    expect(String(marketplaceQueries[1]?.[0])).toContain("offer.offer_id LIKE 'off$_repr$_%' ESCAPE '$'");
+    expect(marketplaceQueries[1]?.[1]).toEqual([25]);
+    expect(marketplaceQueries[2]?.[1]).toEqual([["lst_repr_existing"]]);
+    expect(marketplaceQueries[3]?.[1]).toEqual([["off_repr_existing"]]);
+    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
+  });
 });
 
 function queryRecorder(queries: QueryCall[]): RepresentativeQueryable {
@@ -435,17 +596,53 @@ function marketplaceListing() {
     item_subtitle: "Parallel",
     selected_options: [{ dimensionId: "condition", optionId: "raw" }],
     product_summary: "Condition: Raw",
+    product_measure_snapshot: { productId: "prd_1" },
     storage_location_name: "Listing stock",
     ship_from_code: "US-IL",
+    ship_from_address: { countryCode: "US", regionCode: "IL" },
     price_amount: "9.99",
+    marketplace_sales_fee_unit_amount: "1.23",
+    seller_net_unit_amount: "8.76",
     shipping_allowance_percentage_bps: 500,
+    terms_schedule_id: "terms_schedule_1",
+    terms_agreement_id: "terms_agreement_1",
+    terms_resolved_at: "2026-05-27T00:01:00.000Z",
     quantity_cap: 2,
     max_units_per_order: 1,
     max_units_per_day: null,
     max_units_per_customer_account: 1,
+    seller_listing_availability_status: "available",
+    seller_listing_availability_updated_at: "2026-05-27T00:02:00.000Z",
+    supply_total_quantity: 4,
+    active_held_quantity: 0,
     status: "active",
     created_at: "2026-05-27T00:00:00.000Z",
     updated_at: "2026-05-27T00:00:00.000Z",
+  };
+}
+
+function inventoryItem() {
+  return {
+    item_id: "inv_1",
+    account_id: "acc_seller",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "prd_1",
+    total_quantity: 4,
+    updated_at: "2026-05-27T00:03:00.000Z",
+    last_stream_version: "7",
+  };
+}
+
+function inventoryHold() {
+  return {
+    hold_id: "hold_repr_1",
+    account_id: "acc_seller",
+    item_id: "inv_1",
+    quantity: 1,
+    status: "active",
+    released_at: null,
+    updated_at: "2026-05-27T00:04:00.000Z",
+    last_stream_version: "8",
   };
 }
 

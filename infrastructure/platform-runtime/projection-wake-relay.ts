@@ -1113,11 +1113,7 @@ export function parseEventStoreWakeNotificationEnvelope(notification: unknown): 
     );
   }
 
-  if (value.payloadVersion !== EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION) {
-    throw new ProjectionWakeRelayNotificationRejectedError(
-      `unsupported payloadVersion '${String(value.payloadVersion)}'`,
-    );
-  }
+  const payloadVersion = requirePayloadVersion(value, "payloadVersion");
 
   if (value.kind !== EVENT_STORE_WAKE_NOTIFICATION_KIND) {
     throw new ProjectionWakeRelayNotificationRejectedError(`unsupported kind '${String(value.kind)}'`);
@@ -1130,7 +1126,7 @@ export function parseEventStoreWakeNotificationEnvelope(notification: unknown): 
 
   return {
     schemaVersion: EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION,
-    payloadVersion: EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION,
+    payloadVersion,
     kind: EVENT_STORE_WAKE_NOTIFICATION_KIND,
     source,
     emittedAt,
@@ -1295,6 +1291,15 @@ function requirePositiveInteger(record: Record<string, unknown>, key: string): n
   }
 
   return value;
+}
+
+function requirePayloadVersion(record: Record<string, unknown>, key: string): number {
+  const payloadVersion = requirePositiveInteger(record, key);
+  if (payloadVersion < EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION) {
+    throw new ProjectionWakeRelayNotificationRejectedError(`${key} must be a positive integer`);
+  }
+
+  return payloadVersion;
 }
 
 function requireNonEmptyStringArray(record: Record<string, unknown>, key: string): readonly string[] {

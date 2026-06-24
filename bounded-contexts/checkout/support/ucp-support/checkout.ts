@@ -68,6 +68,8 @@ type CheckoutIntentBody = Readonly<{
   readinessDecisions?: unknown;
   readiness_decisions?: unknown;
   requestedBalanceCreditAmount?: unknown;
+  fulfillmentPreviewRevision?: unknown;
+  fulfillment_preview_revision?: unknown;
 }>;
 
 export function createCheckoutUcpHandlers(
@@ -418,6 +420,15 @@ async function createBuyNow(
       sellerPreferenceId: readNullableString(item.sellerPreferenceId ?? item.seller_preference_id),
       shippingOption: readShippingOption(body),
       optimizationGoal: readOptimizationGoal(body),
+      fulfillmentPreviewRevision:
+        readNullableString(
+          item.fulfillmentPreviewRevision ??
+            item.fulfillment_preview_revision ??
+            source.fulfillmentPreviewRevision ??
+            source.fulfillment_preview_revision ??
+            body.fulfillmentPreviewRevision ??
+            body.fulfillment_preview_revision,
+        ) ?? "",
     },
     access.context,
   );

@@ -31,12 +31,19 @@ export type CatalogProviderOptionQueryTransports = Readonly<{
   listTcgplayerSkus?: (input: { productId: number }) => Promise<readonly JsonValue[]>;
   listMtgjsonSets?: () => Promise<readonly JsonValue[]>;
   listMtgjsonCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
+  listLorcanajsonSets?: () => Promise<readonly JsonValue[]>;
+  listLorcanajsonCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
+  listLorcastSets?: () => Promise<readonly JsonValue[]>;
+  listLorcastCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listScryfallSets?: () => Promise<readonly JsonValue[]>;
   listScryfallCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listScrydexSets?: () => Promise<readonly JsonValue[]>;
   listScrydexOnePieceSets?: () => Promise<readonly JsonValue[]>;
   listScrydexOnePieceCards?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
   listScrydexOnePieceSealedProducts?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
+  listScrydexLorcanaSets?: () => Promise<readonly JsonValue[]>;
+  listScrydexLorcanaCards?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
+  listScrydexLorcanaSealedProducts?: (input: { setId: string | null }) => Promise<readonly JsonValue[]>;
   listYgoprodeckSets?: () => Promise<readonly JsonValue[]>;
   listYgoprodeckCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listYgojsonSets?: () => Promise<readonly JsonValue[]>;
@@ -173,6 +180,18 @@ async function executeOptionQueryOperation(input: {
   if (input.operation === "mtgjson-list-cards" && input.transports.listMtgjsonCards) {
     return input.transports.listMtgjsonCards({ setCode: input.parentValue });
   }
+  if (input.operation === "lorcanajson-list-sets" && input.transports.listLorcanajsonSets) {
+    return input.transports.listLorcanajsonSets();
+  }
+  if (input.operation === "lorcanajson-list-cards" && input.transports.listLorcanajsonCards) {
+    return input.transports.listLorcanajsonCards({ setCode: input.parentValue });
+  }
+  if (input.operation === "lorcast-list-sets" && input.transports.listLorcastSets) {
+    return input.transports.listLorcastSets();
+  }
+  if (input.operation === "lorcast-list-cards" && input.transports.listLorcastCards) {
+    return input.transports.listLorcastCards({ setCode: input.parentValue });
+  }
   if (input.operation === "scryfall-list-sets" && input.transports.listScryfallSets) {
     return input.transports.listScryfallSets();
   }
@@ -193,6 +212,15 @@ async function executeOptionQueryOperation(input: {
     input.transports.listScrydexOnePieceSealedProducts
   ) {
     return input.transports.listScrydexOnePieceSealedProducts({ setId: input.parentValue });
+  }
+  if (input.operation === "scrydex-lorcana-list-sets" && input.transports.listScrydexLorcanaSets) {
+    return input.transports.listScrydexLorcanaSets();
+  }
+  if (input.operation === "scrydex-lorcana-list-cards" && input.transports.listScrydexLorcanaCards) {
+    return input.transports.listScrydexLorcanaCards({ setId: input.parentValue });
+  }
+  if (input.operation === "scrydex-lorcana-list-sealed-products" && input.transports.listScrydexLorcanaSealedProducts) {
+    return input.transports.listScrydexLorcanaSealedProducts({ setId: input.parentValue });
   }
   if (input.operation === "ygoprodeck-list-sets" && input.transports.listYgoprodeckSets) {
     return input.transports.listYgoprodeckSets();

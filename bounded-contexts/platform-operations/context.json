@@ -4,8 +4,6 @@
   "ownedNouns": [
     "projection-operation",
     "platform-operation-attention",
-    "feature-rollout",
-    "release-lock",
     "sales-performance-kpi",
     "fulfillment-latency-kpi",
     "conversion-order-kpi",
@@ -16,14 +14,7 @@
   ],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": [
-    "projection-operations",
-    "release-controls",
-    "release-dashboard",
-    "insights-dashboards",
-    "platform-feedback",
-    "support-requests"
-  ],
+  "slices": ["projection-operations", "insights-dashboards", "platform-feedback", "support-requests"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
@@ -120,30 +111,6 @@
         "tests": [
           "bounded-contexts/platform-operations/features/projection-operations/api/client.test.ts",
           "bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.test.tsx",
-          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
-        ]
-      }
-    },
-    {
-      "id": "platform-operations.release-controls-policy-snapshots",
-      "owner": "platform-operations",
-      "risk": "important",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "api-client:bounded-contexts/platform-operations/features/release-controls/api/client.ts:POST H9c3e7c4c830e#1",
-        "api-client:bounded-contexts/platform-operations/features/release-controls/api/client.ts:PUT H7f213597d4ce#1",
-        "api-route:bounded-contexts/platform-operations/features/release-controls/api/route.ts:POST /release-lock",
-        "api-route:bounded-contexts/platform-operations/features/release-controls/api/route.ts:PUT /rollouts/:featureKey",
-        "route-action:bounded-contexts/platform-operations/routes/admin/release-controls.tsx"
-      ],
-      "visibleDestination": {
-        "description": "Release lock and rollout policy writes return the command-owned policy snapshot; the admin action redirects back to the release controls route with current query state so the page refetches the generated command plan and rollout evaluation."
-      },
-      "proof": {
-        "authoritativeResponse": "setReleaseLock and setRolloutPolicy return ReleaseControlsPolicySnapshot directly from the aggregate command state before any downstream projection read.",
-        "tests": [
-          "bounded-contexts/platform-operations/features/release-controls/api/client.test.ts",
-          "bounded-contexts/platform-operations/features/release-controls/api/route.test.ts",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
       }
@@ -267,22 +234,6 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "section": "platform"
-        },
-        {
-          "routeId": "release-controls",
-          "routePath": "release-controls",
-          "fileExport": "./routes/admin/release-controls",
-          "routeType": "route",
-          "sourceContext": "platform-operations",
-          "section": "platform"
-        },
-        {
-          "routeId": "release-dashboard",
-          "routePath": "release-dashboard",
-          "fileExport": "./routes/admin/release-dashboard",
-          "routeType": "route",
-          "sourceContext": "platform-operations",
-          "section": "platform"
         }
       ]
     }
@@ -345,30 +296,6 @@
       "order": 10,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]
-    },
-    {
-      "deployable": "admin-web",
-      "slot": "primary-nav",
-      "key": "release-dashboard",
-      "label": "Release Dashboard",
-      "icon": "chart",
-      "href": "/release-dashboard",
-      "section": "platform",
-      "order": 20,
-      "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
-    },
-    {
-      "deployable": "admin-web",
-      "slot": "primary-nav",
-      "key": "release-controls",
-      "label": "Release Controls",
-      "icon": "settings",
-      "href": "/release-controls",
-      "section": "platform",
-      "order": 25,
-      "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
     }
   ],
   "directoryIntent": {
@@ -376,20 +303,6 @@
       "classification": "slice",
       "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
-    },
-    "release-controls": {
-      "classification": "slice",
-      "purpose": "Own Platform Operations release-lock, feature-rollout evaluation, and kill-switch policy for cross-context platform capabilities.",
-      "expectedConsumers": [
-        "Production deployment workflow checks",
-        "Bounded-context capability guards",
-        "Admin operations controls"
-      ]
-    },
-    "release-dashboard": {
-      "classification": "slice",
-      "purpose": "Own Platform Operations release health, production currency, canary status, and release-dashboard language.",
-      "expectedConsumers": ["Admin web route contribution", "Release process operators"]
     },
     "insights-dashboards": {
       "classification": "slice",
@@ -427,7 +340,7 @@
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide Platform Operations event-store-backed runtime services for release-controls policy API composition.",
+      "purpose": "Provide Platform Operations event-store-backed runtime services for platform-feedback and support-request API composition.",
       "expectedConsumers": ["Root platform-operations composition"]
     },
     "routes": {

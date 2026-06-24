@@ -45,9 +45,32 @@ export const SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
   ingestionPurpose: "source-observation-import",
 });
 
+export const SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "scrydex",
+  productDomain: "lorcana",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "scrydex",
+  productDomain: "lorcana",
+  productForm: "set",
+  ingestionPurpose: "reference-data",
+});
+
+export const SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "scrydex",
+  productDomain: "lorcana",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
 export const SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION = "2026.06.22";
+export const SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION = "2026.06.23";
 
 const scrydexOnePieceBaseUrl = "https://api.scrydex.com/onepiece/v1";
+const scrydexLorcanaBaseUrl = "https://api.scrydex.com/lorcana/v1";
 const scrydexAccountBaseUrl = "https://api.scrydex.com/account/v1";
 const scrydexExpansionPageSize = 100;
 const scrydexCardPageSize = 250;
@@ -55,6 +78,8 @@ const scrydexSealedPageSize = 100;
 const scrydexExpansionSelect = "id,name,code,total,release_date,language,language_code";
 const scrydexCardSelect =
   "id,name,number,printed_number,rarity,rarity_code,type,images,language,language_code,expansion,printings,variants";
+const scrydexLorcanaCardSelect =
+  "id,name,number,printed_number,rarity,rarity_code,type,ink,ink_color,images,language,language_code,expansion,printings,variants,tcgplayer_id";
 const scrydexSealedSelect = "id,name,type,images,language,language_code,expansion";
 const scrydexUsageLagDiagnostic =
   "Scrydex usage is account-level and may lag live imports by 20-30 minutes per provider policy.";
@@ -71,8 +96,10 @@ export type ScrydexOnePieceProviderAdapterOptions = Readonly<{
   credentials?: ScrydexOnePieceCredentials;
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
+  lorcanaBaseUrl?: string;
   now?: () => Date;
   profileVersion?: string;
+  lorcanaProfileVersion?: string;
 }>;
 
 export type ScrydexOnePieceExpansion = Readonly<{
@@ -93,6 +120,9 @@ export type ScrydexOnePieceCard = Readonly<{
   rarity?: string;
   rarity_code?: string;
   type?: string;
+  ink?: string;
+  ink_color?: string;
+  tcgplayer_id?: string | number;
   imageUrls?: readonly string[];
   language?: string;
   language_code?: string;
@@ -131,6 +161,21 @@ export type ScrydexOnePieceProviderPayload =
       kind: "one-piece-sealed-product";
       sealedProduct: ScrydexOnePieceSealedProduct;
       sourceUrl: string;
+    }>
+  | Readonly<{
+      kind: "lorcana-set-reference";
+      expansion: ScrydexOnePieceExpansion;
+      sourceUrl: string;
+    }>
+  | Readonly<{
+      kind: "lorcana-card";
+      card: ScrydexOnePieceCard;
+      sourceUrl: string;
+    }>
+  | Readonly<{
+      kind: "lorcana-sealed-product";
+      sealedProduct: ScrydexOnePieceSealedProduct;
+      sourceUrl: string;
     }>;
 
 type ScrydexPagedResponse = Readonly<Record<string, JsonValue>>;
@@ -143,7 +188,12 @@ type ScrydexPage<TItem> = Readonly<{
 type ScrydexOnePieceUnitKey =
   | typeof SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
   | typeof SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY
-  | typeof SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+  | typeof SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+  | typeof SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+  | typeof SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY
+  | typeof SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+
+type ScrydexProductDomain = "one-piece" | "lorcana";
 
 type ScrydexUsageReadiness = Readonly<{
   usageCheckState: ProviderUsageEstimate["usageCheckState"];
@@ -189,6 +239,37 @@ const scrydexOnePieceProofSealedProduct: ScrydexOnePieceSealedProduct = {
   language_code: "en",
   expansion: scrydexOnePieceProofExpansion,
 };
+const scrydexLorcanaProofFetchedAt = "2026-06-23T00:00:00.000Z";
+const scrydexLorcanaProofExpansion: ScrydexOnePieceExpansion = {
+  id: "1",
+  name: "The First Chapter",
+  code: "TFC",
+  total: 204,
+  release_date: "2023-08-18",
+  language_code: "en",
+};
+const scrydexLorcanaProofCard: ScrydexOnePieceCard = {
+  id: "tfc-041",
+  name: "Elsa - Snow Queen",
+  number: "41",
+  printed_number: "41/204",
+  rarity: "Super Rare",
+  rarity_code: "SR",
+  type: "Character",
+  ink: "Amethyst",
+  language_code: "en",
+  expansion: scrydexLorcanaProofExpansion,
+  printings: ["TFC"],
+  variants: [{ name: "standard", printings: ["TFC"] }],
+  tcgplayer_id: "1005010",
+};
+const scrydexLorcanaProofSealedProduct: ScrydexOnePieceSealedProduct = {
+  id: "tfc-booster-box",
+  name: "The First Chapter Booster Box",
+  type: "Booster Box",
+  language_code: "en",
+  expansion: scrydexLorcanaProofExpansion,
+};
 
 export function createScrydexOnePieceProviderAdapter(
   options: ScrydexOnePieceProviderAdapterOptions = {},
@@ -202,6 +283,7 @@ export function createScrydexOnePieceProviderAdapter(
     },
     async listIntegrationUnits() {
       const profileVersion = options.profileVersion ?? SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION;
+      const lorcanaProfileVersion = options.lorcanaProfileVersion ?? SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION;
       return [
         {
           unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -230,6 +312,33 @@ export function createScrydexOnePieceProviderAdapter(
           displayName: "Scrydex One Piece sealed-product Source Observation import",
           profileVersion,
         },
+        {
+          unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          providerKey: "scrydex",
+          productDomain: "lorcana",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          displayName: "Scrydex Lorcana single-card Source Observation import",
+          profileVersion: lorcanaProfileVersion,
+        },
+        {
+          unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+          providerKey: "scrydex",
+          productDomain: "lorcana",
+          productForm: "set",
+          ingestionPurpose: "reference-data",
+          displayName: "Scrydex Lorcana set reference data",
+          profileVersion: lorcanaProfileVersion,
+        },
+        {
+          unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          providerKey: "scrydex",
+          productDomain: "lorcana",
+          productForm: "sealed-product",
+          ingestionPurpose: "source-observation-import",
+          displayName: "Scrydex Lorcana sealed-product Source Observation import",
+          profileVersion: lorcanaProfileVersion,
+        },
       ];
     },
     async listOptions(input) {
@@ -238,35 +347,55 @@ export function createScrydexOnePieceProviderAdapter(
     async planImport(scope) {
       assertScrydexOnePieceUnit(scope.unitKey);
       const usageReadiness = await getScrydexUsageReadiness(options);
+      const productDomain = scrydexProductDomainForUnit(scope.unitKey);
 
-      if (scope.unitKey === SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY) {
-        return planScrydexOnePieceSetImport(scope, usageReadiness);
+      if (
+        scope.unitKey === SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY ||
+        scope.unitKey === SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY
+      ) {
+        return planScrydexSetImport(scope, usageReadiness, productDomain);
       }
 
-      if (scope.unitKey === SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-        return planScrydexOnePieceCardImport(scope, usageReadiness);
+      if (
+        scope.unitKey === SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
+        scope.unitKey === SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+      ) {
+        return planScrydexCardImport(scope, usageReadiness, productDomain);
       }
 
-      return planScrydexOnePieceSealedImport(scope, usageReadiness);
+      return planScrydexSealedImport(scope, usageReadiness, productDomain);
     },
     async *fetchPayloads(plan, fetchOptions) {
       assertScrydexOnePieceUnit(plan.unitKey);
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
+      const productDomain = scrydexProductDomainForUnit(plan.unitKey);
+      const productLabel = scrydexProductLabel(productDomain);
 
-      if (plan.unitKey === SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY) {
+      if (
+        plan.unitKey === SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY ||
+        plan.unitKey === SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY
+      ) {
         const expansionId = requireString(
           plan.scope.values.expansionId,
-          "Scrydex One Piece set reference payload fetch requires expansionId.",
+          `Scrydex ${productLabel} set reference payload fetch requires expansionId.`,
         );
-        const sourceUrl = scrydexUrl(`expansions/${encodeURIComponent(expansionId)}`, {}, options);
-        const expansion = sanitizeScrydexExpansion(await fetchScrydexJson(sourceUrl, options));
+        const { expansion, sourceUrl } = await fetchScrydexExpansionForSetReference({
+          expansionId,
+          options,
+          productDomain,
+          productLabel,
+        });
         yield scrydexEnvelope({
           unitKey: plan.unitKey,
           externalKey: `set:${requireString(
             expansion.id ?? expansionId,
-            "Scrydex One Piece set reference payload is missing id.",
+            `Scrydex ${productLabel} set reference payload is missing id.`,
           )}`,
-          payload: { kind: "one-piece-set-reference", expansion, sourceUrl },
+          payload: {
+            kind: productDomain === "lorcana" ? "lorcana-set-reference" : "one-piece-set-reference",
+            expansion,
+            sourceUrl,
+          },
           sourceUrl,
           sourceUpdatedAt: expansion.release_date,
           fetchedAt,
@@ -280,18 +409,21 @@ export function createScrydexOnePieceProviderAdapter(
         return;
       }
 
-      if (plan.unitKey === SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+      if (
+        plan.unitKey === SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
+        plan.unitKey === SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+      ) {
         if (plan.scope.scopeKey === "single-card") {
           const cardId = requireString(
             plan.scope.values.cardId,
-            "Scrydex One Piece card payload fetch requires cardId.",
+            `Scrydex ${productLabel} card payload fetch requires cardId.`,
           );
-          const sourceUrl = scrydexUrl(`cards/${encodeURIComponent(cardId)}`, {}, options);
+          const sourceUrl = scrydexUrl(`cards/${encodeURIComponent(cardId)}`, {}, options, productDomain);
           const card = sanitizeScrydexCard(await fetchScrydexJson(sourceUrl, options));
           yield scrydexEnvelope({
             unitKey: plan.unitKey,
-            externalKey: `card:${requireString(card.id ?? cardId, "Scrydex One Piece card payload is missing id.")}`,
-            payload: { kind: "one-piece-card", card, sourceUrl },
+            externalKey: `card:${requireString(card.id ?? cardId, `Scrydex ${productLabel} card payload is missing id.`)}`,
+            payload: { kind: productDomain === "lorcana" ? "lorcana-card" : "one-piece-card", card, sourceUrl },
             sourceUrl,
             sourceUpdatedAt: card.expansion?.release_date,
             fetchedAt,
@@ -307,16 +439,17 @@ export function createScrydexOnePieceProviderAdapter(
 
         const expansionId = requireString(
           plan.scope.values.expansionId,
-          "Scrydex One Piece expansion card payload fetch requires expansionId.",
+          `Scrydex ${productLabel} expansion card payload fetch requires expansionId.`,
         );
         const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
           "cards",
           {
             page_size: String(scrydexCardPageSize),
             q: scrydexPrintingsSearchQuery(expansionId),
-            select: scrydexCardSelect,
+            select: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
           },
           options,
+          productDomain,
         );
         const cards = pages.flatMap((page) =>
           page.items.map((card) => ({ card: sanitizeScrydexCard(card), sourceUrl: page.sourceUrl })),
@@ -325,8 +458,12 @@ export function createScrydexOnePieceProviderAdapter(
           const current = cards[index]!;
           yield scrydexEnvelope({
             unitKey: plan.unitKey,
-            externalKey: `card:${requireString(current.card.id, "Scrydex One Piece card payload is missing id.")}`,
-            payload: { kind: "one-piece-card", card: current.card, sourceUrl: current.sourceUrl },
+            externalKey: `card:${requireString(current.card.id, `Scrydex ${productLabel} card payload is missing id.`)}`,
+            payload: {
+              kind: productDomain === "lorcana" ? "lorcana-card" : "one-piece-card",
+              card: current.card,
+              sourceUrl: current.sourceUrl,
+            },
             sourceUrl: current.sourceUrl,
             sourceUpdatedAt: current.card.expansion?.release_date,
             fetchedAt,
@@ -344,17 +481,21 @@ export function createScrydexOnePieceProviderAdapter(
       if (plan.scope.scopeKey === "single-sealed-product") {
         const sealedId = requireString(
           plan.scope.values.sealedProductId,
-          "Scrydex One Piece sealed-product payload fetch requires sealedProductId.",
+          `Scrydex ${productLabel} sealed-product payload fetch requires sealedProductId.`,
         );
-        const sourceUrl = scrydexUrl(`sealed/${encodeURIComponent(sealedId)}`, {}, options);
+        const sourceUrl = scrydexUrl(`sealed/${encodeURIComponent(sealedId)}`, {}, options, productDomain);
         const sealedProduct = sanitizeScrydexSealedProduct(await fetchScrydexJson(sourceUrl, options));
         yield scrydexEnvelope({
           unitKey: plan.unitKey,
           externalKey: `sealed:${requireString(
             sealedProduct.id ?? sealedId,
-            "Scrydex One Piece sealed-product payload is missing id.",
+            `Scrydex ${productLabel} sealed-product payload is missing id.`,
           )}`,
-          payload: { kind: "one-piece-sealed-product", sealedProduct, sourceUrl },
+          payload: {
+            kind: productDomain === "lorcana" ? "lorcana-sealed-product" : "one-piece-sealed-product",
+            sealedProduct,
+            sourceUrl,
+          },
           sourceUrl,
           sourceUpdatedAt: sealedProduct.expansion?.release_date,
           fetchedAt,
@@ -370,13 +511,15 @@ export function createScrydexOnePieceProviderAdapter(
 
       const expansionId = requireString(
         plan.scope.values.expansionId,
-        "Scrydex One Piece expansion sealed-product payload fetch requires expansionId.",
+        `Scrydex ${productLabel} expansion sealed-product payload fetch requires expansionId.`,
       );
-      const pages = await fetchScrydexPagedJson<ScrydexOnePieceSealedProduct>(
-        `expansions/${encodeURIComponent(expansionId)}/sealed`,
-        { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
+      const pages = await fetchScrydexExpansionChildPagedJson<ScrydexOnePieceSealedProduct>({
+        expansionId,
+        childPath: "sealed",
+        query: { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
         options,
-      );
+        productDomain,
+      });
       const sealedProducts = pages.flatMap((page) =>
         page.items.map((sealedProduct) => ({
           sealedProduct: sanitizeScrydexSealedProduct(sealedProduct),
@@ -389,10 +532,10 @@ export function createScrydexOnePieceProviderAdapter(
           unitKey: plan.unitKey,
           externalKey: `sealed:${requireString(
             current.sealedProduct.id,
-            "Scrydex One Piece sealed-product payload is missing id.",
+            `Scrydex ${productLabel} sealed-product payload is missing id.`,
           )}`,
           payload: {
-            kind: "one-piece-sealed-product",
+            kind: productDomain === "lorcana" ? "lorcana-sealed-product" : "one-piece-sealed-product",
             sealedProduct: current.sealedProduct,
             sourceUrl: current.sourceUrl,
           },
@@ -422,7 +565,7 @@ export function createScrydexOnePieceProviderAdapter(
           state,
           message:
             state === "configured"
-              ? "Shared Scrydex credentials are configured for One Piece transport with redacted usage readiness."
+              ? "Shared Scrydex credentials are configured for Scrydex transport with redacted usage readiness."
               : state === "missing"
                 ? "Shared Scrydex credentials require X-Api-Key and X-Team-ID before option queries or imports."
                 : "Scrydex credential readiness could not be validated; provider values remain redacted.",
@@ -459,7 +602,7 @@ export function createScrydexOnePieceProviderAdapter(
       const credentialDiagnostics: ProviderTransportDiagnostic[] = readiness.configured
         ? [
             {
-              code: "scrydex-one-piece-credentials-configured",
+              code: "scrydex-credentials-configured",
               severity: "info",
               message: t(
                 "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.credential.configured",
@@ -479,10 +622,13 @@ export function createScrydexOnePieceProviderAdapter(
       return [
         ...credentialDiagnostics,
         ...scrydexOnePieceUnitKeys().map((unitKey) => ({
-          code: "scrydex-one-piece-bulk-first-transport-configured",
+          code: `${scrydexProductDomainForUnit(unitKey) === "lorcana" ? "scrydex-lorcana" : "scrydex-one-piece"}-bulk-first-transport-configured`,
           severity: "info" as const,
           message: t(
-            "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.bulk.first.transport.configured",
+            "catalog.features.sourceObservations.api.providerAdapters.scrydex.bulk.first.transport.configured",
+            {
+              productLine: scrydexProductLabel(scrydexProductDomainForUnit(unitKey)),
+            },
           ),
           unitKey,
         })),
@@ -561,13 +707,79 @@ export async function runScrydexOnePieceSealedProductSourceObservationImportProo
   });
 }
 
+export async function runScrydexLorcanaSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexLorcanaBaseUrl}/expansions/1/cards`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "card:tfc-041",
+        payload: {
+          kind: "lorcana-card",
+          card: scrydexLorcanaProofCard,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexLorcanaProofExpansion.release_date,
+        fetchedAt: scrydexLorcanaProofFetchedAt,
+      }),
+    ],
+  });
+}
+
+export async function runScrydexLorcanaSetReferenceValidationDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexLorcanaBaseUrl}/expansions/1`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        externalKey: "set:1",
+        payload: {
+          kind: "lorcana-set-reference",
+          expansion: scrydexLorcanaProofExpansion,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexLorcanaProofExpansion.release_date,
+        fetchedAt: scrydexLorcanaProofFetchedAt,
+      }),
+    ],
+  });
+}
+
+export async function runScrydexLorcanaSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  const sourceUrl = `${scrydexLorcanaBaseUrl}/expansions/1/sealed`;
+  return runScrydexOnePieceProofDryRun({
+    unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    payloads: [
+      scrydexEnvelope({
+        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "sealed:tfc-booster-box",
+        payload: {
+          kind: "lorcana-sealed-product",
+          sealedProduct: scrydexLorcanaProofSealedProduct,
+          sourceUrl,
+        },
+        sourceUrl,
+        sourceUpdatedAt: scrydexLorcanaProofExpansion.release_date,
+        fetchedAt: scrydexLorcanaProofFetchedAt,
+      }),
+    ],
+  });
+}
+
 function runScrydexOnePieceProofDryRun(input: {
   unitKey: ScrydexOnePieceUnitKey;
   payloads: readonly ProviderPayloadEnvelope<ScrydexOnePieceProviderPayload>[];
 }): CatalogIntegrationDryRunResult {
   return runCatalogIntegrationDryRun({
     unitKey: input.unitKey,
-    profileVersion: SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
+    profileVersion:
+      scrydexProductDomainForUnit(input.unitKey) === "lorcana"
+        ? SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION
+        : SCRYDEX_ONE_PIECE_PRODUCTION_PROFILE_VERSION,
     payloads: input.payloads,
     normalize: (envelope) => normalizeScrydexOnePieceProofPayload(envelope),
   });
@@ -627,6 +839,77 @@ function normalizeScrydexOnePieceProofPayload(
     };
   }
 
+  if (envelope.payload.kind === "lorcana-card") {
+    const card = envelope.payload.card;
+    return {
+      unitKey: envelope.unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+      normalizedFacts: compactStringRecord({
+        tcg: "lorcana",
+        productLineName: "Disney Lorcana",
+        name: card.name,
+        cardNumber: card.printed_number ?? card.number,
+        setId: card.expansion?.id,
+        setCode: card.expansion?.code,
+        setName: card.expansion?.name,
+        rarity: card.rarity,
+        cardType: card.type,
+        inkColor: card.ink ?? card.ink_color,
+        tcgplayerProductId: stringOrNumberToString(card.tcgplayer_id),
+      }),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    };
+  }
+
+  if (envelope.payload.kind === "lorcana-set-reference") {
+    const expansion = envelope.payload.expansion;
+    return {
+      unitKey: envelope.unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+      normalizedFacts: compactStringRecord({
+        tcg: "lorcana",
+        productLineName: "Disney Lorcana",
+        name: expansion.name,
+        setId: expansion.id,
+        setCode: expansion.code,
+        setName: expansion.name,
+        cardCount: stringOrNumberToString(expansion.total),
+      }),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    };
+  }
+
+  if (envelope.payload.kind === "lorcana-sealed-product") {
+    const sealedProduct = envelope.payload.sealedProduct;
+    return {
+      unitKey: envelope.unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion: SCRYDEX_LORCANA_PRODUCTION_PROFILE_VERSION,
+      normalizedFacts: compactStringRecord({
+        tcg: "lorcana",
+        productLineName: "Disney Lorcana",
+        name: sealedProduct.name,
+        setId: sealedProduct.expansion?.id,
+        setCode: sealedProduct.expansion?.code,
+        setName: sealedProduct.expansion?.name,
+        sealedProductForm: "sealed-product",
+        productKind: sealedProduct.type,
+      }),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    };
+  }
+
   const sealedProduct = envelope.payload.sealedProduct;
   return {
     unitKey: envelope.unitKey,
@@ -655,26 +938,29 @@ async function listScrydexOnePieceOptions(
 ): Promise<ProviderOptionQueryResult> {
   assertScrydexOnePieceUnit(input.unitKey);
   requireScrydexCredentials(options);
+  const productDomain = scrydexProductDomainForUnit(input.unitKey);
+  const productLabel = scrydexProductLabel(productDomain);
   const optionKind = input.optionKind.trim().toLowerCase();
 
   if (optionKind === "expansions" || optionKind === "expansion" || optionKind === "sets" || optionKind === "set") {
-    const expansions = await fetchScrydexExpansions(options);
+    const expansions = await fetchScrydexExpansions(options, productDomain);
     return { items: expansions.map(expansionOptionItem) };
   }
 
   if (optionKind === "cards" || optionKind === "card") {
     const expansionId = requireString(
       input.parentValues?.expansionId ?? input.parentValues?.setId ?? input.parentValues?.parentValue,
-      "Scrydex One Piece card option queries require an expansionId parent value.",
+      `Scrydex ${productLabel} card option queries require an expansionId parent value.`,
     );
     const pages = await fetchScrydexPagedJson<ScrydexOnePieceCard>(
       "cards",
       {
         page_size: String(scrydexCardPageSize),
         q: scrydexPrintingsSearchQuery(expansionId),
-        select: scrydexCardSelect,
+        select: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
       },
       options,
+      productDomain,
     );
     return {
       items: pages.flatMap((page) => page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card), expansionId))),
@@ -684,12 +970,13 @@ async function listScrydexOnePieceOptions(
   if (optionKind === "sealed" || optionKind === "sealed-products" || optionKind === "sealed-product") {
     const expansionId = requireString(
       input.parentValues?.expansionId ?? input.parentValues?.setId ?? input.parentValues?.parentValue,
-      "Scrydex One Piece sealed-product option queries require an expansionId parent value.",
+      `Scrydex ${productLabel} sealed-product option queries require an expansionId parent value.`,
     );
     const pages = await fetchScrydexPagedJson<ScrydexOnePieceSealedProduct>(
       `expansions/${encodeURIComponent(expansionId)}/sealed`,
       { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
       options,
+      productDomain,
     );
     return {
       items: pages.flatMap((page) =>
@@ -703,21 +990,24 @@ async function listScrydexOnePieceOptions(
   return { items: [] };
 }
 
-function planScrydexOnePieceSetImport(
+function planScrydexSetImport(
   scope: ProviderImportScope,
   usageReadiness: ScrydexUsageReadiness,
+  productDomain: ScrydexProductDomain,
 ): ProviderImportPlan {
+  const productLabel = scrydexProductLabel(productDomain);
+  const productSegment = scrydexProductSegment(productDomain);
   const expansionId = requireString(
     scope.values.expansionId ?? scope.values.setId ?? scope.values.id ?? scope.values.parentValue,
-    "Scrydex One Piece set reference import planning requires expansionId.",
+    `Scrydex ${productLabel} set reference import planning requires expansionId.`,
   );
   return {
     unitKey: scope.unitKey,
-    planKey: `scrydex:one-piece:set:${normalizePlanSegment(expansionId)}`,
+    planKey: `scrydex:${productSegment}:set:${normalizePlanSegment(expansionId)}`,
     scope: { unitKey: scope.unitKey, scopeKey: "set-reference", values: { ...scope.values, expansionId } },
     estimatedPayloads: 1,
     transportSteps: [
-      "Fetch Scrydex One Piece expansion by id",
+      `Fetch Scrydex ${productLabel} expansion by id`,
       "Sanitize set reference payload",
       "Attach payload provenance",
     ],
@@ -730,18 +1020,25 @@ function planScrydexOnePieceSetImport(
   };
 }
 
-function planScrydexOnePieceCardImport(
+function planScrydexCardImport(
   scope: ProviderImportScope,
   usageReadiness: ScrydexUsageReadiness,
+  productDomain: ScrydexProductDomain,
 ): ProviderImportPlan {
+  const productLabel = scrydexProductLabel(productDomain);
+  const productSegment = scrydexProductSegment(productDomain);
   const cardId = stringValue(scope.values.cardId ?? scope.values.id);
   if (cardId) {
     return {
       unitKey: scope.unitKey,
-      planKey: `scrydex:one-piece:card:${normalizePlanSegment(cardId)}`,
+      planKey: `scrydex:${productSegment}:card:${normalizePlanSegment(cardId)}`,
       scope: { unitKey: scope.unitKey, scopeKey: "single-card", values: { ...scope.values, cardId } },
       estimatedPayloads: 1,
-      transportSteps: ["Fetch Scrydex One Piece card by id", "Sanitize card payload", "Attach payload provenance"],
+      transportSteps: [
+        `Fetch Scrydex ${productLabel} card by id`,
+        "Sanitize card payload",
+        "Attach payload provenance",
+      ],
       usageEstimate: scrydexSingleRecordUsageEstimate({
         estimatedRequestCount: 1,
         selectedFields: [],
@@ -753,20 +1050,20 @@ function planScrydexOnePieceCardImport(
 
   const expansionId = requireString(
     scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue,
-    "Scrydex One Piece card import planning requires expansionId or cardId.",
+    `Scrydex ${productLabel} card import planning requires expansionId or cardId.`,
   );
   return {
     unitKey: scope.unitKey,
-    planKey: `scrydex:one-piece:expansion:${normalizePlanSegment(expansionId)}:cards`,
+    planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:cards`,
     scope: { unitKey: scope.unitKey, scopeKey: "expansion-cards", values: { ...scope.values, expansionId } },
     transportSteps: [
-      "Search Scrydex One Piece cards by printings set with max page size",
+      `Search Scrydex ${productLabel} cards by printings set with max page size`,
       "Sanitize card payloads",
       "Attach payload provenance",
     ],
     usageEstimate: scrydexBulkFirstUsageEstimate({
       pageSize: scrydexCardPageSize,
-      selectedFields: scrydexCardSelect,
+      selectedFields: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
       estimateReason:
         "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
       usageReadiness,
@@ -774,15 +1071,18 @@ function planScrydexOnePieceCardImport(
   };
 }
 
-function planScrydexOnePieceSealedImport(
+function planScrydexSealedImport(
   scope: ProviderImportScope,
   usageReadiness: ScrydexUsageReadiness,
+  productDomain: ScrydexProductDomain,
 ): ProviderImportPlan {
+  const productLabel = scrydexProductLabel(productDomain);
+  const productSegment = scrydexProductSegment(productDomain);
   const sealedProductId = stringValue(scope.values.sealedProductId ?? scope.values.sealedId ?? scope.values.id);
   if (sealedProductId) {
     return {
       unitKey: scope.unitKey,
-      planKey: `scrydex:one-piece:sealed:${normalizePlanSegment(sealedProductId)}`,
+      planKey: `scrydex:${productSegment}:sealed:${normalizePlanSegment(sealedProductId)}`,
       scope: {
         unitKey: scope.unitKey,
         scopeKey: "single-sealed-product",
@@ -790,7 +1090,7 @@ function planScrydexOnePieceSealedImport(
       },
       estimatedPayloads: 1,
       transportSteps: [
-        "Fetch Scrydex One Piece sealed product by id",
+        `Fetch Scrydex ${productLabel} sealed product by id`,
         "Sanitize sealed-product payload",
         "Attach payload provenance",
       ],
@@ -805,14 +1105,14 @@ function planScrydexOnePieceSealedImport(
 
   const expansionId = requireString(
     scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue,
-    "Scrydex One Piece sealed-product import planning requires expansionId or sealedProductId.",
+    `Scrydex ${productLabel} sealed-product import planning requires expansionId or sealedProductId.`,
   );
   return {
     unitKey: scope.unitKey,
-    planKey: `scrydex:one-piece:expansion:${normalizePlanSegment(expansionId)}:sealed`,
+    planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:sealed`,
     scope: { unitKey: scope.unitKey, scopeKey: "expansion-sealed-products", values: { ...scope.values, expansionId } },
     transportSteps: [
-      "Fetch Scrydex One Piece expansion sealed products with max page size",
+      `Fetch Scrydex ${productLabel} expansion sealed products with max page size`,
       "Sanitize sealed-product payloads",
       "Attach payload provenance",
     ],
@@ -874,24 +1174,118 @@ function selectedFieldList(select: string): readonly string[] {
 
 async function fetchScrydexExpansions(
   options: ScrydexOnePieceProviderAdapterOptions,
+  productDomain: ScrydexProductDomain = "one-piece",
 ): Promise<readonly ScrydexOnePieceExpansion[]> {
   const pages = await fetchScrydexPagedJson<ScrydexOnePieceExpansion>(
     "expansions",
     { page_size: String(scrydexExpansionPageSize), select: scrydexExpansionSelect },
     options,
+    productDomain,
   );
   return pages.flatMap((page) => page.items.map(sanitizeScrydexExpansion));
+}
+
+async function fetchScrydexExpansionForSetReference(input: {
+  expansionId: string;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+  productLabel: string;
+}): Promise<Readonly<{ expansion: ScrydexOnePieceExpansion; sourceUrl: string }>> {
+  const sourceUrl = scrydexUrl(
+    `expansions/${encodeURIComponent(input.expansionId)}`,
+    {},
+    input.options,
+    input.productDomain,
+  );
+  let detailError: unknown = null;
+  try {
+    const expansion = sanitizeScrydexExpansion(
+      extractScrydexSingleRecord(await fetchScrydexJson(sourceUrl, input.options)),
+    );
+    if (hasScrydexExpansionIdentity(expansion)) {
+      return { expansion, sourceUrl };
+    }
+  } catch (error) {
+    if (!isScrydexMissingExpansionDetailError(error)) {
+      throw error;
+    }
+    detailError = error;
+  }
+
+  const fallback = await findScrydexExpansionFromList({
+    expansionId: input.expansionId,
+    options: input.options,
+    productDomain: input.productDomain,
+  });
+  if (fallback) {
+    return fallback;
+  }
+  if (detailError) {
+    throw detailError;
+  }
+
+  throw new Error(`Scrydex ${input.productLabel} set reference payload is missing id or name.`);
+}
+
+async function fetchScrydexExpansionChildPagedJson<TItem>(input: {
+  expansionId: string;
+  childPath: string;
+  query: Readonly<Record<string, string>>;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+}): Promise<readonly ScrydexPage<TItem>[]> {
+  const path = (expansionId: string) => `expansions/${encodeURIComponent(expansionId)}/${input.childPath}`;
+  try {
+    return await fetchScrydexPagedJson<TItem>(path(input.expansionId), input.query, input.options, input.productDomain);
+  } catch (error) {
+    if (!isScrydexMissingExpansionDetailError(error)) {
+      throw error;
+    }
+    const fallback = await findScrydexExpansionFromList({
+      expansionId: input.expansionId,
+      options: input.options,
+      productDomain: input.productDomain,
+    });
+    const fallbackExpansionId = stringValue(fallback?.expansion.id);
+    if (!fallbackExpansionId || fallbackExpansionId === input.expansionId) {
+      throw error;
+    }
+    return fetchScrydexPagedJson<TItem>(path(fallbackExpansionId), input.query, input.options, input.productDomain);
+  }
+}
+
+async function findScrydexExpansionFromList(input: {
+  expansionId: string;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+}): Promise<Readonly<{ expansion: ScrydexOnePieceExpansion; sourceUrl: string }> | null> {
+  const pages = await fetchScrydexPagedJson<ScrydexOnePieceExpansion>(
+    "expansions",
+    { page_size: String(scrydexExpansionPageSize), select: scrydexExpansionSelect },
+    input.options,
+    input.productDomain,
+  );
+  for (const page of pages) {
+    for (const item of page.items) {
+      const expansion = sanitizeScrydexExpansion(item);
+      if (scrydexExpansionMatchesSelectedValue(expansion, input.expansionId)) {
+        return { expansion, sourceUrl: page.sourceUrl };
+      }
+    }
+  }
+  return null;
 }
 
 async function fetchScrydexPagedJson<TItem>(
   path: string,
   query: Readonly<Record<string, string>>,
   options: ScrydexOnePieceProviderAdapterOptions,
+  productDomain: ScrydexProductDomain = "one-piece",
 ): Promise<readonly ScrydexPage<TItem>[]> {
   const pages: ScrydexPage<TItem>[] = [];
   const pageSize = Number(query.page_size);
   let page = 1;
-  let nextUrl: string | null = scrydexUrl(path, { page: String(page), ...query }, options);
+  let nextUrl: string | null = scrydexUrl(path, { page: String(page), ...query }, options, productDomain);
 
   while (nextUrl) {
     const sourceUrl = nextUrl;
@@ -900,7 +1294,7 @@ async function fetchScrydexPagedJson<TItem>(
     pages.push({ items, sourceUrl });
     const explicitNextUrl = stringValue(recordValue(body, "next_page") ?? recordValue(body, "nextPage"));
     if (explicitNextUrl) {
-      nextUrl = absoluteScrydexUrl(explicitNextUrl, options);
+      nextUrl = absoluteScrydexUrl(explicitNextUrl, options, productDomain);
       page += 1;
       continue;
     }
@@ -913,7 +1307,7 @@ async function fetchScrydexPagedJson<TItem>(
       positiveInteger(recordValue(recordValue(body, "pagination"), "total_pages"));
     if (totalPages !== null && page < totalPages) {
       page += 1;
-      nextUrl = scrydexUrl(path, { page: String(page), ...query }, options);
+      nextUrl = scrydexUrl(path, { page: String(page), ...query }, options, productDomain);
       continue;
     }
 
@@ -923,7 +1317,7 @@ async function fetchScrydexPagedJson<TItem>(
       booleanValue(recordValue(recordValue(body, "pagination"), "has_more"));
     if (hasMore && items.length >= pageSize) {
       page += 1;
-      nextUrl = scrydexUrl(path, { page: String(page), ...query }, options);
+      nextUrl = scrydexUrl(path, { page: String(page), ...query }, options, productDomain);
       continue;
     }
 
@@ -1157,6 +1551,47 @@ function extractScrydexItems<TItem>(body: JsonValue): readonly TItem[] {
   return [];
 }
 
+function extractScrydexSingleRecord(body: JsonValue): JsonValue {
+  if (!isJsonRecord(body)) {
+    return body;
+  }
+
+  for (const key of ["data", "item", "result", "record", "expansion"]) {
+    const value = body[key];
+    if (isJsonRecord(value)) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      const firstRecord = value.find(isJsonRecord);
+      if (firstRecord) {
+        return firstRecord;
+      }
+    }
+  }
+
+  return body;
+}
+
+function hasScrydexExpansionIdentity(expansion: ScrydexOnePieceExpansion): boolean {
+  return Boolean(stringValue(expansion.id) && stringValue(expansion.name));
+}
+
+function isScrydexMissingExpansionDetailError(error: unknown): boolean {
+  return error instanceof ScrydexTransportError && error.diagnosticCode === "provider-request-failed";
+}
+
+function scrydexExpansionMatchesSelectedValue(expansion: ScrydexOnePieceExpansion, selectedValue: string): boolean {
+  const selected = normalizedScrydexExpansionMatchValue(selectedValue);
+  return [expansion.id, expansion.code, expansion.name]
+    .map(stringValue)
+    .filter((value): value is string => Boolean(value))
+    .some((value) => normalizedScrydexExpansionMatchValue(value) === selected);
+}
+
+function normalizedScrydexExpansionMatchValue(value: string): string {
+  return normalizePlanSegment(value);
+}
+
 function expansionOptionItem(expansion: ScrydexOnePieceExpansion): ProviderOptionItem {
   const expansionId = requireString(expansion.id, "Scrydex One Piece expansion option is missing id.");
   return {
@@ -1223,6 +1658,9 @@ function sanitizeScrydexCard(value: JsonValue): ScrydexOnePieceCard {
     rarity: stringValue(record.rarity),
     rarity_code: stringValue(record.rarity_code),
     type: stringValue(record.type),
+    ink: stringValue(record.ink ?? record.ink_color),
+    ink_color: stringValue(record.ink_color ?? record.ink),
+    tcgplayer_id: stringOrNumberValue(record.tcgplayer_id ?? record.tcgplayerId),
     imageUrls: imageUrls.length > 0 ? imageUrls : null,
     language: stringValue(record.language),
     language_code: stringValue(record.language_code),
@@ -1319,8 +1757,9 @@ function scrydexUrl(
   path: string,
   query: Readonly<Record<string, string>>,
   options: ScrydexOnePieceProviderAdapterOptions,
+  productDomain: ScrydexProductDomain = "one-piece",
 ): string {
-  const base = (options.baseUrl ?? scrydexOnePieceBaseUrl).replace(/\/$/, "");
+  const base = scrydexBaseUrl(options, productDomain).replace(/\/$/, "");
   const url = new URL(`${base}/${path.replace(/^\//, "")}`);
   for (const [key, value] of Object.entries(query)) {
     url.searchParams.set(key, value);
@@ -1338,7 +1777,16 @@ function accountBaseUrl(options: ScrydexOnePieceProviderAdapterOptions): string 
     return scrydexAccountBaseUrl;
   }
 
-  return options.baseUrl.replace(/\/onepiece\/v1\/?$/i, "/account/v1");
+  return options.baseUrl.replace(/\/(?:onepiece|lorcana)\/v1\/?$/i, "/account/v1");
+}
+
+function scrydexBaseUrl(options: ScrydexOnePieceProviderAdapterOptions, productDomain: ScrydexProductDomain): string {
+  if (productDomain === "lorcana") {
+    return (
+      options.lorcanaBaseUrl ?? options.baseUrl?.replace(/\/onepiece\/v1\/?$/i, "/lorcana/v1") ?? scrydexLorcanaBaseUrl
+    );
+  }
+  return options.baseUrl ?? scrydexOnePieceBaseUrl;
 }
 
 function scrydexPrintingsSearchQuery(expansionId: string): string {
@@ -1347,11 +1795,15 @@ function scrydexPrintingsSearchQuery(expansionId: string): string {
   return `printings:${queryValue}`;
 }
 
-function absoluteScrydexUrl(value: string, options: ScrydexOnePieceProviderAdapterOptions): string {
+function absoluteScrydexUrl(
+  value: string,
+  options: ScrydexOnePieceProviderAdapterOptions,
+  productDomain: ScrydexProductDomain = "one-piece",
+): string {
   if (/^https?:\/\//i.test(value)) {
     return value;
   }
-  const base = (options.baseUrl ?? scrydexOnePieceBaseUrl).replace(/\/$/, "");
+  const base = scrydexBaseUrl(options, productDomain).replace(/\/$/, "");
   return new URL(value, `${base}/`).toString();
 }
 
@@ -1361,7 +1813,7 @@ function requireScrydexCredentials(
   const apiKey = stringValue(options.credentials?.apiKey);
   const teamId = stringValue(options.credentials?.teamId);
   if (!apiKey || !teamId) {
-    throw new Error("Shared Scrydex credentials are required for One Piece provider transport.");
+    throw new Error("Shared Scrydex credentials are required for Scrydex provider transport.");
   }
   return { apiKey, teamId };
 }
@@ -1380,13 +1832,46 @@ function assertScrydexOnePieceUnit(unitKey: string): void {
   if (
     unitKey !== SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY &&
     unitKey !== SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY &&
-    unitKey !== SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+    unitKey !== SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY &&
+    unitKey !== SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY &&
+    unitKey !== SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY &&
+    unitKey !== SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
   ) {
-    throw new Error(`Scrydex One Piece adapter does not support Catalog integration unit '${unitKey}'.`);
+    throw new Error(`Scrydex adapter does not support Catalog integration unit '${unitKey}'.`);
   }
 }
 
-function scrydexOnePieceUnitKeys(): readonly [
+function scrydexOnePieceUnitKeys(): readonly ScrydexOnePieceUnitKey[] {
+  return [
+    SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+    SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+    SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  ];
+}
+
+function scrydexProductDomainForUnit(unitKey: string): ScrydexProductDomain {
+  if (
+    unitKey === SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
+    unitKey === SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY ||
+    unitKey === SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+  ) {
+    return "lorcana";
+  }
+  return "one-piece";
+}
+
+function scrydexProductLabel(productDomain: ScrydexProductDomain): string {
+  return productDomain === "lorcana" ? "Lorcana" : "One Piece";
+}
+
+function scrydexProductSegment(productDomain: ScrydexProductDomain): string {
+  return productDomain;
+}
+
+function scrydexOnePieceOnlyUnitKeys(): readonly [
   typeof SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   typeof SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   typeof SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,

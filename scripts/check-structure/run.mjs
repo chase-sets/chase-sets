@@ -13,6 +13,10 @@ import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
+import {
+  findSoftwareDeliveryConceptViolations,
+  isSoftwareDeliveryConceptGuardedFile,
+} from "./software-delivery-concepts.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
@@ -2501,6 +2505,18 @@ export async function runStructureCheck(options = {}) {
       }
 
       content ??= await readFile(file, "utf8");
+
+      if (isSoftwareDeliveryConceptGuardedFile(normalizedFile, extension)) {
+        for (const guard of findSoftwareDeliveryConceptViolations({
+          relativeFile: normalizedFile,
+          content,
+        })) {
+          addViolation(
+            file,
+            `software-delivery concepts belong in delivery tooling (scripts/, .github/, infrastructure/, docs/), not product code; remove ${guard.label}`,
+          );
+        }
+      }
 
       if (
         (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) &&

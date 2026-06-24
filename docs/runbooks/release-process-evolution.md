@@ -87,7 +87,7 @@ pnpm run ops release-lock:commands --action lock --environment production --reas
 pnpm run ops release-lock:commands --action unlock --environment production
 ```
 
-Operators can also prepare these commands in the admin console at `/platform/release-controls`. The console reads the current production lock variables, validates lock reason requirements, and produces the same `gh variable set` shape without mutating GitHub from the browser.
+The generator reads the current production lock inputs, validates lock reason requirements, and produces the `gh variable set` shape to run against the production GitHub Environment. Release locks are GitHub Environment state operated from CI and `scripts/`; the application does not host a release-lock console.
 
 ## Production Canary Path
 
@@ -108,7 +108,7 @@ Phase 1 can expand to operator/internal or account-allowlisted production traffi
 - production marketplace APIs guarded by account allowlists once marketplace is public
 - synthetic production probes with tagged operator accounts
 
-Phase 2 may add small deterministic cohorts for public marketplace accounts after release-health metrics, rollout guards, and canary-analysis signals are reliable.
+Phase 2 may add small deterministic cohorts for public marketplace accounts after release-health metrics and rollout guards are reliable.
 
 Phase 3 may add random production traffic only when DigitalOcean routing, observability, and rollback mechanics prove that the traffic split is reversible and cheap to operate.
 
@@ -117,77 +117,9 @@ Canary promotion requires:
 - the staging job deployed the same immutable commit image and passed smoke, critical-flow, and money-smoke gates
 - the canary topology routes only the intended component or cohort
 - the release-health record names the release commit, workflow run, canary start, canary end, and promotion decision
-- canary analysis passes for the configured observation window
 - no active release lock unless this is an emergency release
 
 Abort canary by returning traffic to the last smoke-verified production release, disabling the rollout or kill-switching the capability, and preserving the canary health record for investigation.
-
-## Automated Canary Analysis
-
-Canary analysis compares canary signals to a recent stable baseline and fails closed during early rollout when data is missing or ambiguous.
-
-Initial required signals:
-
-| Signal | Owner | Data source | Current state | Early threshold |
-| --- | --- | --- | --- | --- |
-| Observability transport | Infrastructure / observability | Prometheus scrape health for the production OpenTelemetry Collector | Available now | Collector scrape target is present and `up`. |
-| App Platform deployment phase | Infrastructure / deployment workflow | DigitalOcean App Platform deployment phase | Available now | All canary components ready and deployment `ACTIVE`. |
-| Route error rate | Platform runtime / owning route context | HTTP telemetry by route and host | Needs instrumentation | No sustained increase above baseline during observation. |
-| Route latency p95 | Platform runtime / owning route context | HTTP latency histogram by route and host | Needs instrumentation | No sustained p95 increase above baseline for canary routes. |
-| Worker health and durable job backlog | Platform Operations / infrastructure runtime | Worker heartbeat and durable job backlog telemetry | Needs instrumentation | No new sustained backlog or runner failure. |
-| Projection lag and poison events | Owning bounded contexts / Platform Operations | Projection operation snapshots and poison-event telemetry | Available now | No new degraded projection group caused by the canary release. |
-| Checkout/order/payment errors | Checkout, Ordering, Payments | Checkout, order, payment, and reconciliation telemetry | Needs instrumentation | No increase in checkout command, session, payment, or reconciliation failures. |
-| Settlement/payout errors | Settlement | Settlement operation telemetry for payout setup, readiness, and provider reconciliation | Available now | No increase in payout setup session failures, payout readiness refresh failures, setup-blocked payout requests, or provider reconciliation failures. |
-| Fulfillment/postage callback errors | Fulfillment | Postage provider callback telemetry | Needs instrumentation | No new provider callback signature, parse, or reconciliation failures. |
-| Transactional email callback errors | Notifications | SES/SNS callback and outbox telemetry | Needs instrumentation | No new SES/SNS callback or outbox delivery failure spike. |
-| Database pool pressure | Infrastructure runtime | Database pool and migration telemetry | Needs instrumentation | No connection exhaustion, pool saturation, or bootstrap migration pressure. |
-| UCP discovery and signed-write health | UCP facade owners | UCP discovery and signed-write telemetry | Deferred | Discovery stays healthy and signed-write rejects do not spike when UCP is enabled. |
-
-The first canary implementation may use smoke probes and workflow-collected health summaries while observability baselines mature. Automatic full promotion should wait until each required signal has an explicit data source and owner.
-
-Evaluate a canary evidence file with:
-
-```powershell
-pnpm run ops canary:analysis --file .\artifacts\release-health\canary-analysis.json
-```
-
-Generate canary evidence from telemetry snapshots with:
-
-```powershell
-pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --source-file .\artifacts\release-health\telemetry.json --out .\artifacts\release-health\canary-analysis.json
-```
-
-Generate canary evidence from production Prometheus snapshots with:
-
-```powershell
-pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\infrastructure\observability\release-canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
-```
-
-The production deployment workflow runs the same collector before advancing the `production` marker when `CANARY_PROMETHEUS_ENABLED` is `true` and `CANARY_PROMETHEUS_URL` plus `CANARY_PROMETHEUS_QUERY_FILE` repository variables are configured. The Stage 1 production canary writes `artifacts/release-health/stage1-production-canary-telemetry.json` for the `app-platform-deployment-phase` source signal; the Prometheus query file maps live telemetry signal names to `baselineQuery`, `canaryQuery`, `owner`, `required`, and `maxIncrease`. Required zero-event counters must be anchored to a real scrapeable liveness counter in the query itself; absent Prometheus series remain `missing` and fail closed. Keep `CANARY_PROMETHEUS_ENABLED` unset or false until the Prometheus endpoint is reachable and every configured `required: true` signal is ready to gate promotion.
-
-The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal includes `name`, `owner`, `source`, `currentState`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when telemetry is missing or above threshold; optional signals set `required: false`. Unsupported sources must be recorded as `status: "missing"`, never as pass.
-
-The Observability-owned Prometheus query contract is `infrastructure/observability/release-canary-prometheus-queries.json`. Do not point `CANARY_PROMETHEUS_QUERY_FILE` at a different path unless the replacement includes the same owner, source, baseline query, canary query, and threshold metadata for every required signal.
-
-Each Prometheus signal also carries `gateClass`:
-
-- `platform-required`: required release plumbing such as observability transport.
-- `required-critical-migrated`: migrated critical post-write flow evidence. These signals must be `required: true` once telemetry is live. A temporary `currentState: "needs-instrumentation"` exception must include `owner`, `reviewBy`, `removalIssue`, and `reason`.
-- `observation-only`: useful but non-closing evidence. Optional account-cart-style observations cannot close a milestone while a required critical migrated handoff still has an active exception.
-
-Canary ownership starts with this matrix:
-
-| Signal | Owner | Source | Failure action |
-| --- | --- | --- | --- |
-| `observability-transport` | `infrastructure/observability` | Prometheus `up{job="otel-collector"}` scrape health | Abort promotion and inspect the observability host, Collector, and Caddy query path. |
-| `app-platform-deployment-phase` | `infrastructure/deployment-workflow` | Stage 1 production canary evidence | Abort promotion and inspect the App Platform deployment. |
-| `projection-lag-poison-events` | `owning-bounded-context/platform-operations` | Projection freshness pending counters with `last_error="present"` plus work-signal error counters, anchored to freshness evaluation telemetry | Abort promotion and inspect Platform Operations projection health. |
-| `route-error-rate` | `platform-runtime/route-owner` | HTTP 5xx rate by route and host | Hold promotion once required; compare route-level errors against the stable cohort. |
-| `route-latency-p95` | `platform-runtime/route-owner` | HTTP latency histogram by route and host | Hold promotion until latency source and threshold are understood. |
-| `checkout-order-payment-errors` | `checkout/ordering/payments` | Checkout command, order, payment, and reconciliation counters | Abort promotion and page the owning bounded context before exposing traffic. |
-| `settlement-payout-errors` | `settlement` | `chase_sets_settlement_operations_total` filtered to payout setup/session/readiness/reconciliation failure kinds, anchored with `max_over_time` over the authenticated provider-health canary's `provider-health-checked` operation so sparse canary counters do not disappear as missing | Abort promotion, inspect Payout Operations, and keep the release canary at the current cohort until setup and payout readiness are stable. |
-
-Signals whose `currentState` is `needs-instrumentation` must remain out of production gating until telemetry is live. They can appear in dry-run canary evidence or as `required: false` production evidence, but they must remain visible as `missing` when unsupported; they must not silently pass.
 
 ## Release Health Metrics
 
@@ -301,11 +233,11 @@ Increase deployable batch size only when all thresholds pass, p95 queue wait is 
 
 The same report includes a release process review checklist and image group decision inputs. Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 
-Operators can inspect the current read-only release dashboard in the admin console at `/platform/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
+Operators inspect release state from CI evidence, not an in-app dashboard. The `release-health:report` output above combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, and canary decision, with links back to the GitHub Actions runs and the `production` marker. Read GitHub refs and workflow runs directly from the GitHub API or Actions UI; the release-health JSON artifacts in `artifacts/release-health` are the durable fallback when live GitHub metadata is unavailable.
 
 ## Feature Rollout Controls
 
-Platform Operations owns feature rollout language and deterministic evaluation rules. Bounded contexts keep owning business behavior and call rollout checks only as exposure guards.
+Feature rollout is a delivery concern owned by CI (`.github/workflows`) and `scripts/`, not by the application. The rollout policy is a deterministic evaluation contract expressed in a release-health policy file and resolved by the deterministic rollout evaluator; the application does not persist, serve, or render rollout policy. Pre-launch, feature flags are not retained: a guarded capability is exposed by an explicit rollout policy and removed once it ships.
 
 Supported primitives:
 
@@ -316,29 +248,19 @@ Supported primitives:
 - Percentage Rollout: deterministic cohort from 0 to 100
 - Kill Switch: disable the feature for every subject
 
-Operators can evaluate a candidate policy and subject in the admin console at `/platform/release-controls`. The console keeps the command-builder path for GitHub Environment release locks, and the Platform Operations API now persists application-level release-control policy events.
+A rollout policy is authored as a `feature-policy.json` file under `artifacts/release-health` and resolved by the deterministic rollout evaluator before any exposure widens. Example Stage 2 rollout policy for the first guarded capability:
 
-Policy API:
-
-- `GET /api/platform/release-controls` lists the active release lock and rollout policies.
-- `POST /api/platform/release-controls/release-lock` changes the audited application release lock. Enabling a lock requires `reason`; clearing an active lock requires a concrete `reference`.
-- `PUT /api/platform/release-controls/rollouts/:featureKey` changes a rollout policy for one environment. Every change requires `reason` and `reference`.
-- `GET /api/platform/release-controls/rollouts/:featureKey/decision` evaluates a single subject decision. Non-platform operators can only read decisions for their own account or operator subject.
-
-Example Stage 2 canary policy for the first guarded capability:
-
-```powershell
-$body = @{
-  environment = "production"
-  percentage = 0
-  allowSubjects = @("account:acc_canary")
-  optOutSubjects = @()
-  killSwitchActive = $false
-  reason = "Stage 2 account canary for pricing.account-repricing"
-  reference = "https://github.com/todd-skelton/chase-sets/pull/<pr>"
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method Put -Uri "https://<platform-api>/api/platform/release-controls/rollouts/pricing.account-repricing" -ContentType "application/json" -Body $body
+```json
+{
+  "environment": "production",
+  "featureKey": "pricing.account-repricing",
+  "percentage": 0,
+  "allowSubjects": ["account:acc_canary"],
+  "optOutSubjects": [],
+  "killSwitchActive": false,
+  "reason": "Stage 2 account canary for pricing.account-repricing",
+  "reference": "https://github.com/todd-skelton/chase-sets/pull/<pr>"
+}
 ```
 
 Evaluation order:
@@ -359,23 +281,17 @@ Initial candidate guarded capabilities:
 - live payout actions by operator-controlled seller accounts
 - postage provider label purchase by operator-controlled accounts
 
-Abort an account canary by setting `killSwitchActive=true` for the feature policy. Remove a canary subject by deleting it from `allowSubjects`; opt-out a subject with `optOutSubjects` when the percentage cohort would otherwise include them. Do not expand `percentage` above `0` until release-health and canary-analysis evidence is green for the allowlisted account cohort.
+Abort a rollout by setting `killSwitchActive=true` for the feature policy. Remove a subject by deleting it from `allowSubjects`; opt-out a subject with `optOutSubjects` when the percentage cohort would otherwise include them. Do not expand `percentage` above `0` until release-health evidence is green for the allowlisted account cohort.
 
-Generate deterministic account canary evidence before any percentage rollout:
+Hold any allowlisted account cohort to these policy preconditions before a percentage rollout widens exposure:
 
-```powershell
-pnpm run ops account-canary:evidence --policy-file .\artifacts\release-health\feature-policy.json --feature-key marketplace.public-seller-proof --release-commit <40-char-sha> --account account:acct_canary --out .\artifacts\release-health\account-canary.json
-```
-
-The account canary evidence requires:
-
-- every canary subject is an `account:<id>` subject
-- every canary subject is explicitly allowlisted
+- every cohort subject is an `account:<id>` subject
+- every cohort subject is explicitly allowlisted
 - `percentage` remains `0`
 - `killSwitchActive` is false
-- no canary subject is in `optOutSubjects`
+- no cohort subject is in `optOutSubjects`
 
-The output includes `releaseHealth.canaryCohortSubjectType`, `releaseHealth.canaryCohortSize`, and `releaseHealth.canaryPromotionDecision` so the same cohort and decision can be copied into the release-health artifact. Any blocker returns `promotionDecision: "abort"` and should be handled with the kill switch or allowlist/opt-out policy before exposing more traffic.
+Any policy that violates these preconditions must be corrected with the kill switch or allowlist/opt-out controls before exposing more traffic.
 
 ## Production Gate Categories
 
@@ -437,7 +353,6 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector with optional Prometheus input, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with GitHub API-backed queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with GitHub API-backed queue, staging, production, canary, and drift timing. All of this lives in CI (`.github/workflows`), `scripts/`, and `infrastructure/`; the application does not host release dashboards, release controls, or rollout-policy surfaces. The next implementation steps are:
 
-- configure production Prometheus canary query files after every required signal has stable telemetry and an owner-approved threshold
 - tune merge queue batch size only after at least 10 deployable release-health records meet the SLO posture in this runbook

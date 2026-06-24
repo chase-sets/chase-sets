@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type {
+  SourceObservationLorcanaCardPrintNormalized,
+  SourceObservationLorcanaSealedProductNormalized,
+  SourceObservationLorcanaSetReferenceNormalized,
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationMagicSetReferenceNormalized,
@@ -11,6 +14,7 @@ import type {
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
+  lorcanajsonLorcanaCardReferenceProviderProfile,
   scrydexScryfallCardProviderProfile,
   scrydexOnePieceCardPrintProviderProfile,
   scrydexOnePieceSealedProductProviderProfile,
@@ -413,6 +417,94 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(JSON.stringify(result.plan?.commands)).not.toMatch(/price|inventory|seller|listing/i);
   });
 
+  it("plans Lorcana card-print Catalog Item promotion with Set reference fields", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: lorcanajsonLorcanaCardReferenceProviderProfile,
+      profileKey: "lorcanajson-lorcana-card-reference",
+      profileVersion: "2026.06.23",
+      providerKey: "lorcanajson",
+      externalKey: "card:the-first-chapter:17",
+      mode: "create",
+      catalogItemId: "cat_lorcana_001" as CatalogItemId,
+      normalized: lorcanaCardPrintObservation(),
+      catalog: lorcanaCardPrintCatalogMapping(),
+      setReferenceId: "ref_lorcanajson_lorcana_tfc" as ReferenceRecordId,
+      metadata: { title: "Elsa - Snow Queen", subtitle: "The First Chapter Storyborn" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.review).toEqual({
+      normalizedKind: "lorcana-card-print",
+      commandCount: 15,
+      catalogItemReferencesLinked: 1,
+      sourceProductReferencesLinked: 2,
+    });
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_lorcanajson_lorcana_tfc" },
+        },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["lorcana", "lorcanajson", "set:tfc", "kind:lorcana-card-print", "card-type:storyborn", "ink:amethyst"],
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:1005010",
+        },
+        {
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:2005010",
+          selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+        },
+      ]),
+    );
+  });
+
+  it("plans Lorcana sealed-product Catalog Item promotion without price or inventory facts", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: lorcanaSealedProductProfile(),
+      profileKey: "lorcana-sealed-fixture",
+      profileVersion: "2026.06.23",
+      providerKey: "scrydex",
+      externalKey: "sealed:tfc-booster-box",
+      mode: "create",
+      catalogItemId: "cat_lorcana_sealed_001" as CatalogItemId,
+      normalized: lorcanaSealedProductObservation(),
+      catalog: lorcanaSealedCatalogMapping(),
+      setReferenceId: "ref_lorcanajson_lorcana_tfc" as ReferenceRecordId,
+      metadata: { title: "The First Chapter Booster Box", subtitle: "Lorcana sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_lorcanajson_lorcana_tfc" },
+        },
+        { type: "SetCatalogItemFieldValue", fieldId: "field_sealed_product_form", value: "booster-box" },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["lorcana", "scrydex", "set:tfc", "kind:lorcana-sealed-product", "form:booster-box"],
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:1005020",
+        },
+      ]),
+    );
+    expect(JSON.stringify(result.plan?.commands)).not.toMatch(/price|inventory|seller|listing/i);
+  });
+
   it("blocks incomplete Magic card-print facts before command planning", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: scrydexScryfallCardProviderProfile,
@@ -555,6 +647,42 @@ describe("planCatalogProviderPromotionCommands", () => {
           path: "normalized.kind",
           diagnosticText:
             "One Piece Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path.",
+        },
+      ],
+    });
+  });
+
+  it("blocks Lorcana Set reference observations because the Catalog Item path writes cards or sealed products", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: {
+        ...lorcanajsonLorcanaCardReferenceProviderProfile,
+        normalizedObservationMapping: {
+          ...lorcanajsonLorcanaCardReferenceProviderProfile.normalizedObservationMapping,
+          kind: "lorcana-set-reference",
+        },
+      },
+      profileKey: "lorcanajson-lorcana-set-reference",
+      profileVersion: "2026.06.23",
+      providerKey: "lorcanajson",
+      externalKey: "set:tfc",
+      mode: "create",
+      catalogItemId: "cat_should_not_be_used" as CatalogItemId,
+      normalized: lorcanaSetReferenceObservation(),
+      catalog: lorcanaCardPrintCatalogMapping(),
+      setReferenceId: "ref_lorcanajson_lorcana_tfc" as ReferenceRecordId,
+      metadata: { title: "The First Chapter", subtitle: "Lorcana Set" },
+      productAssetSet: null,
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "unsupported-observation-kind",
+          path: "normalized.kind",
+          diagnosticText:
+            "Lorcana Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path.",
         },
       ],
     });
@@ -738,6 +866,41 @@ function onePieceSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalog
   return {
     blueprintId: "bp_one_piece_sealed_product" as BlueprintId,
     categoryId: "cat_one_piece_sealed_products" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_sealed_product_id" as FieldId,
+      cardName: "field_sealed_product_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_product_kind" as FieldId,
+      cardVariant: "field_sealed_product_form" as FieldId,
+      cardIllustrator: "field_publisher" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
+    },
+  };
+}
+
+function lorcanaCardPrintCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_lorcana_card_print" as BlueprintId,
+    categoryId: "cat_lorcana_card_prints" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_card_number" as FieldId,
+      cardName: "field_card_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_rarity" as FieldId,
+      cardVariant: "field_card_type" as FieldId,
+      cardIllustrator: "field_publisher" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+    },
+  };
+}
+
+function lorcanaSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_lorcana_sealed_product" as BlueprintId,
+    categoryId: "cat_lorcana_sealed_products" as CategoryId,
     fieldIds: {
       cardNumber: "field_sealed_product_id" as FieldId,
       cardName: "field_sealed_product_name" as FieldId,
@@ -976,6 +1139,100 @@ function onePieceSealedProductObservation(
   };
 }
 
+function lorcanaCardPrintObservation(
+  overrides: Partial<SourceObservationLorcanaCardPrintNormalized> = {},
+): SourceObservationLorcanaCardPrintNormalized {
+  return {
+    kind: "lorcana-card-print",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "Elsa - Snow Queen",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    cardNumber: "17",
+    imageUrls: ["https://images.example/lorcana/tfc-17.jpg"],
+    setId: "tfc",
+    setCode: "TFC",
+    rarity: "Legendary",
+    cardType: "Storyborn",
+    inkColor: "Amethyst",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    productLineName: "Disney Lorcana",
+    mergeIdentity: {
+      tcg: "lorcana",
+      productLineName: "Disney Lorcana",
+      setName: "The First Chapter",
+      printedProductName: "Elsa - Snow Queen",
+      collectorNumber: "17",
+      languageCode: "en",
+      productForm: "lorcana-card-print",
+    },
+    externalCatalogItemReferences: [{ providerKey: "TCGPLAYER", externalKey: "PRODUCT:1005010" }],
+    externalProductReferences: [
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:2005010",
+        selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function lorcanaSetReferenceObservation(): SourceObservationLorcanaSetReferenceNormalized {
+  return {
+    kind: "lorcana-set-reference",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "The First Chapter",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    cardNumber: null,
+    imageUrls: [],
+    setId: "tfc",
+    setCode: "TFC",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    cardCount: 204,
+    productLineName: "Disney Lorcana",
+  };
+}
+
+function lorcanaSealedProductObservation(
+  overrides: Partial<SourceObservationLorcanaSealedProductNormalized> = {},
+): SourceObservationLorcanaSealedProductNormalized {
+  return {
+    kind: "lorcana-sealed-product",
+    tcg: "lorcana",
+    languageCode: "en",
+    name: "The First Chapter Booster Box",
+    setName: "The First Chapter",
+    expansionName: "The First Chapter",
+    cardNumber: null,
+    imageUrls: ["https://images.example/lorcana/tfc-booster-box.jpg"],
+    setId: "tfc",
+    setCode: "TFC",
+    sealedProductForm: "booster-box",
+    releaseDate: "2023-08-18",
+    releaseYear: 2023,
+    productLineName: "Disney Lorcana",
+    barcode: null,
+    mergeIdentity: {
+      tcg: "lorcana",
+      productLineName: "Disney Lorcana",
+      setName: "The First Chapter",
+      printedProductName: "The First Chapter Booster Box",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "booster-box",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+    externalProductReferences: [],
+    ...overrides,
+  };
+}
+
 function magicSealedProductProfile(): CatalogProviderIntegrationProfile {
   return {
     ...scrydexScryfallCardProviderProfile,
@@ -985,6 +1242,19 @@ function magicSealedProductProfile(): CatalogProviderIntegrationProfile {
     normalizedObservationMapping: {
       ...scrydexScryfallCardProviderProfile.normalizedObservationMapping,
       kind: "magic-sealed-product",
+    },
+  };
+}
+
+function lorcanaSealedProductProfile(): CatalogProviderIntegrationProfile {
+  return {
+    ...lorcanajsonLorcanaCardReferenceProviderProfile,
+    providerKey: "scrydex",
+    displayName: "Scrydex Lorcana sealed fixture",
+    capabilities: ["catalog-item-promotion"],
+    normalizedObservationMapping: {
+      ...lorcanajsonLorcanaCardReferenceProviderProfile.normalizedObservationMapping,
+      kind: "lorcana-sealed-product",
     },
   };
 }

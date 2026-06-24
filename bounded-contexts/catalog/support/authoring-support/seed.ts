@@ -1,12 +1,27 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "./services";
-import { seedBlueprints, seedMagicBlueprints, seedOnePieceBlueprints } from "../../features/blueprints/api/seed";
+import {
+  seedBlueprints,
+  seedLorcanaBlueprints,
+  seedMagicBlueprints,
+  seedOnePieceBlueprints,
+} from "../../features/blueprints/api/seed";
 import type { BlueprintIds } from "../../features/blueprints/api/seed";
 import { seedCatalogItems } from "../../features/catalog-items/api/seed";
-import { seedCategories, seedMagicCategories, seedOnePieceCategories } from "../../features/categories/api/seed";
+import {
+  seedCategories,
+  seedLorcanaCategories,
+  seedMagicCategories,
+  seedOnePieceCategories,
+} from "../../features/categories/api/seed";
 import type { CategoryIds } from "../../features/categories/api/seed";
-import { seedComponents, seedMagicComponents, seedOnePieceComponents } from "../../features/components/api/seed";
+import {
+  seedComponents,
+  seedLorcanaComponents,
+  seedMagicComponents,
+  seedOnePieceComponents,
+} from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
@@ -15,6 +30,7 @@ import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import {
+  seedLorcanaReferenceData,
   seedMagicReferenceData,
   seedOnePieceReferenceData,
   seedReferenceData,
@@ -67,12 +83,16 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     const fields = await seedFields(services);
     await seedMagicReferenceData(services);
     await seedOnePieceReferenceData(services);
+    await seedLorcanaReferenceData(services);
     const components = await seedMagicComponents(services, dimensions, fields);
     Object.assign(components, await seedOnePieceComponents(services, dimensions, fields));
+    Object.assign(components, await seedLorcanaComponents(services, dimensions, fields));
     await seedMagicBlueprints(services, components, dimensions, fields);
     await seedOnePieceBlueprints(services, components, dimensions, fields);
+    await seedLorcanaBlueprints(services, components, dimensions, fields);
     await seedMagicCategories(services);
     await seedOnePieceCategories(services);
+    await seedLorcanaCategories(services);
     await seedDisplayTemplates(services);
     return {
       ...staticCatalogIntegrationIds(),
@@ -212,8 +232,13 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     rarity: catalogSeedIds.fields.rarity as FieldId,
     "card-variant": catalogSeedIds.fields.cardVariant as FieldId,
     "card-illustrator": catalogSeedIds.fields.cardIllustrator as FieldId,
+    "ink-color": catalogSeedIds.fields.inkColor as FieldId,
+    "card-type": catalogSeedIds.fields.cardType as FieldId,
+    "card-classifications": catalogSeedIds.fields.cardClassifications as FieldId,
+    "card-properties": catalogSeedIds.fields.cardProperties as FieldId,
     "release-year": catalogSeedIds.fields.releaseYear as FieldId,
     "pack-count": catalogSeedIds.fields.packCount as FieldId,
+    "sealed-product-form": catalogSeedIds.fields.sealedProductForm as FieldId,
   };
   const references: CatalogReferenceIds = {
     expansions: {
@@ -235,6 +260,12 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
         "romance-dawn": catalogSeedIds.referenceRecords.sets.romanceDawn,
       },
     },
+    lorcana: {
+      sets: {
+        "the-first-chapter": catalogSeedIds.referenceRecords.sets.lorcanaTheFirstChapter,
+        "d23-collection": catalogSeedIds.referenceRecords.sets.lorcanaD23Collection,
+      },
+    },
   };
   const components: ComponentIds = {
     "single-card-identity": catalogSeedIds.components.singleCardIdentity as ComponentId,
@@ -246,6 +277,9 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     "one-piece-card-print-identity": catalogSeedIds.components.onePieceCardPrintIdentity as ComponentId,
     "one-piece-card-product-resolution": catalogSeedIds.components.onePieceCardProductResolution as ComponentId,
     "one-piece-sealed-product-identity": catalogSeedIds.components.onePieceSealedProductIdentity as ComponentId,
+    "lorcana-card-print-identity": catalogSeedIds.components.lorcanaCardPrintIdentity as ComponentId,
+    "lorcana-card-product-resolution": catalogSeedIds.components.lorcanaCardProductResolution as ComponentId,
+    "lorcana-sealed-product-identity": catalogSeedIds.components.lorcanaSealedProductIdentity as ComponentId,
   };
   const blueprints: BlueprintIds = {
     "pokemon-card-single": catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId,
@@ -254,6 +288,8 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     "magic-sealed-product": catalogSeedIds.blueprints.magicSealedProduct as BlueprintId,
     "one-piece-card-print": catalogSeedIds.blueprints.onePieceCardPrint as BlueprintId,
     "one-piece-sealed-product": catalogSeedIds.blueprints.onePieceSealedProduct as BlueprintId,
+    "lorcana-card-print": catalogSeedIds.blueprints.lorcanaCardPrint as BlueprintId,
+    "lorcana-sealed-product": catalogSeedIds.blueprints.lorcanaSealedProduct as BlueprintId,
   };
   const categories: CategoryIds = {
     "pokemon-tcg": catalogSeedIds.categories.pokemonTcg as CategoryId,
@@ -298,6 +334,21 @@ function staticCatalogIntegrationIds(): CatalogIntegrationIds {
     "one-piece-booster-packs": catalogSeedIds.categories.onePieceBoosterPacks as CategoryId,
     "one-piece-booster-boxes": catalogSeedIds.categories.onePieceBoosterBoxes as CategoryId,
     "one-piece-starter-decks": catalogSeedIds.categories.onePieceStarterDecks as CategoryId,
+    lorcana: catalogSeedIds.categories.lorcana as CategoryId,
+    "lorcana-sets": catalogSeedIds.categories.lorcanaSets as CategoryId,
+    "lorcana-special-sets": catalogSeedIds.categories.lorcanaSpecialSets as CategoryId,
+    "lorcana-card-prints": catalogSeedIds.categories.lorcanaCardPrints as CategoryId,
+    "lorcana-sealed-products": catalogSeedIds.categories.lorcanaSealedProducts as CategoryId,
+    "lorcana-booster-packs": catalogSeedIds.categories.lorcanaBoosterPacks as CategoryId,
+    "lorcana-sleeved-boosters": catalogSeedIds.categories.lorcanaSleevedBoosters as CategoryId,
+    "lorcana-booster-boxes": catalogSeedIds.categories.lorcanaBoosterBoxes as CategoryId,
+    "lorcana-booster-cases": catalogSeedIds.categories.lorcanaBoosterCases as CategoryId,
+    "lorcana-starter-decks": catalogSeedIds.categories.lorcanaStarterDecks as CategoryId,
+    "lorcana-troves": catalogSeedIds.categories.lorcanaTrove as CategoryId,
+    "lorcana-gift-sets": catalogSeedIds.categories.lorcanaGiftSets as CategoryId,
+    "lorcana-collection-starters": catalogSeedIds.categories.lorcanaCollectionStarters as CategoryId,
+    "lorcana-prerelease-boxes": catalogSeedIds.categories.lorcanaPrereleaseBoxes as CategoryId,
+    "lorcana-quests-and-product-bundles": catalogSeedIds.categories.lorcanaQuestsAndProductBundles as CategoryId,
   };
 
   return {

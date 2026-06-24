@@ -102,6 +102,7 @@ export function commandResponse(id: string, version: number, status = "accepted"
 const RESPONSE_METADATA = Symbol.for("@chase-sets/http.response-metadata");
 const FRESH_WRITE_PARAM = "afterWrite";
 const POST_WRITE_HANDOFF_PARAM = "postWriteHandoff";
+export const POST_WRITE_TOKEN_PARAM = "postWriteToken";
 const DEFAULT_FRESH_WRITE_MAX_AGE_MS = 30_000;
 const DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS = 5_000;
 const DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS = [75, 150, 300, 600, 1_000] as const;
@@ -168,6 +169,25 @@ export type PostWriteHandoff = Readonly<{
   expectation: PostWriteHandoffExpectation;
   surface?: string;
 }>;
+
+export type PostWriteTokenPayload = Readonly<{
+  receipt: FreshWriteReceipt;
+  handoff?: PostWriteHandoff;
+}>;
+
+export type StorePostWriteTokenOptions = Readonly<{
+  nowMs: number;
+  ttlMs: number;
+}>;
+
+export type PostWriteTokenResolver = Readonly<{
+  resolvePostWriteToken: (token: string) => Promise<PostWriteTokenPayload | null>;
+}>;
+
+export type PostWriteTokenStore = PostWriteTokenResolver &
+  Readonly<{
+    storePostWriteToken: (payload: PostWriteTokenPayload, options: StorePostWriteTokenOptions) => Promise<string>;
+  }>;
 
 export type PostWriteHandoffState =
   | Readonly<{ kind: "missing"; handoff: null; freshWrite: FreshWriteTokenState }>
@@ -441,6 +461,18 @@ export function encodeFreshWriteReceipt(receipt: FreshWriteReceipt): string {
   return encodeURIComponent(JSON.stringify(receipt));
 }
 
+function normalizeFreshWriteReceipt(receipt: FreshWriteReceipt): FreshWriteReceipt {
+  return {
+    observedAtMs: Number(receipt.observedAtMs),
+    ...(receipt.commitPosition ? { commitPosition: receipt.commitPosition } : {}),
+    sources: receipt.sources.map((source) => ({
+      sourceContextName: source.sourceContextName,
+      maxGlobalPosition: source.maxGlobalPosition,
+      eventIds: [...source.eventIds],
+    })),
+  };
+}
+
 function validFreshWriteState(receipt: FreshWriteReceipt, nowMs: number, maxAgeMs: number, clockSkewMs: number) {
   const ageMs = nowMs - receipt.observedAtMs;
   if (ageMs < -clockSkewMs) {
@@ -486,13 +518,7 @@ function decodeFreshWriteReceiptState(
       return { kind: "malformed", receipt: null };
     }
 
-    const receipt = {
-      observedAtMs: Number(parsed.observedAtMs),
-      ...(parsed.commitPosition ? { commitPosition: parsed.commitPosition } : {}),
-      sources: parsed.sources,
-    };
-
-    return validFreshWriteState(receipt, nowMs, maxAgeMs, clockSkewMs);
+    return validFreshWriteState(normalizeFreshWriteReceipt(parsed), nowMs, maxAgeMs, clockSkewMs);
   } catch {
     return { kind: "malformed", receipt: null };
   }
@@ -597,6 +623,29 @@ function isPostWriteHandoff(value: unknown): value is PostWriteHandoff {
   );
 }
 
+export function isPostWriteTokenPayload(value: unknown): value is PostWriteTokenPayload {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(payload, ["receipt", "handoff"]) &&
+    isFreshWriteReceipt(payload.receipt) &&
+    (payload.handoff === undefined || isPostWriteHandoff(payload.handoff))
+  );
+}
+
+export function isCompactPostWriteToken(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/.test(value);
+}
+
+function assertCompactPostWriteToken(token: string) {
+  if (!isCompactPostWriteToken(token)) {
+    throw new TypeError("Compact post-write tokens must be opaque URL-safe identifiers.");
+  }
+}
+
 export function encodePostWriteHandoff(handoff: PostWriteHandoff): string {
   if (!isPostWriteHandoff(handoff)) {
     throw new TypeError("Post-write handoff metadata must use safe semantic fields only.");
@@ -616,6 +665,67 @@ function decodePostWriteHandoff(value: string | null | undefined): "missing" | "
   } catch {
     return "malformed";
   }
+}
+
+export function createPostWriteTokenPayload(
+  source: unknown,
+  options: Readonly<{ handoff?: PostWriteHandoff; nowMs?: number }> = {},
+): PostWriteTokenPayload | null {
+  return createPostWriteTokenPayloadFromSources([source], options);
+}
+
+export function createPostWriteTokenPayloadFromSources(
+  sources: readonly unknown[],
+  options: Readonly<{ handoff?: PostWriteHandoff; nowMs?: number }> = {},
+): PostWriteTokenPayload | null {
+  if (options.handoff && !isPostWriteHandoff(options.handoff)) {
+    throw new TypeError("Post-write handoff metadata must use safe semantic fields only.");
+  }
+
+  const receipt = freshWriteReceiptFromMetadataSources(sources, options.nowMs ?? Date.now());
+  if (!receipt) {
+    return null;
+  }
+
+  return {
+    receipt,
+    ...(options.handoff ? { handoff: options.handoff } : {}),
+  };
+}
+
+export function appendCompactPostWriteToken(path: string, token: string): string {
+  assertCompactPostWriteToken(token);
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.delete(FRESH_WRITE_PARAM);
+  url.searchParams.delete(POST_WRITE_HANDOFF_PARAM);
+  url.searchParams.set(POST_WRITE_TOKEN_PARAM, token);
+  return pathFromUrl(url, path);
+}
+
+export function readCompactPostWriteToken(requestOrUrl: Request | string | URL): string | null {
+  const url =
+    requestOrUrl instanceof URL
+      ? requestOrUrl
+      : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
+  const token = url.searchParams.get(POST_WRITE_TOKEN_PARAM);
+  return isCompactPostWriteToken(token) ? token : null;
+}
+
+export function materializePostWriteTokenPayload(path: string, payload: PostWriteTokenPayload): string {
+  if (!isPostWriteTokenPayload(payload)) {
+    throw new TypeError("Post-write token payloads must contain only fresh-write receipt and safe handoff metadata.");
+  }
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.delete(POST_WRITE_TOKEN_PARAM);
+  url.searchParams.set(FRESH_WRITE_PARAM, encodeFreshWriteReceipt(normalizeFreshWriteReceipt(payload.receipt)));
+  if (payload.handoff) {
+    url.searchParams.set(POST_WRITE_HANDOFF_PARAM, encodePostWriteHandoff(payload.handoff));
+  } else {
+    url.searchParams.delete(POST_WRITE_HANDOFF_PARAM);
+  }
+  return pathFromUrl(url, path);
 }
 
 function appendPostWriteHandoffFromMetadataSources(

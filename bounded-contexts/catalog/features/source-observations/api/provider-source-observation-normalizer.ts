@@ -204,6 +204,26 @@ function validateNormalizedObservationContract(
       requireNormalizedLiteral(normalized, "tcg", "one-piece", diagnostics);
       requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
       return;
+    case "lorcana-card-print":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "cardNumber", diagnostics);
+      requireNormalizedString(normalized, "setId", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "lorcana", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+    case "lorcana-set-reference":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setId", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "lorcana", diagnostics);
+      return;
+    case "lorcana-sealed-product":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "sealedProductForm", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "lorcana", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
   }
 }
 

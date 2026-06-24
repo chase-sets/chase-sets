@@ -7,7 +7,7 @@ import type { BlueprintIds } from "../../blueprints/api/seed";
 import type { CategoryIds } from "../../categories/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
 import type { CatalogReferenceIds } from "../../reference-data/api/seed";
-import type { LocalizedTextMap } from "../../../support/runtime-support/common";
+import type { CatalogValue, LocalizedTextMap } from "../../../support/runtime-support/common";
 
 export async function seedCatalogItems(
   services: CatalogServices,
@@ -23,6 +23,8 @@ export async function seedCatalogItems(
     "pokemon-sealed-product": [fields.expansion, fields["pack-count"]],
     "one-piece-card-print": [fields["card-number"], fields["card-name"], fields.set],
     "one-piece-sealed-product": [fields.set, fields["pack-count"]],
+    "lorcana-card-print": [fields["card-number"], fields["card-name"], fields.set],
+    "lorcana-sealed-product": [fields.set, fields["sealed-product-form"]],
   };
 
   type ItemDef = {
@@ -32,7 +34,7 @@ export async function seedCatalogItems(
     subtitle: LocalizedTextMap;
     description: LocalizedTextMap;
     blueprintKey: string;
-    fieldValues: [string, string | number | LocalizedTextMap | { referenceId: string }][];
+    fieldValues: [string, CatalogValue][];
     categoryKeys: string[];
     tags: string[];
     externalCatalogItemReferences?: Array<{
@@ -52,6 +54,9 @@ export async function seedCatalogItems(
   });
   const setReference = (key: keyof CatalogReferenceIds["onePiece"]["sets"]) => ({
     referenceId: references.onePiece.sets[key],
+  });
+  const lorcanaSetReference = (key: keyof CatalogReferenceIds["lorcana"]["sets"]) => ({
+    referenceId: references.lorcana.sets[key],
   });
 
   const items: ItemDef[] = [
@@ -363,6 +368,76 @@ export async function seedCatalogItems(
         },
       ],
     },
+    {
+      itemId: catalogSeedIds.items.lorcanaElsaSnowQueen as CatalogItemId,
+      languageCode: "en",
+      title: l10n("Elsa - Snow Queen"),
+      subtitle: l10n("The First Chapter 41/204 Amethyst Super Rare"),
+      description: l10n(
+        "A representative Disney Lorcana card print whose variants, ink, card type, classifications, properties, and artist facts fit the existing Catalog field model.",
+      ),
+      blueprintKey: "lorcana-card-print",
+      fieldValues: [
+        ["card-number", "41/204"],
+        ["card-name", l10n("Elsa - Snow Queen")],
+        ["set", lorcanaSetReference("the-first-chapter")],
+        ["rarity", "Super Rare"],
+        ["card-variant", "Standard"],
+        ["ink-color", "Amethyst"],
+        ["card-type", "Character"],
+        ["card-classifications", ["Storyborn", "Hero", "Queen"]],
+        ["card-properties", ["Frozen"]],
+        ["card-illustrator", "Nicholas Kole"],
+        ["release-year", 2023],
+      ],
+      categoryKeys: ["lorcana", "lorcana-card-prints"],
+      tags: ["lorcana", "the-first-chapter", "elsa", "amethyst", "standard"],
+      imageFallback: lorcanaCardBack(),
+      externalCatalogItemReferences: [
+        {
+          providerKey: "lorcanajson",
+          externalKey: "card:1-041",
+        },
+        {
+          providerKey: "lorcast",
+          externalKey: "card:crd_elsa_snow_queen_1_041",
+        },
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:1005010",
+        },
+      ],
+    },
+    {
+      itemId: catalogSeedIds.items.lorcanaTheFirstChapterBoosterBox as CatalogItemId,
+      languageCode: "en",
+      title: l10n("The First Chapter Booster Box"),
+      subtitle: l10n("Sealed booster box / display"),
+      description: l10n("A factory sealed Disney Lorcana The First Chapter booster display containing 24 packs."),
+      blueprintKey: "lorcana-sealed-product",
+      fieldValues: [
+        ["set", lorcanaSetReference("the-first-chapter")],
+        ["sealed-product-form", "booster-box-display"],
+        ["release-year", 2023],
+        ["pack-count", 24],
+      ],
+      categoryKeys: ["lorcana", "lorcana-sealed-products", "lorcana-booster-boxes"],
+      tags: ["lorcana", "the-first-chapter", "booster-box", "booster-display", "sealed"],
+      imageFallback: lorcanaSealedFallback(),
+      externalCatalogItemReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:1005020",
+        },
+      ],
+      externalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:9001005020",
+          selectedOptions: [],
+        },
+      ],
+    },
   ];
 
   for (const item of items) {
@@ -460,6 +535,18 @@ function onePieceSealedFallback(): CatalogItemImageFallback {
   return imageFallback(
     "/fake-cdn/assets/one-piece-card-back.png",
     "One Piece sealed product loading image",
+    "loading-only",
+  );
+}
+
+function lorcanaCardBack(): CatalogItemImageFallback {
+  return imageFallback("/fake-cdn/assets/lorcana-card-back.png", "Disney Lorcana card back", "permanent");
+}
+
+function lorcanaSealedFallback(): CatalogItemImageFallback {
+  return imageFallback(
+    "/fake-cdn/assets/lorcana-card-back.png",
+    "Disney Lorcana sealed product loading image",
     "loading-only",
   );
 }

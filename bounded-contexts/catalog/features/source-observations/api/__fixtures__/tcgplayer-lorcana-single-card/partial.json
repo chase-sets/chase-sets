@@ -1,0 +1,50 @@
+{
+  "observationId": "tcgplayer_lorcana_product_partial",
+  "sourceUrl": "https://www.tcgplayer.com/product/partial",
+  "sourceUpdatedAt": "2026-06-23T00:00:00.000Z",
+  "productId": 1005010,
+  "productName": "Elsa - Snow Queen",
+  "setName": "The First Chapter",
+  "productLineId": 82,
+  "productLineName": "Disney Lorcana",
+  "productTypeName": "Cards",
+  "customAttributes": { "number": "41" },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": ["sku:9001005010"],
+  "externalCatalogItemReferences": [{ "providerKey": "tcgplayer", "externalKey": "product:1005010" }],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:9001005010",
+      "selectedOptions": [
+        { "dimensionKey": "condition", "optionKey": "near-mint", "providerValue": "Near Mint" },
+        { "dimensionKey": "printing", "optionKey": "normal", "providerValue": "Normal" },
+        { "dimensionKey": "language", "optionKey": "english", "providerValue": "English" }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "Elsa - Snow Queen",
+    "collectorNumber": "41",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 1005010,
+    "productName": "Elsa - Snow Queen",
+    "setName": "The First Chapter",
+    "productLineName": "Disney Lorcana",
+    "productForm": "single",
+    "skuIds": [9001005010]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "partial"
+  }
+}

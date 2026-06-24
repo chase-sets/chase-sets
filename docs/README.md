@@ -73,6 +73,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
 - [Account Cart Consistency Canary](./runbooks/account-cart-consistency-canary.md): redacted account-cart post-write consistency evidence for optimistic apply, reconciliation, stale-response discard, rollback probes, and privacy constraints.
+- [Non-Buy-Now Post-Write Freshness UAT](./runbooks/non-buy-now-post-write-freshness-uat.md): Chrome staging checklist and redacted evidence shape for account cart, Sell List, payout-ready, and listing freshness flows not covered by the Buy Now canary.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
@@ -85,6 +86,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
 - [Magic Provider Sync Operations](./runbooks/magic-provider-sync-operations.md): MTGJSON, Scryfall, and TCGplayer credential posture, production defaults, rotation, and emergency disablement.
 - [One Piece Provider Sync Operations](./runbooks/one-piece-provider-sync-operations.md): Scrydex and TCGplayer One Piece credential posture, bulk-first credit-aware imports, UI-only UAT, and emergency disablement.
+- [Lorcana Provider Sync Operations](./runbooks/lorcana-provider-sync-operations.md): LorcanaJSON, Lorcast, Scrydex, and TCGplayer Lorcana runtime posture, bulk-first imports, shared Scrydex credentials, UI-only UAT, and emergency disablement.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
@@ -145,6 +147,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Primary Workbench Admin Contract](../bounded-contexts/catalog/docs/primary-workbench-admin-contract.md)
 - [Catalog Integration New-Provider Walkthrough](../bounded-contexts/catalog/docs/catalog-integration-new-provider-walkthrough.md)
 - [Catalog Integration MTGJSON And Scryfall Validation](../bounded-contexts/catalog/docs/catalog-integration-mtgjson-scryfall-validation.md)
+- [Catalog Integration Lorcana Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-lorcana-production-signoff.md)
 - [Catalog Integration Milestone Release Plan](../bounded-contexts/catalog/docs/catalog-integration-milestone-release-plan.md)
 - [Catalog Source Conflict Resolution](../bounded-contexts/catalog/docs/source-conflict-resolution.md)
 - [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)

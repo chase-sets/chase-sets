@@ -4,10 +4,7 @@ Platform Operations owns internal operator workflows for cross-context platform 
 
 ## Owns
 
-- Projection operation console journeys
-- Release health and release dashboard operator language
-- Release lock and emergency release workflow language
-- Feature rollout, allowlist, opt-out, and kill-switch policy
+- Projection operation console journeys (`features/projection-operations`)
 - Platform operation UI language
 - Platform operation admin route modules
 - Platform operation API clients
@@ -50,6 +47,6 @@ Support operations readiness lives in [Support operations readiness](docs/suppor
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.
 
-Release controls and release dashboards are operator-facing platform controls, not business ownership transfers. Platform Operations owns the rollout, lock, production-currency, and release-health language, deterministic evaluation rules, and operator audit policy. The bounded context that owns the behavior still decides the domain invariant and calls the rollout decision only as an exposure guard.
+Software delivery is not modeled by this application. Release health, release locks, emergency releases, canary analysis, feature rollout, and kill-switch behavior live in CI (`.github/workflows`), `scripts/`, and `infrastructure/`. See [Release Process Evolution](../../docs/runbooks/release-process-evolution.md). Platform Operations does not host release dashboards, release controls, or rollout-policy surfaces.
 
 Deployables compose Platform Operations routes. They should not own page behavior, view models, workflow state, or route tests.

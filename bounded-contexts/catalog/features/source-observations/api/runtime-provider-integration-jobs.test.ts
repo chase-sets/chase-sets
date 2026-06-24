@@ -212,6 +212,42 @@ describe("source observation runtime: provider integration jobs", () => {
 
     expect(providers).toEqual([
       expect.objectContaining({
+        providerKey: "lorcanajson",
+        value: "lorcanajson",
+        label: "LorcanaJSON",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "lorcanajson-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "lorcanajson",
+        value: "lorcanajson",
+        label: "LorcanaJSON Set Reference",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "lorcanajson-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "lorcast",
+        value: "lorcast",
+        label: "Lorcast",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "lorcast-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "lorcast",
+        value: "lorcast",
+        label: "Lorcast Set Reference",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "lorcast-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "mtgjson",
         value: "mtgjson",
         label: "MTGJSON",
@@ -232,10 +268,37 @@ describe("source observation runtime: provider integration jobs", () => {
       expect.objectContaining({
         providerKey: "scrydex",
         value: "scrydex",
+        label: "Scrydex Lorcana Cards",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex Lorcana Set Reference",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex Lorcana Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scrydex-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
         label: "Scrydex One Piece Cards",
         metadata: expect.objectContaining({
           status: "active",
-          connectorKind: "scrydex-one-piece-json",
+          connectorKind: "scrydex-json",
         }),
       }),
       expect.objectContaining({
@@ -244,7 +307,7 @@ describe("source observation runtime: provider integration jobs", () => {
         label: "Scrydex One Piece Set Reference",
         metadata: expect.objectContaining({
           status: "active",
-          connectorKind: "scrydex-one-piece-json",
+          connectorKind: "scrydex-json",
         }),
       }),
       expect.objectContaining({
@@ -253,7 +316,7 @@ describe("source observation runtime: provider integration jobs", () => {
         label: "Scrydex One Piece Sealed Products",
         metadata: expect.objectContaining({
           status: "active",
-          connectorKind: "scrydex-one-piece-json",
+          connectorKind: "scrydex-json",
         }),
       }),
       expect.objectContaining({
@@ -278,6 +341,24 @@ describe("source observation runtime: provider integration jobs", () => {
         providerKey: "tcgplayer",
         value: "tcgplayer",
         label: "TCGplayer One Piece Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer Lorcana Single Cards",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer Lorcana Sealed Products",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "tcgplayer-automation-client",
@@ -537,6 +618,56 @@ describe("source observation runtime: provider integration jobs", () => {
           metadata: expect.objectContaining({
             collectorNumber: "157",
             scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+          }),
+        }),
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("lists Lorcast set and card options through the public API adapter", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = lorcastFetch() as typeof globalThis.fetch;
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    try {
+      const sets = await services.listIntegrationOptions({
+        providerKey: "lorcast",
+        queryKind: "sets",
+        ingestionUnitKey: "lorcast:lorcana:set:reference-data",
+      });
+      const cards = await services.listIntegrationOptions({
+        providerKey: "lorcast",
+        queryKind: "cards",
+        ingestionUnitKey: "lorcast:lorcana:single-card:reference-data",
+        parentValue: "1",
+      });
+
+      expect(sets).toEqual([
+        expect.objectContaining({
+          providerKey: "lorcast",
+          queryKind: "sets",
+          value: "1",
+          label: "The First Chapter",
+          metadata: expect.objectContaining({ cacheGuidance: "cache-at-least-24h" }),
+        }),
+      ]);
+      expect(cards).toEqual([
+        expect.objectContaining({
+          providerKey: "lorcast",
+          queryKind: "cards",
+          value: "crd_elsa_snow_queen_1_041",
+          label: "Elsa - Snow Queen #41",
+          parentValue: "1",
+          imageUrl: "https://cards.lorcast.io/card/digital/large/crd_elsa_snow_queen_1_041.avif",
+          metadata: expect.objectContaining({
+            cardNumber: "41",
+            tcgplayerProductId: "1005010",
           }),
         }),
       ]);
@@ -1644,6 +1775,59 @@ function mtgjsonFetch(): typeof globalThis.fetch {
         ],
       },
     },
+  };
+
+  return (async (input: RequestInfo | URL) => {
+    const body = responses[String(input)];
+    if (!body) {
+      return new Response(null, { status: 404 });
+    }
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+}
+
+function lorcastFetch(): typeof globalThis.fetch {
+  const responses: Record<string, unknown> = {
+    "https://api.lorcast.com/v0/sets": {
+      results: [
+        {
+          id: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+          code: "1",
+          name: "The First Chapter",
+          released_at: "2023-08-18",
+          prereleased_at: "2023-08-18",
+        },
+      ],
+    },
+    "https://api.lorcast.com/v0/sets/1/cards": [
+      {
+        id: "crd_elsa_snow_queen_1_041",
+        name: "Elsa",
+        version: "Snow Queen",
+        released_at: "2023-08-18",
+        image_uris: {
+          digital: {
+            large: "https://cards.lorcast.io/card/digital/large/crd_elsa_snow_queen_1_041.avif",
+          },
+        },
+        ink: "Amethyst",
+        type: ["Character"],
+        rarity: "Super Rare",
+        collector_number: "41",
+        lang: "en",
+        tcgplayer_id: 1005010,
+        set: {
+          id: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+          code: "1",
+          name: "The First Chapter",
+        },
+        prices: { usd: "1.23" },
+      },
+    ],
   };
 
   return (async (input: RequestInfo | URL) => {

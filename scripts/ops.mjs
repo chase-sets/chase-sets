@@ -16,18 +16,6 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 
 export const SUBCOMMANDS = {
-  "account-canary:evidence": {
-    script: "account-canary-evidence.mjs",
-    description: "Deterministic account-cohort canary evidence record.",
-  },
-  "canary:analysis": {
-    script: "canary-analysis.mjs",
-    description: "Analyze canary telemetry and emit a promotion decision.",
-  },
-  "canary:evidence": {
-    script: "canary-evidence.mjs",
-    description: "Collect canary observation-window evidence for a release commit.",
-  },
   "design-system:legacy-evidence": {
     script: "design-system-legacy-evidence.mjs",
     description: "Design-system legacy visual/accessibility evidence record.",
@@ -119,6 +107,10 @@ export const SUBCOMMANDS = {
   "postage-policy:cleanup-evidence": {
     script: "postage-policy-cleanup-evidence.mjs",
     description: "Postage policy cleanup evidence from ordering/fulfillment data.",
+  },
+  "push-wake:capacity-evidence": {
+    script: "push-wake-capacity-evidence.mjs",
+    description: "CI-safe push-wake connection budget and listener expansion evidence.",
   },
   "pr-release:status": {
     script: "pr-release-status.mjs",

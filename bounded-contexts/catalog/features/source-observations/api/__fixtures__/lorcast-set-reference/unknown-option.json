@@ -1,0 +1,26 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_set_en_unknown_option",
+  "externalKey": "set:1X",
+  "sourceUrl": "fixture://lorcast/sets/1X",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": { "provider": "lorcast", "fixtureFlow": "unknown-option" },
+  "catalogHashMaterial": {
+    "provider": "lorcast",
+    "setId": "1X",
+    "setCode": "1X",
+    "setName": "The First Chapter Unknown Option",
+    "releaseDate": "2023-08-18",
+    "cardCount": null
+  },
+  "externalCatalogItemReferences": [],
+  "setId": "1X",
+  "setCode": "1X",
+  "setName": "The First Chapter Unknown Option",
+  "name": "The First Chapter Unknown Option",
+  "releaseDate": "2023-08-18",
+  "prereleaseDate": null,
+  "releaseYear": "2023",
+  "cardCount": null
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "lorcana-sealed-product",
+  "sealedProduct": {
+    "id": "tfc-unknown-sealed",
+    "name": "Unknown Lorcana Sealed Product",
+    "type": "Mystery Product",
+    "language_code": "en",
+    "expansion": {
+      "id": "1",
+      "name": "The First Chapter",
+      "code": "TFC",
+      "total": 204,
+      "release_date": "2023-08-18",
+      "language_code": "en"
+    }
+  },
+  "sourceUrl": "https://api.scrydex.com/lorcana/v1/expansions/1/sealed"
+}

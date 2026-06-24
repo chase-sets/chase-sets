@@ -42,8 +42,6 @@ These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL
 | SMOKE-PAGE-SUPPORT-REQUESTS | `/support/requests` | SMOKE-SHELL-SUPPORT, SMOKE-API-MARKETPLACE-SUPPORT-REQUESTS |
 | SMOKE-PAGE-SUPPORT-PLATFORM-FEEDBACK | `/support/platform-feedback` | SMOKE-SHELL-SUPPORT, SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK |
 | SMOKE-PAGE-PLATFORM-PROJECTIONS | `/platform/projections` | SMOKE-SHELL-PLATFORM, SMOKE-API-PLATFORM-PROJECTIONS |
-| SMOKE-PAGE-PLATFORM-RELEASE-DASHBOARD | `/platform/release-dashboard` | SMOKE-SHELL-PLATFORM |
-| SMOKE-PAGE-PLATFORM-RELEASE-CONTROLS | `/platform/release-controls` | SMOKE-SHELL-PLATFORM, SMOKE-API-PLATFORM-RELEASE-CONTROLS |
 
 ## Partial-Actor Rows
 
@@ -88,7 +86,6 @@ These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test --
 | SMOKE-API-MARKETPLACE-SUPPORT-REQUESTS | API-MARKETPLACE-SUPPORT-REQUESTS | `/api/marketplace/support-requests/ops` | server-loader/action | Support request operations loaders/actions reach Support through the approved internal-origin topology. |
 | SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK | API-EXPERIENCE-PLATFORM-FEEDBACK | `/api/experience` | server-loader/action | Platform Feedback loaders/actions reach Experience through admin-support API route or internal origin. |
 | SMOKE-API-PLATFORM-PROJECTIONS | API-PLATFORM-PROJECTIONS | `/api/platform/projections` | server-loader/action | Authenticated API/data evidence or controlled-unavailable state; must fail if routed to the wrong deployed component. |
-| SMOKE-API-PLATFORM-RELEASE-CONTROLS | API-PLATFORM-RELEASE-CONTROLS | `/api/platform/release-controls` | server-loader/action | Authenticated API/data evidence or controlled-unavailable state; must use approved internal-origin/topology contract. |
 | SMOKE-API-WAITLIST-EXPORT | API-PUBLIC-PRESENCE-WAITLIST-EXPORT | `/api/public-presence/admin/waitlist/export` | direct-download | Direct navigation/download returns CSV or a controlled authorization response from the intended component. |
 | SMOKE-API-CATALOG-REALTIME | API-CATALOG-REALTIME-ACCOUNT-EVENTS | `/api/realtime/account/events` | EventSource | SSE opens or returns a controlled authorization response; no host-level 404 or HTML fallback. |
 | SMOKE-API-CATALOG-INTEGRATION-JOB-STREAM | API-CATALOG-SOURCE-OBS-INTEGRATION-JOB-EVENTS | `/api/catalog/source-observations/integration-jobs/:jobId/events` | durable-job EventSource | SSE opens or returns controlled authorization/not-found response; no host-level 404 or HTML fallback. |
