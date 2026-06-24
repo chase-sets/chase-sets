@@ -379,8 +379,12 @@ export function createScrydexOnePieceProviderAdapter(
           plan.scope.values.expansionId,
           `Scrydex ${productLabel} set reference payload fetch requires expansionId.`,
         );
-        const sourceUrl = scrydexUrl(`expansions/${encodeURIComponent(expansionId)}`, {}, options, productDomain);
-        const expansion = sanitizeScrydexExpansion(await fetchScrydexJson(sourceUrl, options));
+        const { expansion, sourceUrl } = await fetchScrydexExpansionForSetReference({
+          expansionId,
+          options,
+          productDomain,
+          productLabel,
+        });
         yield scrydexEnvelope({
           unitKey: plan.unitKey,
           externalKey: `set:${requireString(
@@ -509,12 +513,13 @@ export function createScrydexOnePieceProviderAdapter(
         plan.scope.values.expansionId,
         `Scrydex ${productLabel} expansion sealed-product payload fetch requires expansionId.`,
       );
-      const pages = await fetchScrydexPagedJson<ScrydexOnePieceSealedProduct>(
-        `expansions/${encodeURIComponent(expansionId)}/sealed`,
-        { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
+      const pages = await fetchScrydexExpansionChildPagedJson<ScrydexOnePieceSealedProduct>({
+        expansionId,
+        childPath: "sealed",
+        query: { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
         options,
         productDomain,
-      );
+      });
       const sealedProducts = pages.flatMap((page) =>
         page.items.map((sealedProduct) => ({
           sealedProduct: sanitizeScrydexSealedProduct(sealedProduct),
@@ -1180,6 +1185,97 @@ async function fetchScrydexExpansions(
   return pages.flatMap((page) => page.items.map(sanitizeScrydexExpansion));
 }
 
+async function fetchScrydexExpansionForSetReference(input: {
+  expansionId: string;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+  productLabel: string;
+}): Promise<Readonly<{ expansion: ScrydexOnePieceExpansion; sourceUrl: string }>> {
+  const sourceUrl = scrydexUrl(
+    `expansions/${encodeURIComponent(input.expansionId)}`,
+    {},
+    input.options,
+    input.productDomain,
+  );
+  let detailError: unknown = null;
+  try {
+    const expansion = sanitizeScrydexExpansion(
+      extractScrydexSingleRecord(await fetchScrydexJson(sourceUrl, input.options)),
+    );
+    if (hasScrydexExpansionIdentity(expansion)) {
+      return { expansion, sourceUrl };
+    }
+  } catch (error) {
+    if (!isScrydexMissingExpansionDetailError(error)) {
+      throw error;
+    }
+    detailError = error;
+  }
+
+  const fallback = await findScrydexExpansionFromList({
+    expansionId: input.expansionId,
+    options: input.options,
+    productDomain: input.productDomain,
+  });
+  if (fallback) {
+    return fallback;
+  }
+  if (detailError) {
+    throw detailError;
+  }
+
+  throw new Error(`Scrydex ${input.productLabel} set reference payload is missing id or name.`);
+}
+
+async function fetchScrydexExpansionChildPagedJson<TItem>(input: {
+  expansionId: string;
+  childPath: string;
+  query: Readonly<Record<string, string>>;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+}): Promise<readonly ScrydexPage<TItem>[]> {
+  const path = (expansionId: string) => `expansions/${encodeURIComponent(expansionId)}/${input.childPath}`;
+  try {
+    return await fetchScrydexPagedJson<TItem>(path(input.expansionId), input.query, input.options, input.productDomain);
+  } catch (error) {
+    if (!isScrydexMissingExpansionDetailError(error)) {
+      throw error;
+    }
+    const fallback = await findScrydexExpansionFromList({
+      expansionId: input.expansionId,
+      options: input.options,
+      productDomain: input.productDomain,
+    });
+    const fallbackExpansionId = stringValue(fallback?.expansion.id);
+    if (!fallbackExpansionId || fallbackExpansionId === input.expansionId) {
+      throw error;
+    }
+    return fetchScrydexPagedJson<TItem>(path(fallbackExpansionId), input.query, input.options, input.productDomain);
+  }
+}
+
+async function findScrydexExpansionFromList(input: {
+  expansionId: string;
+  options: ScrydexOnePieceProviderAdapterOptions;
+  productDomain: ScrydexProductDomain;
+}): Promise<Readonly<{ expansion: ScrydexOnePieceExpansion; sourceUrl: string }> | null> {
+  const pages = await fetchScrydexPagedJson<ScrydexOnePieceExpansion>(
+    "expansions",
+    { page_size: String(scrydexExpansionPageSize), select: scrydexExpansionSelect },
+    input.options,
+    input.productDomain,
+  );
+  for (const page of pages) {
+    for (const item of page.items) {
+      const expansion = sanitizeScrydexExpansion(item);
+      if (scrydexExpansionMatchesSelectedValue(expansion, input.expansionId)) {
+        return { expansion, sourceUrl: page.sourceUrl };
+      }
+    }
+  }
+  return null;
+}
+
 async function fetchScrydexPagedJson<TItem>(
   path: string,
   query: Readonly<Record<string, string>>,
@@ -1453,6 +1549,47 @@ function extractScrydexItems<TItem>(body: JsonValue): readonly TItem[] {
     return results as TItem[];
   }
   return [];
+}
+
+function extractScrydexSingleRecord(body: JsonValue): JsonValue {
+  if (!isJsonRecord(body)) {
+    return body;
+  }
+
+  for (const key of ["data", "item", "result", "record", "expansion"]) {
+    const value = body[key];
+    if (isJsonRecord(value)) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      const firstRecord = value.find(isJsonRecord);
+      if (firstRecord) {
+        return firstRecord;
+      }
+    }
+  }
+
+  return body;
+}
+
+function hasScrydexExpansionIdentity(expansion: ScrydexOnePieceExpansion): boolean {
+  return Boolean(stringValue(expansion.id) && stringValue(expansion.name));
+}
+
+function isScrydexMissingExpansionDetailError(error: unknown): boolean {
+  return error instanceof ScrydexTransportError && error.diagnosticCode === "provider-request-failed";
+}
+
+function scrydexExpansionMatchesSelectedValue(expansion: ScrydexOnePieceExpansion, selectedValue: string): boolean {
+  const selected = normalizedScrydexExpansionMatchValue(selectedValue);
+  return [expansion.id, expansion.code, expansion.name]
+    .map(stringValue)
+    .filter((value): value is string => Boolean(value))
+    .some((value) => normalizedScrydexExpansionMatchValue(value) === selected);
+}
+
+function normalizedScrydexExpansionMatchValue(value: string): string {
+  return normalizePlanSegment(value);
 }
 
 function expansionOptionItem(expansion: ScrydexOnePieceExpansion): ProviderOptionItem {
