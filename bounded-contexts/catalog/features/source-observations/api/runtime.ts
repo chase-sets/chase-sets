@@ -141,6 +141,11 @@ import {
   unitKeyForCatalogProviderProfileVersion,
   type CatalogIntegrationImpactJobSample,
 } from "./catalog-integration-impact-analysis";
+import {
+  previewCatalogSyncProviderParticipation,
+  type CatalogSyncProviderParticipationPreview,
+  type CatalogSyncScope,
+} from "./catalog-sync-scope-planner";
 import type {
   CatalogAdminReplayReapplyImpactSummaryReadModel,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
@@ -844,6 +849,10 @@ export type BulkReviewJobServices = Readonly<{
 }>;
 
 export type IntegrationJobServices = Readonly<{
+  previewCatalogSyncScope: (input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+  }) => Promise<CatalogSyncProviderParticipationPreview>;
   previewIntegrationImport: (input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
@@ -2507,6 +2516,19 @@ export function createSourceObservationRuntime(
       targetCount: targets.length,
       targets,
     };
+  }
+
+  async function previewCatalogSyncScope(input: {
+    scope: CatalogSyncScope;
+    context: EventStoreContext;
+  }): Promise<CatalogSyncProviderParticipationPreview> {
+    void input.context;
+    const versions = await profileVersions.listProfileVersions();
+    return previewCatalogSyncProviderParticipation({
+      scope: input.scope,
+      providerProfileVersions: versions,
+      providerAdapterRegistry,
+    });
   }
 
   async function enqueueIntegrationJob(input: {
@@ -4220,6 +4242,7 @@ export function createSourceObservationRuntime(
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
     getBulkReviewWorkUnitSummary: (input = {}) => bulkReviewWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
+    previewCatalogSyncScope,
     previewIntegrationImport,
     enqueueIntegrationJob,
     retryIntegrationJob,

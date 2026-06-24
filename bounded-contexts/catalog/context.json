@@ -742,6 +742,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject",
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /reapply",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /catalog-sync-scope/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
@@ -763,10 +764,10 @@
       ],
       "visibleDestination": {
         "routeId": "integrations",
-        "description": "Source Observation workbench mutations return scoped job, review, preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
+        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, and observation review routes return the durable job/profile/review/preview snapshot produced by the command service in the same request. Route tests cover job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, and observation review routes return the durable job/profile/review/preview snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Route tests cover Catalog sync scope preview, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, and preview/impact responses.",
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",

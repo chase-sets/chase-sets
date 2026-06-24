@@ -5,6 +5,7 @@ import type { IntegrationJobServices, SourceObservationIntegrationJobAction } fr
 import { isSourceObservationIntegrationJobLifecycleCommandError } from "./runtime";
 import {
   isIntegrationJobValidationError,
+  parseCatalogSyncScope,
   parseIntegrationJobScope,
   parseReapplyProfileMode,
   streamIntegrationJobEvents,
@@ -127,6 +128,39 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     }
   });
 
+  app.post("/catalog-sync-scope/preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      scope?: unknown;
+    };
+
+    try {
+      const preview = await services.previewCatalogSyncScope({
+        scope: parseCatalogSyncScope(body.scope),
+        context: c.get("context"),
+      });
+      return c.json(preview);
+    } catch (error) {
+      if (!isCatalogSyncScopeValidationError(error)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "invalid_scope",
+            message: error instanceof Error ? error.message : "Catalog sync scope is invalid.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/integration-jobs/active", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
     if (permissionError) {
@@ -237,6 +271,15 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   });
 
   return app;
+}
+
+function isCatalogSyncScopeValidationError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    (error.message.startsWith("Catalog sync scope") ||
+      error.message.startsWith("Provider hint") ||
+      error.message.includes("Catalog sync scope reference.kind"))
+  );
 }
 
 function integrationJobLifecycleCommandErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown) {

@@ -1,10 +1,13 @@
 # Source Observation Integration
 
 Catalog owns provider-fed product facts through a review-first Source Observation workflow. The broader provider integration boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), source-to-source field authority is documented in [Source Conflict Resolution](./source-conflict-resolution.md), job idempotency/concurrency guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md), and Source Observation record compatibility is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
+Catalog-owned provider-neutral scope planning is documented in [Catalog Sync Scope Planning](./catalog-sync-scope-planning.md).
 
 ## Policy
 
 External providers never write canonical Catalog Items directly. Provider integrations write Source Observations, and Catalog operators promote or reject those observations after reviewing provenance, conflicts, normalized fields, and image assets.
+
+Catalog sync begins before provider execution with a `CatalogSyncScope` and a provider participation preview. The preview resolves the provider-neutral scope, such as Pokemon TCG / English / Expansion, into selected provider units and child `SourceObservationIntegrationJobScope` values. Those child scopes are still provider execution scopes; they do not grant providers authority to mutate Catalog Items or Products. In the later merged-candidate review, `delete` means rejecting or ignoring a candidate, not removing canonical Catalog truth.
 
 ## First Provider
 

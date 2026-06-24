@@ -27,6 +27,24 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{count} active integration or review jobs block this profile lifecycle action.",
   "catalog.features.sourceObservations.api.catalogIntegrationImpactAnalysis.lifecycle.retirement.references":
     "{count} Source Observations still reference this profile version.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.requiredUnitMissing":
+    "{unitKey} was required for this Catalog scope but no provider profile unit is available.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.providerAdapterMissing":
+    "No provider adapter is registered for {providerKey}.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.importPlanningUnavailable":
+    "{providerKey} does not expose import planning for this unit.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.inactiveProfileUnit":
+    "{unitKey} is not an active provider profile unit.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.productDomainMismatch":
+    "{unitKey} does not match the {productDomain} Catalog product domain.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.productFormMismatch":
+    "{unitKey} does not match the {productForm} Catalog product form.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.referenceUnsupported":
+    "{unitKey} does not support {referenceKind} source-scope planning.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.setNameRequired":
+    "{unitKey} requires a provider set name for this Catalog scope.",
+  "catalog.features.sourceObservations.api.catalogSyncScopePlanner.productLineRequired":
+    "{unitKey} requires a provider product-line/category parent for this Catalog scope.",
   "catalog.features.sourceObservations.ui.detail.card.illustrator": "Card Illustrator",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
   "catalog.features.sourceObservations.ui.detail.card.number": "Card Number",
