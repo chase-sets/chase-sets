@@ -112,6 +112,10 @@ export const SUBCOMMANDS = {
     script: "push-wake-capacity-evidence.mjs",
     description: "CI-safe push-wake connection budget and listener expansion evidence.",
   },
+  "push-wake:load-evidence": {
+    script: "push-wake-load-evidence.mjs",
+    description: "No-secret budget evaluation for captured push-wake load artifacts.",
+  },
   "pr-release:status": {
     script: "pr-release-status.mjs",
     description: "Render PR release status markdown.",

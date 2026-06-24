@@ -12,9 +12,11 @@ import {
   parseOtlpHeaders,
   postWriteConsistencyEventAttributes,
   projectionFreshnessAuditMetricRecords,
+  projectionInterestIndexLookupMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
   recordPostWriteConsistencyEvent,
+  recordProjectionInterestIndexLookup,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
   recordProjectionWakeRelayCatchUp,
@@ -974,6 +976,40 @@ describe("projection wake pipeline observability", () => {
         intentCount: 0,
         enqueuedCount: 0,
         notificationAgeMs: -5,
+      }),
+    ).not.toThrow();
+  });
+
+  it("records interest-index lookup latency with support-safe labels", () => {
+    const record = projectionInterestIndexLookupMetricRecord({
+      sourceContextName: "checkout",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-pages",
+      priorityLane: "hot",
+      outcome: "matched",
+      intentCount: 1,
+      durationMs: 4.6,
+    });
+
+    expect(record).toEqual({
+      durationMs: 5,
+      attributes: {
+        source_context: "checkout",
+        target_context: "checkout",
+        projection: "checkout-session-pages",
+        priority_lane: "hot",
+        outcome: "matched",
+      },
+    });
+    expect(() =>
+      recordProjectionInterestIndexLookup({
+        sourceContextName: "checkout",
+        targetContextName: null,
+        projectionName: null,
+        priorityLane: "hot",
+        outcome: "no-interests",
+        intentCount: 0,
+        durationMs: -1,
       }),
     ).not.toThrow();
   });

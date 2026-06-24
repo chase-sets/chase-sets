@@ -26,6 +26,7 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_readiness");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_waiters");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_wake_relay_cursors");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_post_write_tokens");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");

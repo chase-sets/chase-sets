@@ -15,6 +15,8 @@ const freshWriteHelperNames = new Set([
   "loadFreshlyWrittenResource",
   "navigateAfterWrite",
   "navigateAfterWriteFromSources",
+  "navigateAfterWriteFromSourcesWithCompactToken",
+  "navigateAfterWriteWithCompactToken",
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
@@ -32,6 +34,8 @@ const receiptProducingFreshWriteHelperNames = new Set([
   "appendPostWriteHandoffFromSources",
   "navigateAfterWrite",
   "navigateAfterWriteFromSources",
+  "navigateAfterWriteFromSourcesWithCompactToken",
+  "navigateAfterWriteWithCompactToken",
 ]);
 const helperImportPattern = /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http)["']/;
 const rawPostWriteHandoffMetadataPattern =

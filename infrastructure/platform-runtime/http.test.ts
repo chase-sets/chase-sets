@@ -3,6 +3,7 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   COOKIE_BACKED_CONTINUATION_RELOAD_HEADER,
+  appendCompactPostWriteToken,
   appendFreshWriteToken,
   decodeFreshWriteReceipt,
   encodeFreshWriteReceipt,
@@ -22,6 +23,7 @@ import {
   resolveInternalApiOrigin,
   resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
+  UnresolvedPostWriteTokenError,
 } from "./http";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
 
@@ -557,6 +559,35 @@ describe("default-safe post-write navigation runtime", () => {
         },
       },
     });
+  });
+
+  it("does not silently degrade unresolved compact tokens to ordinary reads", async () => {
+    const store = createTestPostWriteTokenStore();
+    const request = new Request(
+      `https://marketplace.chasesets.test${appendCompactPostWriteToken("/account/cart", "pwt_missing000000000000")}`,
+    );
+    const load = vi.fn(async () => ({ items: [{ listingId: "lst_1" }], count: 1 }));
+
+    await expect(resolvePostWriteTokenRequest(request, store)).rejects.toBeInstanceOf(UnresolvedPostWriteTokenError);
+    await expect(
+      loadAfterWrite({
+        request,
+        load,
+        isNotFound: () => false,
+        nowMs: () => 1234,
+        postWriteTokenResolver: store,
+      }),
+    ).resolves.toMatchObject({
+      kind: "permanent-failure",
+      reason: "fresh-write-read-permanent",
+      recoveryKind: "terminal-failure",
+      classification: {
+        kind: "not-fresh-write",
+        transient: false,
+        errorCode: "post_write_token_unresolved",
+      },
+    });
+    expect(load).not.toHaveBeenCalled();
   });
 
   it("preserves legacy full-token destination reads while compact resolution is available", async () => {

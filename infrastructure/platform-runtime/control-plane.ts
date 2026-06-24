@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { platformPostWriteTokenStoreSchemaSql } from "./post-write-token-store";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
 import {
@@ -204,6 +205,8 @@ CREATE TABLE IF NOT EXISTS platform_projection_wake_relay_cursors (
 
 CREATE INDEX IF NOT EXISTS platform_projection_wake_relay_cursors_updated_at_idx
   ON platform_projection_wake_relay_cursors (updated_at DESC);
+
+${platformPostWriteTokenStoreSchemaSql}
 
 ${platformWorkSignalStoreSchemaSql}
 

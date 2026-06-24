@@ -1,12 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, CHASE_SETS_READ_AFTER_WRITE_HEADER } from "@chase-sets/http/responses";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  appendCompactPostWriteToken,
+  appendFreshWriteToken,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  encodeCommitReceipt,
+  readCompactPostWriteToken,
+  type PostWriteTokenPayload,
+} from "@chase-sets/http/responses";
 import { action as listingAction, loader as listingLoader } from "../routes/account-listing";
 import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
+import { configureMarketplacePostWriteTokenStoreForTests } from "../support/route-support/post-write-tokens";
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -32,6 +41,14 @@ const currentQuote: MarketplaceListingTermsPreview = {
   fee_quote_fingerprint: "current-fingerprint",
 };
 
+let restorePostWriteTokenStore: (() => void) | null = null;
+
+afterEach(() => {
+  restorePostWriteTokenStore?.();
+  restorePostWriteTokenStore = null;
+  vi.unstubAllGlobals();
+});
+
 function marketplaceCommit(position = "42", eventId = "evt_marketplace_listing") {
   return {
     mode: "eventual",
@@ -44,6 +61,28 @@ function marketplaceCommit(position = "42", eventId = "evt_marketplace_listing")
         eventIds: [eventId],
       },
     ],
+  };
+}
+
+function createTestPostWriteTokenStore() {
+  const payloads = new Map<string, PostWriteTokenPayload>();
+  const storeCalls: Array<Readonly<{ payload: PostWriteTokenPayload; nowMs: number; ttlMs: number }>> = [];
+  let nextToken = 1;
+
+  return {
+    storeCalls,
+    seed(token: string, payload: PostWriteTokenPayload) {
+      payloads.set(token, payload);
+    },
+    async storePostWriteToken(payload: PostWriteTokenPayload, options: Readonly<{ nowMs: number; ttlMs: number }>) {
+      const token = `pwt_listing${String(nextToken++).padStart(16, "0")}`;
+      payloads.set(token, payload);
+      storeCalls.push({ payload, ...options });
+      return token;
+    },
+    async resolvePostWriteToken(token: string) {
+      return payloads.get(token) ?? null;
+    },
   };
 }
 
@@ -163,6 +202,155 @@ describe("marketplace listing detail route", () => {
 
     expect(result.listing).toMatchObject({ listing_id: "lst_1" });
     expect(feeHistoryHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+  });
+
+  it("resolves compact listing tokens before forwarding destination freshness", async () => {
+    const store = createTestPostWriteTokenStore();
+    const compactToken = "pwt_listing000000000001";
+    store.seed(compactToken, {
+      receipt: {
+        observedAtMs: Date.now(),
+        sources: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_marketplace_listing"],
+          },
+        ],
+      },
+    });
+    restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
+    const listingHeaders: Headers[] = [];
+    const browserPath = appendCompactPostWriteToken("/account/listings/lst_1", compactToken);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/fee-history")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        listingHeaders.push(new Headers(init?.headers));
+        return Promise.resolve(
+          jsonResponse({
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            status: "active",
+          }),
+        );
+      }),
+    );
+
+    const result = await listingLoader({
+      request: new Request(`http://localhost${browserPath}`),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.listing).toMatchObject({ listing_id: "lst_1" });
+    expect(browserPath).toContain("postWriteToken=");
+    expect(browserPath).not.toContain("afterWrite=");
+    expect(browserPath).not.toContain("evt_marketplace_listing");
+    expect(listingHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+  });
+
+  it("does not load stale listing detail when a compact post-write token cannot resolve", async () => {
+    const store = createTestPostWriteTokenStore();
+    restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
+    let listingReads = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        listingReads += 1;
+        return Promise.resolve(
+          jsonResponse({
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            status: "active",
+          }),
+        );
+      }),
+    );
+
+    await expect(
+      listingLoader({
+        request: new Request(
+          `http://localhost${appendCompactPostWriteToken("/account/listings/lst_1", "pwt_missing000000000000")}`,
+        ),
+        params: { listingId: "lst_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toThrow("Compact post-write token could not be resolved.");
+    expect(listingReads).toBe(0);
+  });
+
+  it("emits compact listing redirect tokens without raw receipt details", async () => {
+    const store = createTestPostWriteTokenStore();
+    restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        return Promise.resolve(
+          jsonResponse({ id: "lst_1", version: 2 }, 200, {
+            "Chase-Sets-Consistency": "eventual",
+            [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+              {
+                sourceContextName: "marketplace",
+                maxGlobalPosition: "42",
+                eventIds: ["evt_marketplace_publish"],
+              },
+            ]),
+          }),
+        );
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "publish");
+    form.set("feeQuoteFingerprint", "quote-1");
+
+    const result = await listingAction({
+      request: new Request("http://localhost/account/listings/lst_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?feedbackWorkflow=listing-publish&postWriteToken=/);
+    expect(readCompactPostWriteToken(location)).toMatch(/^pwt_listing/);
+    expect(location).not.toContain("afterWrite=");
+    expect(location).not.toContain("postWriteHandoff=");
+    expect(location).not.toContain("evt_marketplace_publish");
+    expect(store.storeCalls[0]?.payload.receipt.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_marketplace_publish"],
+      },
+    ]);
   });
 
   it("returns the current quote when a confirmed price update is stale", async () => {

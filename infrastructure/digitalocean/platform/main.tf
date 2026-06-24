@@ -583,6 +583,13 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "PLATFORM_CONTROL_DATABASE_URL"
+          value = local.context_database_urls["control"]
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_PUBLISHABLE_KEY"
           value = var.stripe_publishable_key
           type  = "SECRET"

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this checklist to collect Chrome staging evidence for post-write freshness flows that are not covered by the automated Buy Now canary. The release gate now requires telemetry for account-cart post-write consistency, Sell List accept-to-checkout handoffs, payout-ready handoffs, settlement payout errors, and projection lag/poison events. This UAT fills the remaining browser proof gap for account cart, Sell List, payout readiness, and listing freshness until each flow has owned live canary automation.
+Use this checklist to collect Chrome staging evidence for post-write freshness flows that are not covered by the automated Buy Now canary. Release-health review now expects telemetry for account-cart post-write consistency, Sell List accept-to-checkout handoffs, payout-ready handoffs, Marketplace listing freshness, settlement payout errors, and projection lag/poison events. This UAT fills the remaining browser proof gap for account cart, Sell List, payout readiness, and listing freshness until each flow has owned live canary automation.
 
 ## Evidence Rules
 
@@ -26,9 +26,9 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
 7. Sell List accept-to-checkout: from `/account/sell`, accept an eligible sell readiness flow into checkout and confirm the handoff reaches the expected checkout or readiness state without fallback failure.
 8. Payout-ready return: use an operator-owned payout-ready account flow and confirm returning to Sell List shows payout readiness without setup-blocked recovery.
 9. Listing freshness: create or update a staging listing through the account listing flow, then confirm `/account/listings`, `/account/listings/:id`, and the public listing/product surface show the expected fresh state or an owned temporary recovery state.
-10. Query release canary telemetry for the same window using `infrastructure/observability/release-canary-prometheus-queries.json`.
-11. Confirm required zero-failure signals are `zero`: `account-cart-post-write-consistency`, `sell-rail-accept-checkout-handoff`, `payout-ready-handoff`, `settlement-payout-errors`, and `projection-lag-poison-events`.
-12. Record remaining gaps separately: listing freshness has Chrome UAT evidence but no dedicated live canary gate until fixture ownership, cleanup, and low-cardinality telemetry are explicit.
+10. Query the same window in Grafana/Prometheus using the Projection Freshness dashboard and the starter queries in [Observability](./observability.md).
+11. Confirm the telemetry observations are `zero` or within SLO: `account-cart-post-write-consistency`, `sell-rail-accept-checkout-handoff`, `payout-ready-handoff`, `marketplace-listing-freshness-slo`, `settlement-payout-errors`, and `projection-lag-poison-events`.
+12. Record remaining gaps separately: listing freshness has low-cardinality telemetry but no dedicated live mutation canary or automated comparison gate until fixture ownership and cleanup are explicit.
 
 ## Passing Evidence Shape
 
@@ -50,9 +50,10 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
     "account-cart-post-write-consistency": "zero",
     "sell-rail-accept-checkout-handoff": "zero",
     "payout-ready-handoff": "zero",
+    "marketplace-listing-freshness-slo": "zero",
     "settlement-payout-errors": "zero",
     "projection-lag-poison-events": "zero"
   },
-  "remainingGap": "listing freshness is Chrome-UAT-only until a dedicated live canary owns fixture setup and cleanup"
+  "remainingGap": "listing freshness is telemetry-backed but still needs a dedicated live mutation canary and automated comparison gate once fixture setup and cleanup are explicit"
 }
 ```

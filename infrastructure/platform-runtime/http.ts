@@ -12,6 +12,7 @@ import {
   readCompactPostWriteToken,
   readFreshWriteToken,
   redirectAfterWriteFromSources as redirectAfterWriteFromSourcesWithContract,
+  type FreshWriteReadErrorClassification,
   type LoadAfterWriteOptions,
   type LoadAfterWriteResult,
   type NavigateAfterWriteOptions,
@@ -30,6 +31,15 @@ export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET"
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
 const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
 const DEFAULT_POST_WRITE_TOKEN_TTL_MS = 120_000;
+
+export class UnresolvedPostWriteTokenError extends Error {
+  readonly code = "post_write_token_unresolved";
+
+  constructor() {
+    super("Compact post-write token could not be resolved.");
+    this.name = "UnresolvedPostWriteTokenError";
+  }
+}
 
 export type PlatformPostWriteTelemetry = Readonly<
   Omit<PlatformPostWriteConsistencyEvent, "outcome" | "strategy"> & {
@@ -100,6 +110,26 @@ function postWriteReadOutcome<T>(result: LoadAfterWriteResult<T>): PlatformPostW
   return result.kind === "pending" ? "read_pending" : "read_permanent";
 }
 
+function unresolvedPostWriteTokenClassification(): FreshWriteReadErrorClassification {
+  return {
+    kind: "not-fresh-write",
+    transient: false,
+    receipt: null,
+    status: null,
+    errorCode: "post_write_token_unresolved",
+  };
+}
+
+function unresolvedPostWriteTokenResult<T>(error: UnresolvedPostWriteTokenError): LoadAfterWriteResult<T> {
+  return {
+    kind: "permanent-failure",
+    reason: "fresh-write-read-permanent",
+    recoveryKind: "terminal-failure",
+    classification: unresolvedPostWriteTokenClassification(),
+    error,
+  };
+}
+
 export async function resolvePostWriteTokenRequest(
   request: Request,
   resolver: PostWriteTokenResolver | undefined,
@@ -115,7 +145,7 @@ export async function resolvePostWriteTokenRequest(
 
   const payload = await resolver.resolvePostWriteToken(token);
   if (!payload) {
-    return request;
+    throw new UnresolvedPostWriteTokenError();
   }
 
   return new Request(materializePostWriteTokenPayload(request.url, payload), request);
@@ -254,7 +284,22 @@ export async function redirectAfterWriteFromSourcesWithCompactToken(
 
 export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {
   const { postWriteTokenResolver, telemetry, ...contractOptions } = options;
-  const request = await resolvePostWriteTokenRequest(options.request, postWriteTokenResolver);
+  let request: Request;
+  try {
+    request = await resolvePostWriteTokenRequest(options.request, postWriteTokenResolver);
+  } catch (error) {
+    if (error instanceof UnresolvedPostWriteTokenError) {
+      const result = unresolvedPostWriteTokenResult<T>(error);
+      recordPostWriteTelemetry(telemetry, postWriteReadOutcome(result), {
+        recoveryAction: "terminal-failure",
+        freshnessOutcome: "fresh-write-read-permanent",
+      });
+      return result;
+    }
+
+    throw error;
+  }
+
   const result = await loadAfterWriteWithContract({ ...contractOptions, request });
   const recoveryAction = result.kind === "data" ? "none" : "recoveryKind" in result ? result.recoveryKind : "unknown";
   const correctionSource =

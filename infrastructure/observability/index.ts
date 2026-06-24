@@ -145,6 +145,10 @@ const projectionWakeRelayCatchUpDuration = lazyHistogram("chase_sets_projection_
 const projectionWakeRelayCatchUpEventsCounter = lazyCounter("chase_sets_projection_wake_relay_catch_up_events_total");
 const projectionWakeRelayFanOutCounter = lazyCounter("chase_sets_projection_wake_relay_fan_out_total");
 const projectionWakeRelayFanOutIntentsCounter = lazyCounter("chase_sets_projection_wake_relay_fan_out_intents_total");
+const projectionInterestIndexLookupCounter = lazyCounter("chase_sets_projection_interest_index_lookups_total");
+const projectionInterestIndexLookupDuration = lazyHistogram("chase_sets_projection_interest_index_lookup_duration_ms", {
+  unit: "ms",
+});
 const projectionWakeIntentCounter = lazyCounter("chase_sets_projection_wake_intents_total");
 const projectionWakeIntentAttemptsExhaustedCounter = lazyCounter(
   "chase_sets_projection_wake_intent_attempts_exhausted_total",
@@ -353,6 +357,16 @@ export type ProjectionWakeRelayFanOutSignal = Readonly<{
   intentCount: number;
   enqueuedCount: number;
   notificationAgeMs?: number | null;
+}>;
+
+export type ProjectionInterestIndexLookupSignal = Readonly<{
+  sourceContextName: string;
+  targetContextName?: string | null;
+  projectionName?: string | null;
+  priorityLane?: string | null;
+  outcome: "matched" | "no-interests" | "stale-index" | "failed";
+  intentCount: number;
+  durationMs: number;
 }>;
 
 export type ProjectionWakeIntentOutcomeSignal = Readonly<{
@@ -1140,6 +1154,27 @@ export function recordProjectionWakeRelayFanOut(event: ProjectionWakeRelayFanOut
       source_context: sourceContext,
     });
   }
+}
+
+export function projectionInterestIndexLookupMetricRecord(
+  event: ProjectionInterestIndexLookupSignal,
+): Readonly<{ attributes: Attributes; durationMs: number }> {
+  return {
+    durationMs: Math.max(0, Math.round(event.durationMs)),
+    attributes: {
+      source_context: boundedMetricLabel(event.sourceContextName),
+      target_context: boundedMetricLabel(event.targetContextName),
+      projection: boundedMetricLabel(event.projectionName),
+      priority_lane: boundedMetricLabel(event.priorityLane),
+      outcome: boundedMetricLabel(event.outcome),
+    },
+  };
+}
+
+export function recordProjectionInterestIndexLookup(event: ProjectionInterestIndexLookupSignal): void {
+  const record = projectionInterestIndexLookupMetricRecord(event);
+  projectionInterestIndexLookupCounter.add(1, record.attributes);
+  projectionInterestIndexLookupDuration.record(record.durationMs, record.attributes);
 }
 
 export function recordProjectionWakeIntentOutcome(event: ProjectionWakeIntentOutcomeSignal): void {

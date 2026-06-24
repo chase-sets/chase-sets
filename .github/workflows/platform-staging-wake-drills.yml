@@ -52,6 +52,14 @@ on:
         required: false
         default: "120000"
         type: string
+      load_evidence_profile:
+        description: Budget profile for the no-secret artifact evaluator after load drills.
+        required: false
+        default: bounded-staging
+        type: choice
+        options:
+          - bounded-staging
+          - representative-volume
 
 permissions:
   contents: read
@@ -226,6 +234,15 @@ jobs:
           set -euo pipefail
           pnpm run wake:drills "${{ inputs.drill }}" \
             --out "artifacts/wake-drills/staging-wake-drill-${{ inputs.drill }}.json"
+
+      - name: Evaluate captured load artifact
+        if: always() && inputs.drill == 'load'
+        run: |
+          set -euo pipefail
+          pnpm run ops push-wake:load-evidence -- \
+            --artifact "artifacts/wake-drills/staging-wake-drill-load.json" \
+            --profile "${{ inputs.load_evidence_profile }}" \
+            --out "artifacts/wake-drills/staging-wake-drill-load-evaluation.json"
 
       - name: Upload wake drill evidence
         if: always()

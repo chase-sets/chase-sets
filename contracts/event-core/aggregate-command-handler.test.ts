@@ -80,4 +80,56 @@ describe("aggregate command handler factory", () => {
       }),
     );
   });
+
+  it("loads all aggregate stream pages before choosing the append expected version", async () => {
+    const existingEvents = Array.from({ length: 501 }, (_, index) => ({
+      ...existingEvent,
+      eventId: `evt_${index + 1}` as never,
+      streamVersion: index + 1,
+      globalPosition: String(index + 10) as never,
+      payload: { by: 1 },
+    }));
+    const appendedPagedEvent = {
+      ...appendedEvent,
+      streamVersion: 502,
+      globalPosition: "600" as never,
+    };
+    const appendToStream = vi.fn<EventStore["appendToStream"]>(async () => [appendedPagedEvent]);
+    const eventStore: EventStore = {
+      readStream: vi.fn(async (input) =>
+        existingEvents.filter((event) => event.streamVersion >= (input.fromVersion ?? 1)).slice(0, input.limit ?? 500),
+      ),
+      appendToStream,
+      readAll: vi.fn(async () => []),
+    };
+
+    const { commandHandler } = createAggregateCommandHandler<number, CounterCommand, CounterEvent>({
+      eventStore,
+      codec: createPassthroughDomainEventCodec<CounterEvent>(),
+      initialState: () => 0,
+      evolve: (state, event) => state + event.data.by,
+      decide: (_state, command) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
+    });
+
+    await expect(
+      commandHandler({
+        streamId: "counter-1",
+        command: { type: "Increment", by: 3 },
+        context,
+      }),
+    ).resolves.toMatchObject({
+      state: 504,
+      version: 502,
+    });
+
+    expect(eventStore.readStream).toHaveBeenNthCalledWith(1, {
+      streamId: "counter-1",
+    });
+    expect(eventStore.readStream).toHaveBeenNthCalledWith(2, {
+      streamId: "counter-1",
+      fromVersion: 501,
+      limit: 500,
+    });
+    expect(appendToStream).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 501 }));
+  });
 });

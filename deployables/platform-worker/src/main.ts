@@ -68,6 +68,7 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordProjectionInterestIndexLookup,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
   recordProjectionWakeRelayFanOut,
@@ -817,6 +818,21 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
       });
       logger.info("Projection wake relay source skipped.", {
         type: "projection-wake-relay.fan_out.source_skipped",
+        ...event,
+      });
+    },
+    interestIndexLookupCompleted: (event) => {
+      recordProjectionInterestIndexLookup({
+        sourceContextName: event.sourceContextName,
+        targetContextName: event.targetContextName,
+        projectionName: event.projectionName,
+        priorityLane: event.priorityLane,
+        outcome: event.outcome,
+        intentCount: event.intentCount,
+        durationMs: event.durationMs,
+      });
+      logger.info("Projection interest index lookup completed.", {
+        type: "projection-wake-relay.interest_index.lookup_completed",
         ...event,
       });
     },

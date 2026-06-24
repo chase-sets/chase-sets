@@ -589,6 +589,9 @@
       "@chase-sets/platform-runtime/post-write-consistency": [
         "./infrastructure/platform-runtime/post-write-consistency.ts"
       ],
+      "@chase-sets/platform-runtime/post-write-token-store": [
+        "./infrastructure/platform-runtime/post-write-token-store.ts"
+      ],
       "@chase-sets/platform-runtime/process-lifecycle": [
         "./infrastructure/platform-runtime/process-lifecycle.ts"
       ],

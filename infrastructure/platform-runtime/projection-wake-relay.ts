@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+
 import {
   assertPostgresEventStoreWakeNotificationChannel,
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
@@ -48,6 +50,7 @@ export type ProjectionWakeRelayFanOutFailureReason =
   | "stale-interest-index"
   | "enqueue-failed"
   | "unexpected";
+export type ProjectionInterestIndexLookupOutcome = "matched" | "no-interests" | "stale-index" | "failed";
 
 export type ProjectionWakeRelayWorkSignalStore = Pick<PostgresWorkSignalStore, "enqueueProjectionWakeIntent">;
 export type ProjectionWakeRelayControlPlane = Pick<
@@ -134,6 +137,7 @@ export type ProjectionWakeRelayFanOutResult = Readonly<{
 export type ProjectionWakeRelayFanOutObserver = Readonly<{
   notificationRejected?: (event: ProjectionWakeRelayNotificationRejectedEvent) => void;
   sourceSkipped?: (event: ProjectionWakeRelaySourceSkippedEvent) => void;
+  interestIndexLookupCompleted?: (event: ProjectionInterestIndexLookupCompletedEvent) => void;
   fanOutSkipped?: (event: ProjectionWakeRelayFanOutSkippedEvent) => void;
   fanOutSucceeded?: (event: ProjectionWakeRelayFanOutSucceededEvent) => void;
   fanOutFailed?: (event: ProjectionWakeRelayFanOutFailedEvent) => void;
@@ -254,6 +258,17 @@ export type ProjectionWakeRelayFanOutFailedEvent = Readonly<{
   intentCount: number;
   enqueuedCount: number;
   error: unknown;
+}>;
+
+export type ProjectionInterestIndexLookupCompletedEvent = Readonly<{
+  sourceContextName: string;
+  targetContextName: string | null;
+  projectionName: string | null;
+  priorityLane: WorkSignalPriorityLane | null;
+  projectionInterestIndexVersion: string;
+  outcome: ProjectionInterestIndexLookupOutcome;
+  intentCount: number;
+  durationMs: number;
 }>;
 
 export class ProjectionWakeRelayNotificationRejectedError extends Error {
@@ -581,6 +596,7 @@ export async function fanOutEventStoreWakeNotification(
 
   const requiredCursor = sourceScopedCursor(notification.payload);
   let intentInputs: readonly EnqueueProjectionWakeIntentInput[];
+  const interestLookupStartedAt = performance.now();
 
   try {
     intentInputs = createProjectionWakeIntentInputs(input.projectionInterestIndex, {
@@ -593,7 +609,27 @@ export async function fanOutEventStoreWakeNotification(
       correlationId: notification.correlationId ?? null,
       metadata: projectionWakeRelayMetadata(notification, relayConfig, input.metadata),
     });
+    input.observer?.interestIndexLookupCompleted?.(
+      createInterestIndexLookupCompletedEvent({
+        sourceContextName: notification.payload.sourceContextName,
+        priorityLane: relayConfig.priorityLane,
+        projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
+        outcome: intentInputs.length > 0 ? "matched" : "no-interests",
+        intentInputs,
+        durationMs: performance.now() - interestLookupStartedAt,
+      }),
+    );
   } catch (error) {
+    input.observer?.interestIndexLookupCompleted?.({
+      sourceContextName: notification.payload.sourceContextName,
+      targetContextName: null,
+      projectionName: null,
+      priorityLane: relayConfig.priorityLane,
+      projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
+      outcome: fanOutFailureReason(error) === "stale-interest-index" ? "stale-index" : "failed",
+      intentCount: 0,
+      durationMs: Math.max(0, performance.now() - interestLookupStartedAt),
+    });
     input.observer?.fanOutFailed?.({
       ...notificationContext,
       reason: fanOutFailureReason(error),
@@ -1187,6 +1223,34 @@ function eventStoreWakeNotificationContext(notification: EventStoreWakeNotificat
     firstGlobalPosition: String(notification.payload.firstGlobalPosition),
     lastGlobalPosition: String(notification.payload.lastGlobalPosition),
   };
+}
+
+function createInterestIndexLookupCompletedEvent(input: {
+  sourceContextName: string;
+  priorityLane: WorkSignalPriorityLane;
+  projectionInterestIndexVersion: string;
+  outcome: ProjectionInterestIndexLookupOutcome;
+  intentInputs: readonly EnqueueProjectionWakeIntentInput[];
+  durationMs: number;
+}): ProjectionInterestIndexLookupCompletedEvent {
+  return {
+    sourceContextName: input.sourceContextName,
+    targetContextName: singleLowCardinalityLabel(input.intentInputs.map((intent) => intent.targetContextName)),
+    projectionName: singleLowCardinalityLabel(input.intentInputs.map((intent) => intent.projectionName)),
+    priorityLane: input.priorityLane,
+    projectionInterestIndexVersion: input.projectionInterestIndexVersion,
+    outcome: input.outcome,
+    intentCount: input.intentInputs.length,
+    durationMs: Math.max(0, input.durationMs),
+  };
+}
+
+function singleLowCardinalityLabel(values: readonly string[]): string | null {
+  const uniqueValues = [...new Set(values)].sort((left, right) => left.localeCompare(right));
+  if (uniqueValues.length === 0) {
+    return null;
+  }
+  return uniqueValues.length === 1 ? uniqueValues[0] : "multiple";
 }
 
 function sourceScopedCursor(payload: EventStoreWakeNotificationPayload): string {

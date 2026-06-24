@@ -1,5 +1,6 @@
 import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
+import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { ADMIN_DEPLOYED_API_SMOKE_PROBES, ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
@@ -23,7 +24,7 @@ if (!landingUrl || !adminUrl) {
   );
 }
 
-const syntheticEmail = getSmokeEnv("SMOKE_WAITLIST_EMAIL") || getSmokeEnv("SMOKE_EMAIL") || "ops+smoke@chasesets.com";
+const syntheticEmail = resolveSyntheticWaitlistEmail({ env: process.env, sandboxEnv });
 const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
 const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
