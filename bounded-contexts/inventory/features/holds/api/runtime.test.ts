@@ -3,7 +3,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createInventoryHoldRuntime } from "./runtime";
+import { createInventoryHoldRuntime, InventoryHoldPlacementError } from "./runtime";
 import type { InventoryHoldId } from "../../../support/runtime-support/common";
 
 const context = {
@@ -62,38 +62,44 @@ function createInMemoryEventStore() {
   };
 }
 
-function createInventoryDb() {
+function createInventoryDb(
+  options: Readonly<{
+    itemRows?: Record<string, unknown>[];
+  }> = {},
+) {
+  const itemRows = options.itemRows ?? [
+    {
+      item_id: "inv_1",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "prod_1",
+      selected_options: [],
+      graded_card: null,
+      storage_location_id: "loc_1",
+      storage_location_name: "Main",
+      ship_from_code: "CHI",
+      ship_from_address: {
+        name: "Seller",
+        line1: "1 Test St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      total_quantity: 1,
+      held_quantity: 0,
+      available_quantity: 1,
+      acquisition_cost_amount: null,
+      created_at: "2026-06-24T00:00:00.000Z",
+      updated_at: "2026-06-24T00:00:00.000Z",
+    },
+  ];
+
   return {
     query: vi.fn(async (sql: string) => {
       if (sql.includes("FROM inventory_items AS item")) {
         return {
-          rows: [
-            {
-              item_id: "inv_1",
-              account_id: "acc_seller",
-              catalog_catalog_item_id: "cat_1",
-              product_id: "prod_1",
-              selected_options: [],
-              graded_card: null,
-              storage_location_id: "loc_1",
-              storage_location_name: "Main",
-              ship_from_code: "CHI",
-              ship_from_address: {
-                name: "Seller",
-                line1: "1 Test St",
-                city: "Chicago",
-                state: "IL",
-                postalCode: "60601",
-                country: "US",
-              },
-              total_quantity: 1,
-              held_quantity: 0,
-              available_quantity: 1,
-              acquisition_cost_amount: null,
-              created_at: "2026-06-24T00:00:00.000Z",
-              updated_at: "2026-06-24T00:00:00.000Z",
-            },
-          ],
+          rows: itemRows,
         };
       }
 
@@ -133,5 +139,32 @@ describe("inventory hold runtime", () => {
 
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
     expect(db.query).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports missing item projections with a typed hold placement failure", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({ itemRows: [] }),
+    });
+
+    await expect(
+      services.createHold(
+        {
+          holdId: "hld_order_reservation_rsv_1" as InventoryHoldId,
+          accountId: "acc_seller" as AccountId,
+          itemId: "inv_1",
+          quantity: 1,
+          reason: "Ordering commitment",
+          notes: null,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      kind: "inventory-item-projection-missing",
+      name: "InventoryHoldPlacementError",
+    } satisfies Partial<InventoryHoldPlacementError>);
+    expect(readAllEvents()).toHaveLength(0);
   });
 });

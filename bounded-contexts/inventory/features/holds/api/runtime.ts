@@ -19,6 +19,21 @@ import {
 import { buildInventoryHoldProjectionHandlers } from "../read-model/projection";
 import { getInventoryHold } from "../read-model/queries";
 
+export type InventoryHoldPlacementFailureKind =
+  | "hold-id-conflict"
+  | "insufficient-available-quantity"
+  | "inventory-item-projection-missing";
+
+export class InventoryHoldPlacementError extends InventoryDomainError {
+  public constructor(
+    public readonly kind: InventoryHoldPlacementFailureKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InventoryHoldPlacementError";
+  }
+}
+
 export type InventoryHoldServices = Readonly<{
   commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
   createHold: (
@@ -70,16 +85,19 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
           };
         }
 
-        throw new InventoryDomainError("Inventory hold already exists for different stock.");
+        throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
       }
 
       const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
       if (!item) {
-        throw new InventoryDomainError("Inventory item not found.");
+        throw new InventoryHoldPlacementError("inventory-item-projection-missing", "Inventory item not found.");
       }
 
       if (item.available_quantity < params.quantity) {
-        throw new InventoryDomainError("Holds cannot exceed the available quantity for an inventory item.");
+        throw new InventoryHoldPlacementError(
+          "insufficient-available-quantity",
+          "Holds cannot exceed the available quantity for an inventory item.",
+        );
       }
 
       const result = await commandHandler({

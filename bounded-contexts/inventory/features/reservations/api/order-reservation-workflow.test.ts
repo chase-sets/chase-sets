@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { InventoryHoldServices } from "../../holds/api/runtime";
+import { InventoryHoldPlacementError, type InventoryHoldServices } from "../../holds/api/runtime";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
 import type { InventoryReservationState } from "../domain/domain";
 import type { InventoryReservationServices } from "./runtime";
@@ -76,6 +76,13 @@ function createServices(
 }
 
 describe("order inventory reservation workflow", () => {
+  it("derives hold ids from stream-safe reservation request ids without lossy normalization", () => {
+    expect(orderReservationHoldId(" rsv_01KZ9H8R31DDB5YA9PZMN7P36M ")).toBe(
+      "hld_order_reservation_rsv_01KZ9H8R31DDB5YA9PZMN7P36M",
+    );
+    expect(() => orderReservationHoldId("rsv_order-1")).toThrow(InventoryDomainError);
+  });
+
   it("confirms a reservation with a deterministic hold id and ignores duplicate delivery", async () => {
     const services = createServices();
 
@@ -141,7 +148,10 @@ describe("order inventory reservation workflow", () => {
   it("rejects a reservation only for terminal stock exhaustion", async () => {
     const services = createServices({
       createHold: vi.fn(async () => {
-        throw new InventoryDomainError("Holds cannot exceed the available quantity for an inventory item.");
+        throw new InventoryHoldPlacementError(
+          "insufficient-available-quantity",
+          "Holds cannot exceed the available quantity for an inventory item.",
+        );
       }),
     });
 
@@ -160,7 +170,7 @@ describe("order inventory reservation workflow", () => {
   it("does not cancel an order for transient inventory projection misses", async () => {
     const services = createServices({
       createHold: vi.fn(async () => {
-        throw new InventoryDomainError("Inventory item not found.");
+        throw new InventoryHoldPlacementError("inventory-item-projection-missing", "Inventory item not found.");
       }),
     });
 

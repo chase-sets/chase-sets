@@ -2,7 +2,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createTransientProjectionError } from "@chase-sets/event-core/projector";
 import type { OrderingOrderCreatedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { InventoryHoldServices } from "../../holds/api/runtime";
+import { InventoryHoldPlacementError, type InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryReservationServices } from "./runtime";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
 
@@ -20,12 +20,12 @@ export type ReserveOrderInventoryRequestInput = Readonly<{
 }>;
 
 export function orderReservationHoldId(reservationRequestId: string): InventoryHoldId {
-  const normalized = reservationRequestId
-    .trim()
-    .replaceAll(/[^a-zA-Z0-9]+/g, "_")
-    .replaceAll(/^_+|_+$/g, "");
+  const normalized = reservationRequestId.trim();
+  if (!/^[a-zA-Z0-9_]+$/.test(normalized)) {
+    throw new InventoryDomainError("Ordering reservation request id must use stream-safe characters.");
+  }
 
-  return `hld_order_reservation_${normalized || "unknown"}` as InventoryHoldId;
+  return `hld_order_reservation_${normalized}` as InventoryHoldId;
 }
 
 export async function reserveOrderInventoryRequest(
@@ -91,13 +91,12 @@ export async function reserveOrderInventoryRequest(
   });
 }
 
-function isTerminalHoldPlacementFailure(error: unknown): error is InventoryDomainError {
+function isTerminalHoldPlacementFailure(error: unknown): error is InventoryHoldPlacementError {
   return (
-    error instanceof InventoryDomainError &&
-    error.message === "Holds cannot exceed the available quantity for an inventory item."
+    error instanceof InventoryHoldPlacementError && error.kind === "insufficient-available-quantity"
   );
 }
 
-function isTransientHoldPlacementFailure(error: unknown): error is InventoryDomainError {
-  return error instanceof InventoryDomainError && error.message === "Inventory item not found.";
+function isTransientHoldPlacementFailure(error: unknown): error is InventoryHoldPlacementError {
+  return error instanceof InventoryHoldPlacementError && error.kind === "inventory-item-projection-missing";
 }
