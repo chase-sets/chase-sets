@@ -2033,22 +2033,6 @@ jobs:
 
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
-          mkdir -p ../../../artifacts/release-health
-          cat > ../../../artifacts/release-health/stage1-production-canary-telemetry.json <<JSON
-          {
-            "schemaVersion": "canary-telemetry-source/v1",
-            "signals": {
-              "app-platform-deployment-phase": {
-                "owner": "infrastructure/deployment-workflow",
-                "required": true,
-                "source": "GitHub Actions Stage 1 production canary",
-                "currentState": "available-now",
-                "status": "pass",
-                "detail": "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
-              }
-            }
-          }
-          JSON
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
       - name: Install Playwright Chromium for production proof canary
@@ -2182,42 +2166,6 @@ jobs:
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
 
-      - name: Collect production canary observability evidence
-        id: canary_evidence
-        # Advisory (issue #1416): evidence collection runs after production has
-        # already applied, so a collection failure must never mark a shipped
-        # release failed. Failures alert and land in release health instead.
-        continue-on-error: true
-        if: |
-          always() &&
-          env.SHOULD_DEPLOY != 'false' &&
-          steps.stage1_canary.outcome == 'success' &&
-          vars.CANARY_PROMETHEUS_ENABLED == 'true' &&
-          vars.CANARY_PROMETHEUS_URL != '' &&
-          vars.CANARY_PROMETHEUS_QUERY_FILE != ''
-        env:
-          CANARY_EVIDENCE_OUT: artifacts/release-health/canary-analysis.json
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
-          CANARY_OBSERVATION_WINDOW_SECONDS: ${{ vars.CANARY_OBSERVATION_WINDOW_SECONDS || '300' }}
-          CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}
-          CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}
-          CANARY_PROMETHEUS_HEADERS: ${{ secrets.CANARY_PROMETHEUS_HEADERS || '' }}
-        run: >
-          node ./scripts/canary-evidence.mjs
-          --source-file artifacts/release-health/stage1-production-canary-telemetry.json
-          --source-file artifacts/release-health/production-readiness-gate.json
-          --source-file artifacts/release-health/production-settlement-provider-health-canary.json
-
-      - name: Alert on canary evidence collection failure
-        if: steps.canary_evidence.outcome == 'failure'
-        run: |
-          {
-            echo "## Canary evidence collection FAILED (advisory)"
-            echo ""
-            echo "canary-evidence.mjs failed after production applied. The release is not blocked (issue #1416); the failure is recorded in release health. Investigate asynchronously."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::Canary evidence collection failed; release proceeds (advisory per #1416)."
-
       - name: Mark production release
         if: env.SHOULD_DEPLOY != 'false'
         run: |
@@ -2340,7 +2288,6 @@ jobs:
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
           CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
-          CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
           CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
@@ -2372,8 +2319,6 @@ jobs:
           name: production-release-health
           path: |
             artifacts/release-health/production-release.json
-            artifacts/release-health/stage1-production-canary-telemetry.json
-            artifacts/release-health/canary-analysis.json
             artifacts/release-health/production-proof-buy-now-freshness-canary.json
             artifacts/release-health/production-settlement-provider-health-canary.json
             artifacts/release-health/production-readiness-gate.json

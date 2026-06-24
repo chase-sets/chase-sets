@@ -126,7 +126,7 @@ Release canary query config distinguishes three gate classes:
 | `required-critical-migrated` | Critical migrated post-write signals that must gate promotion once telemetry is live. A temporary `needs-instrumentation` exception must include owner, review date, removal issue, and reason. |
 | `observation-only` | Useful evidence that cannot close a milestone gate by itself, such as account-cart-style observation while a critical migrated handoff remains excepted. |
 
-The first required-critical migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. They may remain `required: false` only while their explicit `needs-instrumentation` exception is active in `infrastructure/observability/release-canary-prometheus-queries.json`; removing the exception means the signal must be `required: true`.
+The first required-critical migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. They stay classified as observation-only until their `needs-instrumentation` telemetry is live, after which they gate promotion as required-critical migrated signals.
 
 ## Alert And Dashboard Requirements
 

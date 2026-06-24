@@ -115,14 +115,6 @@ Staging and production observability deployment secrets and variables:
 - `OBSERVABILITY_ENABLED`: optional override; set to `false` only during an observability incident when the protected OTLP endpoint is unavailable.
 - `OBSERVABILITY_OTLP_ENDPOINT`: optional override. By default staging uses `https://otel.staging.chasesets.com` and production uses `https://otel.chasesets.com`.
 
-Optional `production` variables for telemetry-backed canary analysis:
-
-- `CANARY_PROMETHEUS_ENABLED`: set to `true` only after the production Prometheus endpoint is reachable and every configured `required: true` canary signal is ready to gate promotion.
-- `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run ops canary:evidence`.
-- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps canary signals to baseline and canary PromQL plus an explicit `required` gate flag; use `infrastructure/observability/release-canary-prometheus-queries.json`.
-- `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
-- `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of scoped query headers for the protected Prometheus-compatible endpoint, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`. Use this for credentials instead of embedding secrets in `CANARY_PROMETHEUS_URL`.
-
 Additional `staging` variables:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
@@ -223,7 +215,7 @@ terraform init \
 terraform apply -var=environment=<environment>
 ```
 
-Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret. For production, copy `canary_prometheus_url` to `CANARY_PROMETHEUS_URL` and `canary_prometheus_headers` to the `CANARY_PROMETHEUS_HEADERS` secret.
+Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret.
 
 ## One-Time Catalog Asset Bootstrap
 
