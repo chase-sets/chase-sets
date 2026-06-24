@@ -318,6 +318,90 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
+  it("keeps reviewed totals actionable when Pay now saves a manual address to the address book", async () => {
+    const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["accounts.view", "accounts.manage"],
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({
+      createShippingAddress,
+    });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("reviewedShippingOption", "standard");
+    form.set("addressBookAction", "save-new");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set(
+      "marketplaceCheckoutFeeQuoteFingerprint",
+      "marketplace-checkout-fee-v1|card|9.99|0.00|10.99|0.64|11.63|11.63",
+    );
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+    form.set(
+      "reviewedShippingAddressSignature",
+      JSON.stringify({
+        name: "Jane Smith",
+        company: "",
+        line1: "100 Market Street",
+        line2: "",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: "",
+        email: "",
+      }),
+    );
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(createShippingAddress).toHaveBeenCalledWith(
+      "acc_buyer",
+      expect.objectContaining({
+        name: "Jane Smith",
+        postalCode: "60601",
+      }),
+    );
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|9.99|0.00|10.99|0.64|11.63|11.63",
+        shippingAddress: expect.objectContaining({
+          shippingAddressId: "adr_new_checkout",
+          line1: "100 Market Street",
+          postalCode: "60601",
+        }),
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
+  });
+
   it("starts payment when a trusted-step saved instrument is selected", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
@@ -1083,10 +1167,23 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockSelectShippingOption).not.toHaveBeenCalled();
     expect(mockSelectShippingAddress).not.toHaveBeenCalled();
     expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
-    const checkoutApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
-    expect(new URL(checkoutApiRequest.url).searchParams.has("afterWrite")).toBe(false);
-    expect(checkoutApiRequest.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
-    const confirmApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[1]?.[0] as Request;
+    const readApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
+    expect(readFreshWriteToken(readApiRequest)?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "40",
+        eventIds: ["evt_prior_review"],
+      },
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ]);
+    const writeApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[1]?.[0] as Request;
+    expect(new URL(writeApiRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(writeApiRequest.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+    const confirmApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[2]?.[0] as Request;
     const confirmReceipt = readFreshWriteToken(confirmApiRequest);
     expect(confirmReceipt?.sources).toEqual([
       {
@@ -1144,7 +1241,6 @@ describe("checkout web routes: checkout session action", () => {
     form.set(
       "reviewedShippingAddressSignature",
       JSON.stringify({
-        shippingAddressId: "__manual",
         name: "Jane Smith",
         company: "",
         line1: "100 Market Street",

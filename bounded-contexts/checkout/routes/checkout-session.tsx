@@ -141,7 +141,6 @@ function normalizedAddressSignature(
   }>,
 ) {
   return JSON.stringify({
-    shippingAddressId: String(address.shippingAddressId ?? "__manual").trim() || "__manual",
     name: address.name.trim(),
     company: String(address.company ?? "").trim(),
     line1: address.line1.trim(),
@@ -669,11 +668,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await resolvedRequest.formData();
   const intent = String(formData.get("intent") ?? "");
   const internalApiRequest = requestWithoutReadAfterWrite(resolvedRequest);
-  const api = createCheckoutRequestApiClient(internalApiRequest);
+  const readApi = createCheckoutRequestApiClient(resolvedRequest);
+  const writeApi = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
     if (intent === "select-optimization-goal") {
-      const result = await api.selectOptimizationGoal(params.sessionId, {
+      const result = await writeApi.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
       return redirect(
@@ -687,14 +687,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
         validateServiceability: true,
       });
       const shippingOption = String(formData.get("shippingOption") ?? "standard");
-      const session = await loadCheckoutSessionForReviewedPreview(api, params.sessionId);
-      const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
+      const session = await loadCheckoutSessionForReviewedPreview(readApi, params.sessionId);
+      const shippingOptionResult = await writeApi.selectShippingOption(params.sessionId, {
         shippingOption,
       });
-      const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
+      const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
         shippingAddress,
       });
-      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, api, session, {
+      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, writeApi, session, {
         shippingOption,
         shippingAddress,
       });
@@ -733,11 +733,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const savePaymentMethodForFuture =
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
-        typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
+        typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const shippingOptionResult = hasCommittedSideEffects
         ? null
-        : await api.selectShippingOption(params.sessionId, {
+        : await writeApi.selectShippingOption(params.sessionId, {
             shippingOption,
           });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
@@ -756,10 +756,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const shouldRefreshReviewBeforeConfirm =
         sourceType !== "offer-intent" && visibleReviewChanged && !hasCommittedSideEffects;
       if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
-        const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
+        const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
-        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, api, session, {
+        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, writeApi, session, {
           shippingOption,
           shippingAddress,
         });
