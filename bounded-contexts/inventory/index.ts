@@ -13,12 +13,12 @@ import type {
 import contextManifest from "./context.json";
 import type { InventoryHostPorts, InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
+import { reserveOrderInventoryRequest } from "./features/reservations/api/order-reservation-workflow";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: contextManifest,
@@ -37,60 +37,21 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
             const data = event.data as OrderingOrderCreatedPayload;
 
             for (const request of data.reservationRequests ?? []) {
-              const existingState = await services.reservations.getReservationState(request.reservationRequestId);
-              if (existingState.status !== null) {
-                continue;
-              }
-
-              const context = {
-                tenantId: event.tenantId,
-                audit: event.audit,
-                trace: event.trace,
-              } as const;
-
-              try {
-                const hold = await services.holds.createHold(
-                  {
-                    accountId: request.sellerAccountId as AccountId,
-                    itemId: request.inventoryItemId,
-                    quantity: request.quantity,
-                    reason: "Ordering commitment",
-                    notes: null,
+              await reserveOrderInventoryRequest(
+                {
+                  holds: services.holds,
+                  reservations: services.reservations,
+                },
+                {
+                  orderId: data.orderId,
+                  request,
+                  context: {
+                    tenantId: event.tenantId,
+                    audit: event.audit,
+                    trace: event.trace,
                   },
-                  context,
-                );
-
-                await services.reservations.commandHandler({
-                  streamId: `inventory.reservation-${request.reservationRequestId}`,
-                  command: {
-                    type: "ConfirmInventoryReservation",
-                    reservationRequestId: request.reservationRequestId,
-                    orderId: data.orderId,
-                    sellerAccountId: request.sellerAccountId,
-                    inventoryItemId: request.inventoryItemId,
-                    quantity: request.quantity,
-                    holdId: hold.holdId,
-                  },
-                  context,
-                });
-              } catch (error) {
-                await services.reservations.commandHandler({
-                  streamId: `inventory.reservation-${request.reservationRequestId}`,
-                  command: {
-                    type: "RejectInventoryReservation",
-                    reservationRequestId: request.reservationRequestId,
-                    orderId: data.orderId,
-                    sellerAccountId: request.sellerAccountId,
-                    inventoryItemId: request.inventoryItemId,
-                    quantity: request.quantity,
-                    reason:
-                      error instanceof InventoryDomainError || error instanceof Error
-                        ? error.message
-                        : "Inventory reservation failed.",
-                  },
-                  context,
-                });
-              }
+                },
+              );
             }
           },
           "ordering.order.cancelled": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {

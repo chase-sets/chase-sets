@@ -19,10 +19,26 @@ import {
 import { buildInventoryHoldProjectionHandlers } from "../read-model/projection";
 import { getInventoryHold } from "../read-model/queries";
 
+export type InventoryHoldPlacementFailureKind =
+  | "hold-id-conflict"
+  | "insufficient-available-quantity"
+  | "inventory-item-projection-missing";
+
+export class InventoryHoldPlacementError extends InventoryDomainError {
+  public constructor(
+    public readonly kind: InventoryHoldPlacementFailureKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InventoryHoldPlacementError";
+  }
+}
+
 export type InventoryHoldServices = Readonly<{
   commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
   createHold: (
     params: Readonly<{
+      holdId?: InventoryHoldId | null;
       accountId: AccountId;
       itemId: string;
       quantity: number;
@@ -43,7 +59,7 @@ export type InventoryHoldServices = Readonly<{
 }>;
 
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<InventoryHoldEvent>(),
     initialState: () => initialInventoryHoldState,
@@ -54,16 +70,36 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
   return {
     commandHandler,
     createHold: async (params, context) => {
+      const holdId = params.holdId ?? (createId("hld") as InventoryHoldId);
+      const existing = await repository.load(`inventory.hold-${holdId}`);
+      if (existing.state.id !== null) {
+        if (
+          existing.state.status === "active" &&
+          existing.state.accountId === params.accountId &&
+          existing.state.itemId === params.itemId &&
+          existing.state.quantity === params.quantity
+        ) {
+          return {
+            holdId,
+            version: existing.version,
+          };
+        }
+
+        throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
+      }
+
       const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
       if (!item) {
-        throw new InventoryDomainError("Inventory item not found.");
+        throw new InventoryHoldPlacementError("inventory-item-projection-missing", "Inventory item not found.");
       }
 
       if (item.available_quantity < params.quantity) {
-        throw new InventoryDomainError("Holds cannot exceed the available quantity for an inventory item.");
+        throw new InventoryHoldPlacementError(
+          "insufficient-available-quantity",
+          "Holds cannot exceed the available quantity for an inventory item.",
+        );
       }
 
-      const holdId = createId("hld") as InventoryHoldId;
       const result = await commandHandler({
         streamId: `inventory.hold-${holdId}`,
         command: {

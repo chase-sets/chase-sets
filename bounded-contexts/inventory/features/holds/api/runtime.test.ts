@@ -1,0 +1,170 @@
+import { describe, expect, it, vi } from "vitest";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createInventoryHoldRuntime, InventoryHoldPlacementError } from "./runtime";
+import type { InventoryHoldId } from "../../../support/runtime-support/common";
+
+const context = {
+  tenantId: "tnt_test" as TenantId,
+  audit: {
+    performedByUserId: "usr_test" as UserId,
+    forAccountId: "acc_seller" as AccountId,
+  },
+};
+
+function createInMemoryEventStore() {
+  let globalPosition = 0;
+  const streams = new Map<string, StoredEvent[]>();
+  const allEvents: StoredEvent[] = [];
+
+  const eventStore: EventStore = {
+    appendToStream: async (input: AppendToStreamInput) => {
+      const existing = streams.get(input.streamId) ?? [];
+      const stored = input.events.map((event, index) => {
+        globalPosition += 1;
+        return {
+          eventId: `evt_${globalPosition}` as EventId,
+          streamId: input.streamId,
+          streamVersion: existing.length + index + 1,
+          globalPosition: String(globalPosition) as never,
+          tenantId: input.context.tenantId,
+          eventType: event.eventType,
+          payload: event.payload,
+          metadata: event.metadata ?? {},
+          occurredAt: new Date().toISOString() as never,
+          recordedAt: new Date().toISOString() as never,
+          performedByUserId: input.context.audit.performedByUserId,
+          forAccountId: input.context.audit.forAccountId,
+          traceId: input.context.trace?.traceId,
+          spanId: input.context.trace?.spanId,
+          parentSpanId: input.context.trace?.parentSpanId,
+          traceState: input.context.trace?.traceState,
+        } satisfies StoredEvent;
+      });
+
+      streams.set(input.streamId, [...existing, ...stored]);
+      allEvents.push(...stored);
+      return stored;
+    },
+    readStream: async (input: ReadStreamInput) =>
+      [...(streams.get(input.streamId) ?? [])].slice(input.fromVersion ?? 0),
+    readAll: async (input?: ReadAllInput) => {
+      const after = Number(input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION);
+      return allEvents.filter((event) => Number(event.globalPosition) > after);
+    },
+  };
+
+  return {
+    eventStore,
+    readAllEvents: () => allEvents,
+  };
+}
+
+function createInventoryDb(
+  options: Readonly<{
+    itemRows?: Record<string, unknown>[];
+  }> = {},
+) {
+  const itemRows = options.itemRows ?? [
+    {
+      item_id: "inv_1",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "prod_1",
+      selected_options: [],
+      graded_card: null,
+      storage_location_id: "loc_1",
+      storage_location_name: "Main",
+      ship_from_code: "CHI",
+      ship_from_address: {
+        name: "Seller",
+        line1: "1 Test St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      total_quantity: 1,
+      held_quantity: 0,
+      available_quantity: 1,
+      acquisition_cost_amount: null,
+      created_at: "2026-06-24T00:00:00.000Z",
+      updated_at: "2026-06-24T00:00:00.000Z",
+    },
+  ];
+
+  return {
+    query: vi.fn(async (sql: string) => {
+      if (sql.includes("FROM inventory_items AS item")) {
+        return {
+          rows: itemRows,
+        };
+      }
+
+      if (sql.includes("FROM inventory_holds")) {
+        return { rows: [] };
+      }
+
+      if (sql.includes("to_regclass('public.inventory_catalog_items')")) {
+        return { rows: [{ table_name: null }] };
+      }
+
+      return { rows: [] };
+    }),
+  };
+}
+
+describe("inventory hold runtime", () => {
+  it("reuses a matching stable hold id without appending a duplicate hold", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createInventoryDb();
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db,
+    });
+    const params = {
+      holdId: "hld_order_reservation_rsv_1" as InventoryHoldId,
+      accountId: "acc_seller" as AccountId,
+      itemId: "inv_1",
+      quantity: 1,
+      reason: "Ordering commitment",
+      notes: null,
+    };
+
+    await services.createHold(params, context);
+    await services.createHold(params, context);
+
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
+    expect(db.query).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports missing item projections with a typed hold placement failure", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({ itemRows: [] }),
+    });
+
+    await expect(
+      services.createHold(
+        {
+          holdId: "hld_order_reservation_rsv_1" as InventoryHoldId,
+          accountId: "acc_seller" as AccountId,
+          itemId: "inv_1",
+          quantity: 1,
+          reason: "Ordering commitment",
+          notes: null,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      kind: "inventory-item-projection-missing",
+      name: "InventoryHoldPlacementError",
+    } satisfies Partial<InventoryHoldPlacementError>);
+    expect(readAllEvents()).toHaveLength(0);
+  });
+});
