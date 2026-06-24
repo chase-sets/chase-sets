@@ -2836,7 +2836,7 @@ describe("Catalog integrations route", () => {
       scope: { provider: "tcgdex", language: "ja", setId: "sv8", status: "", search: "" },
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
-    const previewResult = await runDailyAction(
+    const previewResponse = await runDailyActionRedirect(
       {
         _intent: "preview-promotion",
         providerKey: "tcgdex",
@@ -2848,6 +2848,8 @@ describe("Catalog integrations route", () => {
       },
       selectedScopeUrl,
     );
+    const previewLocation = redirectLocation(previewResponse);
+    const promotionPreviewId = previewLocation.searchParams.get("promotionPreviewId");
     const selectedScopePromotionFilter = {
       provider: "tcgdex",
       language: "ja",
@@ -2856,7 +2858,9 @@ describe("Catalog integrations route", () => {
       setId: "sv8",
     };
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter);
-    expect(previewResult.context.promotionPreviewId).toBe(
+    expect(previewLocation.pathname).toBe("/catalog/integrations");
+    expect(previewLocation.searchParams.get("commandResult")).toBe("preview-ready");
+    expect(promotionPreviewId).toBe(
       "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130",
     );
 
@@ -2874,7 +2878,7 @@ describe("Catalog integrations route", () => {
         seriesId: "SV",
         expansionId: "SV8",
         profileVersion: "2026.06.04",
-        promotionPreviewId: previewResult.context.promotionPreviewId ?? "",
+        promotionPreviewId: promotionPreviewId ?? "",
       },
       selectedScopeUrl,
     );
@@ -3271,7 +3275,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
-    const result = await runDailyAction(
+    const response = await runDailyActionRedirect(
       {
         _intent: "preview-promotion",
         providerKey: "tcgdex",
@@ -3282,14 +3286,16 @@ describe("Catalog integrations route", () => {
       },
       "https://admin.example/catalog/integrations?filter.status=changed",
     );
+    const location = redirectLocation(response);
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
-    expect(result.section).toBe("import-to-promotion");
-    expect(result.context.selectedObservationIds).toEqual(["obs_001"]);
-    expect(result.context.promotionPreviewId).toBe(
+    expect(location.pathname).toBe("/catalog/integrations");
+    expect(location.searchParams.get("selectedObservationIds")).toBe("obs_001");
+    expect(location.searchParams.get("commandStatus")).toBe("success");
+    expect(location.searchParams.get("commandResult")).toBe("preview-ready");
+    expect(location.searchParams.get("promotionPreviewId")).toBe(
       "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
     );
-    expect(result.feedback.result).toBe("preview-ready");
   });
 
   it("previews the matching TCGdex scope without silently narrowing fresh observations out", async () => {
@@ -3301,13 +3307,14 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
 
-    const result = await runDailyAction({
+    const response = await runDailyActionRedirect({
       _intent: "preview-promotion",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
     });
+    const location = redirectLocation(response);
 
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
       provider: "tcgdex",
@@ -3317,7 +3324,9 @@ describe("Catalog integrations route", () => {
       expansionId: "base1",
       setId: "base1",
     });
-    expect(result.context.promotionPreviewId).toBe(
+    expect(location.pathname).toBe("/catalog/integrations");
+    expect(location.searchParams.get("commandResult")).toBe("preview-ready");
+    expect(location.searchParams.get("promotionPreviewId")).toBe(
       "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124",
     );
   });
@@ -4420,6 +4429,26 @@ async function runDailyAction(
     throw new Error(`Daily command unexpectedly redirected to ${result.headers.get("Location") ?? "(none)"}`);
   }
   return result;
+}
+
+async function runDailyActionRedirect(
+  body: Record<string, string>,
+  url = "https://admin.example/catalog/integrations",
+): Promise<Response> {
+  const result = await action(actionRequest(body, url));
+  if (!(result instanceof Response)) {
+    throw new Error(`Daily command unexpectedly stayed on-page with ${JSON.stringify(result.feedback)}`);
+  }
+  return result;
+}
+
+function redirectLocation(response: Response): URL {
+  const location = response.headers.get("Location");
+  if (!location) {
+    throw new Error("Expected redirect response to include a Location header.");
+  }
+
+  return new URL(location, "https://admin.example");
 }
 
 // The provider-setup and governance surfaces own a redirect after their commands;
