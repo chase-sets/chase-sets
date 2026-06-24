@@ -82,14 +82,12 @@ Use Grafana for telemetry questions: request rates, latency, projection freshnes
 - Staging Projection Wake Pipeline dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
 - Staging Catalog Integration Control Plane dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
 - Staging Projection Operations: `https://admin.staging.chasesets.com/platform/projections`
-- Staging Release Dashboard: `https://admin.staging.chasesets.com/platform/release-dashboard`
 - Production Grafana: `https://grafana.chasesets.com`
 - Production OTLP endpoint: `https://otel.chasesets.com`
 - Production Prometheus query endpoint: `https://prometheus.chasesets.com`
 - Production Projection Wake Pipeline dashboard: `https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
 - Production Catalog Integration Control Plane dashboard: `https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
 - Production Projection Operations: `https://admin.chasesets.com/platform/projections`
-- Production Release Dashboard: `https://admin.chasesets.com/platform/release-dashboard`
 
 Grafana access requirements:
 
