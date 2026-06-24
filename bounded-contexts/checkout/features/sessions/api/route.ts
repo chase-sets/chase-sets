@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import { getMutationResultCommandReceipt, type SourceCommitPosition } from "@chase-sets/http/responses";
+import {
+  getMutationResultCommandReceipt,
+  readApiErrorCode,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
@@ -124,6 +128,31 @@ function paymentQuoteRequiredResponse() {
       code: "payment_quote_required",
       message: t("checkout.features.sessions.api.route.payment.quote.required"),
     },
+  };
+}
+
+function paymentQuoteRequiredFromStaleFeeQuote(error: unknown, writeSources: readonly unknown[] = []) {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("status" in error) ||
+    error.status !== 409 ||
+    !("body" in error) ||
+    readApiErrorCode(error.body) !== "fee_quote_stale"
+  ) {
+    return null;
+  }
+
+  const body = error.body;
+  const providerQuote =
+    body && typeof body === "object" && "marketplace_checkout_fee" in body
+      ? (body as { marketplace_checkout_fee?: unknown }).marketplace_checkout_fee
+      : null;
+
+  return {
+    ...paymentQuoteRequiredResponse(),
+    ...(providerQuote ? { marketplace_checkout_fee: providerQuote } : {}),
+    ...checkoutCommitMetadataFromSources(writeSources),
   };
 }
 
@@ -835,6 +864,7 @@ export function createAccountCheckoutSessionRoutes(
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
+    const writeSources: unknown[] = [];
 
     try {
       assertNoUnsupportedCustomerEconomicsInput(body);
@@ -909,6 +939,7 @@ export function createAccountCheckoutSessionRoutes(
           },
           context,
         );
+        writeSources.push(shippingAddressResult);
         session = shippingAddressResult.session;
       }
 
@@ -955,6 +986,7 @@ export function createAccountCheckoutSessionRoutes(
           },
           context,
         );
+        writeSources.push(ordersResult);
         session = ordersResult.session;
       }
 
@@ -989,6 +1021,11 @@ export function createAccountCheckoutSessionRoutes(
         ...checkoutCommitMetadataFromSources([payment, paymentResult]),
       });
     } catch (error) {
+      const stalePaymentQuote = paymentQuoteRequiredFromStaleFeeQuote(error, writeSources);
+      if (stalePaymentQuote) {
+        return c.json(stalePaymentQuote, 409);
+      }
+
       const code = errorCode(error);
       recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
       recordAddressServiceabilityFailure(checkoutObservabilityTelemetry, access.actor, code);

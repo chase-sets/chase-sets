@@ -1678,6 +1678,84 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("asks checkout review to refresh when Payments rejects a stale fee quote", async () => {
+    const refreshedMarketplaceQuote = {
+      marketplace_checkout_fee_amount: "0.55",
+      marketplace_checkout_fee_reduction_amount: "0.00",
+      total_amount: "7.36",
+      processor_amount: "7.36",
+      quote_fingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.55|7.36|7.36",
+    };
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Review the latest payable total before payment starts."), {
+        status: 409,
+        body: {
+          error: {
+            code: "fee_quote_stale",
+            message: "Marketplace checkout fee quote changed. Review the latest payable total before paying.",
+          },
+          marketplace_checkout_fee: refreshedMarketplaceQuote,
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_orders_created"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_orders_created"],
+          },
+        ],
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_quote_required",
+        message: "Review the latest payable total before payment starts.",
+      },
+      marketplace_checkout_fee: refreshedMarketplaceQuote,
+      commitPosition: "77",
+      commitEventIds: ["evt_checkout_orders_created"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "77",
+          eventIds: ["evt_checkout_orders_created"],
+        },
+      ],
+    });
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.any(Object),
+    );
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("rejects guest saved checkout instruments before checkout side effects", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({

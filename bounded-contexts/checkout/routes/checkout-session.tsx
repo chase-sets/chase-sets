@@ -10,7 +10,7 @@ import {
   useNavigation,
   useRouteError,
 } from "react-router";
-import { loadFreshlyWrittenResource, type SourceCommitPosition } from "@chase-sets/http/responses";
+import { loadFreshlyWrittenResource, readApiErrorCode, type SourceCommitPosition } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
@@ -314,6 +314,19 @@ function visibleFreshWriteSource(source: unknown): VisibleFreshWriteSource {
 function currentPathWithSearch(request: Request) {
   const url = new URL(request.url);
   return `${url.pathname}${url.search}`;
+}
+
+function shouldRefreshPaymentQuote(error: unknown) {
+  if (!(error instanceof CheckoutApiError) || error.status !== 409) {
+    return false;
+  }
+
+  const code = readApiErrorCode(error.body);
+  return code === "payment_quote_required" || code === "fee_quote_stale";
+}
+
+function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: string) {
+  return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&quote=required`;
 }
 
 function checkoutPreviewRealtimeTopics(
@@ -658,18 +671,34 @@ export async function action({ request, params }: ActionFunctionArgs) {
           ),
         );
       }
-      const result = await api.confirmCheckoutSession(params.sessionId, {
-        requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
-          formData.get("requestedBalanceCreditAmount"),
-        ),
-        paymentMethodCategory: quotedPaymentMethodCategory,
-        marketplaceCheckoutFeeQuoteFingerprint,
-        savedCheckoutInstrumentId: selectedSavedPaymentInstrumentId,
-        savePaymentMethodForFuture,
-        fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
-        acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-        shippingAddress,
-      });
+      let result: Awaited<ReturnType<typeof api.confirmCheckoutSession>>;
+      try {
+        result = await api.confirmCheckoutSession(params.sessionId, {
+          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
+            formData.get("requestedBalanceCreditAmount"),
+          ),
+          paymentMethodCategory: quotedPaymentMethodCategory,
+          marketplaceCheckoutFeeQuoteFingerprint,
+          savedCheckoutInstrumentId: selectedSavedPaymentInstrumentId,
+          savePaymentMethodForFuture,
+          fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
+          acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
+          shippingAddress,
+        });
+      } catch (error) {
+        if (shouldRefreshPaymentQuote(error)) {
+          return redirect(
+            navigateAfterWriteFromSources(
+              reviewedPreviewWriteSources([
+                error instanceof CheckoutApiError ? visibleFreshWriteSource(error.body) : null,
+              ]),
+              paymentQuoteRefreshPath(params.sessionId, visiblePaymentMethodCategory),
+            ),
+          );
+        }
+
+        throw error;
+      }
       if (result.offer_id) {
         return redirect(
           navigateAfterWriteFromSources(
