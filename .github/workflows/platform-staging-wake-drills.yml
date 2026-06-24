@@ -223,7 +223,7 @@ jobs:
           WAKE_DRILL_FLOW: ${{ inputs.load_flow }}
           WAKE_DRILL_SKIP_CANARY_WRITE: ${{ inputs.skip_canary_write && 'true' || 'false' }}
           GUEST_BUY_NOW_CANARY_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
-          WAKE_DRILL_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
+          WAKE_DRILL_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || 'air balloon' }}
           GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
           GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}

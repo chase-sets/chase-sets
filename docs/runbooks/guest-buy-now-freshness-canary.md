@@ -8,10 +8,10 @@ The staging deployment workflow runs both flows against the deployed staging mar
 
 ```powershell
 # Guest flow (signed-out Buy Now, guest contact handoff)
-pnpm run guest-buy-now:freshness-canary -- --flow guest --environment staging --base-url https://marketplace.staging.chasesets.com --search-query charizard --fixture-key <fixture-key> --guest-email <canary-namespace-email> --ready-slo-ms 10000 --attempts 3
+pnpm run guest-buy-now:freshness-canary -- --flow guest --environment staging --base-url https://marketplace.staging.chasesets.com --search-query "air balloon" --fixture-key <fixture-key> --guest-email <canary-namespace-email> --ready-slo-ms 10000 --attempts 3
 
 # Account flow (signed-in Buy Now direct to checkout session)
-pnpm run guest-buy-now:freshness-canary -- --flow account --environment staging --base-url https://marketplace.staging.chasesets.com --search-query charizard --fixture-key <fixture-key> --ready-slo-ms 10000 --attempts 3
+pnpm run guest-buy-now:freshness-canary -- --flow account --environment staging --base-url https://marketplace.staging.chasesets.com --search-query "air balloon" --fixture-key <fixture-key> --ready-slo-ms 10000 --attempts 3
 ```
 
 The gate promotes only when, for each flow, at least one attempt reaches a pay-ready checkout (Continue to payment / Checkout Summary / Payable total) within the readiness SLO budget **and** the negative invalid-session probe shows permanent recovery. Temporary preparing-checkout recovery is still the user-safe state, but it does not promote by itself: a run that stays temporary past the budget records `checkout-ready-slo-exceeded`.
@@ -22,7 +22,7 @@ Until the #1237 numeric SLO/load proof ratifies the budget, `checkout-ready-slo-
 - `--slo-mode` (`GUEST_BUY_NOW_CANARY_SLO_MODE`, default `warn`): `warn` records SLO breaches with user-safe states as release-health warnings without blocking; `gate` aborts the release on any SLO breach.
 - `--attempts` (`GUEST_BUY_NOW_CANARY_ATTEMPTS`, default `1`; the workflow passes `3`): `checkout-ready-slo-exceeded`, controlled `browser-navigation-timeout`, and transient 5xx setup outcomes are retried, matching the rollout decision to hold after repeated live-readiness misses instead of a single flaky browser or platform edge sample. Hard failures (permanent not-found, missing receipt/cookie, platform error page, non-5xx auth/setup failures, negative-probe failures) abort immediately without retry.
 
-The workflow discovers active buyable item candidates from `/api/marketplace/items?search=<query>&includeTotal=true`, pins exact listing ids in the item detail route, and skips checkout-start recovery candidates when the selected listing is not checkout-ready. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known checkout-ready item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session and prefilters candidates with Ordering checkout preview, so it also works on hosts that gate the marketplace API behind sign-in.
+The workflow discovers active buyable item candidates from `/api/marketplace/items?search=<query>&includeTotal=true`, pins exact listing ids in the item detail route, and skips checkout-start recovery candidates when the selected listing is not checkout-ready. The staging workflow search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `air balloon`, so the Buy Now gate stays tied to an active checkout-ready fixture instead of the broader marketplace E2E search term. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known checkout-ready item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session and prefilters candidates with Ordering checkout preview, so it also works on hosts that gate the marketplace API behind sign-in.
 
 ### Flows
 
