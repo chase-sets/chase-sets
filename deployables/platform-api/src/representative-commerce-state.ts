@@ -19,6 +19,7 @@ import {
   ensureRepresentativeInventoryStock,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeDiscoveryMarketState,
+  reconcileRepresentativeOrderingSupplyState,
   type CatalogRepresentativeServices,
   type RepresentativeInventoryServices,
   type RepresentativeMarketplaceServices,
@@ -148,6 +149,8 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     const inventoryStock = await runRepresentativeStep("ensure representative inventory stock", () =>
       ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
     );
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
     const listings = await runRepresentativeStep("publish representative listings", () =>
@@ -165,6 +168,19 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
+    const orderingSupplyState = await runRepresentativeStep("reconcile representative ordering supply state", () =>
+      reconcileRepresentativeOrderingSupplyState(
+        {
+          inventoryDb: getInventoryDb(runtime.services),
+          marketplaceDb: getMarketplaceDb(runtime.services),
+          orderingDb: getOrderingDb(runtime.services),
+        },
+        {
+          listingIds: listings.map((listing) => listing.listingId),
+          existingRepresentativeLimit: readCandidateLimit(),
+        },
+      ),
+    );
     const discoveryMarketState = await runRepresentativeStep("reconcile representative discovery market state", () =>
       reconcileRepresentativeDiscoveryMarketState(
         {
@@ -217,6 +233,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
           status: offer.status,
           reason: offer.reason,
         })),
+        representativeOrderingSupplyState: orderingSupplyState,
         representativeDiscoveryMarketState: discoveryMarketState,
         contexts: runtime.mountedContexts.map((context) => context.contextName),
       }),
@@ -357,6 +374,38 @@ function getDiscoveryDb(services: Readonly<Record<string, unknown>>): Pick<PgQue
   }
 
   return discovery.db as Pick<PgQueryable, "query">;
+}
+
+function getOrderingDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  const ordering = services.ordering;
+  if (
+    !ordering ||
+    typeof ordering !== "object" ||
+    !("db" in ordering) ||
+    !ordering.db ||
+    typeof ordering.db !== "object" ||
+    !("query" in ordering.db) ||
+    typeof ordering.db.query !== "function"
+  ) {
+    throw new Error("Representative commerce state requires mounted Ordering services with a queryable db.");
+  }
+
+  return ordering.db as Pick<PgQueryable, "query">;
+}
+
+function getInventoryDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  const inventory = getInventoryServices(services);
+  if (
+    !("db" in inventory) ||
+    !inventory.db ||
+    typeof inventory.db !== "object" ||
+    !("query" in inventory.db) ||
+    typeof inventory.db.query !== "function"
+  ) {
+    throw new Error("Representative commerce state requires mounted Inventory services with a queryable db.");
+  }
+
+  return inventory.db as Pick<PgQueryable, "query">;
 }
 
 function getCatalogServices(services: Readonly<Record<string, unknown>>): CatalogRepresentativeServices {
