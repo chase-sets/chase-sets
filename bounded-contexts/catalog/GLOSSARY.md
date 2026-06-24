@@ -15,6 +15,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Component`
 - `Category`
 - `Source Observation`
+- `Catalog Sync Scope`
+- `Provider Participation Preview`
 - `Product Asset Set`
 - `Reference Type`
 - `Reference Record`
@@ -54,6 +56,8 @@ The current implementation also uses four supporting authoring concepts:
 - `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
+- `Catalog Sync Scope` — a provider-neutral Catalog sync intent, such as Pokemon TCG / English / Expansion, resolved before provider pulls create Source Observations
+- `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
 - `Source Asset` — the highest-quality imported image retained for provenance and future variant regeneration
@@ -117,6 +121,8 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Component` contributes reusable Field and Dimension rules to Blueprints.
 - A `Category` organizes Catalog Items without changing Product identity.
 - A `Source Observation` may be promoted into a Catalog Item after review.
+- A `Catalog Sync Scope` may plan one or more provider-unit Source Observation pulls.
+- A `Provider Participation Preview` belongs to one Catalog Sync Scope and resolves selected providers into child `SourceObservationIntegrationJobScope` values.
 - A `Product Asset Set` belongs to the Source Observation or Catalog Item it describes.
 - An `Asset Variant` belongs to exactly one Product Asset Set.
 - A `Reference Type` groups Reference Records by natural kind.
@@ -240,6 +246,7 @@ Catalog defines:
 - external product references that map provider identifiers to Catalog Item and Product selection truth
 - external catalog item references that map provider product identifiers to Catalog Item truth
 - the review and promotion policy for provider Source Observations
+- semantic Catalog Sync Scopes and provider participation previews before Source Observation provider jobs run
 - the normalized product imagery contract published as Product Asset Sets
 - reusable Product Measure Profiles and Resolved Product Measures
 
@@ -251,6 +258,12 @@ Catalog does not define:
 - shipping quote policy
 - package execution
 
+Catalog sync decision vocabulary:
+
+- `split` means one provider-sourced candidate should become more than one Catalog candidate.
+- `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.
+- `delete` means a candidate is rejected, ignored, or withdrawn from the merged candidate set. It is not canonical Catalog Item/Product removal.
+
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, and Product Measure Profiles support authoring, enriching, organizing, naming, and measuring that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, Product Measure Profiles, and Catalog Sync Scopes support authoring, enriching, organizing, naming, measuring, and syncing that truth.

@@ -25,6 +25,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
+Catalog-owned provider scope planning is documented in [Catalog Sync Scope Planning](./docs/catalog-sync-scope-planning.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
 Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
@@ -39,6 +40,7 @@ Published resolved alias facts for downstream search and display are documented 
 - Product schema snapshots used by downstream contexts
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
+- Catalog Sync Scopes and provider participation previews that decide which provider units may pull Source Observations
 - External Catalog Item References that map third-party product identifiers to Catalog Item truth
 - External Product References that map third-party SKU identifiers to Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
@@ -131,6 +133,16 @@ Owns a provider-sourced candidate record before it becomes Catalog truth.
 - Source Observations carry provider identity, source URL, source hash, normalized candidate fields, image URLs, and review status.
 - Promotion emits Catalog Item commands; rejection records why the source record should not be used.
 - Source Observations are not downstream product truth until promoted into Catalog Items.
+
+### Catalog Sync Scope
+
+Owns provider-neutral sync intent before Source Observation provider jobs run.
+
+- Represents semantic Catalog scope such as Pokemon TCG, English, Expansion, or Set-style source scopes
+- Plans required and optional provider-unit participation before enqueueing provider pulls
+- Resolves each eligible provider unit into a child `SourceObservationIntegrationJobScope`
+- Keeps split, update, and delete decisions in Catalog review; `delete` means candidate rejection or ignore, not canonical Catalog Item/Product removal
+- Providers never write canonical Catalog Item or Product truth directly
 
 ### External Catalog Item Reference
 

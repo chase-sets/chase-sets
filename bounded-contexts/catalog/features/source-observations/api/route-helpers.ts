@@ -10,6 +10,7 @@ import type {
   SourceObservationIntegrationJobScope,
   SourceObservationReapplyProfileMode,
 } from "./runtime";
+import type { CatalogSyncScope, CatalogSyncScopeReferenceKind } from "./catalog-sync-scope-planner";
 
 export function parsePromotionScope(input: unknown): SourceObservationFilterScope {
   if (!input || typeof input !== "object") {
@@ -75,6 +76,50 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
   };
 }
 
+export function parseCatalogSyncScope(input: unknown): CatalogSyncScope {
+  if (!isRecord(input)) {
+    throw new Error("Catalog sync scope is required.");
+  }
+
+  const reference = isRecord(input.reference) ? input.reference : {};
+  const referenceKind = parseCatalogSyncScopeReferenceKind(reference.kind);
+  const providerHints = Array.isArray(input.providerHints)
+    ? input.providerHints.filter(isRecord).map((hint) => ({
+        providerKey: stringField(hint.providerKey) ?? "",
+        unitKey: stringField(hint.unitKey),
+        productLineId: stringField(hint.productLineId),
+        productLineName: stringField(hint.productLineName),
+        seriesId: stringField(hint.seriesId),
+        setId: stringField(hint.setId),
+        setName: stringField(hint.setName),
+        productId: stringField(hint.productId),
+      }))
+    : [];
+  const providerParticipation = isRecord(input.providerParticipation)
+    ? {
+        requiredUnitKeys: stringArrayField(input.providerParticipation.requiredUnitKeys),
+        selectedUnitKeys: stringArrayField(input.providerParticipation.selectedUnitKeys),
+        excludedUnitKeys: stringArrayField(input.providerParticipation.excludedUnitKeys),
+      }
+    : null;
+
+  return {
+    scopeVersion: "catalog-sync-scope-v1",
+    productDomain: stringField(input.productDomain) ?? "",
+    productForm: stringField(input.productForm),
+    languageCode: stringField(input.languageCode) ?? stringField(input.language),
+    reference: {
+      kind: referenceKind,
+      id: stringField(reference.id),
+      name: stringField(reference.name),
+      seriesId: stringField(reference.seriesId),
+      seriesName: stringField(reference.seriesName),
+    },
+    providerHints,
+    providerParticipation,
+  };
+}
+
 export function promotionScopeToIntegrationScope(
   scope: SourceObservationFilterScope,
 ): SourceObservationIntegrationJobScope {
@@ -132,6 +177,24 @@ export async function readJsonObject(c: Context<CatalogAuthoringEnv>): Promise<R
 
 export function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function stringArrayField(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function parseCatalogSyncScopeReferenceKind(value: unknown): CatalogSyncScopeReferenceKind {
+  if (
+    value === "product-line" ||
+    value === "series" ||
+    value === "expansion" ||
+    value === "set" ||
+    value === "catalog-item"
+  ) {
+    return value;
+  }
+
+  throw new Error("Catalog sync scope reference.kind must be product-line, series, expansion, set, or catalog-item.");
 }
 
 export function toJsonValue(value: unknown): JsonValue {

@@ -187,6 +187,64 @@ describe("source observation routes: integration and bulk review jobs", () => {
     });
   });
 
+  it("previews Catalog sync scope provider participation before enqueueing provider jobs", async () => {
+    const preview = {
+      previewVersion: "catalog-sync-provider-participation-preview-v1",
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+      },
+      status: "ready",
+      startAllowed: true,
+      units: [],
+      blockers: [],
+      explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
+    };
+    const previewCatalogSyncScope = vi.fn(async () => preview);
+    const services = {
+      previewCatalogSyncScope,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/catalog-sync-scope/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: {
+          productDomain: "pokemon",
+          productForm: "single-card",
+          languageCode: "en",
+          reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+          providerParticipation: {
+            selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+          },
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(preview);
+    expect(previewCatalogSyncScope).toHaveBeenCalledWith({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base", seriesName: undefined },
+        providerHints: [],
+        providerParticipation: {
+          requiredUnitKeys: [],
+          selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+          excludedUnitKeys: [],
+        },
+      },
+      context,
+    });
+  });
+
   it("returns a validation error when a provider integration job is not importable", async () => {
     const enqueueIntegrationJob = vi.fn(async () => {
       throw new Error("Provider 'tcgplayer' does not support background import.");
