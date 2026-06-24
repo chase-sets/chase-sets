@@ -120,6 +120,10 @@ export const SUBCOMMANDS = {
     script: "postage-policy-cleanup-evidence.mjs",
     description: "Postage policy cleanup evidence from ordering/fulfillment data.",
   },
+  "push-wake:capacity-evidence": {
+    script: "push-wake-capacity-evidence.mjs",
+    description: "CI-safe push-wake connection budget and listener expansion evidence.",
+  },
   "pr-release:status": {
     script: "pr-release-status.mjs",
     description: "Render PR release status markdown.",

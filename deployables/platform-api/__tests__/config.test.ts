@@ -4,6 +4,79 @@ import { getContextDatabaseEnvName, loadBootstrapConfig, loadConfig } from "../s
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
+const defaultCriticalReadConsistencyRouteTuning = [
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/cart",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/guest/cart",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/sell-list",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/sell-list/confirmations/:confirmationId",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/guest/sell-list",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/checkout-sessions/:sessionId",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/settlement",
+    routePath: "/payouts/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/settlement",
+    routePath: "/payout-readiness",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/payments/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/listings/:id",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+] as const;
+
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
@@ -129,50 +202,7 @@ describe("platform api config", () => {
       timeoutMs: 2_500,
       pollIntervalMs: 75,
       exactDependencyMode: "enabled",
-      routeTuning: [
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/cart",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/guest/cart",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/sell-list",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/sell-list/confirmations/:confirmationId",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/guest/sell-list",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/checkout-sessions/:sessionId",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-      ],
+      routeTuning: defaultCriticalReadConsistencyRouteTuning,
       wakeBeforeWaitEnabled: false,
     });
   });
@@ -739,48 +769,7 @@ describe("platform api config", () => {
       pollIntervalMs: 25,
       exactDependencyMode: "target-context",
       routeTuning: [
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/cart",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/guest/cart",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/sell-list",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/sell-list/confirmations/:confirmationId",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/guest/sell-list",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
-        {
-          mountPath: "/api/marketplace",
-          routePath: "/account/checkout-sessions/:sessionId",
-          timeoutMs: 900,
-          pollIntervalMs: 50,
-          exactDependencyMode: "enabled",
-        },
+        ...defaultCriticalReadConsistencyRouteTuning,
         {
           mountPath: "/api/marketplace",
           routePath: "/account/checkout-sessions/:sessionId",
@@ -813,48 +802,7 @@ describe("platform api config", () => {
     ]);
 
     expect(loadConfig().readConsistency?.routeTuning).toEqual([
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/account/cart",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/guest/cart",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/account/sell-list",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/account/sell-list/confirmations/:confirmationId",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/guest/sell-list",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
-      {
-        mountPath: "/api/marketplace",
-        routePath: "/account/checkout-sessions/:sessionId",
-        timeoutMs: 900,
-        pollIntervalMs: 50,
-        exactDependencyMode: "enabled",
-      },
+      ...defaultCriticalReadConsistencyRouteTuning,
       {
         mountPath: "/api/marketplace",
         routePath: "/account/checkout-sessions/:sessionId",

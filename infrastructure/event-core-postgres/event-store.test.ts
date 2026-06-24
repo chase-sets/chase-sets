@@ -240,6 +240,26 @@ describe("postgres event store", () => {
         JSON.stringify({
           ...envelope,
           payloadVersion: 2,
+          payload: {
+            ...envelope.payload,
+            additiveRoutingHint: "safe-over-wake-only",
+          },
+          additiveEnvelopeHint: "ignored-by-current-relay",
+        }),
+      ),
+    ).toMatchObject({
+      payloadVersion: 2,
+      payload: {
+        sourceContextName: "checkout",
+        lastGlobalPosition: "1",
+      },
+    });
+
+    expect(
+      parseEventStoreWakeNotificationEnvelope(
+        JSON.stringify({
+          ...envelope,
+          payloadVersion: 0,
         }),
       ),
     ).toBeNull();
