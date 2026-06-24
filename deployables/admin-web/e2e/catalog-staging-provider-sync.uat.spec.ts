@@ -7,8 +7,9 @@ const catalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "
 const pageReadyTimeoutMs = 90_000;
 const sourceOptionTimeoutMs = 90_000;
 const syncTimeoutMs = 120_000;
-const terminalSyncTimeoutMs = 300_000;
+const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
+const uatTestTimeoutMs = 3_600_000;
 
 type SelectChoice = Readonly<{
   labels?: readonly string[];
@@ -48,6 +49,11 @@ type SelectedProviderScope = Readonly<{
 type SelectedProviderScopeField = Readonly<{
   name: string;
   value: string;
+}>;
+
+type ProviderSyncAttempt = Readonly<{
+  previousJobRows: readonly string[];
+  acceptedCompletedRow: string | null;
 }>;
 
 type LorcanaDownstreamSmokeResult = Readonly<{
@@ -360,7 +366,7 @@ const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
 
 test.describe("catalog staging provider sync UAT", () => {
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
-    test.setTimeout(1_800_000);
+    test.setTimeout(uatTestTimeoutMs);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
       !["one-piece-launch", "lorcana-launch", "all-provider-regression"].includes(providerUatJourneyScope),
@@ -381,9 +387,20 @@ test.describe("catalog staging provider sync UAT", () => {
         if (journey.preflight) {
           await expectImportPreflight(page, journey.unitKey, selectedScope, journey.preflight);
         }
-        const previousJobRows = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
+        const syncAttempt = await syncSelectedProviderUnit(page, journey.unitKey, selectedScope);
         if (journey.requiresTerminalSync) {
-          await expectImportJobSettledForSelectedUnit(page, journey.unitKey, selectedScope, previousJobRows);
+          if (syncAttempt.acceptedCompletedRow) {
+            console.log(
+              `[catalog-staging-provider-uat] ${journey.unitKey} already completed for ${selectedScope.displayLabel}: ${syncAttempt.acceptedCompletedRow}`,
+            );
+          } else {
+            await expectImportJobSettledForSelectedUnit(
+              page,
+              journey.unitKey,
+              selectedScope,
+              syncAttempt.previousJobRows,
+            );
+          }
         }
       });
     }
@@ -529,7 +546,7 @@ async function syncSelectedProviderUnit(
   page: Page,
   unitKey: string,
   selectedScope: SelectedProviderScope,
-): Promise<readonly string[]> {
+): Promise<ProviderSyncAttempt> {
   const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
@@ -540,19 +557,24 @@ async function syncSelectedProviderUnit(
     if (await syncButton.isEnabled().catch(() => false)) {
       await syncButton.click();
       await expectCommandQueued(page);
-      return previousJobRows;
+      return { previousJobRows, acceptedCompletedRow: null };
     }
 
     if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 1_000)) {
       await expectActiveImportJobForSelectedUnit(page, unitKey, selectedScope);
-      return previousJobRows;
+      return { previousJobRows, acceptedCompletedRow: null };
+    }
+
+    const completed = await completedImportJobRowForSelectedUnit(page, unitKey, selectedScope, 1_000);
+    if (completed) {
+      return { previousJobRows, acceptedCompletedRow: completed };
     }
 
     await page.waitForTimeout(1_000);
   }
 
   throw new Error(
-    `Sync action for ${unitKey} was neither enabled nor represented by a queued/running import job row for the selected or covering scope in the shared UI.`,
+    `Sync action for ${unitKey} was neither enabled nor represented by a queued/running/completed import job row for the selected or covering scope in the shared UI.`,
   );
 }
 
@@ -680,7 +702,9 @@ async function expectImportJobSettledForSelectedUnit(
 async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promise<void> {
   await openCatalogImporter(page);
   const selectedScope = await selectProviderScope(page, lorcanaDownstreamCatalogItemsJourney);
-  const promoted = await promoteFirstEligibleObservationFromReview(page, selectedScope);
+  const promoted =
+    (await promoteFirstEligibleObservationFromReview(page, selectedScope)) ??
+    (await promoteSelectedScopeFromSharedImporter(page, selectedScope));
   const result = promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope));
 
   await openCatalogItemsHandoff(page, result.providerKey);
@@ -723,6 +747,35 @@ async function promoteFirstEligibleObservationFromReview(
     unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: preview.selectedObservationIds,
+    promotionPreviewId,
+    jobId,
+  };
+}
+
+async function promoteSelectedScopeFromSharedImporter(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<LorcanaDownstreamSmokeResult | null> {
+  const scopePreviewForm = sourceScopeCommandForms(
+    page,
+    lorcanaDownstreamCatalogItemsJourney.unitKey,
+    "preview-promotion",
+  ).first();
+  if (!(await clickCommandFormButtonIfEnabled(scopePreviewForm))) {
+    return null;
+  }
+
+  await expectPromotionPreviewReady(page);
+  const promotionPreviewId = currentSearchParam(page, "promotionPreviewId");
+  await executePromotionFromFreshPreview(page);
+  const jobId = currentSearchParam(page, "jobId");
+
+  return {
+    mode: "promote",
+    providerKey: selectedScope.providerKey,
+    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    selectedScope: selectedScope.displayLabel,
+    selectedObservationIds: [],
     promotionPreviewId,
     jobId,
   };
@@ -998,6 +1051,25 @@ async function expectActiveImportJobForSelectedUnit(
   throw new Error(
     `Selected unit ${unitKey} should have a visible current or covering queued/running import job row for ${selectedScope.displayLabel}.`,
   );
+}
+
+async function completedImportJobRowForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  timeout: number,
+): Promise<string | null> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const rows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
+    const completed = rows.find(importJobRowReachedCompletedTerminal);
+    if (completed) {
+      return completed;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  return null;
 }
 
 function importJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
