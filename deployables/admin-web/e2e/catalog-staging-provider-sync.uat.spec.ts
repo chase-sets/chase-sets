@@ -558,7 +558,7 @@ async function syncSelectedProviderUnit(
 
 async function expectImportPreflight(page: Page, expectation: ImportPreflightExpectation): Promise<void> {
   await expandWorkflowStage(page, /^Run sync\b/i);
-  const panel = page.locator('[data-catalog-import-preview="ready"]').first();
+  const panel = page.locator('[data-catalog-import-preview="ready"]').filter({ visible: true }).first();
   await expect(panel).toBeVisible({ timeout: sourceOptionTimeoutMs });
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
@@ -572,7 +572,9 @@ async function expectImportPreflight(page: Page, expectation: ImportPreflightExp
     );
   }
   for (const text of expectation.visibleText) {
-    await expect(panel.getByText(text).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
+    await expect(panel.getByText(text).filter({ visible: true }).first()).toBeVisible({
+      timeout: sourceOptionTimeoutMs,
+    });
   }
 }
 
