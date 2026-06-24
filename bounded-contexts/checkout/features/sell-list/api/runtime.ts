@@ -323,6 +323,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       );
       const commandReceipt: CommandReceiptMetadata | null = storedEvent
         ? {
+            mode: "eventual",
             commitPosition: storedEvent.globalPosition,
             commitEventIds: [storedEvent.eventId],
             commitPositions: [

@@ -648,6 +648,7 @@ describe("sell list checkout runtime readiness boundary", () => {
       version: 1,
       status: "merged",
       commandReceipt: {
+        mode: "eventual",
         commitPosition: "1",
         commitEventIds: ["evt_1"],
         commitPositions: [
