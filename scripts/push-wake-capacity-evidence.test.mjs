@@ -26,6 +26,7 @@ describe("push wake capacity evidence", () => {
     expect(evidence.terraformDefaults.activeRegistryRelayContexts).toEqual([
       "catalog",
       "checkout",
+      "inventory",
       "marketplace",
       "ordering",
       "payments",
@@ -53,6 +54,7 @@ describe("push wake capacity evidence", () => {
 
     expect(evidence.registryToInfrastructureGap.activeRelayContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
+      "inventory",
       "settlement",
     ]);
     expect(evidence.registryToInfrastructureGap.wave2ContextsWithoutDirectListenerUrls).toEqual([

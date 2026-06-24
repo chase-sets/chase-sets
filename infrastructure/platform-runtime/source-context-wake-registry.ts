@@ -312,7 +312,11 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "inventory",
     owner: "Inventory",
-    rolloutState: "eligible",
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-2-composite-migration",
     rolloutWave: "wave-2-commerce-dependencies",
     priorityLane: "hot",
