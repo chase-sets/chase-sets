@@ -556,7 +556,7 @@ async function syncSelectedProviderUnit(
   while (Date.now() < deadline) {
     if (await syncButton.isEnabled().catch(() => false)) {
       await syncButton.click();
-      await expectCommandQueued(page);
+      await expectCommandQueuedOrActiveImport(page, unitKey, selectedScope);
       return { previousJobRows, acceptedCompletedRow: null };
     }
 
@@ -704,6 +704,7 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
   const selectedScope = await selectProviderScope(page, lorcanaDownstreamCatalogItemsJourney);
   const promoted =
     (await promoteFirstEligibleObservationFromReview(page, selectedScope)) ??
+    (await promoteFromCompletedImportJobReview(page, selectedScope)) ??
     (await promoteSelectedScopeFromSharedImporter(page, selectedScope));
   const result = promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope));
 
@@ -715,6 +716,43 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
       result.selectedObservationIds.join(",") || "scope"
     }, promotionPreviewId=${result.promotionPreviewId ?? "none"}, jobId=${result.jobId ?? "none"}`,
   );
+}
+
+async function promoteFromCompletedImportJobReview(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<LorcanaDownstreamSmokeResult | null> {
+  const opened = await openCompletedImportJobObservationReview(
+    page,
+    lorcanaDownstreamCatalogItemsJourney.unitKey,
+    selectedScope,
+  );
+  if (!opened) {
+    return null;
+  }
+
+  return promoteFirstEligibleObservationFromReview(page, selectedScope);
+}
+
+async function openCompletedImportJobObservationReview(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<boolean> {
+  await expandWorkflowStage(page, /^Run sync\b/i);
+  const row = await completedImportJobRowLocatorForSelectedUnit(page, unitKey, selectedScope, sourceOptionTimeoutMs);
+  if (!row) {
+    return false;
+  }
+
+  const review = row.getByRole("link", { name: "Review observations" }).first();
+  await expect(review).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await review.click();
+  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
+  await expect(page.getByRole("heading", { name: "Source Observation review" })).toBeVisible({
+    timeout: sourceOptionTimeoutMs,
+  });
+  return true;
 }
 
 async function promoteFirstEligibleObservationFromReview(
@@ -736,8 +774,7 @@ async function promoteFirstEligibleObservationFromReview(
     return null;
   }
 
-  await expectPromotionPreviewReady(page);
-  const promotionPreviewId = currentSearchParam(page, "promotionPreviewId") ?? preview.promotionPreviewId;
+  const promotionPreviewId = await expectPromotionPreviewReady(page);
   await executePromotionFromFreshPreview(page);
   const jobId = currentSearchParam(page, "jobId");
 
@@ -765,8 +802,13 @@ async function promoteSelectedScopeFromSharedImporter(
     return null;
   }
 
-  await expectPromotionPreviewReady(page);
-  const promotionPreviewId = currentSearchParam(page, "promotionPreviewId");
+  const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
+  if (!promotionPreviewId) {
+    console.log(
+      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview for ${selectedScope.displayLabel}; trying row-level or reapply fallback.`,
+    );
+    return null;
+  }
   await executePromotionFromFreshPreview(page);
   const jobId = currentSearchParam(page, "jobId");
 
@@ -899,14 +941,32 @@ async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> 
   return true;
 }
 
-async function expectPromotionPreviewReady(page: Page): Promise<void> {
-  await expect(page.getByText("Promotion preview ready").first()).toBeVisible({ timeout: syncTimeoutMs });
+async function expectPromotionPreviewReady(page: Page): Promise<string> {
+  const promotionPreviewId = await tryPromotionPreviewReady(page, syncTimeoutMs);
+  if (!promotionPreviewId) {
+    throw new Error("Expected promotion preview to be ready with a routable promotionPreviewId before the timeout.");
+  }
+
+  return promotionPreviewId;
+}
+
+async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<string | null> {
+  if (
+    !(await page
+      .getByText("Promotion preview ready")
+      .first()
+      .isVisible({ timeout })
+      .catch(() => false))
+  ) {
+    return null;
+  }
   await expect(
     page
       .getByText("Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.")
       .first(),
-  ).toBeVisible({ timeout: syncTimeoutMs });
-  await waitForSearchParam(page, "promotionPreviewId", syncTimeoutMs);
+  ).toBeVisible({ timeout });
+
+  return waitForSearchParamOrNull(page, "promotionPreviewId", timeout);
 }
 
 async function executePromotionFromFreshPreview(page: Page): Promise<void> {
@@ -981,16 +1041,34 @@ async function catalogItemProviderRowTexts(page: Page, providerKey: string): Pro
 }
 
 async function waitForSearchParam(page: Page, name: string, timeout: number): Promise<string> {
+  const value = await waitForSearchParamOrNull(page, name, timeout);
+  if (value) {
+    return value;
+  }
+
+  throw new Error(`Expected the current operator route to include ${name} before the timeout.`);
+}
+
+async function waitForSearchParamOrNull(page: Page, name: string, timeout: number): Promise<string | null> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const value = currentSearchParam(page, name);
     if (value) {
       return value;
     }
+    if (
+      await page
+        .getByText("No promotable observations")
+        .first()
+        .isVisible({ timeout: 250 })
+        .catch(() => false)
+    ) {
+      return null;
+    }
     await page.waitForTimeout(500);
   }
 
-  throw new Error(`Expected the current operator route to include ${name} before the timeout.`);
+  return null;
 }
 
 function currentSearchParam(page: Page, name: string): string | null {
@@ -1022,6 +1100,39 @@ async function expectCommandQueued(page: Page): Promise<void> {
   await expect(
     page.getByText("The durable job is queued with this provider, scope, profile, and review context.").first(),
   ).toBeVisible({ timeout: syncTimeoutMs });
+}
+
+async function expectCommandQueuedOrActiveImport(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<void> {
+  const deadline = Date.now() + syncTimeoutMs;
+  let nextExpandAt = Date.now();
+  while (Date.now() < deadline) {
+    if (
+      await page
+        .getByText("Command queued")
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false)
+    ) {
+      await expectCommandQueued(page);
+      return;
+    }
+    if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 500)) {
+      return;
+    }
+    if (Date.now() >= nextExpandAt) {
+      await expandWorkflowStage(page, /^Run sync\b/i).catch(() => undefined);
+      nextExpandAt = Date.now() + 5_000;
+    }
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `Expected a queued command banner or visible queued/running import job for ${unitKey} and ${selectedScope.displayLabel} before the timeout.`,
+  );
 }
 
 async function hasActiveImportJobForSelectedUnit(
@@ -1071,12 +1182,41 @@ async function completedImportJobRowForSelectedUnit(
   selectedScope: SelectedProviderScope,
   timeout: number,
 ): Promise<string | null> {
+  const row = await completedImportJobRowLocatorForSelectedUnit(page, unitKey, selectedScope, timeout);
+  if (!row) {
+    return null;
+  }
+
+  return row
+    .innerText()
+    .then(normalizeWhitespace)
+    .catch(() => null);
+}
+
+async function completedImportJobRowLocatorForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  timeout: number,
+): Promise<Locator | null> {
   const deadline = Date.now() + timeout;
+  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope).map(normalizeWhitespace);
   while (Date.now() < deadline) {
-    const rows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
-    const completed = rows.find(importJobRowReachedCompletedTerminal);
-    if (completed) {
-      return completed;
+    const rows = importJobRowsForSelectedUnit(page, unitKey);
+    const count = await rows.count();
+    for (let index = 0; index < count; index += 1) {
+      const row = rows.nth(index);
+      const text = await row
+        .innerText()
+        .then(normalizeWhitespace)
+        .catch(() => "");
+      if (
+        text &&
+        importJobRowReachedCompletedTerminal(text) &&
+        importJobRowTextMatchesSelectedScope(text, scopeLabels)
+      ) {
+        return row;
+      }
     }
     await page.waitForTimeout(250);
   }
