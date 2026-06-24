@@ -118,7 +118,7 @@ Staging and production observability deployment secrets and variables:
 Additional `staging` variables:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
-- `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`: staging search query used by the Buy Now freshness canaries to discover the first active buyable item. Defaults to `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`.
+- `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`: staging search query used by the Buy Now freshness canaries to discover the first active buyable item. Defaults to `air balloon`; the broader `MARKETPLACE_E2E_SEARCH_QUERY` deploy check stays separate from the checkout-ready Buy Now fixture contract.
 - `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH`: optional stable staging item detail path override used by the Buy Now freshness canaries when operators need to pin a known fixture.
 - `STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY`: operator-owned fixture identifier recorded in canary evidence. Defaults to `staging-guest-buy-now-fixture`.
 - `STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS`: browser wait timeout for the Buy Now freshness canaries. Defaults to `45000`.

@@ -75,6 +75,7 @@ describe("staging wake drills argument handling", () => {
     expect(options.drillKind).toBe("reconciliation");
     expect(options.sourceContexts).toEqual([...DEFAULT_SOURCE_CONTEXTS]);
     expect(options.convergenceBudgetMs).toBe(DEFAULT_CONVERGENCE_BUDGET_MS);
+    expect(options.searchQuery).toBe("air balloon");
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
     expect(options.controlDatabaseUrl).toBe(baseEnv.PLATFORM_CONTROL_DATABASE_URL);
     expect(validateStagingWakeDrillOptions(options)).toEqual([]);

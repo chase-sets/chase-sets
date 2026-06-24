@@ -94,7 +94,7 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       readOption(optionArgs, "--search-query") ??
       readEnv("WAKE_DRILL_SEARCH_QUERY", env) ??
       readEnv("GUEST_BUY_NOW_CANARY_SEARCH_QUERY", env) ??
-      "charizard",
+      "air balloon",
     itemPath: readOption(optionArgs, "--item-path") ?? readEnv("GUEST_BUY_NOW_CANARY_ITEM_PATH", env),
     fixtureKey:
       readOption(optionArgs, "--fixture-key") ??

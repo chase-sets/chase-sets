@@ -1414,7 +1414,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
     expect(stagingBuyNowCanariesStep).toContain("GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
     expect(stagingBuyNowCanariesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
-    expect(stagingBuyNowCanariesStep).toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
+    expect(stagingBuyNowCanariesStep).toContain("'air balloon'");
+    expect(stagingBuyNowCanariesStep).not.toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
     expect(stagingBuyNowCanariesStep).toContain("--search-query");
     expect(stagingBuyNowCanariesStep).toContain("GUEST_BUY_NOW_CANARY_ITEM_PATH");
     expect(stagingBuyNowCanariesStep).toContain('common_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")');
