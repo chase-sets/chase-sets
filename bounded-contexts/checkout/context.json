@@ -87,6 +87,23 @@
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
     {
+      "sourceContextName": "checkout",
+      "projectionName": "checkout.session-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "checkout.session.started",
+        "checkout.session.optimization-goal-selected",
+        "checkout.session.fulfillment-preview-recorded",
+        "checkout.session.shipping-option-selected",
+        "checkout.session.shipping-address-set",
+        "checkout.session.orders-created",
+        "checkout.session.payment-started",
+        "checkout.session.offer-submitted"
+      ],
+      "order": 2,
+      "projectionHandlerSetNames": ["checkout.session-projection"]
+    },
+    {
       "sourceContextName": "catalog",
       "projectionName": "checkout-marketplace-seller-options-projection",
       "subscriptionVersion": 1,

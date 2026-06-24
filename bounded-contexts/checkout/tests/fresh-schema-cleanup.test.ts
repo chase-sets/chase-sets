@@ -129,6 +129,49 @@ describe("fresh checkout read-model schemas", () => {
     );
   });
 
+  it("subscribes Checkout Session events for the fresh session detail read model", () => {
+    const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
+      eventSubscriptions?: Array<{
+        sourceContextName?: string;
+        projectionName?: string;
+        eventTypes?: string[];
+        projectionHandlerSetNames?: string[];
+      }>;
+      apiMounts?: Array<{
+        mountPath?: string;
+        readFreshnessRoutes?: Array<{
+          routePath?: string;
+          dependencies?: Array<{ readModelTable?: string }>;
+        }>;
+      }>;
+    };
+    const marketplaceApi = manifest.apiMounts?.find((mount) => mount.mountPath === "/api/marketplace");
+    const sessionFreshRead = marketplaceApi?.readFreshnessRoutes?.find(
+      (route) => route.routePath === "/account/checkout-sessions/:sessionId",
+    );
+
+    expect(sessionFreshRead?.dependencies).toEqual([{ readModelTable: "checkout_session_pages" }]);
+    expect(manifest.eventSubscriptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          eventTypes: [
+            "checkout.session.started",
+            "checkout.session.optimization-goal-selected",
+            "checkout.session.fulfillment-preview-recorded",
+            "checkout.session.shipping-option-selected",
+            "checkout.session.shipping-address-set",
+            "checkout.session.orders-created",
+            "checkout.session.payment-started",
+            "checkout.session.offer-submitted",
+          ],
+          projectionHandlerSetNames: ["checkout.session-projection"],
+        }),
+      ]),
+    );
+  });
+
   it("exposes only fresh buy checkout route paths in customer route composition", () => {
     const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
       deployableContributions?: Array<{
