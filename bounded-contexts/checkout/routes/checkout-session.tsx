@@ -23,7 +23,11 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import {
+  createForwardedAuthFetch,
+  resolveRequestApiBaseUrl,
+  UnresolvedPostWriteTokenError,
+} from "@chase-sets/platform-runtime/http";
 import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   navigateAfterWriteWithPlatformPostWriteToken,
@@ -324,6 +328,28 @@ function visibleFreshWriteSource(source: unknown): VisibleFreshWriteSource {
 function currentPathWithSearch(request: Request) {
   const url = new URL(request.url);
   return `${url.pathname}${url.search}`;
+}
+
+function requestWithoutCompactPostWriteToken(request: Request) {
+  const url = new URL(request.url);
+  if (!url.searchParams.has("postWriteToken")) {
+    return request;
+  }
+
+  url.searchParams.delete("postWriteToken");
+  return new Request(url, request);
+}
+
+async function resolveCheckoutSessionPostWriteRequest(request: Request) {
+  try {
+    return await resolvePlatformPostWriteRequest(request);
+  } catch (error) {
+    if (error instanceof UnresolvedPostWriteTokenError) {
+      return requestWithoutCompactPostWriteToken(request);
+    }
+
+    throw error;
+  }
 }
 
 function shouldRefreshPaymentQuote(error: unknown) {
@@ -634,7 +660,7 @@ function reloadForRealtimeSync() {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const resolvedRequest = await resolveCheckoutSessionPostWriteRequest(request);
   const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
@@ -725,7 +751,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const resolvedRequest = await resolveCheckoutSessionPostWriteRequest(request);
   const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
