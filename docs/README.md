@@ -73,9 +73,9 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
 - [Account Cart Consistency Probe](./runbooks/account-cart-consistency-probe.md): redacted account-cart post-write consistency evidence for optimistic apply, reconciliation, stale-response discard, rollback probes, and privacy constraints.
-- [Non-Buy-Now Post-Write Freshness UAT](./runbooks/non-buy-now-post-write-freshness-uat.md): Chrome staging checklist and redacted evidence shape for account cart, Sell List, payout-ready, and listing freshness flows not covered by the Buy Now canary.
+- [Non-Buy-Now Post-Write Freshness UAT](./runbooks/non-buy-now-post-write-freshness-uat.md): Chrome staging checklist and redacted evidence shape for account cart, Sell List, payout-ready, and listing freshness flows not covered by the Buy Now freshness probe.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
-- [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
+- [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, post-deploy production verification, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage policy administration, label provider configuration, signature enforcement, and label smoke checks.

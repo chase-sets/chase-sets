@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-ADR 0001 introduced OpenTelemetry in the platform API and a low-cost LGTM stack for local and self-hosted operations. The checked-in stack is intentionally local: short retention, local-only credentials, and Docker Compose volumes. Milestone #21 requires the same operational signals to run for production with durable storage, protected access, and release canary query support.
+ADR 0001 introduced OpenTelemetry in the platform API and a low-cost LGTM stack for local and self-hosted operations. The checked-in stack is intentionally local: short retention, local-only credentials, and Docker Compose volumes. Milestone #21 requires the same operational signals to run for production with durable storage, protected access, and scoped Prometheus-compatible query access for release automation and dashboards.
 
 The existing DigitalOcean platform root deploys the customer/application runtime through App Platform. App Platform is a good fit for stateless web, API, worker, and bootstrap components, but the current provider schema does not expose a durable volume contract for App Platform services. Prometheus, Loki, Tempo, and Grafana need persistence, predictable retention, and controlled recovery. Keeping those stores inside the main application App Platform app would also mix customer traffic deploy cadence with operational telemetry state.
 
@@ -29,7 +29,7 @@ The application deployables continue to run in App Platform and export telemetry
 
 Operators have a two-plane model:
 
-- Grafana/LGTM owns telemetry dashboards, alert state, traces, logs, metric trends, release canary Prometheus queries, and bounded-label exploration.
+- Grafana/LGTM owns telemetry dashboards, alert state, traces, logs, metric trends, Prometheus queries for release automation and dashboards, and bounded-label exploration.
 - Admin owns domain and platform operation read models, permission-aware actions, durable job/projection operation state, audit evidence, and links to the relevant Grafana dashboards and runbooks.
 
 ## Alternatives Considered
@@ -44,7 +44,7 @@ Deferred. A managed provider can satisfy the storage and access requirements, bu
 
 ### Keep production on workflow artifacts and Admin Platform Operations only
 
-Rejected. Admin Platform Operations remains the canonical application operations surface for projection and release workflow state, but milestone #21 explicitly requires durable metrics, logs, traces, protected Grafana, and Prometheus-backed release canary evidence. Recreating Grafana-style dashboards inside Admin would split alert/query ownership and weaken redaction guardrails.
+Rejected. Admin Platform Operations remains the canonical application operations surface for projection and release workflow state, but milestone #21 explicitly requires durable metrics, logs, traces, protected Grafana, and scoped Prometheus-backed query access for release automation. Recreating Grafana-style dashboards inside Admin would split alert/query ownership and weaken redaction guardrails.
 
 ## Consequences
 
@@ -52,7 +52,7 @@ Rejected. Admin Platform Operations remains the canonical application operations
 - The platform deployment workflow must keep application deployable telemetry variables separate from observability host credentials.
 - Release automation can query the protected Prometheus-compatible endpoint through scoped credentials rather than embedding them in the query base URL.
 - Operators have two complementary surfaces: Grafana for telemetry and Admin Platform Operations for domain/platform read models and actions.
-- Dashboard JSON, alert provisioning, and release canary PromQL contracts live under `infrastructure/observability`; bounded contexts own the semantics and bounded labels they emit.
+- Dashboard JSON and alert provisioning live under `infrastructure/observability`; bounded contexts own the semantics and bounded labels they emit.
 - Capacity, retention, backup, and credential rotation become explicit observability operations responsibilities.
 
 ## Invariants

@@ -47,6 +47,6 @@ Support operations readiness lives in [Support operations readiness](docs/suppor
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.
 
-Software delivery is not modeled by this application. Release health, release locks, emergency releases, canary analysis, feature rollout, and kill-switch behavior live in CI (`.github/workflows`), `scripts/`, and `infrastructure/`. See [Release Process Evolution](../../docs/runbooks/release-process-evolution.md). Platform Operations does not host release dashboards, release controls, or rollout-policy surfaces.
+Software delivery is not modeled by this application. Release health, release locks, emergency releases, post-deploy production verification, feature rollout, and kill-switch behavior live in CI (`.github/workflows`), `scripts/`, and `infrastructure/`. See [Release Process Evolution](../../docs/runbooks/release-process-evolution.md). Platform Operations does not host release dashboards, release controls, or rollout-policy surfaces.
 
 Deployables compose Platform Operations routes. They should not own page behavior, view models, workflow state, or route tests.

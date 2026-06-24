@@ -116,17 +116,11 @@ Use these decisions for critical freshness changes:
 | SLO passes without fast-path catch-up | #1085 may reject #1072 and close fast-path catch-up as not planned. |
 | SLO fails after exact dependency, worker capacity, and Checkout projection optimization | #1085 may approve #1072 with rate limits, fencing, rollout controls, and rollback path. |
 
-## Migrated Critical Canary Signals
+## Migrated Critical Post-Write Signals
 
-Release canary query config distinguishes three gate classes:
+The migrated critical post-write handoffs are tracked through the same Grafana dashboards and alerts as the rest of projection freshness (see [Observability](../runbooks/observability.md) and the Alert And Dashboard Requirements below). There is no automated canary-evidence promotion gate comparing these signals against a baseline: that gate modeled a canary deployment that does not exist, and the platform ships via a DigitalOcean App Platform rolling deploy with advisory post-deploy synthetic probes. Promotion safety for these signals comes from their SLO alerts and the freshness probe, not a deployment-time comparison.
 
-| Gate class | Meaning |
-| --- | --- |
-| `platform-required` | Platform canary prerequisites such as observability transport and deployment phase. |
-| `required-critical-migrated` | Critical migrated post-write signals that must gate promotion once telemetry is live. A temporary `needs-instrumentation` exception must include owner, review date, removal issue, and reason. |
-| `observation-only` | Useful evidence that cannot close a milestone gate by itself, such as account-cart-style observation while a critical migrated handoff remains excepted. |
-
-The first required-critical migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. They stay classified as observation-only until their `needs-instrumentation` telemetry is live, after which they gate promotion as required-critical migrated signals.
+The first migrated browser handoffs after guest Buy Now are sell-rail accept-to-checkout and payout-ready return handoff. Until their telemetry is live they are observed (not alert-gating); once instrumented they get the same dashboard panels and alert families as the critical Checkout session route, with the support-safe labels described below.
 
 ## Alert And Dashboard Requirements
 

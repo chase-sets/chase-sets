@@ -105,7 +105,7 @@ Read-after-write freshness waits integrate with the work-signal store through a 
 4. API processes only write wake-intent rows through pooled control-database queries; they hold no listener connections. Durable checkpoint-waiter registration exists in the gateway but stays off by default until the readiness-notification wait path that consumes waiter rows lands.
 5. Checkpoint readiness is recorded from durable checkpoints only: wake-driven scheduler completions record it, and polling-path projection runs record it for subscriptions whose checkpoints advanced. Empty-batch skip-ahead checkpoint advances do not record readiness; the durable poll covers that gap. Readiness rows are cleared when a projection group resets for a revision rebuild or an operator rebuild so stale positions cannot outlive their checkpoints, and bounded readiness TTLs reap anything cleared out-of-band.
 6. Wake-request counts and work-signal errors appear in the read-after-write freshness audit records for dashboards. Public freshness-timeout responses redact raw projection errors and internal checkpoint topology; the audit record keeps the detail.
-7. Rollout: `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` defaults off and rides a staging-first ramp in Terraform; production enablement follows the milestone rollout-control and canary evidence gates.
+7. Rollout: `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` defaults off and rides a staging-first ramp in Terraform; production enablement follows the milestone rollout-control gates and the post-deploy synthetic probe and freshness-SLO evidence.
 
 ## Boundaries
 
