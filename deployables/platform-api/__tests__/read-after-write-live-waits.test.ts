@@ -411,6 +411,41 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     ]);
   });
 
+  it("backs accepted-offer sales list freshness with the offer process and sale list read models", () => {
+    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/sales");
+    expect(salesLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/sales",
+          methods: ["GET", "HEAD"],
+          dependencies: [
+            { projectionName: "ordering-marketplace-offer-acceptance" },
+            { readModelTable: "ordering_order_pages" },
+            { readModelTable: "ordering_order_line_pages" },
+          ],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = [
+      ...new Map(
+        salesLiveRoutes
+          .flatMap(({ route }) =>
+            route.dependencies.flatMap((dependency) =>
+              resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
+            ),
+          )
+          .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
+      ).values(),
+    ];
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
+      { targetContextName: "ordering", projectionName: "ordering-order-projection" },
+    ]);
+  });
+
   it("backs settlement payout detail freshness with the payout projection dependency", () => {
     const settlementPayoutLiveRoutes = findLiveFreshnessRoutes("settlement", "/payouts/:id");
     expect(settlementPayoutLiveRoutes).toEqual([
