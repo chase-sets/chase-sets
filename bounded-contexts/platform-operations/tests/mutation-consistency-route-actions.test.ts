@@ -18,7 +18,6 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 import { action as accountSupportAction } from "../routes/marketplace/account-support";
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
-import { action as releaseControlsAction } from "../routes/admin/release-controls";
 import { action as supportOperationsAction } from "../routes/admin/requests";
 
 function formRequest(url: string, form: URLSearchParams) {
@@ -77,38 +76,6 @@ describe("platform operations mutation consistency route actions", () => {
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/platform/projections?tab=groups&selected=catalog");
-  });
-
-  it("refetches release controls after command-owned policy snapshots are accepted", async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({
-        releaseLock: { locked: true, reason: "incident", reference: "inc_1" },
-        rolloutPolicies: [],
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const form = new URLSearchParams({
-      intent: "set-release-lock",
-      releaseAction: "lock",
-      releaseReason: "incident",
-      releaseReference: "inc_1",
-    });
-
-    const response = (await releaseControlsAction({
-      request: formRequest("http://localhost/platform/release-controls?releaseAction=lock", form),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost/api/platform/release-controls/release-lock",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ locked: true, reason: "incident", reference: "inc_1" }),
-      }),
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/platform/release-controls?releaseAction=lock");
   });
 
   it("refetches platform feedback detail after review snapshots", async () => {

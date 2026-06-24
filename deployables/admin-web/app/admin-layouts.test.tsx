@@ -112,9 +112,9 @@ describe("admin web section layouts", () => {
     {
       Component: PlatformLayout,
       name: "Platform",
-      pathname: "/platform/release-dashboard",
-      activeHref: "/platform/release-dashboard",
-      localNavLabel: "Release Dashboard",
+      pathname: "/platform/projections",
+      activeHref: "/platform/projections",
+      localNavLabel: "Projection Operations",
     },
   ])(
     "renders $name with top-level and section-local navigation",
@@ -149,7 +149,7 @@ describe("admin web section layouts", () => {
     [CommerceLayout, "/commerce/postage-policies", "Postage Policies"],
     [GrowthLayout, "/growth/google-shopping", "Google Shopping"],
     [SupportLayout, "/support/requests", "Support"],
-    [PlatformLayout, "/platform/release-dashboard", "Release Dashboard"],
+    [PlatformLayout, "/platform/projections", "Projection Operations"],
   ] as const)(
     "wires mobile section switching, local nav, active state, and account actions for %s",
     (Component, pathname, localNavLabel) => {

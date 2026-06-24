@@ -186,18 +186,6 @@ export function Caption<TTarget extends ElementType = "p">(props: CaptionProps<T
   return <Text {...props} size={props.size ?? "2xs"} tone={props.tone ?? "secondary"} />;
 }
 
-export interface CodeTextProps extends FrameProps {
-  children?: ReactNode;
-}
-
-export function CodeText({ children, ...rest }: CodeTextProps) {
-  return (
-    <code {...rest} className="rounded-tokenSm bg-background px-1.5 py-1 font-mono text-xs text-accent">
-      {children}
-    </code>
-  );
-}
-
 export interface DiscountValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   original: ReactNode;
   current: ReactNode;

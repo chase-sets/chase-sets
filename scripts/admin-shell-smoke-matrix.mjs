@@ -245,25 +245,6 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     },
   },
   {
-    id: "API-PLATFORM-RELEASE-CONTROLS",
-    section: "Platform",
-    surface: "Platform Release Controls",
-    callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/platform-operations/features/release-controls/api/request-client.ts",
-    apiPath: "/api/platform/release-controls",
-    sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/platform")'],
-    contract: "internal-origin server call",
-    localProxyPrefix: "/api/platform",
-    proofAdminIngressPrefix: "/api/platform",
-    smokeCoverageId: "SMOKE-API-PLATFORM-RELEASE-CONTROLS",
-    topologyExpectations: {
-      staging: "internal-origin or authenticated API data",
-      "production-proof": "internal-origin or proof admin ingress",
-      "public-marketplace": "internal-origin",
-      "production-platform-disabled": "controlled-unavailable or valid internal origin",
-    },
-  },
-  {
     id: "API-PUBLIC-PRESENCE-WAITLIST-EXPORT",
     section: "Growth",
     surface: "Public Presence Waitlist Export",
@@ -492,20 +473,6 @@ export const ADMIN_DEPLOYED_PAGE_SMOKE_ROWS = [
     section: "Platform",
     expectedText: ["Platform", "Projection Operations"],
     coverageIds: ["SMOKE-SHELL-PLATFORM", "SMOKE-API-PLATFORM-PROJECTIONS"],
-  },
-  {
-    id: "SMOKE-PAGE-PLATFORM-RELEASE-DASHBOARD",
-    path: "/platform/release-dashboard",
-    section: "Platform",
-    expectedText: ["Platform", "Release Dashboard"],
-    coverageIds: ["SMOKE-SHELL-PLATFORM"],
-  },
-  {
-    id: "SMOKE-PAGE-PLATFORM-RELEASE-CONTROLS",
-    path: "/platform/release-controls",
-    section: "Platform",
-    expectedText: ["Platform", "Release Controls"],
-    coverageIds: ["SMOKE-SHELL-PLATFORM", "SMOKE-API-PLATFORM-RELEASE-CONTROLS"],
   },
 ];
 

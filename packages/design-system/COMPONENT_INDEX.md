@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 354
+- Runtime exports indexed: 353
 - Source modules covered: 117
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -77,7 +77,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CheckoutTrustPanel` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Checkout Trust Panel. | `No production consumer yet.` |
 | `clearFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: clear Field Error. | `No production consumer yet.` |
 | `Cluster` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Cluster. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
-| `CodeText` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Code Text. | `bounded-contexts/platform-operations/features/release-controls/ui/release-controls-page.tsx` |
 | `ColorModeToggle` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Color Mode Toggle. | `No production consumer yet.` |
 | `Combobox` | `packages/design-system/src/components/forms/combobox.tsx` | Purpose not documented; symbol name suggests: Combobox. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
 | `CommentsSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Comments Sheet. | `No production consumer yet.` |

@@ -108,12 +108,6 @@ export function ProjectionOperationsPage({
             {t(`${routeKey}.identity`)}
           </LinkButton>
         ) : null}
-        <LinkButton href="/platform/release-dashboard" tone="secondary">
-          {t(`${routeKey}.releaseDashboard`)}
-        </LinkButton>
-        <LinkButton href="/platform/release-controls" tone="secondary">
-          {t(`${routeKey}.releaseControls`)}
-        </LinkButton>
         {selectedContext ? <RebuildContextDialog contextName={selectedContext} /> : null}
       </ActionBar>
 
