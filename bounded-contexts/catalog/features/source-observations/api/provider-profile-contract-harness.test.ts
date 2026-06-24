@@ -29,11 +29,18 @@ describe("Catalog provider profile contract harness", () => {
     expect(results.map((result) => `${result.providerKey}@${result.profileVersion}`)).toEqual([
       "mtgjson@2026.06.19",
       "mtgjson@2026.06.19",
+      "lorcanajson@2026.06.23",
+      "lorcanajson@2026.06.23",
+      "lorcast@2026.06.23",
+      "lorcast@2026.06.23",
       "scryfall@2026.06.19",
       "scryfall@2026.06.19",
       "scrydex@2026.06.22",
       "scrydex@2026.06.22",
       "scrydex@2026.06.22",
+      "scrydex@2026.06.23",
+      "scrydex@2026.06.23",
+      "scrydex@2026.06.23",
       "ygoprodeck@2026.06.21",
       "ygoprodeck@2026.06.21",
       "ygojson@2026.06.21",
@@ -44,6 +51,8 @@ describe("Catalog provider profile contract harness", () => {
       "tcgplayer@2026.06.20",
       "tcgplayer@2026.06.22",
       "tcgplayer@2026.06.23",
+      "tcgplayer@2026.06.23",
+      "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.03",
     ]);
   });
@@ -52,8 +61,15 @@ describe("Catalog provider profile contract harness", () => {
     const identities = [
       { providerKey: "mtgjson", profileKey: "mtg-card-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
+      { providerKey: "lorcanajson", profileKey: "lorcana-card-reference-data", profileVersion: "2026.06.23" },
+      { providerKey: "lorcanajson", profileKey: "lorcana-set-reference-data", profileVersion: "2026.06.23" },
+      { providerKey: "lorcast", profileKey: "lorcana-card-reference-data", profileVersion: "2026.06.23" },
+      { providerKey: "lorcast", profileKey: "lorcana-set-reference-data", profileVersion: "2026.06.23" },
       { providerKey: "scryfall", profileKey: "mtg-card-print-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "scryfall", profileKey: "mtg-card-image-evidence", profileVersion: "2026.06.19" },
+      { providerKey: "scrydex", profileKey: "lorcana-card-print-source-observation", profileVersion: "2026.06.23" },
+      { providerKey: "scrydex", profileKey: "lorcana-set-reference-data", profileVersion: "2026.06.23" },
+      { providerKey: "scrydex", profileKey: "lorcana-sealed-product-source-observation", profileVersion: "2026.06.23" },
       { providerKey: "ygoprodeck", profileKey: "yugioh-card-print-reference-data", profileVersion: "2026.06.21" },
       { providerKey: "ygoprodeck", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
       { providerKey: "ygojson", profileKey: "yugioh-set-reference-data", profileVersion: "2026.06.21" },
@@ -64,6 +80,8 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "tcgplayer", profileKey: "yugioh-single-card-product-sku", profileVersion: "2026.06.20" },
       { providerKey: "tcgplayer", profileKey: "one-piece-single-card-product-sku", profileVersion: "2026.06.22" },
       { providerKey: "tcgplayer", profileKey: "one-piece-sealed-product-sku", profileVersion: "2026.06.23" },
+      { providerKey: "tcgplayer", profileKey: "lorcana-single-card-product-sku", profileVersion: "2026.06.23" },
+      { providerKey: "tcgplayer", profileKey: "lorcana-sealed-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "pokemon-tcg-automation-client", profileVersion: "2026.06.03" },
     ];
     const results = await Promise.all(

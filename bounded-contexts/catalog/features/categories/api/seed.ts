@@ -41,6 +41,15 @@ export async function seedOnePieceCategories(services: CatalogServices): Promise
   );
 }
 
+export async function seedLorcanaCategories(services: CatalogServices): Promise<CategoryIds> {
+  console.log("Reconciling Lorcana categories...");
+  return seedCategoryDefinitions(
+    services,
+    allCategoryDefs().filter((def) => def.key.startsWith("lorcana")),
+    { reconcileExisting: true },
+  );
+}
+
 function allCategoryDefs(): CategoryDef[] {
   const defs: CategoryDef[] = [
     {
@@ -255,6 +264,124 @@ function allCategoryDefs(): CategoryDef[] {
       description: "Factory sealed One Piece starter decks",
       parentKey: "one-piece-sealed-products",
       displayOrder: 2,
+    },
+    {
+      key: "lorcana",
+      categoryId: catalogSeedIds.categories.lorcana as CategoryId,
+      name: "Disney Lorcana",
+      description: "Disney Lorcana catalog",
+    },
+    {
+      key: "lorcana-sets",
+      categoryId: catalogSeedIds.categories.lorcanaSets as CategoryId,
+      name: "Sets / Chapters",
+      description: "Disney Lorcana sets, chapters, and release groups",
+      parentKey: "lorcana",
+      displayOrder: 0,
+    },
+    {
+      key: "lorcana-special-sets",
+      categoryId: catalogSeedIds.categories.lorcanaSpecialSets as CategoryId,
+      name: "Promo / Special Sets",
+      description: "Disney Lorcana promo and special release groups",
+      parentKey: "lorcana-sets",
+      displayOrder: 1,
+    },
+    {
+      key: "lorcana-card-prints",
+      categoryId: catalogSeedIds.categories.lorcanaCardPrints as CategoryId,
+      name: "Card Prints",
+      description: "Individual Disney Lorcana card prints",
+      parentKey: "lorcana",
+      displayOrder: 1,
+    },
+    {
+      key: "lorcana-sealed-products",
+      categoryId: catalogSeedIds.categories.lorcanaSealedProducts as CategoryId,
+      name: "Sealed Products",
+      description: "Disney Lorcana sealed products",
+      parentKey: "lorcana",
+      displayOrder: 2,
+    },
+    {
+      key: "lorcana-booster-packs",
+      categoryId: catalogSeedIds.categories.lorcanaBoosterPacks as CategoryId,
+      name: "Booster Packs",
+      description: "Single sealed Disney Lorcana booster packs",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 0,
+    },
+    {
+      key: "lorcana-sleeved-boosters",
+      categoryId: catalogSeedIds.categories.lorcanaSleevedBoosters as CategoryId,
+      name: "Sleeved Boosters",
+      description: "Single sealed Disney Lorcana sleeved booster packs",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 1,
+    },
+    {
+      key: "lorcana-booster-boxes",
+      categoryId: catalogSeedIds.categories.lorcanaBoosterBoxes as CategoryId,
+      name: "Booster Boxes / Displays",
+      description: "Factory sealed Disney Lorcana booster boxes and displays",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 2,
+    },
+    {
+      key: "lorcana-booster-cases",
+      categoryId: catalogSeedIds.categories.lorcanaBoosterCases as CategoryId,
+      name: "Booster Cases",
+      description: "Factory sealed Disney Lorcana booster display cases",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 3,
+    },
+    {
+      key: "lorcana-starter-decks",
+      categoryId: catalogSeedIds.categories.lorcanaStarterDecks as CategoryId,
+      name: "Starter Decks / Sets",
+      description: "Factory sealed Disney Lorcana starter decks and starter sets",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 4,
+    },
+    {
+      key: "lorcana-troves",
+      categoryId: catalogSeedIds.categories.lorcanaTrove as CategoryId,
+      name: "Illumineer's Troves",
+      description: "Factory sealed Disney Lorcana Illumineer's Troves",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 5,
+    },
+    {
+      key: "lorcana-gift-sets",
+      categoryId: catalogSeedIds.categories.lorcanaGiftSets as CategoryId,
+      name: "Gift Sets",
+      description: "Factory sealed Disney Lorcana gift sets",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 6,
+    },
+    {
+      key: "lorcana-collection-starters",
+      categoryId: catalogSeedIds.categories.lorcanaCollectionStarters as CategoryId,
+      name: "Collection Starters",
+      description: "Factory sealed Disney Lorcana collection starter products",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 7,
+    },
+    {
+      key: "lorcana-prerelease-boxes",
+      categoryId: catalogSeedIds.categories.lorcanaPrereleaseBoxes as CategoryId,
+      name: "Prerelease Boxes",
+      description: "Factory sealed Disney Lorcana prerelease boxes",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 8,
+    },
+    {
+      key: "lorcana-quests-and-product-bundles",
+      categoryId: catalogSeedIds.categories.lorcanaQuestsAndProductBundles as CategoryId,
+      name: "Quests / Product Bundles",
+      description: "Disney Lorcana quest boxes and sealed product bundles",
+      parentKey: "lorcana-sealed-products",
+      displayOrder: 9,
     },
   );
 

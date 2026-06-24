@@ -95,6 +95,12 @@ One Piece cross-provider identity:
 - Marketplace-only TCGplayer products remain review evidence until a Scrydex, TCGplayer, or operator-approved deterministic path resolves exactly one Catalog Item. Bridge evidence without a unique candidate must not create a new Catalog Item automatically.
 - Scrydex, TCGplayer, Bandai validation, or approved fallback disagreements are reviewable diagnostics. Admin-visible diagnostics identify provider/source, field class, and decision path, and use redacted provider-evidence summaries rather than raw provider payloads.
 
+Lorcana cross-provider identity:
+
+- LorcanaJSON, Lorcast, Scrydex, and TCGplayer Lorcana card or sealed-product observations reuse an existing Catalog Item when exactly one safe candidate is found by external Catalog Item reference, provider source link, or deterministic Lorcana identity. Card identity requires set/chapter, collector number, printed name, version, language, and material variant facts such as foil or special treatment when present. Sealed-product identity requires set or release family, product name, language, and sealed-product form so booster packs, sleeved boosters, displays, cases, starter decks, troves, gift sets, prerelease boxes, and collections do not collapse into one Catalog Item.
+- Marketplace-only TCGplayer Lorcana products remain review evidence until a deterministic Catalog Item bridge exists. A TCGplayer product id, group id, SKU, or price-reference fact cannot create a new Catalog Item by itself when the card/set/sealed identity is ambiguous.
+- LorcanaJSON has baseline reference precedence for free set/card facts, Lorcast and Scrydex provide supplemental evidence, TCGplayer provides marketplace identity evidence, and Disney Lorcana/Ravensburger official sources provide validation-only conflict evidence unless legal/source-authority approval explicitly changes that role. Disagreements are Admin-visible diagnostics using redacted evidence summaries, never raw provider or official payload bodies.
+
 Price, listing, inventory, order, seller, and message facts:
 
 - These are not Catalog truth. Catalog may retain safe evidence only when permitted by [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and must not include them in Source Observation hash material unless a future owner contract explicitly changes the boundary.

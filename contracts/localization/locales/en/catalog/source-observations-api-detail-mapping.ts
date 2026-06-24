@@ -71,6 +71,15 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "MTGJSON public JSON files do not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.mtgjson.public.json.transport.configured":
     "MTGJSON public v5 JSON transport is configured.",
+  "catalog.features.sourceObservations.api.providerAdapters.lorcanajson.credential.not.required":
+    "LorcanaJSON public JSON files do not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.lorcanajson.public.json.transport.configured":
+    "LorcanaJSON public JSON transport is configured; prefer all-cards and set JSON documents before scoped card fetches.",
+  "catalog.features.sourceObservations.api.providerAdapters.lorcast.credential.not.required":
+    "Lorcast public API does not require credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.lorcast.public.api.transport.configured":
+    "Lorcast public API transport is configured; cache downloaded data for at least 24 hours and pace cold calls around 10 requests per second.",
+  "catalog.features.sourceObservations.api.providerAdapters.card.option.label": "{name} #{cardNumber}",
   "catalog.features.sourceObservations.api.providerAdapters.ygoprodeck.credential.not.required":
     "YGOPRODeck public API access does not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.ygoprodeck.public.api.transport.configured":
@@ -89,6 +98,8 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "Shared Scrydex credentials are missing for One Piece transport.",
   "catalog.features.sourceObservations.api.providerAdapters.scrydex.onePiece.bulk.first.transport.configured":
     "Scrydex One Piece transport uses paginated expansion, card, and sealed-product list endpoints before any single-item scope.",
+  "catalog.features.sourceObservations.api.providerAdapters.scrydex.bulk.first.transport.configured":
+    "Scrydex {productLine} bulk-first transport is configured with shared credentials and redacted usage diagnostics.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured":
     "TCGplayer automation transport is configured for {connectorKind} with profile lifecycle {lifecycle}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured":

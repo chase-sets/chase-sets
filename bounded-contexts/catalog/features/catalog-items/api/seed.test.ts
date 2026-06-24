@@ -61,6 +61,141 @@ describe("catalog item seed", () => {
       ]),
     );
   });
+
+  it("seeds a Lorcana card print with variant, ink, type, classifications, properties, and artist fields", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      items: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+
+    await seedCatalogItems(
+      services as never,
+      keyBackedIds("bpr") as never,
+      keyBackedIds("fld") as never,
+      keyBackedIds("ctg") as never,
+      referenceIds() as never,
+    );
+
+    const itemStreamId = `catalog.item-${catalogSeedIds.items.lorcanaElsaSnowQueen}`;
+    const itemCommands = commands.filter((entry) => entry.streamId === itemStreamId).map((entry) => entry.command);
+
+    expect(itemCommands).toContainEqual(
+      expect.objectContaining({
+        type: "AssignBlueprintToCatalogItem",
+        blueprintId: "bpr_lorcana-card-print",
+      }),
+    );
+    expect(itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_set",
+          value: { referenceId: "ref_lorcana_set_the-first-chapter" },
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_card-variant",
+          value: "Standard",
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_ink-color",
+          value: "Amethyst",
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_card-type",
+          value: "Character",
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_card-classifications",
+          value: ["Storyborn", "Hero", "Queen"],
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_card-properties",
+          value: ["Frozen"],
+        }),
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_card-illustrator",
+          value: "Nicholas Kole",
+        }),
+        expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "lorcanajson",
+          externalKey: "card:1-041",
+        }),
+        expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "lorcast",
+          externalKey: "card:crd_elsa_snow_queen_1_041",
+        }),
+      ]),
+    );
+  });
+
+  it("seeds a Lorcana sealed booster display with sealed form taxonomy", async () => {
+    const commands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+    const services = {
+      items: {
+        commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+          commands.push({ streamId: input.streamId, command: input.command });
+        },
+      },
+    };
+
+    await seedCatalogItems(
+      services as never,
+      keyBackedIds("bpr") as never,
+      keyBackedIds("fld") as never,
+      keyBackedIds("ctg") as never,
+      referenceIds() as never,
+    );
+
+    const itemStreamId = `catalog.item-${catalogSeedIds.items.lorcanaTheFirstChapterBoosterBox}`;
+    const itemCommands = commands.filter((entry) => entry.streamId === itemStreamId).map((entry) => entry.command);
+
+    expect(itemCommands).toContainEqual(
+      expect.objectContaining({
+        type: "AssignBlueprintToCatalogItem",
+        blueprintId: "bpr_lorcana-sealed-product",
+      }),
+    );
+    expect(itemCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_sealed-product-form",
+          value: "booster-box-display",
+        }),
+        expect.objectContaining({
+          type: "AssignCatalogItemToCategory",
+          categoryId: "ctg_lorcana-booster-boxes",
+        }),
+        expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:1005020",
+        }),
+        expect.objectContaining({
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:9001005020",
+          selectedOptions: [],
+        }),
+        expect.objectContaining({
+          type: "PublishCatalogItem",
+          requiredFieldIds: ["fld_set", "fld_sealed-product-form"],
+        }),
+      ]),
+    );
+  });
 });
 
 function keyBackedIds(prefix: string): Record<string, string> {
@@ -80,6 +215,9 @@ function referenceIds() {
     },
     onePiece: {
       sets: keyBackedIds("ref_one_piece_set"),
+    },
+    lorcana: {
+      sets: keyBackedIds("ref_lorcana_set"),
     },
   };
 }

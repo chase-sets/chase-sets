@@ -1,0 +1,26 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_set_en_first_chapter_sealed_reference",
+  "externalKey": "set:lorcast-first-chapter-sealed-reference",
+  "sourceUrl": "fixture://lorcast/sets/1/sealed-product",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": { "provider": "lorcast", "fixtureFlow": "sealed-product" },
+  "catalogHashMaterial": {
+    "provider": "lorcast",
+    "setId": "lorcast-first-chapter-sealed-reference",
+    "setCode": "1",
+    "setName": "The First Chapter Sealed Reference",
+    "releaseDate": "2023-08-18",
+    "cardCount": null
+  },
+  "externalCatalogItemReferences": [],
+  "setId": "lorcast-first-chapter-sealed-reference",
+  "setCode": "1",
+  "setName": "The First Chapter Sealed Reference",
+  "name": "The First Chapter Sealed Reference",
+  "releaseDate": "2023-08-18",
+  "prereleaseDate": null,
+  "releaseYear": "2023",
+  "cardCount": null
+}

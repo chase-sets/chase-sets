@@ -1,0 +1,36 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcanajson_set_en_1",
+  "externalKey": "set:1",
+  "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+  "sourceUpdatedAt": "2026-05-26T19:11:58",
+  "sourcePayload": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "setId": "1",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "releaseDate": "2023-08-18",
+    "cardCount": 204
+  },
+  "catalogHashMaterial": {
+    "provider": "lorcanajson",
+    "formatVersion": "2.3.2",
+    "generatedOn": "2026-05-26T19:11:58",
+    "setId": "1",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "releaseDate": "2023-08-18",
+    "cardCount": 204
+  },
+  "externalCatalogItemReferences": [],
+  "setId": "1",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "name": "The First Chapter",
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "cardCount": 204
+}

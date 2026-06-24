@@ -44,7 +44,7 @@ const scrydexOnePieceSourceContract = {
 } as const;
 
 const scrydexOnePieceConnectorContract = {
-  kind: "scrydex-one-piece-json",
+  kind: "scrydex-json",
   transportOwns: ["auth", "domains", "endpoint-paths", "pagination", "throttling", "raw-provider-parse"],
   mappingOwns: [
     "source-payload",

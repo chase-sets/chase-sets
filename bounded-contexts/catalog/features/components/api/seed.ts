@@ -142,6 +142,7 @@ export async function seedComponents(
 
   Object.assign(result, await seedMagicComponents(services, dimensions, fields, { reconcileExisting: false }));
   Object.assign(result, await seedOnePieceComponents(services, dimensions, fields, { reconcileExisting: false }));
+  Object.assign(result, await seedLorcanaComponents(services, dimensions, fields, { reconcileExisting: false }));
 
   return result;
 }
@@ -412,6 +413,144 @@ export async function seedOnePieceComponents(
     }
 
     result["one-piece-sealed-product-identity"] = componentId;
+  }
+
+  return result;
+}
+
+export async function seedLorcanaComponents(
+  services: CatalogServices,
+  dimensions: DimensionIds,
+  fields: FieldIds,
+  options: Readonly<{ reconcileExisting?: boolean }> = { reconcileExisting: true },
+): Promise<ComponentIds> {
+  const result: ComponentIds = {};
+
+  {
+    const componentId = catalogSeedIds.components.lorcanaCardPrintIdentity as ComponentId;
+    const streamId = `catalog.component-${componentId}`;
+
+    if (!(options.reconcileExisting && (await componentExists(services, componentId, "lorcana-card-print-identity")))) {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "CreateComponent",
+        componentId,
+        key: "lorcana-card-print-identity",
+        name: localizedTextMapFromEnglish("Lorcana Card Print Identity"),
+        description: localizedTextMapFromEnglish("Descriptive fields for a specific printed Disney Lorcana card"),
+      });
+
+      for (const [fieldKey, required] of [
+        ["card-number", true],
+        ["card-name", true],
+        ["set", true],
+        ["rarity", false],
+        ["card-variant", false],
+        ["ink-color", false],
+        ["card-type", false],
+        ["card-classifications", false],
+        ["card-properties", false],
+        ["card-illustrator", false],
+        ["release-year", false],
+      ] as const) {
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddFieldRuleToComponent",
+          fieldId: fields[fieldKey],
+          required,
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
+      });
+    }
+
+    result["lorcana-card-print-identity"] = componentId;
+  }
+
+  {
+    const componentId = catalogSeedIds.components.lorcanaCardProductResolution as ComponentId;
+    const streamId = `catalog.component-${componentId}`;
+    const formDimension = dimensions.form;
+
+    if (
+      !(options.reconcileExisting && (await componentExists(services, componentId, "lorcana-card-product-resolution")))
+    ) {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "CreateComponent",
+        componentId,
+        key: "lorcana-card-product-resolution",
+        name: localizedTextMapFromEnglish("Lorcana Card Product Resolution"),
+        description: localizedTextMapFromEnglish("Product-resolution rules for raw and graded Lorcana card variants"),
+      });
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "AddDimensionRuleToComponent",
+        dimensionId: formDimension.dimensionId,
+        required: true,
+        allowedOptionIds: formDimension.orderedOptionIds,
+      });
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "AddDimensionRuleToComponent",
+        dimensionId: dimensions.condition.dimensionId,
+        required: true,
+        allowedOptionIds: dimensions.condition.orderedOptionIds,
+        appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.raw] }],
+      });
+
+      for (const dimKey of ["grading-company", "grade"] as const) {
+        const dimension = dimensions[dimKey];
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddDimensionRuleToComponent",
+          dimensionId: dimension.dimensionId,
+          required: true,
+          allowedOptionIds: dimension.orderedOptionIds,
+          appliesWhen: [{ dimensionId: formDimension.dimensionId, optionIds: [formDimension.optionIds.graded] }],
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
+      });
+    }
+
+    result["lorcana-card-product-resolution"] = componentId;
+  }
+
+  {
+    const componentId = catalogSeedIds.components.lorcanaSealedProductIdentity as ComponentId;
+    const streamId = `catalog.component-${componentId}`;
+
+    if (
+      !(options.reconcileExisting && (await componentExists(services, componentId, "lorcana-sealed-product-identity")))
+    ) {
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "CreateComponent",
+        componentId,
+        key: "lorcana-sealed-product-identity",
+        name: localizedTextMapFromEnglish("Lorcana Sealed Product Identity"),
+        description: localizedTextMapFromEnglish("Descriptive fields for Disney Lorcana sealed products"),
+      });
+
+      for (const [fieldKey, required] of [
+        ["set", true],
+        ["sealed-product-form", true],
+        ["pack-count", false],
+        ["release-year", false],
+      ] as const) {
+        await sendSeedCommand(services.components.commandHandler, streamId, {
+          type: "AddFieldRuleToComponent",
+          fieldId: fields[fieldKey],
+          required,
+        });
+      }
+
+      await sendSeedCommand(services.components.commandHandler, streamId, {
+        type: "ActivateComponent",
+      });
+    }
+
+    result["lorcana-sealed-product-identity"] = componentId;
   }
 
   return result;

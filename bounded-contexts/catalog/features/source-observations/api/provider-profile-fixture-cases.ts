@@ -142,6 +142,292 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       },
     ),
     ...providerCases(
+      "lorcanajson",
+      {
+        profileKey: "lorcana-card-reference-data",
+        ingestionUnitKey: "lorcanajson:lorcana:single-card:reference-data",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.mergeIdentity.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.path",
+            "normalizedObservation.fields.name",
+          ],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "card:1-041",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              name: "Elsa - Snow Queen",
+              setId: "1",
+              setCode: "1",
+              setName: "The First Chapter",
+              tcg: "lorcana",
+              productLineName: "Disney Lorcana",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          expectedDuplicatePrevention: lorcanajsonBridgeDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: lorcanajsonBridgeDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: lorcanajsonBridgeDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "card:lorcanajson-first-chapter-booster-pack-reference",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              name: "The First Chapter Booster Pack",
+              setId: "1",
+              setCode: "1",
+            },
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "card:lorcanajson-first-chapter-unknown-option-reference",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              cardNumber: "204-star",
+              rarity: "enchanted-unclassified",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "lorcanajson",
+      {
+        profileKey: "lorcana-set-reference-data",
+        ingestionUnitKey: "lorcanajson:lorcana:set:reference-data",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.setName.selector.path",
+            "normalizedObservation.fields.expansionName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.path",
+            "normalizedObservation.fields.name",
+            "normalizedObservation.fields.setName",
+          ],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "set:1",
+            normalizedKind: "lorcana-set-reference",
+            normalizedFields: {
+              name: "The First Chapter",
+              setId: "1",
+              setCode: "1",
+              setName: "The First Chapter",
+              productLineName: "Disney Lorcana",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        ambiguous: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "set:1X",
+            normalizedKind: "lorcana-set-reference",
+            normalizedFields: {
+              name: "The First Chapter Unknown Option",
+              setCode: "1X",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "lorcast",
+      {
+        profileKey: "lorcana-card-reference-data",
+        ingestionUnitKey: "lorcast:lorcana:single-card:reference-data",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.mergeIdentity.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.path",
+            "normalizedObservation.fields.name",
+          ],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "card:crd_elsa_snow_queen_1_041",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              name: "Elsa - Snow Queen",
+              setId: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+              setCode: "1",
+              setName: "The First Chapter",
+              tcg: "lorcana",
+              productLineName: "Disney Lorcana",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          expectedDuplicatePrevention: lorcastBridgeDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: lorcastBridgeDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: lorcastBridgeDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "card:lorcast-first-chapter-booster-pack-reference",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              name: "The First Chapter Booster Pack",
+              setId: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+              setCode: "1",
+            },
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "card:lorcast-first-chapter-unknown-option-reference",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              cardNumber: "204-star",
+              rarity: "enchanted-unclassified",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "lorcast",
+      {
+        profileKey: "lorcana-set-reference-data",
+        ingestionUnitKey: "lorcast:lorcana:set:reference-data",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.setName.selector.path",
+            "normalizedObservation.fields.expansionName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.path",
+            "normalizedObservation.fields.name",
+            "normalizedObservation.fields.setName",
+          ],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "set:set_7ecb0e0c71af496a9e0110e23824e0a5",
+            normalizedKind: "lorcana-set-reference",
+            normalizedFields: {
+              name: "The First Chapter",
+              setId: "set_7ecb0e0c71af496a9e0110e23824e0a5",
+              setCode: "1",
+              setName: "The First Chapter",
+              productLineName: "Disney Lorcana",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        ambiguous: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "set:1X",
+            normalizedKind: "lorcana-set-reference",
+            normalizedFields: {
+              name: "The First Chapter Unknown Option",
+              setCode: "1X",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
       "scryfall",
       {
         profileKey: "mtg-card-print-reference-data",
@@ -1061,6 +1347,261 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "lorcana-card-print-source-observation",
+        ingestionUnitKey: "scrydex:lorcana:single-card:source-observation-import",
+        profileVersion: "2026.06.23",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "card:tfc-041",
+            normalizedKind: "lorcana-card-print",
+            normalizedFields: {
+              name: "Elsa - Snow Queen",
+              cardNumber: "41/204",
+              setId: "1",
+              setName: "The First Chapter",
+              tcg: "lorcana",
+              productLineName: "Disney Lorcana",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+      },
+    ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "lorcana-set-reference-data",
+        ingestionUnitKey: "scrydex:lorcana:set:reference-data",
+        profileVersion: "2026.06.23",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "set:1",
+            normalizedKind: "lorcana-set-reference",
+            normalizedFields: {
+              name: "The First Chapter",
+              setId: "1",
+              setCode: "TFC",
+              setName: "The First Chapter",
+              cardCount: 204,
+              tcg: "lorcana",
+              productLineName: "Disney Lorcana",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+        },
+      },
+    ),
+    ...providerCases(
+      "scrydex",
+      {
+        profileKey: "lorcana-sealed-product-source-observation",
+        ingestionUnitKey: "scrydex:lorcana:sealed-product:source-observation-import",
+        profileVersion: "2026.06.23",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "sealed:tfc-booster-box",
+            normalizedKind: "lorcana-sealed-product",
+            normalizedFields: {
+              name: "The First Chapter Booster Box",
+              setId: "1",
+              setName: "The First Chapter",
+              sealedProductForm: "sealed-product",
+              tcg: "lorcana",
+              productLineName: "Disney Lorcana",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+      },
+    ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "lorcana-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:lorcana:single-card:source-observation-import",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: ["sourceObservation.externalKey.selector.path", "sourceObservation.externalKey"],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "1005010",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Elsa - Snow Queen",
+              productForm: "single",
+              productLineName: "Disney Lorcana",
+              tcg: "lorcana",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005010",
+                selectedOptions: [
+                  { dimensionKey: "condition", optionKey: "near-mint", providerValue: "Near Mint" },
+                  { dimensionKey: "printing", optionKey: "normal", providerValue: "Normal" },
+                  { dimensionKey: "language", optionKey: "english", providerValue: "English" },
+                ],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "1005020",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              productForm: "sealed",
+              name: "The First Chapter Booster Box",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005020",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "1005010-unknown-option",
+            normalizedKind: "provider-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005012",
+                selectedOptions: [{ dimensionKey: "printing", optionKey: null, providerValue: "Cold Foil" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "lorcana-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:lorcana:sealed-product:source-observation-import",
+        profileVersion: "2026.06.23",
+      },
+      {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: ["sourceObservation.externalKey.selector.path", "sourceObservation.externalKey"],
+          expectedObservation: undefined,
+        },
+        normal: {
+          expectedObservation: {
+            externalKey: "1005020",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              productForm: "sealed",
+              name: "The First Chapter Booster Box",
+              productLineName: "Disney Lorcana",
+              tcg: "lorcana",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005020",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "1005020-sealed",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              productForm: "sealed",
+              name: "The First Chapter Booster Box",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005020",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "1005020-unknown-option",
+            normalizedKind: "provider-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:9001005022",
+                selectedOptions: [{ dimensionKey: "language", optionKey: null, providerValue: "Inklands" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
   ];
 }
 
@@ -1083,6 +1624,34 @@ function scryfallBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase[
     exactExternalCatalogItemReferencesFirst: true,
     rulePolicies: [
       { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function lorcanajsonBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: true,
+    rulePolicies: [
+      { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
+      { ruleKey: "source-observation-link", candidatePolicy: "review-only" },
+      { ruleKey: "lorcana-card-print-deterministic-fields", candidatePolicy: "review-only" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function lorcastBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: true,
+    rulePolicies: [
+      { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
+      { ruleKey: "source-observation-link", candidatePolicy: "review-only" },
+      { ruleKey: "lorcana-card-print-deterministic-fields", candidatePolicy: "review-only" },
       { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
     ],
   };
@@ -1200,13 +1769,28 @@ function providerCases(
                         ? "yugioh-card-print"
                         : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
                           ? "magic-set-reference"
-                          : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
-                            ? "magic-sealed-product"
-                            : providerKey === "mtgjson"
-                              ? "magic-card-print"
-                              : providerKey === "scryfall"
-                                ? "magic-card-print"
-                                : "provider-product",
+                          : identity.ingestionUnitKey === "scrydex:lorcana:set:reference-data"
+                            ? "lorcana-set-reference"
+                            : identity.ingestionUnitKey === "scrydex:lorcana:sealed-product:source-observation-import"
+                              ? "lorcana-sealed-product"
+                              : identity.ingestionUnitKey === "scrydex:lorcana:single-card:source-observation-import"
+                                ? "lorcana-card-print"
+                                : identity.ingestionUnitKey === "lorcanajson:lorcana:set:reference-data"
+                                  ? "lorcana-set-reference"
+                                  : identity.ingestionUnitKey === "lorcanajson:lorcana:single-card:reference-data"
+                                    ? "lorcana-card-print"
+                                    : identity.ingestionUnitKey === "lorcast:lorcana:set:reference-data"
+                                      ? "lorcana-set-reference"
+                                      : identity.ingestionUnitKey === "lorcast:lorcana:single-card:reference-data"
+                                        ? "lorcana-card-print"
+                                        : identity.ingestionUnitKey ===
+                                            "tcgplayer:mtg:sealed-product:source-observation-import"
+                                          ? "magic-sealed-product"
+                                          : providerKey === "mtgjson"
+                                            ? "magic-card-print"
+                                            : providerKey === "scryfall"
+                                              ? "magic-card-print"
+                                              : "provider-product",
     },
     ...expectations[flow],
   }));

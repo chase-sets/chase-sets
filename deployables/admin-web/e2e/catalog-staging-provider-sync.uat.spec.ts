@@ -91,6 +91,22 @@ const mtgjsonMtgSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: { valuePattern: /^[A-Z0-9]+$/ },
 };
 
+const lorcanaSetChoice: SelectChoice = {
+  labels: ["The First Chapter"],
+  values: ["TFC", "1"],
+  fallbackToFirstAvailableOption: { valuePattern: /^[A-Z0-9]+$/i },
+};
+
+const tcgplayerLorcanaSetChoice: SelectChoice = {
+  labels: ["The First Chapter"],
+  fallbackToFirstAvailableOption: {},
+};
+
+const tcgplayerLorcanaProductLineChoice: SelectChoice = {
+  labels: ["Disney Lorcana", "Lorcana"],
+  fallbackToFirstAvailableOption: {},
+};
+
 const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "One Piece card set through Scrydex bulk-first shared importer",
@@ -160,6 +176,158 @@ const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   },
 ];
 
+const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "Lorcana card set through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:lorcana:single-card:source-observation-import",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "250",
+        "id, name, number, printed_number, rarity, rarity_code, type, ink, ink_color, images, language, language_code, expansion, printings, variants, tcgplayer_id",
+        "Bulk-first",
+        /Scrydex Lorcana cards .*max page size/i,
+        /scrydex:lorcana:expansion:[a-z0-9-]+:cards/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana set reference through Scrydex shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:lorcana:set:reference-data",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "single-record",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "1",
+        "Fetch Scrydex Lorcana expansion by id",
+        "Operator selected one explicit Scrydex expansion id.",
+        /scrydex:lorcana:expansion:[a-z0-9-]+$/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana sealed products through Scrydex bulk-first shared importer",
+    providerKey: "scrydex",
+    unitKey: "scrydex:lorcana:sealed-product:source-observation-import",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["checked", "not-configured", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "100",
+        "id, name, type, images, language, language_code, expansion",
+        "Bulk-first",
+        "Fetch Scrydex Lorcana expansion sealed products with max page size",
+        /scrydex:lorcana:expansion:[a-z0-9-]+:sealed/i,
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana card set through LorcanaJSON bulk-first shared importer",
+    providerKey: "lorcanajson",
+    unitKey: "lorcanajson:lorcana:single-card:reference-data",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["not-supported", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "1",
+        "Bulk-first",
+        "Fetch LorcanaJSON set file",
+        "Select all card payloads from the selected set",
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana set reference through LorcanaJSON bulk-first shared importer",
+    providerKey: "lorcanajson",
+    unitKey: "lorcanajson:lorcana:set:reference-data",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["not-supported", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "1",
+        "Bulk-first",
+        "Fetch LorcanaJSON set file",
+        "Use allCards.json only for option discovery",
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana card set through Lorcast bulk-first shared importer",
+    providerKey: "lorcast",
+    unitKey: "lorcast:lorcana:single-card:reference-data",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["not-supported", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "1",
+        "Bulk-first",
+        "Fetch Lorcast set cards endpoint",
+        "Prefer cached set payloads for repeat diagnostics",
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana set reference through Lorcast bulk-first shared importer",
+    providerKey: "lorcast",
+    unitKey: "lorcast:lorcana:set:reference-data",
+    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    preflight: {
+      requestStrategy: "bulk-first",
+      allowedUsageStates: ["not-supported", "unknown"],
+      visibleText: [
+        "Import preflight",
+        "1",
+        "Bulk-first",
+        "Fetch Lorcast selected set endpoint",
+        "Prefer cached set payloads for repeat diagnostics",
+      ],
+    },
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana card set through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:lorcana:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerLorcanaProductLineChoice },
+      { label: "Set Name", choice: tcgplayerLorcanaSetChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Lorcana sealed products through the shared TCGplayer provider",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:lorcana:sealed-product:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerLorcanaProductLineChoice },
+      { label: "Set Name", choice: tcgplayerLorcanaSetChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  ...onePieceLaunchProviderSyncJourneys,
+];
+
 const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   {
     name: "Yu-Gi-Oh set through YGOPRODeck",
@@ -186,15 +354,17 @@ const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
 
 const providerSyncJourneys =
   providerUatJourneyScope === "all-provider-regression"
-    ? [...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
-    : onePieceLaunchProviderSyncJourneys;
+    ? [...lorcanaLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
+    : providerUatJourneyScope === "lorcana-launch"
+      ? lorcanaLaunchProviderSyncJourneys
+      : onePieceLaunchProviderSyncJourneys;
 
 test.describe("catalog staging provider sync UAT", () => {
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
     test.setTimeout(1_800_000);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
-      !["one-piece-launch", "all-provider-regression"].includes(providerUatJourneyScope),
+      !["one-piece-launch", "lorcana-launch", "all-provider-regression"].includes(providerUatJourneyScope),
       `Unsupported CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${providerUatJourneyScope}.`,
     );
     test.skip(
@@ -298,7 +468,9 @@ async function openCatalogImporter(page: Page): Promise<void> {
 async function assertSharedImporterSurface(page: Page): Promise<void> {
   await expect(page.locator("[data-catalog-import-context-bar='true']")).toHaveCount(1);
   await expect(page.getByRole("button", { name: /Step 0 · Choose import scope/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Magic.*sync|Yu-Gi-Oh.*sync|Pokemon.*sync/i })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: /Lorcana.*sync|Magic.*sync|Yu-Gi-Oh.*sync|Pokemon.*sync/i }),
+  ).toHaveCount(0);
 }
 
 async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Promise<SelectedProviderScope> {

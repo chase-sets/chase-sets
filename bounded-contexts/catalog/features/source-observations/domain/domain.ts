@@ -57,7 +57,10 @@ export type SourceObservationNormalizedKind =
   | "yugioh-pack-reference"
   | "one-piece-card-print"
   | "one-piece-set-reference"
-  | "one-piece-sealed-product";
+  | "one-piece-sealed-product"
+  | "lorcana-card-print"
+  | "lorcana-set-reference"
+  | "lorcana-sealed-product";
 
 export type SourceObservationNormalizedBase = Readonly<{
   kind: SourceObservationNormalizedKind;
@@ -311,6 +314,74 @@ export type SourceObservationOnePieceSealedProductNormalized = JsonObject &
     externalProductReferences?: readonly SourceObservationExternalProductReference[];
   }>;
 
+export type SourceObservationLorcanaCardPrintNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "lorcana-card-print";
+    tcg: "lorcana";
+    languageCode: string;
+    name: string;
+    cardNumber: string;
+    setId: string;
+    setCode: string | null;
+    setName: string;
+    rarity: string | null;
+    cardType: string | null;
+    inkColor: string | null;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "Disney Lorcana";
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
+export type SourceObservationLorcanaSetReferenceNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "lorcana-set-reference";
+    tcg: "lorcana";
+    languageCode: string;
+    name: string;
+    setId: string;
+    setCode: string | null;
+    setName: string;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    cardCount: number | null;
+    productLineName: "Disney Lorcana";
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationLorcanaSealedProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "lorcana-sealed-product";
+    tcg: "lorcana";
+    languageCode: string;
+    name: string;
+    setId: string | null;
+    setCode: string | null;
+    setName: string | null;
+    sealedProductForm:
+      | "booster-pack"
+      | "booster-box"
+      | "starter-deck"
+      | "gift-set"
+      | "trove"
+      | "deck"
+      | "sealed-product";
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "Disney Lorcana";
+    barcode: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
 export type SourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
   | SourceObservationProviderProductNormalized
@@ -323,7 +394,10 @@ export type SourceObservationNormalized =
   | SourceObservationYugiohPackReferenceNormalized
   | SourceObservationOnePieceCardPrintNormalized
   | SourceObservationOnePieceSetReferenceNormalized
-  | SourceObservationOnePieceSealedProductNormalized;
+  | SourceObservationOnePieceSealedProductNormalized
+  | SourceObservationLorcanaCardPrintNormalized
+  | SourceObservationLorcanaSetReferenceNormalized
+  | SourceObservationLorcanaSealedProductNormalized;
 
 export function isPokemonCardSourceObservationNormalized(
   normalized: SourceObservationNormalized,
@@ -353,6 +427,18 @@ export function isOnePieceSetReferenceSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationOnePieceSetReferenceNormalized {
   return normalized.kind === "one-piece-set-reference";
+}
+
+export function isLorcanaCatalogItemSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationLorcanaCardPrintNormalized | SourceObservationLorcanaSealedProductNormalized {
+  return normalized.kind === "lorcana-card-print" || normalized.kind === "lorcana-sealed-product";
+}
+
+export function isLorcanaSetReferenceSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationLorcanaSetReferenceNormalized {
+  return normalized.kind === "lorcana-set-reference";
 }
 
 export type SourceObservationState = Readonly<{

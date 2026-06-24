@@ -10,6 +10,8 @@ import {
 import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSealedProductNormalized,
+  SourceObservationLorcanaCardPrintNormalized,
+  SourceObservationLorcanaSealedProductNormalized,
   SourceObservationNormalized,
   SourceObservationOnePieceCardPrintNormalized,
   SourceObservationOnePieceSealedProductNormalized,
@@ -183,6 +185,8 @@ function promotionDiagnostics(input: {
     input.normalized.kind !== "pokemon-card" &&
     input.normalized.kind !== "magic-card-print" &&
     input.normalized.kind !== "magic-sealed-product" &&
+    input.normalized.kind !== "lorcana-card-print" &&
+    input.normalized.kind !== "lorcana-sealed-product" &&
     input.normalized.kind !== "one-piece-card-print" &&
     input.normalized.kind !== "one-piece-sealed-product"
   ) {
@@ -192,9 +196,11 @@ function promotionDiagnostics(input: {
       diagnosticText:
         input.normalized.kind === "magic-set-reference"
           ? "Magic Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
-          : input.normalized.kind === "one-piece-set-reference"
-            ? "One Piece Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
-            : `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
+          : input.normalized.kind === "lorcana-set-reference"
+            ? "Lorcana Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
+            : input.normalized.kind === "one-piece-set-reference"
+              ? "One Piece Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
+              : `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
     });
   }
 
@@ -329,6 +335,61 @@ function promotionDiagnostics(input: {
     );
   }
 
+  if (
+    (input.normalized.kind === "lorcana-card-print" || input.normalized.kind === "lorcana-sealed-product") &&
+    !input.setReferenceId
+  ) {
+    diagnostics.push({
+      code: "missing-reference-target",
+      path: "setReferenceId",
+      diagnosticText: "Lorcana promotion requires a resolved Set Reference Record.",
+    });
+  }
+
+  if (input.normalized.kind === "lorcana-card-print") {
+    requireNormalizedString(input.normalized.name, "normalized.name", "Lorcana card print promotion", diagnostics);
+    requireNormalizedString(
+      input.normalized.cardNumber,
+      "normalized.cardNumber",
+      "Lorcana card print promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.setName,
+      "normalized.setName",
+      "Lorcana card print promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "Lorcana card print promotion",
+      diagnostics,
+    );
+  }
+
+  if (input.normalized.kind === "lorcana-sealed-product") {
+    requireNormalizedString(input.normalized.name, "normalized.name", "Lorcana sealed product promotion", diagnostics);
+    requireNormalizedString(
+      input.normalized.setName,
+      "normalized.setName",
+      "Lorcana sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.sealedProductForm,
+      "normalized.sealedProductForm",
+      "Lorcana sealed product promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "Lorcana sealed product promotion",
+      diagnostics,
+    );
+  }
+
   if (input.preflight?.status === "blocked") {
     diagnostics.push({
       code: input.preflight.code,
@@ -432,7 +493,20 @@ function commandsForNormalizedKind(input: {
         normalized: input.normalized,
         setReferenceId: input.setReferenceId as ReferenceRecordId,
       });
+    case "lorcana-card-print":
+      return lorcanaCardPrintCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
+    case "lorcana-sealed-product":
+      return lorcanaSealedProductCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
     case "magic-set-reference":
+    case "lorcana-set-reference":
     case "provider-product":
     case "yugioh-card-print":
     case "yugioh-set-reference":
@@ -613,6 +687,128 @@ function onePieceSealedProductCommands(input: {
     0,
     ...onePieceSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
   );
+  return commands;
+}
+
+function lorcanaCardPrintCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationLorcanaCardPrintNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonLorcanaCatalogItemCommands(input, lorcanaCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...lorcanaCardPrintFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function lorcanaSealedProductCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationLorcanaSealedProductNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonLorcanaCatalogItemCommands(input, lorcanaCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...lorcanaSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function commonLorcanaCatalogItemCommands(
+  input: {
+    providerKey: string;
+    externalKey: string;
+    mode: CatalogProviderPromotionMode;
+    catalogItemId: CatalogItemId;
+    normalized: SourceObservationLorcanaCardPrintNormalized | SourceObservationLorcanaSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    metadata: Readonly<{ title: string; subtitle: string }>;
+    productAssetSet: ProductAssetSet | null;
+  },
+  tags: readonly string[],
+): CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [];
+  const imageUrls = input.productAssetSet
+    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
+    : [...input.normalized.imageUrls];
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "CreateCatalogItem",
+      itemId: input.catalogItemId,
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+    commands.push({
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: input.catalog.blueprintId,
+    });
+  } else {
+    commands.push({
+      type: "ReviseCatalogItemMetadata",
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+  }
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "AssignCatalogItemToCategory",
+      categoryId: input.catalog.categoryId,
+    });
+  }
+
+  commands.push({ type: "SetCatalogItemTags", tags: [...tags] });
+  commands.push({ type: "SetCatalogItemImageUrls", imageUrls });
+  commands.push({
+    type: "SetCatalogItemProductAssetSets",
+    productAssetSets: input.productAssetSet ? [input.productAssetSet] : [],
+  });
+  commands.push({
+    type: "LinkExternalProductReference",
+    providerKey: input.providerKey,
+    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+  });
+
+  for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalCatalogItemReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+    });
+  }
+
+  for (const reference of uniqueExternalProductReferences(input.normalized.externalProductReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalProductReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+      selectedOptions: reference.selectedOptions,
+    });
+  }
+
   return commands;
 }
 
@@ -926,6 +1122,48 @@ function onePieceSealedProductFieldCommands(
   return commands;
 }
 
+function lorcanaCardPrintFieldCommands(
+  normalized: SourceObservationLorcanaCardPrintNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardNumber, value: normalized.cardNumber },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+  ];
+
+  if (normalized.rarity) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.rarity, value: normalized.rarity });
+  }
+  if (normalized.cardType) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.cardType });
+  }
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
+function lorcanaSealedProductFieldCommands(
+  normalized: SourceObservationLorcanaSealedProductNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardVariant, value: normalized.sealedProductForm },
+  ];
+
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
 function pokemonCatalogItemTags(
   profile: CatalogProviderIntegrationProfile,
   normalized: SourceObservationPokemonCardNormalized,
@@ -970,6 +1208,34 @@ function onePieceCatalogItemTags(
       : []),
     ...(normalized.kind === "one-piece-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
   ];
+}
+
+function lorcanaCatalogItemTags(
+  profile: CatalogProviderIntegrationProfile,
+  normalized: SourceObservationLorcanaCardPrintNormalized | SourceObservationLorcanaSealedProductNormalized,
+): string[] {
+  const setTag = normalized.setCode ?? normalized.setId ?? normalized.setName;
+  return [
+    "lorcana",
+    profile.providerKey,
+    ...(setTag ? [`set:${slugTagValue(setTag)}`] : []),
+    `kind:${normalized.kind}`,
+    ...(normalized.kind === "lorcana-card-print" && normalized.cardType
+      ? [`card-type:${slugTagValue(normalized.cardType)}`]
+      : []),
+    ...(normalized.kind === "lorcana-card-print" && normalized.inkColor
+      ? [`ink:${slugTagValue(normalized.inkColor)}`]
+      : []),
+    ...(normalized.kind === "lorcana-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
+  ];
+}
+
+function slugTagValue(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function uniqueExternalCatalogItemReferences(

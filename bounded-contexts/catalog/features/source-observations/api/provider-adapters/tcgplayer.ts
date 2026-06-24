@@ -9,6 +9,8 @@ import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider-profile-sections";
 import {
+  TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
@@ -67,6 +69,20 @@ export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY 
 export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
   providerKey: "tcgplayer",
   productDomain: "one-piece",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "lorcana",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "lorcana",
   productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
@@ -371,6 +387,24 @@ export async function runTcgplayerOnePieceSealedProductSourceObservationImportPr
     unitKey: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     profileVersion: TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
     detail: tcgplayerOnePieceSealedProductProofDetail,
+    fetchedAt: "2026-06-23T00:00:00.000Z",
+  });
+}
+
+export async function runTcgplayerLorcanaSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION,
+    detail: tcgplayerLorcanaSingleCardProofDetail,
+    fetchedAt: "2026-06-23T00:00:00.000Z",
+  });
+}
+
+export async function runTcgplayerLorcanaSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+    detail: tcgplayerLorcanaSealedProductProofDetail,
     fetchedAt: "2026-06-23T00:00:00.000Z",
   });
 }
@@ -786,6 +820,46 @@ const tcgplayerOnePieceSealedProductProofDetail: TcgplayerAutomationProductDetai
   skus: [{ sku: 900987660, condition: "Sealed", variant: "Sealed", language: "English" }],
 };
 
+const tcgplayerLorcanaSingleCardProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Cards",
+  rarityName: "Rare",
+  sealed: false,
+  productName: "Elsa - Snow Queen",
+  setId: 5010,
+  setCode: "TFC",
+  productId: 1005010,
+  setName: "The First Chapter",
+  productLineId: 71,
+  productStatusId: 1,
+  productLineName: "Disney Lorcana",
+  customAttributes: { number: "3/204", releaseDate: "2023-08-18", cardType: ["Character"] },
+  formattedAttributes: {},
+  skus: [{ sku: 91005010, condition: "Near Mint", variant: "Normal", language: "English" }],
+  marketPrice: 2.34,
+  lowestPrice: 2.01,
+  lowestPriceWithShipping: 2.89,
+  medianPrice: 3.5,
+  listings: 25,
+};
+
+const tcgplayerLorcanaSealedProductProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Sealed Products",
+  rarityName: "Sealed",
+  sealed: true,
+  productName: "The First Chapter Booster Box",
+  setId: 5010,
+  setCode: "TFC",
+  productId: 1005020,
+  setName: "The First Chapter",
+  productLineId: 71,
+  productStatusId: 1,
+  productLineName: "Disney Lorcana",
+  customAttributes: { number: "BOX", releaseDate: "2023-08-18", cardType: ["Sealed"] },
+  barcode: "4050368981234",
+  formattedAttributes: {},
+  skus: [{ sku: 91005020, condition: "Sealed", variant: "Sealed", language: "English" }],
+};
+
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
   if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
     return {
@@ -820,6 +894,24 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineNames: ["one piece card game", "one piece", "onepiece", "opcg"],
       productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
       defaultProductLineName: "One Piece Card Game",
+      productForm: "sealed-product",
+    };
+  }
+  if (unitKey === TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["disney lorcana", "lorcana"],
+      productLineUrlNames: ["disney-lorcana", "lorcana"],
+      defaultProductLineName: "Disney Lorcana",
+      productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["disney lorcana", "lorcana"],
+      productLineUrlNames: ["disney-lorcana", "lorcana"],
+      defaultProductLineName: "Disney Lorcana",
       productForm: "sealed-product",
     };
   }

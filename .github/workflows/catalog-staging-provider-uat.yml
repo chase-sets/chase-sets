@@ -19,6 +19,7 @@ on:
         type: choice
         options:
           - one-piece-launch
+          - lorcana-launch
           - all-provider-regression
 
 permissions:

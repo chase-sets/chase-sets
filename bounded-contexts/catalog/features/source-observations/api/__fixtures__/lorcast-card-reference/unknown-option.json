@@ -1,0 +1,43 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_card_en_unknown_option_reference",
+  "externalKey": "card:lorcast-first-chapter-unknown-option-reference",
+  "sourceUrl": "fixture://lorcast/sets/1/cards/unknown-option",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": { "provider": "lorcast", "fixtureFlow": "unknown-option" },
+  "catalogHashMaterial": {
+    "provider": "lorcast",
+    "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "cardId": "lorcast-first-chapter-unknown-option-reference",
+    "cardNumber": "204-star",
+    "name": "Unclassified Lorcast Variant",
+    "rarity": "enchanted-unclassified"
+  },
+  "mergeIdentity": {
+    "tcg": "lorcana",
+    "productLineName": "Disney Lorcana",
+    "setName": "The First Chapter",
+    "printedProductName": "Unclassified Lorcast Variant",
+    "collectorNumber": "204-star",
+    "languageCode": "en",
+    "productForm": "single-card"
+  },
+  "externalCatalogItemReferences": [],
+  "externalProductReferences": [],
+  "imageUrls": [],
+  "cardId": "lorcast-first-chapter-unknown-option-reference",
+  "name": "Unclassified Lorcast Variant",
+  "cardNumber": "204-star",
+  "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "rarity": "enchanted-unclassified",
+  "cardType": "Character",
+  "inkColor": "Amethyst",
+  "releaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "tcgplayerProductId": null
+}

@@ -292,6 +292,55 @@ Scryfall fixture language, Admin labels, runbook steps, or promotion semantics.
 The active Scrydex One Piece connector is live credentialed transport with
 fixture-backed activation evidence; it is not a fixture-only production path.
 
+## Lorcana Production Shape
+
+Disney Lorcana production sync uses active LorcanaJSON, Lorcast, Scrydex, and
+TCGplayer Lorcana profile units through the shared product-line-agnostic
+importer. Production-like writes remain gated until
+[Catalog Integration Lorcana Production Signoff](./catalog-integration-lorcana-production-signoff.md)
+is accepted and the #2481 interface-only UAT plus #2486 downstream smoke pass.
+
+Lorcana profile units are narrow ingestion units, not one broad importer branch:
+
+- `lorcanajson:lorcana:single-card:reference-data`
+- `lorcanajson:lorcana:set:reference-data`
+- `lorcast:lorcana:single-card:reference-data`
+- `lorcast:lorcana:set:reference-data`
+- `tcgplayer:lorcana:single-card:source-observation-import`
+- `tcgplayer:lorcana:sealed-product:source-observation-import`
+- `scrydex:lorcana:single-card:source-observation-import`
+- `scrydex:lorcana:set:reference-data`
+- `scrydex:lorcana:sealed-product:source-observation-import`
+
+The importer shell must discover these units through generic provider,
+product-line, source-scope, and import-purpose metadata. Do not add a Disney
+Lorcana-specific importer page, route, panel, operator workaround, or hidden
+source URL field. Pokemon, MTG, One Piece, and future product lines must keep
+using the same shared source-scope controls.
+
+LorcanaJSON is the preferred free bulk-first reference source for set and card
+facts. Lorcast is supplemental and must respect cache/pacing behavior. TCGplayer
+Lorcana uses the existing Chase Sets automation provider for marketplace product
+ids, SKUs, sealed products, variants, and price-reference evidence; TCGCSV is
+not a production provider for this milestone. Scrydex Lorcana uses the shared
+Scrydex connector and shared `SCRYDEX_API_KEY`/`SCRYDEX_TEAM_ID` settings once
+per environment. No Lorcana-specific or game-specific Scrydex secret may be
+introduced.
+
+Every Scrydex Lorcana unit must follow the bulk-first policy in the Lorcana
+signoff. Normal imports use paginated list/search or filtered bulk calls with
+minimal selected fields. One-call-per-card, one-call-per-variant, and
+one-call-per-sealed-product are forbidden normal paths. Any per-record fallback
+must be documented, tested, preflighted with call impact, and surfaced to the
+operator before execution.
+
+Disney Lorcana/Ravensburger official sources are validation-only references for
+set names, release dates, official product lineup, pack counts, card-gallery
+presence, and official app references unless a later legal/source-authority
+decision explicitly approves ingestion. Their raw text, imagery, scraped
+payload bodies, and hidden URLs must not appear in fixtures, logs, PR bodies, or
+UAT evidence.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.

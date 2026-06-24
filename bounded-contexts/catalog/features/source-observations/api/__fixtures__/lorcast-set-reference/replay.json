@@ -1,0 +1,35 @@
+{
+  "kind": "lorcana-set-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_set_en_set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "externalKey": "set:set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "sourceUrl": "https://api.lorcast.com/v0/sets/1",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": {
+    "provider": "lorcast",
+    "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "releaseDate": "2023-08-18",
+    "prereleaseDate": "2023-08-18",
+    "cardCount": null
+  },
+  "catalogHashMaterial": {
+    "provider": "lorcast",
+    "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+    "setCode": "1",
+    "setName": "The First Chapter",
+    "releaseDate": "2023-08-18",
+    "prereleaseDate": "2023-08-18",
+    "cardCount": null
+  },
+  "externalCatalogItemReferences": [],
+  "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "name": "The First Chapter",
+  "releaseDate": "2023-08-18",
+  "prereleaseDate": "2023-08-18",
+  "releaseYear": "2023",
+  "cardCount": null
+}

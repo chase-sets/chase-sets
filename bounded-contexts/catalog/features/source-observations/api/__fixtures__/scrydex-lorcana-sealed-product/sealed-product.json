@@ -1,0 +1,19 @@
+{
+  "kind": "lorcana-sealed-product",
+  "sealedProduct": {
+    "id": "tfc-booster-box-sealed-flow",
+    "name": "The First Chapter Booster Box",
+    "type": "Booster Box",
+    "language_code": "en",
+    "imageUrls": ["https://images.example/lorcana/tfc-booster-box.png"],
+    "expansion": {
+      "id": "1",
+      "name": "The First Chapter",
+      "code": "TFC",
+      "total": 204,
+      "release_date": "2023-08-18",
+      "language_code": "en"
+    }
+  },
+  "sourceUrl": "https://api.scrydex.com/lorcana/v1/expansions/1/sealed"
+}

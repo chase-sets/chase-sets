@@ -39,6 +39,8 @@ import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
+  isLorcanaCatalogItemSourceObservationNormalized,
+  isLorcanaSetReferenceSourceObservationNormalized,
   isMagicCatalogItemSourceObservationNormalized,
   isMagicSetReferenceSourceObservationNormalized,
   isOnePieceCatalogItemSourceObservationNormalized,
@@ -46,6 +48,9 @@ import {
   isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
+  type SourceObservationLorcanaCardPrintNormalized,
+  type SourceObservationLorcanaSetReferenceNormalized,
+  type SourceObservationLorcanaSealedProductNormalized,
   type SourceObservationMagicCardPrintNormalized,
   type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationMagicSealedProductNormalized,
@@ -158,6 +163,16 @@ import {
   type MtgjsonProviderPayload,
 } from "./provider-adapters/mtgjson";
 import {
+  createLorcanajsonProviderAdapter,
+  LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  type LorcanajsonProviderPayload,
+} from "./provider-adapters/lorcanajson";
+import {
+  createLorcastProviderAdapter,
+  LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  type LorcastProviderPayload,
+} from "./provider-adapters/lorcast";
+import {
   createScryfallProviderAdapter,
   SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   type ScryfallProviderPayload,
@@ -175,6 +190,9 @@ import {
 } from "./provider-adapters/ygojson";
 import {
   createScrydexOnePieceProviderAdapter,
+  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1047,6 +1065,8 @@ export function createSourceObservationRuntime(
       client: deps.tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
+    createLorcanajsonProviderAdapter(),
+    createLorcastProviderAdapter(),
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
@@ -1278,6 +1298,7 @@ export function createSourceObservationRuntime(
   }): Promise<SourceObservationPromotionTargetResult> {
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return promoteReferenceObservationFromRow({
@@ -1395,7 +1416,10 @@ export function createSourceObservationRuntime(
 
   async function promoteReferenceObservationFromRow(input: {
     observation: SourceObservationDetailRow;
-    normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
+    normalized:
+      | SourceObservationMagicSetReferenceNormalized
+      | SourceObservationLorcanaSetReferenceNormalized
+      | SourceObservationOnePieceSetReferenceNormalized;
     context: EventStoreContext;
   }): Promise<SourceObservationPromotionTargetResult> {
     const providerProfileVersion = await requireReferenceDataPromotionProfileVersion(
@@ -1550,6 +1574,7 @@ export function createSourceObservationRuntime(
   }): Promise<SourceObservationPromotionTargetResult> {
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
+      isLorcanaSetReferenceSourceObservationNormalized(input.observation.normalized) ||
       isOnePieceSetReferenceSourceObservationNormalized(input.observation.normalized)
     ) {
       return reapplyReferenceObservationFromRow({
@@ -1629,7 +1654,10 @@ export function createSourceObservationRuntime(
 
   async function reapplyReferenceObservationFromRow(input: {
     observation: SourceObservationDetailRow;
-    normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
+    normalized:
+      | SourceObservationMagicSetReferenceNormalized
+      | SourceObservationLorcanaSetReferenceNormalized
+      | SourceObservationOnePieceSetReferenceNormalized;
     context: EventStoreContext;
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
@@ -3467,7 +3495,10 @@ export function createSourceObservationRuntime(
 
     const productId = scope.productId || null;
     if (productId) {
-      if (unitKey === SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+      if (
+        unitKey === SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
+        unitKey === SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+      ) {
         return [
           {
             targetId: `sealed:${productId}`,
@@ -4372,6 +4403,8 @@ async function listProviderIntegrationOptions(
       client: tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
+    createLorcanajsonProviderAdapter(),
+    createLorcastProviderAdapter(),
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
@@ -4425,6 +4458,12 @@ async function listProviderIntegrationOptions(
       listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listMtgjsonCards: ({ setCode }) =>
         listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+      listLorcanajsonSets: () => listLorcanajsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listLorcanajsonCards: ({ setCode }) =>
+        listLorcanajsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+      listLorcastSets: () => listLorcastSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listLorcastCards: ({ setCode }) =>
+        listLorcastCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
       listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listScryfallCards: ({ setCode }) =>
         listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4433,6 +4472,11 @@ async function listProviderIntegrationOptions(
         listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
       listScrydexOnePieceSealedProducts: ({ setId }) =>
         listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+      listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listScrydexLorcanaCards: ({ setId }) =>
+        listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+      listScrydexLorcanaSealedProducts: ({ setId }) =>
+        listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
       listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listYgoprodeckCards: ({ setCode }) =>
         listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4469,6 +4513,8 @@ async function queryProviderIntegrationOptions(
       client: tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
+    createLorcanajsonProviderAdapter(),
+    createLorcastProviderAdapter(),
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
@@ -4571,6 +4617,12 @@ async function queryProviderIntegrationOptions(
             listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listMtgjsonCards: ({ setCode }) =>
               listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+            listLorcanajsonSets: () => listLorcanajsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listLorcanajsonCards: ({ setCode }) =>
+              listLorcanajsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
+            listLorcastSets: () => listLorcastSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listLorcastCards: ({ setCode }) =>
+              listLorcastCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
             listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScryfallCards: ({ setCode }) =>
               listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4579,6 +4631,11 @@ async function queryProviderIntegrationOptions(
               listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
             listScrydexOnePieceSealedProducts: ({ setId }) =>
               listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+            listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listScrydexLorcanaCards: ({ setId }) =>
+              listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+            listScrydexLorcanaSealedProducts: ({ setId }) =>
+              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
             listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listYgoprodeckCards: ({ setCode }) =>
               listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4829,6 +4886,112 @@ function requireMtgjsonAdapter(
   return providerAdapterRegistry.require("mtgjson") as ProviderAdapter<MtgjsonProviderPayload>;
 }
 
+async function listLorcanajsonSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireLorcanajsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setId: item.metadata?.setId ?? item.value,
+    setCode: item.value,
+    name: item.label,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    prereleaseDate: item.metadata?.prereleaseDate ?? null,
+    type: item.metadata?.type ?? null,
+    setNumber: item.metadata?.setNumber ?? null,
+    cardCount: numberFromString(item.metadata?.cardCount),
+    formatVersion: item.metadata?.formatVersion ?? null,
+    generatedOn: item.metadata?.generatedOn ?? null,
+  }));
+}
+
+async function listLorcanajsonCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setCode: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setCode) {
+    throw new Error("LorcanaJSON card option queries require a set code parent value.");
+  }
+
+  const result = await requireLorcanajsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { setCode: input.setCode },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    setCode: item.metadata?.setCode ?? input.setCode,
+    setName: item.metadata?.setName ?? null,
+    cardNumber: item.metadata?.cardNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    cardType: item.metadata?.cardType ?? null,
+    inkColor: item.metadata?.inkColor ?? null,
+    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
+    imageUrl: item.metadata?.imageUrl ?? null,
+  }));
+}
+
+function requireLorcanajsonAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<LorcanajsonProviderPayload> {
+  return providerAdapterRegistry.require("lorcanajson") as ProviderAdapter<LorcanajsonProviderPayload>;
+}
+
+async function listLorcastSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireLorcastAdapter(providerAdapterRegistry).listOptions({
+    unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setId: item.metadata?.setId ?? item.value,
+    setCode: item.value,
+    name: item.label,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    prereleaseDate: item.metadata?.prereleaseDate ?? null,
+    cacheGuidance: item.metadata?.cacheGuidance ?? null,
+  }));
+}
+
+async function listLorcastCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setCode: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setCode) {
+    throw new Error("Lorcast card option queries require a set code parent value.");
+  }
+
+  const result = await requireLorcastAdapter(providerAdapterRegistry).listOptions({
+    unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { setCode: input.setCode },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    setId: item.metadata?.setId ?? null,
+    setCode: item.metadata?.setCode ?? input.setCode,
+    setName: item.metadata?.setName ?? null,
+    cardNumber: item.metadata?.cardNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    cardType: item.metadata?.cardType ?? null,
+    inkColor: item.metadata?.inkColor ?? null,
+    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
+    imageUrl: item.metadata?.imageUrl ?? null,
+    releaseDate: item.metadata?.releaseDate ?? null,
+  }));
+}
+
+function requireLorcastAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<LorcastProviderPayload> {
+  return providerAdapterRegistry.require("lorcast") as ProviderAdapter<LorcastProviderPayload>;
+}
+
 async function listScryfallSetOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): Promise<readonly JsonValue[]> {
@@ -4934,6 +5097,76 @@ async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(
 
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "sealed-products",
+    parentValues: { expansionId: input.setId, setId: input.setId },
+  });
+  return result.items.map((item) => ({
+    sealedProductId: item.value,
+    name: item.label,
+    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
+    type: item.metadata?.type ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+async function listScrydexLorcanaSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    expansionId: item.value,
+    name: item.label,
+    code: item.metadata?.code ?? null,
+    total: numberFromString(item.metadata?.total),
+    releaseDate: item.metadata?.releaseDate ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+async function listScrydexLorcanaCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setId: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setId) {
+    throw new Error("Scrydex Lorcana card option queries require a selected set.");
+  }
+
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { expansionId: input.setId, setId: input.setId },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
+    number: item.metadata?.number ?? null,
+    printedNumber: item.metadata?.printedNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    rarityCode: item.metadata?.rarityCode ?? null,
+    type: item.metadata?.type ?? null,
+    inkColor: item.metadata?.inkColor ?? null,
+    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
+    language: item.metadata?.language ?? null,
+    languageCode: item.metadata?.languageCode ?? null,
+  }));
+}
+
+async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setId: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setId) {
+    throw new Error("Scrydex Lorcana sealed-product option queries require a selected set.");
+  }
+
+  const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "sealed-products",
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
@@ -5562,7 +5795,10 @@ async function requireCatalogPromotionProfileVersionForReapply(
 async function requireReferenceDataPromotionProfileVersionForReapply(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   observation: SourceObservationDetailRow,
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized,
   mode: SourceObservationReapplyProfileMode,
   snapshot: SourceObservationIntegrationProfileSnapshot | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
@@ -5624,7 +5860,10 @@ async function requireCatalogPromotionProfileVersionFromSnapshot(
 async function requireReferenceDataPromotionProfileVersionFromSnapshot(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   snapshot: SourceObservationIntegrationProfileSnapshot,
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
   if (!version) {
@@ -5670,7 +5909,10 @@ function assertPromotionProfileCompatible(
 
 function assertReferenceDataPromotionProfileCompatible(
   version: CatalogProviderIntegrationProfileVersionRecord,
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized,
 ): void {
   if (!version.profile.capabilities.includes("reference-data-promotion")) {
     throw new Error(`Provider '${version.providerKey}' does not support Reference Data promotion.`);
@@ -5933,12 +6175,15 @@ type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
   | SourceObservationMagicCardPrintNormalized
   | SourceObservationMagicSealedProductNormalized
+  | SourceObservationLorcanaCardPrintNormalized
+  | SourceObservationLorcanaSealedProductNormalized
   | SourceObservationOnePieceCardPrintNormalized
   | SourceObservationOnePieceSealedProductNormalized;
 
 type ReferenceHierarchySourceObservationNormalized =
   | CatalogItemPromotableSourceObservationNormalized
   | SourceObservationMagicSetReferenceNormalized
+  | SourceObservationLorcanaSetReferenceNormalized
   | SourceObservationOnePieceSetReferenceNormalized;
 
 async function createCatalogDraftFromObservation(input: {
@@ -5981,6 +6226,8 @@ async function createCatalogDraftFromObservation(input: {
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
     input.normalized.kind === "magic-sealed-product" ||
+    input.normalized.kind === "lorcana-card-print" ||
+    input.normalized.kind === "lorcana-sealed-product" ||
     input.normalized.kind === "one-piece-card-print" ||
     input.normalized.kind === "one-piece-sealed-product"
       ? targetReferenceRecordId
@@ -6056,6 +6303,8 @@ async function refreshCatalogItemFromObservation(input: {
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
     input.normalized.kind === "magic-sealed-product" ||
+    input.normalized.kind === "lorcana-card-print" ||
+    input.normalized.kind === "lorcana-sealed-product" ||
     input.normalized.kind === "one-piece-card-print" ||
     input.normalized.kind === "one-piece-sealed-product"
       ? targetReferenceRecordId
@@ -6133,7 +6382,10 @@ function promotionEvidenceFromPlan(
 
 function referenceDataPromotionEvidence(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): SourceObservationPromotionProfileEvidence {
   return {
@@ -6145,7 +6397,10 @@ function referenceDataPromotionEvidence(input: {
 
 function referenceDataPromotionPlanFingerprint(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized;
   referenceRecordId: ReferenceRecordId;
 }): string {
   const payload = {
@@ -6232,6 +6487,7 @@ function requireCatalogItemPromotionObservation(
   if (
     !isPokemonCardSourceObservationNormalized(normalized) &&
     !isMagicCatalogItemSourceObservationNormalized(normalized) &&
+    !isLorcanaCatalogItemSourceObservationNormalized(normalized) &&
     !isOnePieceCatalogItemSourceObservationNormalized(normalized)
   ) {
     throw new Error(
@@ -6327,7 +6583,10 @@ async function resolveReferenceDataPromotionHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
   profile: CatalogProviderIntegrationProfile;
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized;
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized;
   context: EventStoreContext;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;
@@ -6365,10 +6624,53 @@ function promotionReferenceHierarchyPayload(normalized: ReferenceHierarchySource
     });
   }
 
+  if (normalized.kind === "lorcana-set-reference") {
+    return toJsonValue({
+      ...normalized,
+      set: {
+        id: normalized.setId,
+        code: normalized.setCode,
+        name: normalized.setName,
+        release_date: normalized.releaseDate,
+      },
+      set_name: normalized.setName,
+    });
+  }
+
   if (normalized.kind === "magic-card-print" || normalized.kind === "magic-sealed-product") {
     return toJsonValue({
       ...normalized,
       set: normalized.setCode,
+      set_name: normalized.setName,
+    });
+  }
+
+  if (normalized.kind === "lorcana-card-print") {
+    return toJsonValue({
+      ...normalized,
+      set: {
+        id: normalized.setId,
+        code: normalized.setCode,
+        name: normalized.setName,
+        release_date: normalized.releaseDate,
+      },
+      set_name: normalized.setName,
+    });
+  }
+
+  if (normalized.kind === "lorcana-sealed-product") {
+    return toJsonValue({
+      ...normalized,
+      sealedProduct: {
+        set: normalized.setName
+          ? {
+              id: normalized.setId,
+              code: normalized.setCode,
+              name: normalized.setName,
+              release_date: normalized.releaseDate,
+            }
+          : null,
+      },
       set_name: normalized.setName,
     });
   }
@@ -6710,7 +7012,10 @@ async function requireCatalogPromotionProfileVersion(
 async function requireReferenceDataPromotionProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string,
-  normalized: SourceObservationMagicSetReferenceNormalized | SourceObservationOnePieceSetReferenceNormalized,
+  normalized:
+    | SourceObservationMagicSetReferenceNormalized
+    | SourceObservationLorcanaSetReferenceNormalized
+    | SourceObservationOnePieceSetReferenceNormalized,
   selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const profile = selector

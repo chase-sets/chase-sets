@@ -79,6 +79,26 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       subtitleTemplate: "{reference.set.name} sealed product",
       requiredFieldKeys: [],
     },
+    {
+      displayTemplateId: catalogSeedIds.displayTemplates.lorcanaCardPrintDefault,
+      key: "lorcana-card-print-default",
+      name: "Lorcana card print",
+      target: { kind: "blueprint" as const, id: catalogSeedIds.blueprints.lorcanaCardPrint },
+      priority: 10,
+      titleTemplate: "{field.card-name} {field.card-number}",
+      subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
+      requiredFieldKeys: ["card-name", "card-number", "set"],
+    },
+    {
+      displayTemplateId: catalogSeedIds.displayTemplates.lorcanaSealedProduct,
+      key: "lorcana-sealed-product",
+      name: "Lorcana sealed product",
+      target: { kind: "blueprint" as const, id: catalogSeedIds.blueprints.lorcanaSealedProduct },
+      priority: 10,
+      titleTemplate: "{item.title}",
+      subtitleTemplate: "{reference.set.name} {field.sealed-product-form}",
+      requiredFieldKeys: ["set", "sealed-product-form"],
+    },
   ];
 
   const existing = await loadExistingSeedDisplayTemplates(

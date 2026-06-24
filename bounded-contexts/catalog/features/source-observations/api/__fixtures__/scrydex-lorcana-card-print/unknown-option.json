@@ -1,0 +1,24 @@
+{
+  "kind": "lorcana-card",
+  "card": {
+    "id": "tfc-041-unknown-option",
+    "name": "Elsa - Snow Queen Unknown Variant",
+    "number": "41*",
+    "printed_number": "41*/204",
+    "rarity": "unclassified-parallel",
+    "rarity_code": "UNK",
+    "type": "Character",
+    "ink": "Amethyst",
+    "language_code": "en",
+    "tcgplayer_id": "1005010",
+    "expansion": {
+      "id": "1",
+      "name": "The First Chapter",
+      "code": "TFC",
+      "total": 204,
+      "release_date": "2023-08-18",
+      "language_code": "en"
+    }
+  },
+  "sourceUrl": "https://api.scrydex.com/lorcana/v1/expansions/1/cards"
+}

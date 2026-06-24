@@ -19,6 +19,18 @@ import {
   MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   runMtgjsonSourceObservationValidationDryRun,
 } from "./mtgjson";
+import {
+  createLorcanajsonValidationProviderAdapter,
+  LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runLorcanajsonCardReferenceValidationDryRun,
+} from "./lorcanajson";
+import {
+  createLorcastValidationProviderAdapter,
+  LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runLorcastCardReferenceValidationDryRun,
+} from "./lorcast";
 import { ProviderAdapterRegistry } from "./registry";
 import {
   createScryfallValidationProviderAdapter,
@@ -32,10 +44,14 @@ import {
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./tcgdex";
 import {
+  runTcgplayerLorcanaSealedProductSourceObservationImportProofDryRun,
+  runTcgplayerLorcanaSingleCardSourceObservationImportProofDryRun,
   createTcgplayerProviderAdapter,
   runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
   runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
   runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun,
+  TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1353,6 +1369,199 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
+  it("validates LorcanaJSON reference data through bulk-first ProviderAdapter extension points", async () => {
+    const adapter = createLorcanajsonValidationProviderAdapter();
+    const units = await adapter.listIntegrationUnits();
+    const sets = await adapter.listOptions({
+      unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "sets",
+    });
+    const cards = await adapter.listOptions({
+      unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "cards",
+      parentValues: { setCode: "1" },
+    });
+    const plan = await adapter.planImport({
+      unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "single-card",
+      values: { setCode: "1", cardName: "Elsa - Snow Queen", cardNumber: "41" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const dryRun = await runLorcanajsonCardReferenceValidationDryRun(adapter);
+
+    expect(units.map((unit) => unit.unitKey)).toEqual([
+      LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+    ]);
+    expect(sets.items).toContainEqual(
+      expect.objectContaining({
+        value: "1",
+        label: "The First Chapter",
+        metadata: expect.objectContaining({ cardCount: "1", formatVersion: "2.3.2" }),
+      }),
+    );
+    expect(cards.items).toContainEqual(
+      expect.objectContaining({
+        value: "1-041",
+        label: "Elsa - Snow Queen #41",
+        parentValue: "1",
+        metadata: expect.objectContaining({ tcgplayerProductId: "1005010", inkColor: "Amethyst" }),
+      }),
+    );
+    expect(plan.transportSteps).toEqual([
+      "Fetch LorcanaJSON set file",
+      "Select requested card payload",
+      "Attach card reference provenance",
+    ]);
+    expect(plan.usageEstimate).toMatchObject({
+      requestStrategy: "bulk-first",
+      estimatedRequestCount: 1,
+      perRecordFallbackReason: null,
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "lorcanajson",
+        externalKey: "card:1-041",
+        payload: expect.objectContaining({
+          kind: "lorcana-card-reference",
+          cardId: "1-041",
+          setName: "The First Chapter",
+          tcgplayerProductId: "1005010",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+        }),
+        provenance: expect.objectContaining({
+          fetchedAt: "2026-06-23T00:00:00.000Z",
+          sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+          contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(dryRun).toMatchObject({
+      unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      profileVersion: "lorcanajson-validation-2026.06.23",
+      observations: [
+        {
+          providerKey: "lorcanajson",
+          normalizedFacts: {
+            name: "Elsa - Snow Queen",
+            cardNumber: "41",
+            setCode: "1",
+            setName: "The First Chapter",
+            rarity: "Super Rare",
+            cardType: "Storyborn Hero Queen",
+            inkColor: "Amethyst",
+            tcgplayerProductId: "1005010",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+  });
+
+  it("validates Lorcast reference data through public API ProviderAdapter extension points", async () => {
+    const adapter = createLorcastValidationProviderAdapter();
+    const units = await adapter.listIntegrationUnits();
+    const sets = await adapter.listOptions({
+      unitKey: LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "sets",
+    });
+    const cards = await adapter.listOptions({
+      unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "cards",
+      parentValues: { setCode: "1" },
+    });
+    const plan = await adapter.planImport({
+      unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "single-card",
+      values: { setCode: "1", cardName: "Elsa - Snow Queen", cardNumber: "41" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const dryRun = await runLorcastCardReferenceValidationDryRun(adapter);
+    const diagnostics = await adapter.getTransportDiagnostics();
+
+    expect(units.map((unit) => unit.unitKey)).toEqual([
+      LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+    ]);
+    expect(sets.items).toContainEqual(
+      expect.objectContaining({
+        value: "1",
+        label: "The First Chapter",
+        metadata: expect.objectContaining({ cacheGuidance: "cache-at-least-24h" }),
+      }),
+    );
+    expect(cards.items).toContainEqual(
+      expect.objectContaining({
+        value: "crd_elsa_snow_queen_1_041",
+        label: "Elsa - Snow Queen #41",
+        parentValue: "1",
+        metadata: expect.objectContaining({ tcgplayerProductId: "1005010", inkColor: "Amethyst" }),
+      }),
+    );
+    expect(plan.transportSteps).toEqual([
+      "Fetch Lorcast set cards endpoint",
+      "Select requested card payload",
+      "Attach card reference provenance",
+      "Prefer cached set payloads for repeat diagnostics",
+    ]);
+    expect(plan.usageEstimate).toMatchObject({
+      requestStrategy: "bulk-first",
+      estimatedRequestCount: 1,
+      creditDiagnostic: "Lorcast is a public API with no credentialed usage or credit endpoint.",
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "lorcast",
+        externalKey: "card:crd_elsa_snow_queen_1_041",
+        payload: expect.objectContaining({
+          kind: "lorcana-card-reference",
+          cardId: "crd_elsa_snow_queen_1_041",
+          setName: "The First Chapter",
+          tcgplayerProductId: "1005010",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
+        }),
+        provenance: expect.objectContaining({
+          fetchedAt: "2026-06-23T00:00:00.000Z",
+          sourceUrl: "https://api.lorcast.com/v0/sets/1/cards",
+          contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(payloads)).not.toMatch(/usd|price|seller|inventory/i);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: "lorcast-public-api-transport-configured",
+        message: expect.stringContaining("cache downloaded data for at least 24 hours"),
+      }),
+      expect.objectContaining({
+        code: "lorcast-public-api-transport-configured",
+        message: expect.stringContaining("cache downloaded data for at least 24 hours"),
+      }),
+    ]);
+    expect(dryRun).toMatchObject({
+      unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      profileVersion: "lorcast-validation-2026.06.23",
+      observations: [
+        {
+          providerKey: "lorcast",
+          normalizedFacts: {
+            name: "Elsa - Snow Queen",
+            cardNumber: "41",
+            setCode: "1",
+            setName: "The First Chapter",
+            rarity: "Super_rare",
+            cardType: "Character",
+            inkColor: "Amethyst",
+            tcgplayerProductId: "1005010",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+  });
+
   it("validates Scryfall reference and image evidence through ProviderAdapter extension points", async () => {
     const adapter = createScryfallValidationProviderAdapter();
     const units = await adapter.listIntegrationUnits();
@@ -1424,10 +1633,12 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
-  it("validates TCGplayer Magic source-observation imports through fixture-backed proof dry runs", async () => {
+  it("validates TCGplayer source-observation imports through fixture-backed proof dry runs", async () => {
     const singleCard = await runTcgplayerMtgSingleCardSourceObservationImportProofDryRun();
     const sealedProduct = await runTcgplayerMtgSealedProductSourceObservationImportProofDryRun();
     const onePieceSealedProduct = await runTcgplayerOnePieceSealedProductSourceObservationImportProofDryRun();
+    const lorcanaSingleCard = await runTcgplayerLorcanaSingleCardSourceObservationImportProofDryRun();
+    const lorcanaSealedProduct = await runTcgplayerLorcanaSealedProductSourceObservationImportProofDryRun();
 
     expect(singleCard).toMatchObject({
       unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1503,6 +1714,59 @@ describe("ProviderAdapterRegistry", () => {
       diagnostics: [],
     });
     expect(JSON.stringify(onePieceSealedProduct)).not.toMatch(/marketPrice|lowestPrice|medianPrice|listings|seller/i);
+    expect(lorcanaSingleCard).toMatchObject({
+      unitKey: TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.23",
+      observations: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:1005010",
+          normalizedFacts: {
+            productId: "1005010",
+            name: "Elsa - Snow Queen",
+            setCode: "TFC",
+            setName: "The First Chapter",
+            productLineName: "Disney Lorcana",
+            productTypeName: "Cards",
+            productForm: "single",
+            cardNumber: "3/204",
+            releaseDate: "2023-08-18",
+            skuCount: "1",
+            firstSkuId: "91005010",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+    expect(lorcanaSealedProduct).toMatchObject({
+      unitKey: TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.23",
+      observations: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:1005020",
+          normalizedFacts: {
+            productId: "1005020",
+            name: "The First Chapter Booster Box",
+            setCode: "TFC",
+            setName: "The First Chapter",
+            productLineName: "Disney Lorcana",
+            productTypeName: "Sealed Products",
+            productForm: "sealed",
+            cardNumber: "BOX",
+            releaseDate: "2023-08-18",
+            skuCount: "1",
+            firstSkuId: "91005020",
+            firstSkuCondition: "Sealed",
+            firstSkuVariant: "Sealed",
+            firstSkuLanguage: "English",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+    expect(JSON.stringify(lorcanaSingleCard)).not.toMatch(/marketPrice|lowestPrice|medianPrice|listings|seller/i);
+    expect(JSON.stringify(lorcanaSealedProduct)).not.toMatch(/marketPrice|lowestPrice|medianPrice|listings|seller/i);
   });
 
   it("records MTGJSON/Scryfall source conflict evidence without adapter-side precedence", async () => {

@@ -1,0 +1,22 @@
+{
+  "kind": "lorcana-card-reference",
+  "languageCode": "en",
+  "observationId": "lorcast_card_en_partial",
+  "externalKey": "card:partial",
+  "sourceUrl": "https://api.lorcast.com/v0/sets/1/cards",
+  "sourceUpdatedAt": "2023-08-18",
+  "sourcePayload": { "provider": "lorcast" },
+  "externalCatalogItemReferences": [],
+  "externalProductReferences": [],
+  "rarity": null,
+  "cardType": null,
+  "inkColor": null,
+  "releaseDate": null,
+  "releaseYear": null,
+  "cardId": "partial",
+  "cardNumber": "41",
+  "setId": "set_7ecb0e0c71af496a9e0110e23824e0a5",
+  "setCode": "1",
+  "setName": "The First Chapter",
+  "imageUrls": []
+}

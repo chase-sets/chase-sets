@@ -189,6 +189,67 @@ describe("provider integration executable mapping contract", () => {
     }
   });
 
+  it("represents Lorcana ingestion-unit identities without product-line-specific importer branches", () => {
+    const identities = [
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "lorcanajson",
+        productDomain: "lorcana",
+        productForm: "single-card",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "lorcanajson",
+        productDomain: "lorcana",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "lorcast",
+        productDomain: "lorcana",
+        productForm: "single-card",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "lorcast",
+        productDomain: "lorcana",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "scrydex",
+        productDomain: "lorcana",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "tcgplayer",
+        productDomain: "lorcana",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "tcgplayer",
+        productDomain: "lorcana",
+        productForm: "sealed-product",
+        ingestionPurpose: "source-observation-import",
+      }),
+    ];
+
+    expect(identities.map((identity) => identity.unitKey)).toEqual([
+      "lorcanajson:lorcana:single-card:reference-data",
+      "lorcanajson:lorcana:set:reference-data",
+      "lorcast:lorcana:single-card:reference-data",
+      "lorcast:lorcana:set:reference-data",
+      "scrydex:lorcana:single-card:source-observation-import",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+      "tcgplayer:lorcana:sealed-product:source-observation-import",
+    ]);
+
+    for (const identity of identities) {
+      expect(validateCatalogProviderExecutableMappingContract(identityOnlyContract(identity))).toEqual([]);
+    }
+  });
+
   it("flags missing fixture coverage and unsafe cross-context leakage", () => {
     const invalidContract: CatalogProviderExecutableMappingContract = {
       ...tcgplayerContract(),

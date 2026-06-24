@@ -91,6 +91,32 @@ describe("seedDisplayTemplates", () => {
     expect(db.queueTouched).toBe(true);
   });
 
+  it("creates Lorcana templates with card variant and sealed form display copy", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const rows = matchingSeedRows().filter(
+      (row) => row.display_template_id !== catalogSeedIds.displayTemplates.lorcanaCardPrintDefault,
+    );
+    const db = seedDb(rows);
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.lorcanaCardPrintDefault}`,
+        command: expect.objectContaining({
+          type: "CreateDisplayTemplate",
+          key: "lorcana-card-print-default",
+          name: { defaultLocale: "en", values: { en: "Lorcana card print" } },
+          target: { kind: "blueprint", id: catalogSeedIds.blueprints.lorcanaCardPrint },
+          titleTemplate: "{field.card-name} {field.card-number}",
+          subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
+          requiredFieldKeys: ["card-name", "card-number", "set"],
+        }),
+      }),
+    );
+    expect(db.queueTouched).toBe(true);
+  });
+
   it("publishes existing draft seed templates", async () => {
     const commandHandler = vi.fn(async () => undefined);
     const db = seedDb(
@@ -229,6 +255,28 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       title_template: "{item.title}",
       subtitle_template: "{reference.set.name} sealed product",
       required_field_keys: [],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.lorcanaCardPrintDefault,
+      key: "lorcana-card-print-default",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.lorcanaCardPrint,
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number}",
+      subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.ink-color} {field.rarity}",
+      required_field_keys: ["card-name", "card-number", "set"],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.lorcanaSealedProduct,
+      key: "lorcana-sealed-product",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.lorcanaSealedProduct,
+      priority: 10,
+      title_template: "{item.title}",
+      subtitle_template: "{reference.set.name} {field.sealed-product-form}",
+      required_field_keys: ["set", "sealed-product-form"],
       status: "active",
     },
   ];
