@@ -48,6 +48,7 @@ const SLO_MODES = ["warn", "gate"];
 // negative-probe failures) always abort regardless of mode.
 const DEFAULT_SLO_MODE = "warn";
 const RAW_AFTER_WRITE_PATTERN = /afterWrite=[^&\s")]+/gi;
+const RAW_POST_WRITE_TOKEN_PATTERN = /postWriteToken=[^&\s")]+/gi;
 const CHECKOUT_SESSION_ID_PATTERN = /\bchk_[0-9A-Za-z_:-]+\b/g;
 const GUEST_COOKIE_PATTERN = /chase_sets_guest_checkout=[^;\s]+/gi;
 const SESSION_COOKIE_PATTERN = /chase_sets_session=[^;\s]+/gi;
@@ -73,6 +74,17 @@ export function isBuySessionUrl(value) {
 
 export function isCheckoutSessionDocumentResponseUrl(value) {
   return isBuySessionUrl(value);
+}
+
+export function detectFreshWriteMetadata(url) {
+  const searchParams = url instanceof URL ? url.searchParams : new URL(String(url ?? "")).searchParams;
+  const afterWritePresent = searchParams.has("afterWrite");
+  const postWriteTokenPresent = searchParams.has("postWriteToken");
+  return {
+    afterWritePresent,
+    postWriteTokenPresent,
+    freshWriteMetadataPresent: afterWritePresent || postWriteTokenPresent,
+  };
 }
 
 export function buyNowRouteTransitionWaitOptions(timeoutMs) {
@@ -202,7 +214,7 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
   if (observation.checkoutStartRecoveryVisible || CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
     return abort("fail", "checkout-start-recovery-visible");
   }
-  if (!observation.afterWritePresent) {
+  if (!freshWriteMetadataPresent(observation)) {
     return abort("fail", "missing-after-write");
   }
   if (flow === "guest" && !observation.guestCookiePresent) {
@@ -304,6 +316,8 @@ export function buildGuestBuyNowProbeEvidence(input) {
     segmentReferences: SEGMENT_METRIC_REFERENCES,
     waitMode: normalizeWaitMode(observation.waitMode),
     afterWritePresent: Boolean(observation.afterWritePresent),
+    postWriteTokenPresent: Boolean(observation.postWriteTokenPresent),
+    freshWriteMetadataPresent: freshWriteMetadataPresent(observation),
     guestCookiePresent: Boolean(observation.guestCookiePresent),
     sessionCookiePresent: Boolean(observation.sessionCookiePresent),
     permanentNotFoundVisible: Boolean(observation.permanentNotFoundVisible),
@@ -326,6 +340,7 @@ export function buildGuestBuyNowProbeEvidence(input) {
       sessionToken: "redacted",
       cookie: "redacted",
       afterWrite: "redacted",
+      postWriteToken: "redacted",
       checkoutSessionId: "redacted",
       accountIds: "redacted",
       eventIds: "redacted",
@@ -345,6 +360,12 @@ function normalizeRuntimeFailure(observation) {
     reason: normalizeString(observation.runtimeFailureReason) ?? "browser-runtime-error",
     message: normalizeString(observation.runtimeFailureMessage) ?? null,
   };
+}
+
+function freshWriteMetadataPresent(observation) {
+  return Boolean(
+    observation.afterWritePresent || observation.postWriteTokenPresent || observation.freshWriteMetadataPresent,
+  );
 }
 
 function normalizeNegativeProbe(probe) {
@@ -368,6 +389,7 @@ export function assertRedactedEvidence(evidence) {
   const leaks = [];
   for (const pattern of [
     RAW_AFTER_WRITE_PATTERN,
+    RAW_POST_WRITE_TOKEN_PATTERN,
     CHECKOUT_SESSION_ID_PATTERN,
     GUEST_COOKIE_PATTERN,
     SESSION_COOKIE_PATTERN,
@@ -447,6 +469,8 @@ function runtimeFailureObservation(error) {
     readyLatencyMs: null,
     segments: {},
     afterWritePresent: false,
+    postWriteTokenPresent: false,
+    freshWriteMetadataPresent: false,
     guestCookiePresent: false,
     sessionCookiePresent: false,
     permanentNotFoundVisible: false,
@@ -551,6 +575,7 @@ async function observeBuyNowCheckout(options) {
       const readiness = await watchCheckoutReadiness(page, startedAt, options.readySloMs);
 
       const finalUrl = new URL(page.url());
+      const freshWriteMetadata = detectFreshWriteMetadata(finalUrl);
       const cookies = await context.cookies(baseUrl);
       const pageText = readiness.pageText;
       const waitMode = detectWaitMode(pageText);
@@ -563,7 +588,7 @@ async function observeBuyNowCheckout(options) {
           documentToReadyMs: readiness.readyAt === null ? null : readiness.readyAt - documentAt,
           writeToCheckoutReadyMs: readiness.readyAt === null ? null : readiness.readyAt - startedAt,
         },
-        afterWritePresent: finalUrl.searchParams.has("afterWrite"),
+        ...freshWriteMetadata,
         guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
         sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
         permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
@@ -606,6 +631,7 @@ async function checkoutStartRecoveryObservationFromPage({
 }) {
   const cookies = await context.cookies(baseUrl);
   const finalUrl = new URL(page.url());
+  const freshWriteMetadata = detectFreshWriteMetadata(finalUrl);
   const pageText = sessionStart.pageText;
   return {
     latencyMs: sessionStart.observedAt - startedAt,
@@ -616,7 +642,7 @@ async function checkoutStartRecoveryObservationFromPage({
       documentToReadyMs: null,
       writeToCheckoutReadyMs: null,
     },
-    afterWritePresent: finalUrl.searchParams.has("afterWrite"),
+    ...freshWriteMetadata,
     guestCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_guest_checkout"),
     sessionCookiePresent: cookies.some((cookie) => cookie.name === "chase_sets_session"),
     permanentNotFoundVisible: PERMANENT_NOT_FOUND_PATTERN.test(pageText),
@@ -1019,6 +1045,7 @@ function sanitizeRuntimeErrorMessage(message) {
   return String(message ?? "")
     .replace(/https?:\/\/[^\s")]+/gi, "[redacted-url]")
     .replace(RAW_AFTER_WRITE_PATTERN, "afterWrite=[redacted]")
+    .replace(RAW_POST_WRITE_TOKEN_PATTERN, "postWriteToken=[redacted]")
     .replace(CHECKOUT_SESSION_ID_PATTERN, "chk_[redacted]")
     .replace(GUEST_COOKIE_PATTERN, "chase_sets_guest_checkout=[redacted]")
     .replace(SESSION_COOKIE_PATTERN, "chase_sets_session=[redacted]")

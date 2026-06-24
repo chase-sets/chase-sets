@@ -12,6 +12,7 @@ import {
   buyNowItemPageNavigationWaitOptions,
   buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
+  detectFreshWriteMetadata,
   isCheckoutSessionDocumentResponseUrl,
   isBuyReadinessUrl,
   isBuySessionUrl,
@@ -145,6 +146,23 @@ describe("guest Buy Now freshness probe", () => {
     });
   });
 
+  it("accepts compact post-write token metadata as a fresh write handoff", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: false,
+        postWriteTokenPresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 700,
+        negativeProbe: healthyProbe,
+      }),
+    ).toEqual({
+      finalState: "pass",
+      promotionDecision: "promote",
+      failureReason: null,
+    });
+  });
+
   it("fails on the original permanent not-found symptom", () => {
     expect(
       classifyGuestBuyNowObservation({
@@ -174,10 +192,11 @@ describe("guest Buy Now freshness probe", () => {
     });
   });
 
-  it("fails closed when fresh receipt or guest cookie handoff is missing", () => {
+  it("fails closed when fresh-write metadata or guest cookie handoff is missing", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: false,
+        postWriteTokenPresent: false,
         guestCookiePresent: true,
         checkoutReviewVisible: true,
         readyLatencyMs: 500,
@@ -186,6 +205,7 @@ describe("guest Buy Now freshness probe", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: true,
+        postWriteTokenPresent: false,
         guestCookiePresent: false,
         checkoutReviewVisible: true,
         readyLatencyMs: 500,
@@ -339,9 +359,10 @@ describe("guest Buy Now freshness probe", () => {
         checkoutDocumentStatus: 200,
         stateWaitOutcome: "matched",
         waitMode: "exact-dependency",
+        postWriteTokenPresent: true,
         negativeProbe: healthyProbe,
         pageText:
-          "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token todd.skelton@outlook.com chase_sets_guest_checkout=secret chase_sets_session=session-secret",
+          "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token postWriteToken=compact-token todd.skelton@outlook.com chase_sets_guest_checkout=secret chase_sets_session=session-secret",
       },
     });
 
@@ -361,6 +382,9 @@ describe("guest Buy Now freshness probe", () => {
       },
       segmentReferences: SEGMENT_METRIC_REFERENCES,
       waitMode: "exact-dependency",
+      afterWritePresent: true,
+      postWriteTokenPresent: true,
+      freshWriteMetadataPresent: true,
       platformErrorVisible: false,
       checkoutDocumentStatus: 200,
       stateWaitOutcome: "matched",
@@ -491,6 +515,32 @@ describe("guest Buy Now freshness probe", () => {
       isBuySessionUrl("https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123?afterWrite=redacted"),
     ).toBe(true);
     expect(isBuySessionUrl("https://marketplace.staging.chasesets.com/checkout/chk_123")).toBe(false);
+  });
+
+  it("detects legacy and compact fresh-write metadata without exposing values", () => {
+    expect(
+      detectFreshWriteMetadata(
+        "https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123?afterWrite=redacted",
+      ),
+    ).toEqual({
+      afterWritePresent: true,
+      postWriteTokenPresent: false,
+      freshWriteMetadataPresent: true,
+    });
+    expect(
+      detectFreshWriteMetadata(
+        "https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123?postWriteToken=redacted",
+      ),
+    ).toEqual({
+      afterWritePresent: false,
+      postWriteTokenPresent: true,
+      freshWriteMetadataPresent: true,
+    });
+    expect(detectFreshWriteMetadata("https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123")).toEqual({
+      afterWritePresent: false,
+      postWriteTokenPresent: false,
+      freshWriteMetadataPresent: false,
+    });
   });
 
   it("waits only for route commit before separately measuring checkout document readiness", () => {
@@ -860,7 +910,7 @@ describe("guest Buy Now freshness probe", () => {
         attempts.push(attempt);
         if (attempt === 1) {
           throw new Error(
-            'page.waitForURL: Timeout 45000ms exceeded. navigated to "https://marketplace.staging.chasesets.com/checkout/buy/readiness?afterWrite=raw-token&session=chk_123" guest-buy-now-canary@example.test chase_sets_guest_checkout=secret',
+            'page.waitForURL: Timeout 45000ms exceeded. navigated to "https://marketplace.staging.chasesets.com/checkout/buy/readiness?afterWrite=raw-token&postWriteToken=compact-token&session=chk_123" guest-buy-now-canary@example.test chase_sets_guest_checkout=secret',
           );
         }
 
@@ -895,6 +945,7 @@ describe("guest Buy Now freshness probe", () => {
     ]);
     expect(assertRedactedEvidence(evidence)).toEqual([]);
     expect(JSON.stringify(evidence)).not.toContain("raw-token");
+    expect(JSON.stringify(evidence)).not.toContain("compact-token");
     expect(JSON.stringify(evidence)).not.toContain("guest-buy-now-canary@example.test");
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
   });
