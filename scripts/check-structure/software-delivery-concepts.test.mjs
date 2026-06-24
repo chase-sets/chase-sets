@@ -16,7 +16,7 @@ describe("software delivery concepts guard", () => {
     expect(isSoftwareDeliveryConceptGuardedFile("deployables/admin-web/app/routes/x.tsx", ".tsx")).toBe(true);
     // Delivery tooling stays out of scope: scripts/, .github/, infrastructure/, docs/.
     expect(isSoftwareDeliveryConceptGuardedFile("scripts/release-lock.mjs", ".mjs")).toBe(false);
-    expect(isSoftwareDeliveryConceptGuardedFile("scripts/canary-analysis.mjs", ".mjs")).toBe(false);
+    expect(isSoftwareDeliveryConceptGuardedFile("scripts/release-health.mjs", ".mjs")).toBe(false);
     expect(isSoftwareDeliveryConceptGuardedFile("infrastructure/digitalocean/platform/main.tf", ".tf")).toBe(false);
     expect(isSoftwareDeliveryConceptGuardedFile("docs/runbooks/release-process-evolution.md", ".md")).toBe(false);
     // Non-source extensions inside scope are not scanned.

@@ -897,29 +897,15 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(
       platformProductionWorkflow.indexOf("- name: Production settlement provider-health telemetry canary"),
-    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"));
-    expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Mark production release"),
-    );
-    expect(platformProductionWorkflow).toContain("stage1-production-canary-telemetry.json");
-    expect(platformProductionWorkflow).toContain('"app-platform-deployment-phase"');
-    expect(platformProductionWorkflow).toContain("CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}");
-    expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
-    );
-    expect(platformProductionWorkflow).toContain("vars.CANARY_PROMETHEUS_ENABLED == 'true'");
-    const canaryEvidenceStep = workflowStep(
-      platformProductionWorkflow,
-      "Collect production canary observability evidence",
-    );
-    expect(canaryEvidenceStep).toContain("node ./scripts/canary-evidence.mjs");
-    expect(canaryEvidenceStep).toContain(
-      "--source-file artifacts/release-health/stage1-production-canary-telemetry.json",
-    );
-    expect(canaryEvidenceStep).toContain("--source-file artifacts/release-health/production-readiness-gate.json");
-    expect(canaryEvidenceStep).toContain(
-      "--source-file artifacts/release-health/production-settlement-provider-health-canary.json",
-    );
+    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Mark production release"));
+    // The baseline-vs-canary promotion-evidence gate (canary-evidence.mjs /
+    // canary-analysis.json) was removed in #2507: it modeled a canary deploy
+    // that does not exist (rolling deploy), was half-uninstrumented, and never
+    // blocked. The post-deploy smoke probes below are kept.
+    expect(platformProductionWorkflow).not.toContain("stage1-production-canary-telemetry.json");
+    expect(platformProductionWorkflow).not.toContain("- name: Collect production canary observability evidence");
+    expect(platformProductionWorkflow).not.toContain("canary-evidence.mjs");
+    expect(platformProductionWorkflow).not.toContain("CANARY_PROMETHEUS");
     const settlementProviderHealthCanaryStep = workflowStep(
       platformProductionWorkflow,
       "Production settlement provider-health telemetry canary",
@@ -945,9 +931,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
-    expect(platformProductionWorkflow).toContain(
-      "CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}",
-    );
+    expect(platformProductionWorkflow).not.toContain("CANARY_EVIDENCE_RESULT");
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
@@ -1001,7 +985,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("run: node ./scripts/release-health.mjs");
     expect(platformProductionWorkflow).toContain("- name: Upload release health summary");
     expect(platformProductionWorkflow).toContain("name: production-release-health");
-    expect(platformProductionWorkflow).toContain("artifacts/release-health/canary-analysis.json");
+    expect(platformProductionWorkflow).not.toContain("artifacts/release-health/canary-analysis.json");
     expect(platformProductionWorkflow).toContain(
       "artifacts/release-health/production-settlement-provider-health-canary.json",
     );
@@ -1360,7 +1344,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
     expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");
     expect(observabilityOutputs).toContain('output "app_platform_otlp_headers"');
-    expect(observabilityOutputs).toContain('output "canary_prometheus_headers"');
+    // The canary-evidence promotion gate was removed in #2507, so the host no
+    // longer exports canary_prometheus_* outputs. The scoped query-auth token
+    // (X-Chase-Sets-Observability-Query, asserted above) stays for dashboards.
+    expect(observabilityOutputs).not.toContain("canary_prometheus");
   });
 
   it("splits app and data regions and manages uptime checks", () => {

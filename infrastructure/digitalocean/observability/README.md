@@ -16,5 +16,3 @@ The key outputs feed the platform deploy pipeline:
 
 - `otlp_endpoint` -> `OBSERVABILITY_OTLP_ENDPOINT` GitHub environment variable when overriding the default.
 - `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` GitHub environment secret.
-- `canary_prometheus_url` -> `CANARY_PROMETHEUS_URL` GitHub environment variable.
-- `canary_prometheus_headers` -> `CANARY_PROMETHEUS_HEADERS` GitHub environment secret.

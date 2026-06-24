@@ -108,8 +108,6 @@ The checked-in local stack uses short retention. Staging and production must set
 Provision staging and production with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`. The root outputs the exact GitHub values to set:
 
 - `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in the matching GitHub environment.
-- `canary_prometheus_url` -> `CANARY_PROMETHEUS_URL` variable.
-- `canary_prometheus_headers` -> `CANARY_PROMETHEUS_HEADERS` secret.
 
 The platform deploy workflow defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `https://otel.staging.chasesets.com` or `https://otel.chasesets.com`. Set `OBSERVABILITY_OTLP_ENDPOINT` only when using a different endpoint.
 
@@ -120,19 +118,6 @@ Metric labels must stay bounded: service, environment, route template, method, s
 Projection freshness metrics add only bounded labels: `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `outcome`, `wait_mode`, receipt/header status, runner state, and sanitized `last_error` presence. They must not include raw URLs, path parameters, checkout session ids, account ids, user ids, guest emails, cookies, event ids, or `afterWrite` token values.
 
 Post-write consistency metrics use `chase_sets_post_write_consistency_events_total` with bounded labels only: `context`, `surface`, `strategy`, `outcome`, `route_id`, `route_template`, `correction_source`, `actor_mode`, `recovery_action`, and `freshness_outcome`. Account cart optimistic correction uses `context="checkout"`, `surface="account-cart"`, `route_id="account-cart"`, correction source `fresh-read:loader-revalidation`, and route template `/account/cart`. The add-to-cart View cart semantic handoff uses the same context/surface/route labels with `strategy="fresh-read"` and `correction_source="semantic-handoff:checkout.cart.add-line"`. Outcome values include `missing_strategy`, `optimistic_applied`, `freshness_timeout`, `rollback`, `reconciliation`, `stale_response_discard`, `handoff_satisfied`, `handoff_pending`, `handoff_expired`, `handoff_invalid`, `handoff_malformed`, and `handoff_permanent`; do not add account ids, cart ids, item ids, event ids, full URLs, raw receipts, raw handoff payloads, or customer identifiers.
-
-## Production Canary Queries
-
-Production release canary telemetry uses the Prometheus-compatible query endpoint selected by ADR 0011. Configure the production GitHub Environment with:
-
-- `CANARY_PROMETHEUS_URL`: base URL for the protected query endpoint.
-- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file, currently `infrastructure/observability/release-canary-prometheus-queries.json`.
-- `CANARY_OBSERVATION_WINDOW_SECONDS`: defaults to `300`.
-- `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of query headers, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`.
-
-Keep credentials out of `CANARY_PROMETHEUS_URL`; use `CANARY_PROMETHEUS_HEADERS` for bearer, basic, tenant, or gateway-specific query credentials. The first required production stack signal is `observability-transport`, backed by `up{job="otel-collector"}`. Required zero-event queries must use real liveness counters in PromQL, such as projection freshness evaluations or the authenticated Settlement provider-health canary's `provider-health-checked` operation; sparse once-per-canary counters should anchor with `max_over_time(...) * 0` rather than `rate(...) * 0` so a single scraped health sample proves liveness without turning absence into healthy zero. Empty Prometheus results are not converted to healthy zeroes. Signals that are still `needs-instrumentation` may appear as `required: false`, but they must remain visible as missing until their telemetry is live.
-
-Account cart consistency uses a required release signal named `account-cart-post-write-consistency`. It watches `missing_strategy` and `freshness_timeout` outcomes and must remain zero. Semantic add-line handoff diagnostics should also show bounded `handoff_pending`, `handoff_satisfied`, `handoff_expired`, `handoff_invalid`, or `handoff_malformed` outcomes when the View cart URL carries semantic metadata. Pair that query with the redacted [Account Cart Consistency Canary](./account-cart-consistency-canary.md) artifact; the canary output may be shared, while private browser observations must stay out of PR comments and launch checklist rows.
 
 ## Projection Freshness Queries
 
