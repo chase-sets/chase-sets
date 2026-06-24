@@ -38,6 +38,16 @@ const emptyScope: CatalogPrimaryWorkbenchScopeContext = {
   expansionName: null,
   status: null,
 };
+const twoSegmentProductLineScopeProviders = new Set(["tcgplayer"]);
+const twoSegmentExpansionScopeProviders = new Set([
+  "lorcanajson",
+  "lorcast",
+  "mtgjson",
+  "scryfall",
+  "scrydex",
+  "ygojson",
+  "ygoprodeck",
+]);
 
 export function emptyCatalogPrimaryWorkbenchScopeContext(
   providerKey: string | null = null,
@@ -155,12 +165,14 @@ export function scopeContextFromImportScope(
   }
 
   if (segments.length === 2) {
-    const secondSegmentIsProductLine = providerKey === "tcgplayer" || /^\d+$/.test(second ?? "");
+    const secondSegmentIsProductLine = providerUsesTwoSegmentProductLineScope(providerKey);
+    const secondSegmentIsExpansion = providerUsesTwoSegmentExpansionScope(providerKey);
     return scopeContextFromFields({
       providerKey,
       languageCode,
       productLineId: secondSegmentIsProductLine ? second : null,
-      seriesId: secondSegmentIsProductLine ? null : second,
+      seriesId: secondSegmentIsProductLine || secondSegmentIsExpansion ? null : second,
+      expansionId: secondSegmentIsExpansion ? second : null,
     });
   }
 
@@ -352,6 +364,14 @@ function importScopeSegments(importScope: string | null): readonly string[] {
     .split(":")
     .map((segment) => segment.trim())
     .filter(Boolean);
+}
+
+function providerUsesTwoSegmentProductLineScope(providerKey: string | null): boolean {
+  return twoSegmentProductLineScopeProviders.has(providerKey ?? "");
+}
+
+function providerUsesTwoSegmentExpansionScope(providerKey: string | null): boolean {
+  return twoSegmentExpansionScopeProviders.has(providerKey ?? "");
 }
 
 function importScopeForStructuredMerge(

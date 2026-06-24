@@ -115,6 +115,25 @@ describe("Catalog primary workbench scope context", () => {
     expect(scopeContextToObservationFilterScope(scope)).not.toHaveProperty("productLineId");
   });
 
+  it("treats compact LorcanaJSON import scopes as set selections when matching provider scopes", () => {
+    const scope = scopeContextFromImportScope("en:1", "lorcanajson");
+
+    expect(scope).toMatchObject({
+      providerKey: "lorcanajson",
+      languageCode: "en",
+      productLineId: null,
+      seriesId: null,
+      expansionId: "1",
+    });
+    expect(scopeContextToObservationFilterScope(scope)).toMatchObject({
+      provider: "lorcanajson",
+      language: "en",
+      expansionId: "1",
+      setId: "1",
+    });
+    expect(scopeContextToObservationFilterScope(scope)).not.toHaveProperty("productLineId");
+  });
+
   it("drops stale legacy importScope parents when an explicit set-name selection differs", () => {
     const scope = scopeContextFromSearchParams({
       searchParams: new URLSearchParams(
