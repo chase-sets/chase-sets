@@ -551,12 +551,27 @@ async function loadPaymentPreview(
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
   wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
   paymentMethodCategory: string,
+  committedOrderIds: readonly string[],
 ): Promise<PaymentsCheckoutStatus | null> {
-  if (!actor || !fulfillmentPreview) {
+  if (!actor) {
     return null;
   }
 
   try {
+    if (committedOrderIds.length > 0) {
+      const paymentsApi = createPaymentsRequestApiClient(requestWithPaymentStartFreshness(request));
+      return await paymentsApi.getCheckoutStatus({
+        orderIds: committedOrderIds,
+        currencyCode: wallet?.currency_code ?? "usd",
+        requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
+        paymentMethodCategory,
+      });
+    }
+
+    if (!fulfillmentPreview) {
+      return null;
+    }
+
     const paymentsApi = createPaymentsRequestApiClient(request);
     return await paymentsApi.previewCheckoutStatus({
       amount: fulfillmentPreview.totals.totalAmount,
@@ -627,6 +642,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     fulfillmentPreview,
     wallet,
     selectedPaymentMethodCategory,
+    session.order_ids,
   );
 
   return {

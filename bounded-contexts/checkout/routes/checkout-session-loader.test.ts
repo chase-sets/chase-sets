@@ -13,6 +13,7 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
+  mockGetCheckoutStatus,
   mockGetCheckoutSession,
   mockGetGuestCheckoutClaimContext,
   MockMarketplaceApiError,
@@ -417,6 +418,116 @@ describe("checkout web routes: checkout session loader", () => {
       marketplace_checkout_fee: { total_amount: "27.10" },
       wallet_credit: { applied_amount: "0.00" },
     });
+  });
+
+  it("keeps the Payments fee quote fingerprint after payment-start commits orders and refreshes checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: {
+        shippingAddressId: "__manual",
+        name: "Stripe QA Buyer",
+        company: "",
+        line1: "123 Test Market St",
+        line2: "",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: "5125550101",
+        email: "buyer@example.com",
+      },
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: "lowest-total#rev_1",
+      order_ids: ["ord_checkout_1"],
+      order_write_commit_positions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable after order commit"));
+    mockGetCheckoutStatus.mockResolvedValue({
+      order_ids: ["ord_checkout_1"],
+      amount: "37.99",
+      currency_code: "usd",
+      marketplace_checkout_fee: {
+        marketplace_checkout_fee_amount: "1.45",
+        marketplace_checkout_fee_reduction_amount: "0.00",
+        total_amount: "39.44",
+        processor_amount: "39.44",
+        quote_fingerprint: "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
+      },
+      payment_method_quotes: [
+        {
+          payment_method_category: "card",
+          marketplace_checkout_fee_amount: "1.45",
+          total_amount: "39.44",
+        },
+      ],
+      wallet_credit: {
+        requested_amount: "0.00",
+        applied_amount: "0.00",
+        external_amount: "37.99",
+      },
+      can_start_payment: true,
+      unavailable_reasons: [],
+      unavailable_reason_details: [],
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
+      orderIds: ["ord_checkout_1"],
+      currencyCode: "usd",
+      requestedBalanceCreditAmount: "0.00",
+      paymentMethodCategory: "card",
+    });
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
+    );
   });
 
   it("loads Auth-owned guest checkout contact as checkout defaults", async () => {
