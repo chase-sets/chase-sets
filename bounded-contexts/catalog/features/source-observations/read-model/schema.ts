@@ -61,6 +61,60 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
     )
   );
 
+CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
+  candidate_id text PRIMARY KEY,
+  identity_fingerprint text NOT NULL,
+  status text NOT NULL,
+  status_reason text NULL,
+  identity_json jsonb NOT NULL,
+  matched_catalog_item_id text NULL,
+  matched_product_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  proposed_catalog_item_facts_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  proposed_external_catalog_item_references_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  proposed_external_product_references_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  conflicts_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  warnings_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  field_provenance_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  promotion_intent text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  stale_at timestamptz NULL,
+  CONSTRAINT catalog_merge_candidates_status_check
+    CHECK (status IN ('ready', 'has-conflicts', 'stale', 'deferred', 'rejected', 'promoted')),
+  CONSTRAINT catalog_merge_candidates_promotion_intent_check
+    CHECK (promotion_intent IN ('create-catalog-item', 'update-catalog-item', 'link-existing-catalog-item'))
+);
+
+CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
+  candidate_id text NOT NULL,
+  observation_id text NOT NULL,
+  provider_key text NOT NULL,
+  external_key text NOT NULL,
+  source_record_hash text NOT NULL,
+  source_profile_key text NOT NULL,
+  source_profile_version text NOT NULL,
+  source_mapping_fingerprint text NOT NULL,
+  observed_at timestamptz NOT NULL,
+  added_at timestamptz NOT NULL,
+  PRIMARY KEY (candidate_id, observation_id),
+  CONSTRAINT catalog_merge_candidate_observations_candidate_fk
+    FOREIGN KEY (candidate_id)
+    REFERENCES catalog_merge_candidates (candidate_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
+  ON catalog_merge_candidates (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidates_identity_fingerprint_idx
+  ON catalog_merge_candidates (identity_fingerprint);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidates_matched_catalog_item_idx
+  ON catalog_merge_candidates (matched_catalog_item_id)
+  WHERE matched_catalog_item_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_observation_idx
+  ON catalog_merge_candidate_observations (observation_id);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_provider_idx
+  ON catalog_merge_candidate_observations (provider_key, source_profile_version);
+
 CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   provider_key text NOT NULL,
   profile_key text NOT NULL,

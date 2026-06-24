@@ -3,6 +3,7 @@ import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized, SourceObservationStatus } from "../domain/domain";
+import { buildCatalogMergeCandidateProjectionHandlers } from "./catalog-merge-candidate-projection";
 
 const SOURCE_OBSERVATION_STREAM_PREFIX = "catalog.source-observation-";
 
@@ -27,6 +28,7 @@ type ObservationProjectionData = {
 
 export function buildSourceObservationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    ...buildCatalogMergeCandidateProjectionHandlers(db),
     "catalog.source-observation.recorded": async (event) => {
       const data = event.data as ObservationProjectionData;
 
