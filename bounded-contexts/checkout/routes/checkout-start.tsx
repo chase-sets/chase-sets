@@ -5,7 +5,7 @@ import { useActionData, useLoaderData } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -355,8 +355,11 @@ async function waitForMergedCartProjection(api: CheckoutRequestApi, mergeResult:
   });
 }
 
-function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
-  return navigateAfterWriteFromSources([...writeSources, session], `/checkout/buy/session/${session.session_id}`);
+async function checkoutSessionPath(session: Readonly<{ session_id: string }>, writeSources: readonly unknown[] = []) {
+  return navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
+    [...writeSources, session],
+    `/checkout/buy/session/${session.session_id}`,
+  );
 }
 
 function signInPathForReturnTo(returnTo: string) {
@@ -484,7 +487,7 @@ async function startGuestCheckoutSession(
     forceRefresh: forceReadinessRefresh,
   });
   const session = await guestApi.createCheckoutSession(sessionRequest);
-  const response = redirectDocument(checkoutSessionPath(session, writeSources));
+  const response = redirectDocument(await checkoutSessionPath(session, writeSources));
   appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request);
   appendClearedAnonymousCartCookie(response.headers, request);
 
@@ -586,7 +589,7 @@ export async function action({ request }: ActionFunctionArgs) {
         forceRefresh: forceReadinessRefresh,
       });
       const session = await sessionApi.createCheckoutSession(sessionRequest);
-      const response = redirect(checkoutSessionPath(session, writeSources));
+      const response = redirect(await checkoutSessionPath(session, writeSources));
       if (anonymousCartId) {
         appendClearedAnonymousCartCookie(response.headers, request);
       }

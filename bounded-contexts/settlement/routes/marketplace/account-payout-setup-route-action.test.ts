@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
 const { mockCreateSettlementRequestApiClient, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockCreateSettlementRequestApiClient: vi.fn(),
@@ -28,6 +30,11 @@ vi.mock("../../support/request-support/api-client", async () => {
 });
 
 import { action as accountPayoutSetupAction } from "./account-payout-setup";
+
+async function readResolvedFreshWriteToken(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return readFreshWriteToken(resolvedRequest.url);
+}
 
 function readyPayoutReadiness() {
   return {
@@ -119,18 +126,18 @@ describe("settlement account payout setup route action", () => {
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).status).toBe(302);
     const location = (result as Response).headers.get("Location");
-    expect(location).toContain("/account/sell-list?afterWrite=");
-    const afterWrite = new URL(location ?? "", "http://localhost").searchParams.get("afterWrite");
-    const receipt = JSON.parse(decodeURIComponent(afterWrite ?? "")) as Record<string, unknown>;
-    expect(receipt).toMatchObject({
-      sources: [
-        {
-          sourceContextName: "settlement",
-          maxGlobalPosition: "42",
-          eventIds: ["evt_payout_ready"],
-        },
-      ],
-    });
+    const redirectUrl = new URL(location ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/account/sell-list");
+    expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
+    expect((await readResolvedFreshWriteToken(redirectUrl))?.sources).toEqual([
+      {
+        sourceContextName: "settlement",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_payout_ready"],
+      },
+    ]);
   });
 
   it("ignores unsafe return targets and keeps the command-owned readiness snapshot", async () => {

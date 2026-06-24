@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { redirect } from "react-router";
-import { appendPostWriteHandoff } from "@chase-sets/http/responses";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
   ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
@@ -179,7 +179,11 @@ export async function saveGuestSelectedOfferToSellList(
     anonymousSellListId,
     selectedOfferSellListLineFromPublicOffer(item, offer),
   );
-  const response = redirect(appendPostWriteHandoff("/account/sell-list", result, ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF));
+  const response = redirect(
+    await navigateAfterWriteWithPlatformPostWriteToken(result, "/account/sell-list", {
+      handoff: ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF,
+    }),
+  );
   appendAnonymousSellListCookie(response.headers, anonymousSellListId, request);
   return response;
 }

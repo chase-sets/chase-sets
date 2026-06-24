@@ -3,8 +3,10 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
+  readCompactPostWriteToken,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -85,6 +87,19 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as checkoutSessionAction } from "./checkout-session";
+
+async function readResolvedFreshWriteToken(location: string | null) {
+  const request = new Request(new URL(location ?? "", "http://localhost"));
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  return readFreshWriteToken(resolvedRequest);
+}
+
+function expectCompactPostWriteLocation(location: string | null, expectedPrefix: string) {
+  expect(location).toContain(expectedPrefix);
+  expect(readCompactPostWriteToken(location ?? "")).toMatch(/^pwt_/);
+  expect(location).not.toContain("afterWrite=");
+  expect(location).not.toContain("postWriteHandoff=");
+}
 
 function checkoutSessionForReviewedPreview(overrides: Record<string, unknown> = {}) {
   return {
@@ -248,8 +263,8 @@ describe("checkout web routes: checkout session action", () => {
 
     const location = response.headers.get("Location");
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/buy/session/chk_1/confirmation?afterWrite=");
-    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([
+    expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1/confirmation?postWriteToken=");
+    expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "payments",
         maxGlobalPosition: "84",
@@ -839,9 +854,10 @@ describe("checkout web routes: checkout session action", () => {
 
       expect(response.status).toBe(302);
       const location = response.headers.get("Location") ?? "";
-      const receipt = readFreshWriteToken(location);
-      expect(location).toContain(
-        "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&quote=required&afterWrite=",
+      const receipt = await readResolvedFreshWriteToken(location);
+      expectCompactPostWriteLocation(
+        location,
+        "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&quote=required&postWriteToken=",
       );
       expect(receipt?.commitPosition).toBe("77");
       expect(receipt?.sources).toEqual([
@@ -913,8 +929,11 @@ describe("checkout web routes: checkout session action", () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    const receipt = readFreshWriteToken(location);
-    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    const receipt = await readResolvedFreshWriteToken(location);
+    expectCompactPostWriteLocation(
+      location,
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=",
+    );
     expect(receipt?.commitPosition).toBe("77");
     expect(receipt?.sources).toEqual([
       {
@@ -1251,7 +1270,7 @@ describe("checkout web routes: checkout session action", () => {
       context: undefined,
     } as never)) as Response;
     const location = response.headers.get("Location") ?? "";
-    const receipt = readFreshWriteToken(location);
+    const receipt = await readResolvedFreshWriteToken(location);
 
     expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_1");
     expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
@@ -1271,7 +1290,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(new URL(orderingApiRequest.url).searchParams.has("afterWrite")).toBe(false);
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&afterWrite=");
+    expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1?paymentMethodCategory=card&postWriteToken=");
     expect(receipt?.commitPosition).toBe("43");
     expect(receipt?.sources).toEqual([
       {
@@ -1313,10 +1332,10 @@ describe("checkout web routes: checkout session action", () => {
       context: undefined,
     } as never)) as Response;
     const location = response.headers.get("Location") ?? "";
-    const receipt = readFreshWriteToken(location);
+    const receipt = await readResolvedFreshWriteToken(location);
 
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&afterWrite=");
+    expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1?paymentMethodCategory=card&postWriteToken=");
     expect(receipt?.commitPosition).toBe("42");
     expect(receipt?.sources).toEqual([
       {
@@ -1458,10 +1477,13 @@ describe("checkout web routes: checkout session action", () => {
       context: undefined,
     } as never)) as Response;
     const location = response.headers.get("Location") ?? "";
-    const receipt = readFreshWriteToken(location);
+    const receipt = await readResolvedFreshWriteToken(location);
 
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expectCompactPostWriteLocation(
+      location,
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=",
+    );
     expect(receipt?.commitPosition).toBe("44");
     expect(receipt?.sources).toEqual([
       {
@@ -1515,7 +1537,7 @@ describe("checkout web routes: checkout session action", () => {
       context: undefined,
     } as never)) as Response;
     const location = response.headers.get("Location") ?? "";
-    const receipt = readFreshWriteToken(location);
+    const receipt = await readResolvedFreshWriteToken(location);
 
     expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1529,7 +1551,10 @@ describe("checkout web routes: checkout session action", () => {
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expectCompactPostWriteLocation(
+      location,
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=",
+    );
     expect(receipt?.commitPosition).toBe("53");
     expect(receipt?.sources).toEqual([
       {
@@ -1633,8 +1658,11 @@ describe("checkout web routes: checkout session action", () => {
     );
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/offers\/submitted\/off_chk_1\?feedbackWorkflow=offer-submit&afterWrite=/);
-    expect(readFreshWriteToken(location)?.sources).toEqual([
+    expectCompactPostWriteLocation(
+      location,
+      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit&postWriteToken=",
+    );
+    expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "checkout",
         maxGlobalPosition: "44",
@@ -1695,8 +1723,11 @@ describe("checkout web routes: checkout session action", () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/offers\/submitted\/off_chk_1\?feedbackWorkflow=offer-submit&afterWrite=/);
-    expect(readFreshWriteToken(location)?.sources).toEqual([
+    expectCompactPostWriteLocation(
+      location,
+      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit&postWriteToken=",
+    );
+    expect((await readResolvedFreshWriteToken(location))?.sources).toEqual([
       {
         sourceContextName: "marketplace",
         maxGlobalPosition: "44",

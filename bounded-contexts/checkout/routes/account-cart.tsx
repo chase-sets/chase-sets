@@ -12,7 +12,10 @@ import {
   type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { navigateAfterWriteFromSources } from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   recordPlatformPostWriteConsistencyEvent,
   type PlatformPostWriteConsistencyOutcome,
@@ -43,8 +46,8 @@ async function writeCartCommandsInOrder(writes: readonly (() => Promise<unknown>
   return results;
 }
 
-function redirectToFreshAccountCart(writeResults: readonly unknown[]) {
-  return redirect(navigateAfterWriteFromSources(writeResults, "/account/cart"));
+async function redirectToFreshAccountCart(writeResults: readonly unknown[]) {
+  return redirect(await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(writeResults, "/account/cart"));
 }
 
 function checkoutApiErrorStatus(error: unknown) {
@@ -268,14 +271,19 @@ function cartLineIdsFromForm(formData: FormData) {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const api = createCheckoutRequestApiClient(request);
-  const actor = await resolveActorFromAuthApi({ request });
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const api = createCheckoutRequestApiClient(resolvedRequest);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
 
   if (!canUseAccountCart(actor)) {
-    return loadCartWithPostWriteRecovery(request, () => api.getGuestCart(readAnonymousCartId(request)), "guest");
+    return loadCartWithPostWriteRecovery(
+      resolvedRequest,
+      () => api.getGuestCart(readAnonymousCartId(resolvedRequest)),
+      "guest",
+    );
   }
 
-  return loadCartWithPostWriteRecovery(request, () => api.getCart(), "account");
+  return loadCartWithPostWriteRecovery(resolvedRequest, () => api.getCart(), "account");
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -314,7 +322,7 @@ export async function action({ request }: ActionFunctionArgs) {
             }),
           ...duplicateLineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
         ]);
-        return redirectToFreshAccountCart(results);
+        return await redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
@@ -328,7 +336,7 @@ export async function action({ request }: ActionFunctionArgs) {
           }),
         ...duplicateLineIds.map((lineId) => () => api.removeCartLine(lineId)),
       ]);
-      return redirectToFreshAccountCart(results);
+      return await redirectToFreshAccountCart(results);
     }
 
     if (intent === "lock-preferred-listing") {
@@ -349,7 +357,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const results = await writeCartCommandsInOrder(
           lineIds.map((lineId) => () => api.updateGuestCartLineFulfillment(anonymousCartId, lineId, fulfillment)),
         );
-        return redirectToFreshAccountCart(results);
+        return await redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
@@ -359,7 +367,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const results = await writeCartCommandsInOrder(
         lineIds.map((lineId) => () => api.updateCartLineFulfillment(lineId, fulfillment)),
       );
-      return redirectToFreshAccountCart(results);
+      return await redirectToFreshAccountCart(results);
     }
 
     if (intent === "remove-cart-line") {
@@ -369,7 +377,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const results = await writeCartCommandsInOrder(
           lineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
         );
-        return redirectToFreshAccountCart(results);
+        return await redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
@@ -377,7 +385,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       const results = await writeCartCommandsInOrder(lineIds.map((lineId) => () => api.removeCartLine(lineId)));
-      return redirectToFreshAccountCart(results);
+      return await redirectToFreshAccountCart(results);
     }
 
     return null;

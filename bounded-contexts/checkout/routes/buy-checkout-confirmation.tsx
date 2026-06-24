@@ -1,9 +1,10 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { isRouteErrorResponse, redirect, useLoaderData, useLocation, useRouteError } from "react-router";
-import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import { loadFreshlyWrittenResource, readCompactPostWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import {
@@ -28,6 +29,11 @@ function currentPathWithSearch(request: Request) {
 }
 
 function paymentPathWithFreshWrite(request: Request, paymentPath: string) {
+  const postWriteToken = readCompactPostWriteToken(request);
+  if (postWriteToken) {
+    return `${paymentPath}?postWriteToken=${encodeURIComponent(postWriteToken)}`;
+  }
+
   const afterWrite = new URL(request.url).searchParams.get("afterWrite");
   return afterWrite ? `${paymentPath}?afterWrite=${encodeURIComponent(afterWrite)}` : paymentPath;
 }
@@ -46,21 +52,22 @@ async function loadPaymentSummary(request: Request, paymentId: string) {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await resolveActorFromAuthApi({ request });
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
 
-  const api = createCheckoutRequestApiClient(request, {
+  const api = createCheckoutRequestApiClient(resolvedRequest, {
     requestTimeoutMs: CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS,
     recoverTransportErrorsAsGatewayTimeout: true,
   });
   const session = await loadFreshlyWrittenResource({
-    request,
+    request: resolvedRequest,
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   }).catch((error) => {
-    const recovery = checkoutRecoveryForFreshWriteError(error, actor, request, currentPathWithSearch(request));
+    const recovery = checkoutRecoveryForFreshWriteError(error, actor, resolvedRequest, currentPathWithSearch(request));
     if (recovery) {
       throw createCheckoutRecoveryResponse(recovery);
     }
@@ -79,7 +86,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     session,
     paymentPath: paymentPathWithFreshWrite(request, paymentPathForActor(actor, session.payment_id)),
-    paymentSummary: await loadPaymentSummary(request, session.payment_id),
+    paymentSummary: await loadPaymentSummary(resolvedRequest, session.payment_id),
   };
 }
 

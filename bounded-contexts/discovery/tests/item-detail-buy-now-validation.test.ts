@@ -3,8 +3,11 @@ import {
   appendFreshWriteToken,
   appendPostWriteHandoffFromSources,
   decodeFreshWriteReceipt,
+  readCompactPostWriteToken,
+  readFreshWriteToken,
   readPostWriteHandoff,
 } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
 import {
   mockAddCartLine,
@@ -84,6 +87,28 @@ vi.mock("@chase-sets/inventory/server", () => ({
 }));
 
 import { action, loader } from "../routes/item-detail";
+
+async function resolvePostWriteUrl(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return new URL(resolvedRequest.url);
+}
+
+async function readResolvedFreshWriteToken(url: URL) {
+  return readFreshWriteToken(await resolvePostWriteUrl(url));
+}
+
+async function readResolvedPostWriteHandoff(url: URL) {
+  return readPostWriteHandoff(await resolvePostWriteUrl(url));
+}
+
+function expectCompactPostWriteLocation(location: string | null, expectedPathname: string) {
+  const redirectUrl = new URL(location ?? "", "http://localhost");
+  expect(redirectUrl.pathname).toBe(expectedPathname);
+  expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+  expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+  expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
+  return redirectUrl;
+}
 
 function commandResult<T extends { id?: string }>(value: T, sourceContextName = "inventory"): T {
   const id = value.id ?? "cmd_1";
@@ -461,8 +486,12 @@ describe("item detail buy now validation and watch intents", () => {
       quantity: 2,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/account/sell-list");
-    expect(response.headers.get("Location")).toContain("afterWrite=");
+    const redirectUrl = expectCompactPostWriteLocation(response.headers.get("Location"), "/account/sell-list");
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "checkout.sell-list.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-sell-list",
+    });
   });
 
   it("routes signed-in Accept offer handoff from public item demand through Sell List readiness", async () => {
@@ -543,8 +572,12 @@ describe("item detail buy now validation and watch intents", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/account/sell-list");
-    expect(response.headers.get("Location")).toContain("afterWrite=");
+    const redirectUrl = expectCompactPostWriteLocation(response.headers.get("Location"), "/account/sell-list");
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
+      kind: "checkout.sell-list.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-sell-list",
+    });
   });
 
   it("rejects invalid watch thresholds before creating product alerts", async () => {
@@ -1865,12 +1898,15 @@ describe("item detail buy now validation and watch intents", () => {
 
     const location = result.headers.get("Location") ?? "";
     const redirectUrl = new URL(location, "http://localhost");
-    const receipt = decodeFreshWriteReceipt(redirectUrl.searchParams.get("afterWrite"));
+    const receipt = await readResolvedFreshWriteToken(redirectUrl);
 
     expect(result.status).toBe(302);
     expect(redirectUrl.pathname).toBe("/items/charizard-base-set");
     expect(redirectUrl.searchParams.get("market")).toBe("sell");
     expect(redirectUrl.searchParams.get("listing")).toBe("lst_item_detail");
+    expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
     expect(receipt?.sources).toEqual([
       {
         sourceContextName: "marketplace",
@@ -1878,7 +1914,7 @@ describe("item detail buy now validation and watch intents", () => {
         eventIds: ["evt_lst_item_detail"],
       },
     ]);
-    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
       kind: "marketplace.listing.publish",
       expectation: "resource-present",
       surface: "item-detail",
@@ -1960,12 +1996,15 @@ describe("item detail buy now validation and watch intents", () => {
 
     const location = result.headers.get("Location") ?? "";
     const redirectUrl = new URL(location, "http://localhost");
-    const receipt = decodeFreshWriteReceipt(redirectUrl.searchParams.get("afterWrite"));
+    const receipt = await readResolvedFreshWriteToken(redirectUrl);
 
     expect(result.status).toBe(302);
     expect(redirectUrl.pathname).toBe("/items/charizard-base-set");
     expect(redirectUrl.searchParams.get("market")).toBe("sell");
     expect(redirectUrl.searchParams.get("listing")).toBe("lst_item_detail");
+    expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
     expect(receipt?.sources).toEqual([
       {
         sourceContextName: "marketplace",
@@ -1973,7 +2012,7 @@ describe("item detail buy now validation and watch intents", () => {
         eventIds: ["evt_lst_item_detail_price", "evt_lst_item_detail_quantity"],
       },
     ]);
-    expect(readPostWriteHandoff(redirectUrl)).toEqual({
+    expect(await readResolvedPostWriteHandoff(redirectUrl)).toEqual({
       kind: "marketplace.listing.update",
       expectation: "resource-updated",
       surface: "item-detail",

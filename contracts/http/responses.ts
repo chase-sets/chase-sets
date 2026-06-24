@@ -728,6 +728,40 @@ export function materializePostWriteTokenPayload(path: string, payload: PostWrit
   return pathFromUrl(url, path);
 }
 
+export function preserveFreshWriteMetadata(
+  path: string,
+  requestOrUrl: Request | string | URL,
+  nowMs = Date.now(),
+): string {
+  const sourceUrl =
+    requestOrUrl instanceof URL
+      ? requestOrUrl
+      : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
+  const compactToken = readCompactPostWriteToken(sourceUrl);
+  if (compactToken) {
+    return appendCompactPostWriteToken(path, compactToken);
+  }
+
+  const afterWrite = sourceUrl.searchParams.get(FRESH_WRITE_PARAM);
+  if (!afterWrite) {
+    return path;
+  }
+
+  const handoffState = readPostWriteHandoffState(sourceUrl, nowMs);
+  if (handoffState.kind === "valid") {
+    return materializePostWriteTokenPayload(path, {
+      receipt: handoffState.receipt,
+      handoff: handoffState.handoff,
+    });
+  }
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.delete(POST_WRITE_TOKEN_PARAM);
+  url.searchParams.set(FRESH_WRITE_PARAM, afterWrite);
+  url.searchParams.delete(POST_WRITE_HANDOFF_PARAM);
+  return pathFromUrl(url, path);
+}
+
 function appendPostWriteHandoffFromMetadataSources(
   path: string,
   sources: readonly unknown[],

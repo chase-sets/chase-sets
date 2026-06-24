@@ -3,8 +3,10 @@ import {
   appendFreshWriteToken,
   appendPostWriteHandoff,
   encodePostWriteHandoff,
+  readCompactPostWriteToken,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_CART_ADD_LINE_HANDOFF } from "../support/request-support/account-cart-handoffs";
 import {
@@ -87,6 +89,19 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 vi.mock("@chase-sets/settlement/server", () => ({
   createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
+
+async function readResolvedFreshWriteToken(location: string | null) {
+  const request = new Request(new URL(location ?? "", "http://localhost"));
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  return readFreshWriteToken(resolvedRequest);
+}
+
+function expectCompactPostWriteLocation(location: string | null, expectedPrefix: string) {
+  expect(location).toContain(expectedPrefix);
+  expect(readCompactPostWriteToken(location ?? "")).toMatch(/^pwt_/);
+  expect(location).not.toContain("afterWrite=");
+  expect(location).not.toContain("postWriteHandoff=");
+}
 
 import { action as accountCartAction, loader as accountCartLoader } from "./account-cart";
 
@@ -912,7 +927,8 @@ describe("checkout web routes: account cart", () => {
 
     expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
     expect(response.status).toBe(302);
-    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "44",
       sources: [
         {
@@ -959,7 +975,7 @@ describe("checkout web routes: account cart", () => {
       mockRemoveCartLine.mock.invocationCallOrder[0] ?? 0,
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/account/cart?afterWrite=");
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
   });
 
   it("uses absolute optimistic quantity for guest cart updates", async () => {
@@ -994,7 +1010,7 @@ describe("checkout web routes: account cart", () => {
     expect(mockUpdateGuestCartLineQuantity).toHaveBeenCalledWith("anon_cart_1", "cli_guest", { quantity: 4 });
     expect(mockRemoveGuestCartLine).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/account/cart?afterWrite=");
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
   });
 
   it("locks preferred listing fulfillment for signed-in grouped cart lines", async () => {
@@ -1038,7 +1054,8 @@ describe("checkout web routes: account cart", () => {
       mockUpdateCartLineFulfillment.mock.invocationCallOrder[1] ?? 0,
     );
     expect(response.status).toBe(302);
-    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "46",
       sources: [
         {
@@ -1082,7 +1099,8 @@ describe("checkout web routes: account cart", () => {
       availabilityState: "available",
     });
     expect(response.status).toBe(302);
-    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "47",
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "47", eventIds: ["evt_guest_locked"] }],
     });
@@ -1118,7 +1136,8 @@ describe("checkout web routes: account cart", () => {
       mockRemoveCartLine.mock.invocationCallOrder[1] ?? 0,
     );
     expect(response.status).toBe(302);
-    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "46",
       sources: [
         {
@@ -1172,7 +1191,8 @@ describe("checkout web routes: account cart", () => {
 
     expect(mockRemoveGuestCartLine).toHaveBeenCalledWith("anon_cart_1", "cli_guest_duplicate");
     expect(response.status).toBe(302);
-    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+    expectCompactPostWriteLocation(response.headers.get("Location"), "/account/cart?postWriteToken=");
+    await expect(readResolvedFreshWriteToken(response.headers.get("Location"))).resolves.toMatchObject({
       commitPosition: "52",
       sources: [
         {

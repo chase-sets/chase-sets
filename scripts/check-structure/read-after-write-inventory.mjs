@@ -16,7 +16,9 @@ const freshWriteHelperNames = new Set([
   "navigateAfterWrite",
   "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
+  "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
+  "navigateAfterWriteWithPlatformPostWriteToken",
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
 ]);
@@ -35,9 +37,12 @@ const receiptProducingFreshWriteHelperNames = new Set([
   "navigateAfterWrite",
   "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
+  "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
+  "navigateAfterWriteWithPlatformPostWriteToken",
 ]);
-const helperImportPattern = /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http)["']/;
+const helperImportPattern =
+  /from\s+["']@chase-sets\/(?:http\/responses|platform-runtime\/http|platform-runtime\/post-write-tokens)["']/;
 const rawPostWriteHandoffMetadataPattern =
   /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);

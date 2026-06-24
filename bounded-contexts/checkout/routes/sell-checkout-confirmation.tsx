@@ -3,7 +3,12 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { loadFreshlyWrittenResource, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import {
+  loadFreshlyWrittenResource,
+  preserveFreshWriteMetadata,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { SELLER_CHECKOUT_REGISTER_HREF } from "../features/sell-list/ui/registration-return";
 import { SellCheckoutConfirmationPage } from "../features/sell-list/ui/sell-checkout-confirmation-page";
@@ -26,28 +31,18 @@ function checkoutApiErrorCode(error: unknown) {
 }
 
 function accountSellListPreparingPath(request: Request, confirmationId: string) {
-  const afterWrite = new URL(request.url).searchParams.get("afterWrite");
+  const requestUrl = new URL(request.url);
   const search = new URLSearchParams({ confirmation: "preparing", pendingConfirmationId: confirmationId });
-  if (afterWrite) {
-    search.set("afterWrite", afterWrite);
-  }
-
-  return `/account/sell-list?${search.toString()}`;
+  return preserveFreshWriteMetadata(`/account/sell-list?${search.toString()}`, requestUrl);
 }
 
 function pathWithFreshWrite(request: Request, path: string) {
-  const afterWrite = new URL(request.url).searchParams.get("afterWrite");
-  if (!afterWrite) {
-    return path;
-  }
-
-  const url = new URL(path, "https://chase-sets.local");
-  url.searchParams.set("afterWrite", afterWrite);
-  return `${url.pathname}${url.search}`;
+  return preserveFreshWriteMetadata(path, request);
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await resolveActorFromAuthApi({ request });
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!canUseSignedInSellCheckout(actor)) {
     throw redirect(SELLER_CHECKOUT_REGISTER_HREF);
   }
@@ -57,14 +52,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const confirmationId = confirmationIdForSession(params.sessionId);
-  const api = createCheckoutRequestApiClient(request);
+  const api = createCheckoutRequestApiClient(resolvedRequest);
   const confirmation = await loadFreshlyWrittenResource({
-    request,
+    request: resolvedRequest,
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getSellListConfirmation(confirmationId),
   }).catch((error) => {
     const recovery = recoverFreshWriteReadError({
-      request,
+      request: resolvedRequest,
       error,
       getStatus: checkoutApiErrorStatus,
       getErrorCode: checkoutApiErrorCode,

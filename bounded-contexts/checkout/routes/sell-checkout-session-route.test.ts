@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   applyCheckoutRouteMockDefaults,
   expectNoSellerCommitSideEffects,
@@ -84,6 +85,11 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoader } from "./sell-checkout-session";
+
+async function readResolvedFreshWriteToken(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return readFreshWriteToken(resolvedRequest.url);
+}
 
 describe("checkout web routes: sell checkout session", () => {
   beforeEach(() => {
@@ -338,7 +344,7 @@ describe("checkout web routes: sell checkout session", () => {
     });
   }
 
-  function expectSellConfirmationRedirect(
+  async function expectSellConfirmationRedirect(
     result: unknown,
     options: Readonly<{ freshWrite?: "required" | "absent" }> = { freshWrite: "required" },
   ) {
@@ -350,11 +356,14 @@ describe("checkout web routes: sell checkout session", () => {
     expect(url.pathname).toBe("/checkout/sell/session/chk_sell_1/confirmation");
     if (options.freshWrite === "absent") {
       expect(url.searchParams.has("afterWrite")).toBe(false);
+      expect(url.searchParams.has("postWriteToken")).toBe(false);
       return;
     }
 
-    expect(url.searchParams.has("afterWrite")).toBe(true);
-    expect(readFreshWriteToken(url.toString())).toMatchObject({
+    expect(readCompactPostWriteToken(url)).toMatch(/^pwt_/);
+    expect(url.searchParams.has("afterWrite")).toBe(false);
+    expect(url.searchParams.has("postWriteHandoff")).toBe(false);
+    expect(await readResolvedFreshWriteToken(url)).toMatchObject({
       sources: expect.arrayContaining([
         expect.objectContaining({
           sourceContextName: "checkout",
@@ -413,7 +422,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
@@ -480,7 +489,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    await expectSellConfirmationRedirect(result);
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
     expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
@@ -537,9 +546,9 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    await expectSellConfirmationRedirect(result);
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(readFreshWriteToken(new URL(location, "http://localhost").toString())).toMatchObject({
+    expect(await readResolvedFreshWriteToken(new URL(location, "http://localhost"))).toMatchObject({
       sources: expect.arrayContaining([
         expect.objectContaining({
           sourceContextName: "checkout",
@@ -588,7 +597,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result, { freshWrite: "absent" });
+    await expectSellConfirmationRedirect(result, { freshWrite: "absent" });
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
@@ -782,7 +791,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
@@ -976,7 +985,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    await expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
       feeQuoteFingerprint: "quote_product_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",

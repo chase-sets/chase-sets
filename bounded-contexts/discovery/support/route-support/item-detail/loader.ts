@@ -8,6 +8,7 @@ import {
   recoverFreshWriteReadError,
 } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../../request-support/api-client";
 import {
   ensureAnonymousProductAlertOwnerId,
@@ -99,6 +100,8 @@ function freshWriteRecoveryCode(error: unknown) {
 function requestWithoutFreshWriteToken(request: Request) {
   const url = new URL(request.url);
   url.searchParams.delete("afterWrite");
+  url.searchParams.delete("postWriteHandoff");
+  url.searchParams.delete("postWriteToken");
 
   return new Request(url.toString(), {
     headers: request.headers,
@@ -290,12 +293,14 @@ async function attachSelectedSellerListingFallback(
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const api = createDiscoveryRequestApiClient(request);
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const checkoutApi = createCheckoutRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
+  const browserUrl = new URL(request.url);
+  const resolvedRequest = await resolvePlatformPostWriteRequest(request);
+  const api = createDiscoveryRequestApiClient(resolvedRequest);
+  const marketplaceApi = createMarketplaceRequestApiClient(resolvedRequest);
+  const checkoutApi = createCheckoutRequestApiClient(resolvedRequest);
+  const inventoryApi = createInventoryRequestApiClient(resolvedRequest);
   const id = params.id;
-  const url = new URL(request.url);
+  const url = new URL(resolvedRequest.url);
   const initialMarketIntent: "buy" | "sell" | "watch" =
     url.searchParams.get("market") === "sell" ? "sell" : url.searchParams.get("market") === "watch" ? "watch" : "buy";
   const initialSelectedListingId = readExplicitMarketSelectionId(url.searchParams, "listing");
@@ -332,7 +337,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   try {
-    const actor = await resolveActorFromAuthApi({ request });
+    const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
     const canReviewAccountOfferMatches = Boolean(
       actor?.permissions.includes("offers.view") && actor.permissions.includes("listings.view"),
     );
@@ -341,14 +346,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     );
     const canUseGuestListingDraft = !canUseAccountSellList(actor);
     const canSubmitOffers = Boolean(actor);
-    let item = await loadItemDetailForSelectedSellerListing(api, request, id, {
+    let item = await loadItemDetailForSelectedSellerListing(api, resolvedRequest, id, {
       actor,
       initialMarketIntent,
       initialSelectedListingId,
     });
 
     if (item.slug && id !== item.slug) {
-      throw redirect(`/items/${item.slug}${url.search}`, { status: 301 });
+      throw redirect(`/items/${item.slug}${browserUrl.search}`, { status: 301 });
     }
 
     let productAlertClaimError: string | null = null;
@@ -425,7 +430,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
       try {
         const storageLocations = await loadFreshlyWrittenResource({
-          request,
+          request: resolvedRequest,
           load: () => inventoryApi.listStorageLocations("limit=100&offset=0"),
           isNotFound: (error) => apiErrorStatus(error) === 404,
         });
@@ -433,7 +438,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         listingSetupLoadState = hasListingStockLocation ? "ready" : "missing";
       } catch (error) {
         const recovery = recoverFreshWriteReadError({
-          request,
+          request: resolvedRequest,
           error,
           getStatus: freshWriteRecoveryStatus,
           getErrorCode: freshWriteRecoveryCode,
@@ -456,7 +461,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     item = await attachSelectedSellerListingFallback(item, {
-      request,
+      request: resolvedRequest,
       marketplaceApi,
       actor,
       initialMarketIntent,
@@ -486,7 +491,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       productAlertClaimError,
       listingSetupLoadState,
       listingSetupLoadError,
-      canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, new URL(request.url).origin).toString(),
+      canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, browserUrl.origin).toString(),
     };
   } catch (error) {
     if (error instanceof Response) {

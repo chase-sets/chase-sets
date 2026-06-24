@@ -2,7 +2,8 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import { encodeCommitReceipt, readFreshWriteToken } from "@chase-sets/http/responses";
+import { encodeCommitReceipt, readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import type { ComponentProps } from "react";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
@@ -69,6 +70,11 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 import MarketplaceAccountPaymentNewRoute, { action, loader } from "../routes/marketplace/account-payment-new";
+
+async function readResolvedFreshWriteToken(url: URL) {
+  const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
+  return readFreshWriteToken(resolvedRequest.url);
+}
 
 function buildPurchase(purchaseId: string): PurchaseDetail {
   return {
@@ -291,7 +297,11 @@ describe("marketplace account payment start route", () => {
 
     expect(response.status).toBe(302);
     const location = response.headers.get("Location");
-    expect(location).toContain("/account/payments/pay_1?afterWrite=");
-    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([paymentCommitSource]);
+    const redirectUrl = new URL(location ?? "", "http://localhost");
+    expect(redirectUrl.pathname).toBe("/account/payments/pay_1");
+    expect(readCompactPostWriteToken(redirectUrl)).toMatch(/^pwt_/);
+    expect(redirectUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(redirectUrl.searchParams.has("postWriteHandoff")).toBe(false);
+    expect((await readResolvedFreshWriteToken(redirectUrl))?.sources).toEqual([paymentCommitSource]);
   });
 });
