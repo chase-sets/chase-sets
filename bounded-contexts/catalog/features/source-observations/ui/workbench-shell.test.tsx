@@ -509,7 +509,9 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
 
     const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
     expect(within(unit).getByRole("option", { name: "tcgdex:pokemon:card:import" })).toBeTruthy();
-    expect(within(unit).queryByRole("option", { name: "scrydex:product:card:import" })).toBeNull();
+    expect(
+      within(unit).queryByRole("option", { name: "scrydex:one-piece:single-card:source-observation-import" }),
+    ).toBeNull();
   });
 
   it("clears provider-dependent fields before submitting a provider change", () => {
@@ -617,8 +619,10 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
     const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
 
     expect(provider.value).toBe("scrydex");
-    expect(unit.value).toBe("scrydex:product:card:import");
-    expect(within(unit).getByRole("option", { name: "scrydex:product:card:import" })).toBeTruthy();
+    expect(unit.value).toBe("scrydex:one-piece:single-card:source-observation-import");
+    expect(
+      within(unit).getByRole("option", { name: "scrydex:one-piece:single-card:source-observation-import" }),
+    ).toBeTruthy();
     expect(within(unit).queryByRole("option", { name: "tcgdex:pokemon:card:import" })).toBeNull();
     const scope = readModel.routeContext.scope;
     expect(scope).toBeDefined();

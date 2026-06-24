@@ -65,7 +65,7 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     const tcgdexProvider = overview.providerReadiness.providers[0]!;
     const referenceProofUnitKey = "reference-cards:pokemon:single-card:source-observation-proof";
     const tcgplayerUnitKey = "tcgplayer:pokemon:single-card:source-observation-import";
-    const scrydexUnitKey = "scrydex:magic:single-card:source-observation-import";
+    const scrydexUnitKey = "scrydex:one-piece:single-card:source-observation-import";
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
       ...base,
       // Staging can trim the daily profile review payload to the selected
@@ -99,10 +99,10 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
               ...tcgdexUnit,
               unitKey: scrydexUnitKey,
               providerKey: "scrydex",
-              displayName: "Scrydex Magic cards",
-              productDomain: "magic",
+              displayName: "Scrydex One Piece cards",
+              productDomain: "one-piece",
               productForm: "single-card",
-              profileVersion: "2026.06.03",
+              profileVersion: "2026.06.22",
             },
           ],
         },
@@ -137,8 +137,8 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     });
     expect(tcgplayerProvider?.units[0]?.activeProfile).toBeNull();
     expect(readModel.providerScope.providers.find((provider) => provider.providerKey === "scrydex")).toMatchObject({
-      displayName: "Scrydex Magic cards",
-      units: [{ unitKey: scrydexUnitKey, productDomain: "magic", productForm: "single-card" }],
+      displayName: "Scrydex One Piece cards",
+      units: [{ unitKey: scrydexUnitKey, productDomain: "one-piece", productForm: "single-card" }],
     });
   });
 

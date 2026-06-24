@@ -20,6 +20,7 @@ import {
   validateCatalogProviderIntegrationProfileVersion,
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
+  scrydexScryfallCardProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   scrydexLorcanaCardPrintProviderProfile,
   scrydexLorcanaSealedProductProviderProfile,
@@ -39,6 +40,7 @@ import {
   ygoprodeckYugiohSetReferenceProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
 import {
   catalogProviderRequiredFixtureFlows,
   defineCatalogProviderIngestionUnitIdentityContract,
@@ -1153,18 +1155,19 @@ describe("catalog provider integration profiles", () => {
       (version) =>
         version.active &&
         version.lifecycle === "active" &&
-        executableContractProductDomain(version.executableMappingContract) === "mtg" &&
-        ["mtgjson", "scryfall", "tcgplayer"].includes(version.providerKey),
+        (executableContractProductDomain(version.executableMappingContract) === "mtg" ||
+          version.profile.normalizedObservationMapping.kind.startsWith("magic-")),
     );
 
-    expect(activeMagicVersions.map((version) => version.profileKey)).toEqual([
-      "mtg-card-reference-data",
-      "mtg-set-reference-data",
-      "mtg-card-print-reference-data",
-      "mtg-card-image-evidence",
-      "mtg-single-card-product-sku",
-      "mtg-sealed-product-sku",
+    expect(activeMagicVersions.map((version) => [version.providerKey, version.profileKey])).toEqual([
+      ["mtgjson", "mtg-card-reference-data"],
+      ["mtgjson", "mtg-set-reference-data"],
+      ["scryfall", "mtg-card-print-reference-data"],
+      ["scryfall", "mtg-card-image-evidence"],
+      ["tcgplayer", "mtg-single-card-product-sku"],
+      ["tcgplayer", "mtg-sealed-product-sku"],
     ]);
+    expect(activeMagicVersions.some((version) => version.providerKey === "scrydex")).toBe(false);
 
     for (const version of activeMagicVersions) {
       expect(version.executableMappingContract, version.profileKey).toBeDefined();
@@ -1184,6 +1187,44 @@ describe("catalog provider integration profiles", () => {
         version.profileKey,
       ).toEqual(catalogProviderRequiredFixtureFlows);
     }
+  });
+
+  it("blocks the retired Scrydex Scryfall-style Magic proof from production activation", () => {
+    const retiredScrydexMagicProof = {
+      providerKey: "scrydex",
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      lifecycle: "test",
+      active: false,
+      profile: scrydexScryfallCardProviderProfile,
+      sourceContract: scrydexScryfallCardSourceObservationMappingContract.sourceContract,
+      fixtures: scrydexScryfallCardSourceObservationMappingContract.fixtures,
+      retirementPlan: null,
+      executableMappingContract: scrydexScryfallCardSourceObservationMappingContract,
+    } satisfies CatalogProviderIntegrationProfileVersionRecord;
+
+    expect(() =>
+      activateCatalogProviderIntegrationProfileVersion("scrydex", "2026.06.03", [retiredScrydexMagicProof]),
+    ).toThrow(/retired Scrydex Scryfall-style Magic proof/);
+
+    expect(
+      validateCatalogProviderIntegrationProfileVersion({
+        ...retiredScrydexMagicProof,
+        lifecycle: "active",
+        active: true,
+        executableMappingContract: {
+          ...scrydexScryfallCardSourceObservationMappingContract,
+          lifecycle: "active",
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "retired-magic-scrydex-proof-active",
+          path: "profile.connector.kind",
+        }),
+      ]),
+    );
   });
 
   it("gates every active Lorcana profile version on executable fixture-backed mapping coverage", () => {

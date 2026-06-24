@@ -329,17 +329,17 @@ describe("Catalog primary workbench read model - profile authoring", () => {
     } satisfies CatalogProviderIntegrationProfile;
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=scrydex&section=profile-work&profileVersion=2026.06.04-draft",
+        "https://admin.example/catalog/integrations?providerKey=scrydex&section=profile-work&profileVersion=2026.06.22-draft",
       scopes: {
         items: [
           sourceObservationScope({
             provider_key: "scrydex",
-            product_line_id: "",
-            product_line_name: "",
+            product_line_id: "one-piece-card-game",
+            product_line_name: "One Piece Card Game",
             series_id: "",
             series_name: "",
-            expansion_id: "sv1",
-            expansion_name: "Scarlet & Violet",
+            expansion_id: "op01",
+            expansion_name: "Romance Dawn",
           }),
         ],
         total: 1,
@@ -349,12 +349,12 @@ describe("Catalog primary workbench read model - profile authoring", () => {
         items: [
           profileReview({
             providerKey: "scrydex",
-            profileKey: "scryfall-card-fixture",
+            profileKey: "one-piece-card-print-source-observation",
             active: false,
             lifecycle: "draft",
-            profileVersion: "2026.06.04-draft",
+            profileVersion: "2026.06.22-draft",
             displayName: "Scrydex",
-            connectorKind: "scrydex-scryfall-json",
+            connectorKind: "scrydex-json",
             profile: jsonClone(scrydexProfile),
             capabilities: [...scrydexProfile.capabilities],
             supportedScopes: [...scrydexProfile.supportedScopes],

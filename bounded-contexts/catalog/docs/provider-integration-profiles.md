@@ -229,11 +229,17 @@ in the same cleanup, not leave a compatibility alias.
 
 ## Scrydex Scryfall-Style Proof Profile
 
-The Scrydex Scryfall-style profile is a fixture-backed `test` profile for
-Scryfall-shaped Magic card payloads. It remains only as contract evidence for
-the provider mapping framework's extensibility. It is not the production Scrydex
-transport path, must not appear as a production import choice, and does not
-declare Catalog Item promotion capability.
+The Scrydex Scryfall-style profile is a retired, fixture-backed `test` profile
+for Scryfall-shaped Magic card payloads. It remains only as explicit
+test-scoped contract evidence for the provider mapping framework's
+extensibility. It is not seeded in the active profile registry, cannot be
+activated as a production sync unit, must not appear as a production import
+choice, and must not drive staging UAT or rollout evidence.
+
+Production Magic sync uses MTGJSON, Scryfall, and TCGplayer through the shared
+product-line-agnostic importer. The #2039 interface-only staging UAT accepted
+after PR #2108 (merge `07d7f99cb604da2dd682e0e38b05b8f5e796d7f1`) is the
+launch proof for that shared importer path, not this retired Scrydex proof.
 
 The executable Scrydex profile maps raw card payload evidence such as Scryfall
 ID, set code, set name, collector number, language, image URLs, and
@@ -244,6 +250,11 @@ reference strategy: `providerKey: "tcgplayer"` and `externalKey:
 external Catalog Item reference rule before any review-only bridge evidence,
 which lets Scrydex supplement existing TCGdex or TCGplayer observations without
 creating duplicate Catalog Items.
+
+Its historical promotion mapping remains executable only in explicit
+test-scoped normalizer, duplicate-prevention, and promotion-planner contract
+tests. It is quarantined evidence, not an Admin workflow, provider registry
+entry, runtime adapter, or fallback production path.
 
 Scrydex fixtures deliberately exclude price, seller, inventory, ruling, and
 legality facts from Catalog truth and hash material. Those facts may belong in
