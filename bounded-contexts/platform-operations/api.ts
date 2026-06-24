@@ -1,14 +1,9 @@
+import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { Hono } from "hono";
 import type { PlatformOperationsServices } from "./support/runtime-support/services";
-import {
-  createReleaseControlsPolicyRoutes,
-  type PlatformOperationsApiEnv,
-} from "./features/release-controls/api/route";
 
-export type { PlatformOperationsApiEnv };
+export type PlatformOperationsApiEnv = AuthenticatedApiEnv;
 
-export function buildPlatformOperationsApi(services: PlatformOperationsServices) {
-  const app = new Hono<PlatformOperationsApiEnv>();
-  app.route("/release-controls", createReleaseControlsPolicyRoutes(services.releaseControls));
-  return app;
+export function buildPlatformOperationsApi(_services: PlatformOperationsServices) {
+  return new Hono<PlatformOperationsApiEnv>();
 }

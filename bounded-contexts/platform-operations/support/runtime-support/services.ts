@@ -10,10 +10,6 @@ import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
-import {
-  createReleaseControlsPolicyRuntime,
-  type ReleaseControlsPolicyServices,
-} from "../../features/release-controls/api/runtime";
 
 export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
@@ -21,7 +17,6 @@ export type PlatformOperationsHostPorts = Readonly<{
 
 export type PlatformOperationsServices = Readonly<{
   db: PgTransactionalPool;
-  releaseControls: ReleaseControlsPolicyServices;
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
   projectors: readonly ProjectionHandlerSet[];
@@ -54,7 +49,6 @@ export function createPlatformOperationsServices(
 
   return {
     db: pool,
-    releaseControls: createReleaseControlsPolicyRuntime({ eventStore }),
     platformFeedback,
     supportRequests,
     projectors: [...platformFeedback.projectors, ...supportRequests.projectors],

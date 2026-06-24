@@ -8,8 +8,6 @@ const config = {
   defaultActiveKey: "projection-operations",
   activeKeys: {
     projections: "projection-operations",
-    "release-dashboard": "release-dashboard",
-    "release-controls": "release-controls",
   },
 } as const;
 

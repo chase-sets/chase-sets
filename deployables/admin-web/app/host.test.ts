@@ -142,14 +142,6 @@ describe("admin web host context registry", () => {
           href: "/platform/projections",
           label: "Projection Operations",
         }),
-        expect.objectContaining({
-          href: "/platform/release-dashboard",
-          label: "Release Dashboard",
-        }),
-        expect.objectContaining({
-          href: "/platform/release-controls",
-          label: "Release Controls",
-        }),
       ]),
     );
   });
