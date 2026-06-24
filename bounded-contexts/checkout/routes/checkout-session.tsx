@@ -368,6 +368,66 @@ async function loadFulfillmentPreview(
   }
 }
 
+type CheckoutRequestApiClient = ReturnType<typeof createCheckoutRequestApiClient>;
+type CheckoutSessionForReviewedPreview = Awaited<ReturnType<CheckoutRequestApiClient["getCheckoutSession"]>>;
+type CheckoutShippingAddressForReviewedPreview = Awaited<ReturnType<typeof resolveCheckoutShippingAddress>>;
+
+function normalizeFulfillmentPreviewShippingOption(
+  value: string,
+): CheckoutSessionForReviewedPreview["shipping_option"] {
+  return value === "priority" || value === "expedited" ? value : "standard";
+}
+
+async function loadCheckoutSessionForReviewedPreview(api: CheckoutRequestApiClient, sessionId: string) {
+  if (typeof api.getCheckoutSession !== "function") {
+    return null;
+  }
+
+  return api.getCheckoutSession(sessionId);
+}
+
+async function recordReviewedFulfillmentPreview(
+  request: Request,
+  api: CheckoutRequestApiClient,
+  session: CheckoutSessionForReviewedPreview | null,
+  input: Readonly<{
+    shippingOption: string;
+    shippingAddress: CheckoutShippingAddressForReviewedPreview;
+  }>,
+) {
+  if (!session || typeof api.recordFulfillmentPreview !== "function") {
+    return null;
+  }
+
+  if (!checkoutSessionSourceCreatesOrders(session.source_type)) {
+    return null;
+  }
+
+  const orderingSourceType = toOrderingSourceForCheckoutOrderCreation(session.source_type);
+  const orderingApi = createOrderingRequestApiClient(request);
+  let fulfillmentPreview: Awaited<ReturnType<typeof orderingApi.previewCheckoutFulfillment>>;
+  try {
+    fulfillmentPreview = await orderingApi.previewCheckoutFulfillment({
+      checkoutSessionId: session.session_id,
+      sourceType: orderingSourceType,
+      shippingOption: normalizeFulfillmentPreviewShippingOption(input.shippingOption),
+      shippingAddress: input.shippingAddress,
+      optimizationGoal: session.optimization_goal,
+      lines: session.lines,
+    });
+  } catch {
+    return null;
+  }
+
+  return api.recordFulfillmentPreview(session.session_id, {
+    fulfillmentPreviewRevision: fulfillmentPreview.revision,
+  });
+}
+
+function reviewedPreviewWriteSources(sources: readonly unknown[]) {
+  return sources.filter((source) => source !== null && source !== undefined);
+}
+
 async function loadSavedCheckoutInstruments(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -518,16 +578,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
         persistAddressBook: false,
         validateServiceability: true,
       });
+      const shippingOption = String(formData.get("shippingOption") ?? "standard");
+      const session = await loadCheckoutSessionForReviewedPreview(api, params.sessionId);
       const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
-        shippingOption: String(formData.get("shippingOption") ?? "standard"),
+        shippingOption,
       });
       const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
+        shippingAddress,
+      });
+      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(request, api, session, {
+        shippingOption,
         shippingAddress,
       });
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
         navigateAfterWriteFromSources(
-          [shippingOptionResult, shippingAddressResult],
+          reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
           `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
         ),
       );
@@ -547,8 +613,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         persistAddressBook: true,
         validateServiceability: true,
       });
+      const shippingOption = String(formData.get("shippingOption") ?? "standard");
       const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
-        shippingOption: String(formData.get("shippingOption") ?? "standard"),
+        shippingOption,
       });
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
       const visiblePaymentMethodCategory = String(
@@ -565,8 +632,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
-        (reviewedShippingOption !== null &&
-          reviewedShippingOption !== String(formData.get("shippingOption") ?? "standard")) ||
+        (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||
         (reviewedShippingAddressSignature !== null &&
           reviewedShippingAddressSignature !== normalizedAddressSignature(shippingAddress));
 
@@ -580,10 +646,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
+        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(request, api, session, {
+          shippingOption,
+          shippingAddress,
+        });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
           navigateAfterWriteFromSources(
-            [shippingOptionResult, shippingAddressResult],
+            reviewedPreviewWriteSources([shippingOptionResult, shippingAddressResult, fulfillmentPreviewResult]),
             `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
           ),
         );

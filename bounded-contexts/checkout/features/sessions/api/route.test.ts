@@ -991,6 +991,33 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("records a reviewed fulfillment preview revision on the checkout session", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/fulfillment-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fulfillmentPreviewRevision: "fulfillment_rev_2" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_1",
+      status: "fulfillment-preview-recorded",
+    });
+    expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+      {
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+        fulfillmentPreviewRevision: "fulfillment_rev_2",
+      },
+      expect.any(Object),
+    );
+  });
+
   it("confirms a new checkout session by recording orders and payment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({

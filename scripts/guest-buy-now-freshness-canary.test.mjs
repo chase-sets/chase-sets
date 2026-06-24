@@ -9,6 +9,7 @@ import {
   SEGMENT_METRIC_REFERENCES,
   assertRedactedEvidence,
   buildGuestBuyNowCanaryEvidence,
+  buyNowItemPageNavigationWaitOptions,
   buyNowRouteTransitionWaitOptions,
   classifyGuestBuyNowObservation,
   isCheckoutSessionDocumentResponseUrl,
@@ -498,6 +499,17 @@ describe("guest Buy Now freshness canary", () => {
       timeout: 12_345,
     });
     expect(buyNowRouteTransitionWaitOptions(0)).toEqual({
+      waitUntil: "commit",
+      timeout: 45_000,
+    });
+  });
+
+  it("waits only for item page commit before probing Buy Now controls", () => {
+    expect(buyNowItemPageNavigationWaitOptions(12_345)).toEqual({
+      waitUntil: "commit",
+      timeout: 12_345,
+    });
+    expect(buyNowItemPageNavigationWaitOptions(0)).toEqual({
       waitUntil: "commit",
       timeout: 45_000,
     });

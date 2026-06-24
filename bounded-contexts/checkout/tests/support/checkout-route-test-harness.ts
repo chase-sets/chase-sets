@@ -39,6 +39,7 @@ export const mockPreviewCheckoutFulfillment = vi.fn();
 export const mockPreviewCheckoutStatus = vi.fn();
 export const mockSelectShippingOption = vi.fn();
 export const mockSelectShippingAddress = vi.fn();
+export const mockRecordFulfillmentPreview = vi.fn();
 export const mockConfirmCheckoutSession = vi.fn();
 export const mockStartGuestCheckout = vi.fn();
 export const mockMergeGuestCartToAccount = vi.fn();

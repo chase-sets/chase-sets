@@ -719,6 +719,49 @@ export function createAccountCheckoutSessionRoutes(
     }
   });
 
+  app.post("/checkout-sessions/:sessionId/fulfillment-preview", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.sessions.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    const sessionId = c.req.param("sessionId");
+    const body = await c.req.json().catch(() => ({}));
+    const fulfillmentPreviewRevision =
+      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : "";
+
+    try {
+      const result = await services.recordFulfillmentPreview(
+        {
+          sessionId,
+          accountId: access.actor.accountId as AccountId,
+          fulfillmentPreviewRevision,
+        },
+        context,
+      );
+      return c.json({
+        session_id: sessionId,
+        status: "fulfillment-preview-recorded",
+        ...checkoutCommitMetadataFromSources([result]),
+      });
+    } catch (error) {
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/checkout-sessions/:sessionId/optimization-goal", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {

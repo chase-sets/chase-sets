@@ -171,6 +171,10 @@ export type SelectCheckoutOptimizationGoalRequest = Readonly<{
   optimizationGoal: "lowest-total" | "fewest-shipments";
 }>;
 
+export type RecordCheckoutFulfillmentPreviewRequest = Readonly<{
+  fulfillmentPreviewRevision: string;
+}>;
+
 export type CheckoutShippingAddressInput = Readonly<{
   shippingAddressId?: string | null;
   name: string;
@@ -616,6 +620,18 @@ export function createCheckoutApiClient({
     ): Promise<CheckoutMutationResult<{ status: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["shipping-address"].$post({
+          param: { sessionId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async recordFulfillmentPreview(
+      sessionId: string,
+      body: RecordCheckoutFulfillmentPreviewRequest,
+    ): Promise<CheckoutMutationResult<{ status: string }>> {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"]["fulfillment-preview"].$post({
           param: { sessionId },
           json: body,
           header: headers,

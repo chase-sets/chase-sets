@@ -15,6 +15,8 @@ import {
   mockCreateSettlementRequestApiClient,
   mockGetCheckoutSession,
   MockMarketplaceApiError,
+  mockPreviewCheckoutFulfillment,
+  mockRecordFulfillmentPreview,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockSelectShippingAddress,
@@ -78,6 +80,49 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as checkoutSessionAction } from "./checkout-session";
+
+function checkoutSessionForReviewedPreview(overrides: Record<string, unknown> = {}) {
+  return {
+    session_id: "chk_1",
+    source_type: "cart",
+    payment_id: null,
+    shipping_option: "standard",
+    shipping_address: null,
+    optimization_goal: "lowest-total",
+    lines: [
+      {
+        listingId: "lst_1",
+        cartLineId: "cart_line_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function reviewedFulfillmentPreview(revision = "fulfillment_rev_2") {
+  return {
+    revision,
+    readyLineKeys: ["lst_1"],
+    unavailableLineKeys: [],
+    unavailableLines: [],
+    materialChangeReasons: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "20.00",
+      shippingAmount: "4.00",
+      salesTaxAmount: "2.00",
+      totalAmount: "26.00",
+      packageCount: 1,
+    },
+  };
+}
 
 describe("checkout web routes: checkout session action", () => {
   beforeEach(() => {
@@ -779,6 +824,72 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1?paymentMethodCategory=bank-account");
   });
 
+  it("records the reviewed fulfillment preview revision when refreshing checkout totals", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
+    mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
+    mockPreviewCheckoutFulfillment.mockResolvedValue(reviewedFulfillmentPreview("fulfillment_rev_reviewed"));
+    mockRecordFulfillmentPreview.mockResolvedValue(checkoutCommit("43", "evt_fulfillment_preview"));
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "refresh-checkout-preview");
+    form.set("shippingOption", "expedited");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+    form.set("previewPaymentMethodCategory", "card");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+    const location = response.headers.get("Location") ?? "";
+    const receipt = readFreshWriteToken(location);
+
+    expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_1");
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkoutSessionId: "chk_1",
+        sourceType: "cart-checkout",
+        shippingOption: "expedited",
+        shippingAddress: expect.objectContaining({ postalCode: "60601" }),
+      }),
+    );
+    expect(mockRecordFulfillmentPreview).toHaveBeenCalledWith("chk_1", {
+      fulfillmentPreviewRevision: "fulfillment_rev_reviewed",
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&afterWrite=");
+    expect(receipt?.commitPosition).toBe("43");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "43",
+        eventIds: ["evt_shipping_option", "evt_shipping_address", "evt_fulfillment_preview"],
+      },
+    ]);
+  });
+
   it("refreshes guest checkout totals with a fresh-write redirect token", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
@@ -968,6 +1079,73 @@ describe("checkout web routes: checkout session action", () => {
       },
     ]);
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("records the reviewed fulfillment preview revision when confirmation refreshes checkout review", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("51", "evt_shipping_option"));
+    mockSelectShippingAddress.mockResolvedValue(checkoutCommit("52", "evt_shipping_address"));
+    mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
+    mockPreviewCheckoutFulfillment.mockResolvedValue(reviewedFulfillmentPreview("fulfillment_rev_visible_change"));
+    mockRecordFulfillmentPreview.mockResolvedValue(checkoutCommit("53", "evt_fulfillment_preview"));
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      recordFulfillmentPreview: mockRecordFulfillmentPreview,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "priority");
+    form.set("reviewedShippingOption", "standard");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+    const location = response.headers.get("Location") ?? "";
+    const receipt = readFreshWriteToken(location);
+
+    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkoutSessionId: "chk_1",
+        shippingOption: "priority",
+        shippingAddress: expect.objectContaining({ postalCode: "60601" }),
+      }),
+    );
+    expect(mockRecordFulfillmentPreview).toHaveBeenCalledWith("chk_1", {
+      fulfillmentPreviewRevision: "fulfillment_rev_visible_change",
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expect(receipt?.commitPosition).toBe("53");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "53",
+        eventIds: ["evt_shipping_option", "evt_shipping_address", "evt_fulfillment_preview"],
+      },
+    ]);
   });
 
   it("keeps guest checkout confirmation on the checkout confirmation handoff route", async () => {

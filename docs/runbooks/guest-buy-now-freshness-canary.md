@@ -31,7 +31,7 @@ The workflow discovers active buyable item candidates from `/api/marketplace/ite
 | `guest` | Guest contact form on `/checkout/buy/readiness`; canary-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
 | `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-canary+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
-The browser canary follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`. Route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
+The browser canary follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`. Item-page and route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
 
 ## States And Gate Decisions
 
