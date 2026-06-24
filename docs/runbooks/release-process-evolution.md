@@ -87,7 +87,7 @@ pnpm run ops release-lock:commands --action lock --environment production --reas
 pnpm run ops release-lock:commands --action unlock --environment production
 ```
 
-Operators can also prepare these commands in the admin console at `/platform/release-controls`. The console reads the current production lock variables, validates lock reason requirements, and produces the same `gh variable set` shape without mutating GitHub from the browser.
+The generator reads the current production lock inputs, validates lock reason requirements, and produces the `gh variable set` shape to run against the production GitHub Environment. Release locks are GitHub Environment state operated from CI and `scripts/`; the application does not host a release-lock console.
 
 ## Production Canary Path
 
@@ -301,11 +301,11 @@ Increase deployable batch size only when all thresholds pass, p95 queue wait is 
 
 The same report includes a release process review checklist and image group decision inputs. Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 
-Operators can inspect the current read-only release dashboard in the admin console at `/platform/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
+Operators inspect release state from CI evidence, not an in-app dashboard. The `release-health:report` output above combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, and canary decision, with links back to the GitHub Actions runs and the `production` marker. Read GitHub refs and workflow runs directly from the GitHub API or Actions UI; the release-health JSON artifacts in `artifacts/release-health` are the durable fallback when live GitHub metadata is unavailable.
 
 ## Feature Rollout Controls
 
-Platform Operations owns feature rollout language and deterministic evaluation rules. Bounded contexts keep owning business behavior and call rollout checks only as exposure guards.
+Feature rollout is a delivery concern owned by CI (`.github/workflows`) and `scripts/`, not by the application. The rollout policy is a deterministic evaluation contract expressed in a release-health policy file and consumed by the account-canary evidence tooling; the application does not persist, serve, or render rollout policy. Pre-launch, feature flags are not retained: a guarded capability is exposed by an explicit canary policy and removed once it ships.
 
 Supported primitives:
 
@@ -316,29 +316,19 @@ Supported primitives:
 - Percentage Rollout: deterministic cohort from 0 to 100
 - Kill Switch: disable the feature for every subject
 
-Operators can evaluate a candidate policy and subject in the admin console at `/platform/release-controls`. The console keeps the command-builder path for GitHub Environment release locks, and the Platform Operations API now persists application-level release-control policy events.
+A rollout policy is authored as a `feature-policy.json` file under `artifacts/release-health` and gated through the account-canary evidence collector before any exposure widens. Example Stage 2 canary policy for the first guarded capability:
 
-Policy API:
-
-- `GET /api/platform/release-controls` lists the active release lock and rollout policies.
-- `POST /api/platform/release-controls/release-lock` changes the audited application release lock. Enabling a lock requires `reason`; clearing an active lock requires a concrete `reference`.
-- `PUT /api/platform/release-controls/rollouts/:featureKey` changes a rollout policy for one environment. Every change requires `reason` and `reference`.
-- `GET /api/platform/release-controls/rollouts/:featureKey/decision` evaluates a single subject decision. Non-platform operators can only read decisions for their own account or operator subject.
-
-Example Stage 2 canary policy for the first guarded capability:
-
-```powershell
-$body = @{
-  environment = "production"
-  percentage = 0
-  allowSubjects = @("account:acc_canary")
-  optOutSubjects = @()
-  killSwitchActive = $false
-  reason = "Stage 2 account canary for pricing.account-repricing"
-  reference = "https://github.com/todd-skelton/chase-sets/pull/<pr>"
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method Put -Uri "https://<platform-api>/api/platform/release-controls/rollouts/pricing.account-repricing" -ContentType "application/json" -Body $body
+```json
+{
+  "environment": "production",
+  "featureKey": "pricing.account-repricing",
+  "percentage": 0,
+  "allowSubjects": ["account:acc_canary"],
+  "optOutSubjects": [],
+  "killSwitchActive": false,
+  "reason": "Stage 2 account canary for pricing.account-repricing",
+  "reference": "https://github.com/todd-skelton/chase-sets/pull/<pr>"
+}
 ```
 
 Evaluation order:
@@ -437,7 +427,7 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector with optional Prometheus input, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with GitHub API-backed queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, the account-canary evidence collector that gates rollout policy, canary-analysis gate, telemetry-backed canary evidence collector with optional Prometheus input, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with GitHub API-backed queue, staging, production, canary, and drift timing. All of this lives in CI (`.github/workflows`), `scripts/`, and `infrastructure/`; the application does not host release dashboards, release controls, or rollout-policy surfaces. The next implementation steps are:
 
 - configure production Prometheus canary query files after every required signal has stable telemetry and an owner-approved threshold
 - tune merge queue batch size only after at least 10 deployable release-health records meet the SLO posture in this runbook
