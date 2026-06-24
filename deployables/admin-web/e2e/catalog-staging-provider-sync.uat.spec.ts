@@ -542,6 +542,7 @@ async function syncSelectedProviderUnit(
 ): Promise<ProviderSyncAttempt> {
   const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expandWorkflowStage(page, /^Run sync\b/i);
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
@@ -663,6 +664,7 @@ async function expectImportJobSettledForSelectedUnit(
   let observedRows: readonly string[] = [];
 
   while (Date.now() < deadline) {
+    await expandWorkflowStage(page, /^Run sync\b/i);
     observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
     const changedRows = observedRows.filter((row) => !previous.has(row));
     const unsuccessful = changedRows.find(importJobRowReachedUnsuccessfulTerminal);
