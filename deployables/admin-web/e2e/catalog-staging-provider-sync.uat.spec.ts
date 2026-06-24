@@ -562,12 +562,23 @@ async function expectImportPreflight(
   selectedScope: SelectedProviderScope,
   expectation: ImportPreflightExpectation,
 ): Promise<void> {
-  await expandWorkflowStage(page, /^Run sync\b/i);
   const panel = page
     .locator(`[data-catalog-import-preview="ready"][data-catalog-import-preview-unit="${cssAttrValue(unitKey)}"]`)
     .filter({ visible: true })
     .first();
-  await expect(panel).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  // Deferred review data can move the operator stepper back to Review Changes
+  // after a scope change; reopen Run Sync the way an operator would.
+  while (Date.now() < deadline) {
+    await expandWorkflowStage(page, /^Run sync\b/i);
+    if (await panel.isVisible().catch(() => false)) {
+      break;
+    }
+    await page.waitForTimeout(1_000);
+  }
+
+  await expandWorkflowStage(page, /^Run sync\b/i);
+  await expect(panel).toBeVisible({ timeout: pageReadyTimeoutMs });
   if (selectedScope.importScope) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-scope", selectedScope.importScope, {
       timeout: sourceOptionTimeoutMs,
