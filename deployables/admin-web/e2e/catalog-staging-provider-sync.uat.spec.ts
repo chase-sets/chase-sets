@@ -580,9 +580,12 @@ async function expectImportPreflight(
   await expandWorkflowStage(page, /^Run sync\b/i);
   await expect(panel).toBeVisible({ timeout: pageReadyTimeoutMs });
   if (selectedScope.importScope) {
-    await expect(panel).toHaveAttribute("data-catalog-import-preview-scope", selectedScope.importScope, {
-      timeout: sourceOptionTimeoutMs,
-    });
+    const scopeCandidates = importPreflightScopeCandidates(selectedScope.importScope);
+    const observedScope = await waitForImportPreflightScope(panel, scopeCandidates);
+    expect(
+      scopeCandidates,
+      `Import preflight scope ${observedScope ?? "none"} should match the selected or canonicalized scope.`,
+    ).toContain(observedScope);
   }
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
@@ -604,6 +607,30 @@ async function expectImportPreflight(
 
 function cssAttrValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function waitForImportPreflightScope(panel: Locator, scopeCandidates: readonly string[]): Promise<string | null> {
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  let observedScope: string | null = null;
+  while (Date.now() < deadline) {
+    observedScope = await panel.getAttribute("data-catalog-import-preview-scope");
+    if (observedScope && scopeCandidates.includes(observedScope)) {
+      return observedScope;
+    }
+    await panel.page().waitForTimeout(500);
+  }
+  return observedScope;
+}
+
+function importPreflightScopeCandidates(importScope: string): readonly string[] {
+  const candidates = new Set([importScope]);
+  const segments = importScope.split(":").filter(Boolean);
+  const penultimate = segments.at(-2);
+  const final = segments.at(-1);
+  if (segments.length >= 3 && penultimate && penultimate === final) {
+    candidates.add([...segments.slice(0, -2), final].join(":"));
+  }
+  return [...candidates];
 }
 
 async function expandWorkflowStage(page: Page, name: RegExp): Promise<void> {
