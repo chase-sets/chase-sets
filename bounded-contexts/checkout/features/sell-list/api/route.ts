@@ -382,7 +382,15 @@ export function createAccountSellListRoutes(
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version, status: result.status }, 201);
+      return c.json(
+        {
+          id: result.lineId,
+          version: result.version,
+          status: result.status,
+          ...(result.commandReceipt ? { commandReceipt: result.commandReceipt } : {}),
+        },
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -626,7 +634,15 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
         context,
       );
 
-      return c.json({ id: result.lineId, version: result.version, status: result.status }, 201);
+      return c.json(
+        {
+          id: result.lineId,
+          version: result.version,
+          status: result.status,
+          ...(result.commandReceipt ? { commandReceipt: result.commandReceipt } : {}),
+        },
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
