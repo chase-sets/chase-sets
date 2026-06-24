@@ -115,6 +115,9 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         onValueChange={(value) => setActiveStage((value || activeStage) as ImportToPromotionStageKey)}
         items={stages.map((stage) => ({
           value: stage.key,
+          triggerProps: {
+            "data-catalog-import-workflow-stage": stage.key,
+          },
           trigger: (
             <WorkbenchStack gap="sm">
               <WorkbenchText tone="foreground" weight="semibold">

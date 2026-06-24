@@ -542,7 +542,7 @@ async function syncSelectedProviderUnit(
 ): Promise<ProviderSyncAttempt> {
   const commandForm = sourceScopeSyncForms(page, unitKey).first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expandWorkflowStage(page, /^Run sync\b/i);
+  await expandWorkflowStage(page, "run-sync");
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
@@ -581,14 +581,14 @@ async function expectImportPreflight(
   // Deferred review data can move the operator stepper back to Review Changes
   // after a scope change; reopen Run Sync the way an operator would.
   while (Date.now() < deadline) {
-    await expandWorkflowStage(page, /^Run sync\b/i);
+    await expandWorkflowStage(page, "run-sync");
     if (await panel.isVisible().catch(() => false)) {
       break;
     }
     await page.waitForTimeout(1_000);
   }
 
-  await expandWorkflowStage(page, /^Run sync\b/i);
+  await expandWorkflowStage(page, "run-sync");
   await expect(panel).toBeVisible({ timeout: pageReadyTimeoutMs });
   if (selectedScope.importScope) {
     const scopeCandidates = importPreflightScopeCandidates(selectedScope.importScope);
@@ -644,11 +644,24 @@ function importPreflightScopeCandidates(importScope: string): readonly string[] 
   return [...candidates];
 }
 
-async function expandWorkflowStage(page: Page, name: RegExp): Promise<void> {
-  const trigger = page.getByRole("button", { name }).first();
+type WorkflowStageKey = "run-sync" | "review-changes" | "create-items";
+
+const workflowStageNames: Record<WorkflowStageKey, RegExp> = {
+  "run-sync": /^Run sync\b/i,
+  "review-changes": /^Review changes\b/i,
+  "create-items": /^Create \/ update items\b/i,
+};
+
+async function expandWorkflowStage(page: Page, stage: WorkflowStageKey): Promise<void> {
+  const trigger = page
+    .locator(`[data-catalog-import-workflow-stage="${stage}"]`)
+    .or(page.getByRole("heading", { name: workflowStageNames[stage] }).getByRole("button"))
+    .first();
   await expect(trigger).toBeVisible({ timeout: pageReadyTimeoutMs });
-  if ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true") {
+  const deadline = Date.now() + pageReadyTimeoutMs;
+  while ((await trigger.getAttribute("aria-expanded").catch(() => null)) !== "true" && Date.now() < deadline) {
     await trigger.click();
+    await page.waitForTimeout(250);
   }
   await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: pageReadyTimeoutMs });
 }
@@ -664,7 +677,7 @@ async function expectImportJobSettledForSelectedUnit(
   let observedRows: readonly string[] = [];
 
   while (Date.now() < deadline) {
-    await expandWorkflowStage(page, /^Run sync\b/i);
+    await expandWorkflowStage(page, "run-sync");
     observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
     const changedRows = observedRows.filter((row) => !previous.has(row));
     const unsuccessful = changedRows.find(importJobRowReachedUnsuccessfulTerminal);
@@ -729,7 +742,7 @@ async function openCompletedImportJobObservationReview(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<boolean> {
-  await expandWorkflowStage(page, /^Run sync\b/i);
+  await expandWorkflowStage(page, "run-sync");
   const row = await completedImportJobRowLocatorForSelectedUnit(page, unitKey, selectedScope, sourceOptionTimeoutMs);
   if (!row) {
     return false;
@@ -749,7 +762,7 @@ async function promoteFirstEligibleObservationFromReview(
   page: Page,
   selectedScope: SelectedProviderScope,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
-  await expandWorkflowStage(page, /^Review changes\b/i);
+  await expandWorkflowStage(page, "review-changes");
   await expect(page.getByRole("heading", { name: "Source Observation review" })).toBeVisible({
     timeout: sourceOptionTimeoutMs,
   });
@@ -835,7 +848,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     };
   }
 
-  await expandWorkflowStage(page, /^Review changes\b/i);
+  await expandWorkflowStage(page, "review-changes");
   const rowReapplyForms = page.locator(
     'form[data-catalog-primary-workbench-command="start-reapply"]:not([data-catalog-source-scope-unit])',
   );
@@ -960,7 +973,7 @@ async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<st
 }
 
 async function executePromotionFromFreshPreview(page: Page): Promise<void> {
-  await expandWorkflowStage(page, /^Create \/ update items\b/i);
+  await expandWorkflowStage(page, "create-items");
   await expect(page.getByText("Previewed impact is current").first()).toBeVisible({ timeout: syncTimeoutMs });
 
   const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
@@ -980,7 +993,7 @@ async function executePromotionFromFreshPreview(page: Page): Promise<void> {
 }
 
 async function openCatalogItemsHandoff(page: Page, providerKey: string): Promise<void> {
-  await expandWorkflowStage(page, /^Create \/ update items\b/i);
+  await expandWorkflowStage(page, "create-items");
   const handoff = page.getByRole("link", { name: `Open Catalog Items for ${providerKey}` }).first();
   await expect(handoff).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(handoff).toHaveAttribute("href", `/catalog/catalog-items?source=${providerKey}`, {
@@ -1114,7 +1127,7 @@ async function expectCommandQueuedOrActiveImport(
       return;
     }
     if (Date.now() >= nextExpandAt) {
-      await expandWorkflowStage(page, /^Run sync\b/i).catch(() => undefined);
+      await expandWorkflowStage(page, "run-sync").catch(() => undefined);
       nextExpandAt = Date.now() + 5_000;
     }
     await page.waitForTimeout(500);

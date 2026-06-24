@@ -1169,6 +1169,95 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByRole("link", { name: "Review observations" }).length).toBeGreaterThan(0);
   });
 
+  it("opens completed-job Source Observation review handoffs even when the selected scope has no changed rows", () => {
+    const unitKey = "lorcanajson:lorcana:single-card:reference-data";
+    const baseOverview = controlPlaneOverview();
+    const profile = profileReview({
+      providerKey: "lorcanajson",
+      profileKey: "lorcana-card-reference-data",
+      profileVersion: "2026.06.23",
+      ingestionUnitKey: unitKey,
+      displayName: "LorcanaJSON Lorcana single-card reference data",
+      lifecycle: "active",
+      active: true,
+      status: "active",
+      connectorKind: "lorcanajson-json",
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        `https://admin.example/catalog/integrations?section=source-observation-review&providerKey=lorcanajson` +
+        `&unitKey=${encodeURIComponent(unitKey)}&importScope=en%3A1&languageCode=en&productLineName=Disney+Lorcana` +
+        "&expansionId=1&expansionName=The+First+Chapter&profileVersion=2026.06.23&jobId=job_lorcana_set",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "lorcanajson",
+            language_code: "en",
+            product_line_id: "",
+            product_line_name: "Disney Lorcana",
+            series_id: "",
+            series_name: "",
+            expansion_id: "1",
+            expansion_name: "The First Chapter",
+            total_observations: 242,
+            observed_observations: 242,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        ...baseOverview,
+        unitActivity: {
+          ...baseOverview.unitActivity,
+          units: [
+            {
+              unitKey,
+              recentJobs: [
+                integrationJobSummary({
+                  jobId: "job_lorcana_set",
+                  operatorStatus: "completed",
+                  phase: "completed",
+                  completed: 242,
+                  total: 242,
+                  unitKey,
+                  providerKey: "lorcanajson",
+                  importScope: "en:1",
+                  profileVersion: "2026.06.23",
+                  summary: "import job job_lorcana_set is completed (242/242).",
+                }),
+              ],
+            },
+          ],
+        },
+        providerReadiness: {
+          ...baseOverview.providerReadiness,
+          providers: [
+            {
+              ...baseOverview.providerReadiness.providers[0]!,
+              providerKey: "lorcanajson",
+              adapterKey: "lorcanajson",
+              unitKeys: [unitKey],
+            },
+          ],
+        },
+      }),
+      reviewObservations: { items: [], total: 0, count: 0 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Review changes/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /Run sync/i }).getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("renders provider transport blockers with operator reason and next step copy", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
