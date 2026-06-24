@@ -49,7 +49,7 @@ Compatibility is required for:
 | Fixture contract | `catalog-fixture-contract-v1` | fixture set version, required flows, profile version | resettable pre-launch | read old, write current |
 | Admin Control Plane read model | `catalog-admin-control-plane-read-model-v1` | query key, unit key, generated timestamp | launched contract | projection can lag |
 | Source Observation record | `catalog-source-observation-record-v1` | provider key, source profile version, source mapping fingerprint, promotion profile version | reset/drop when markers are missing or `legacy` | require explicit profile metadata |
-| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot including ingestion-unit key, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
+| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot including ingestion-unit key, reapply profile mode, optional parent `syncRunId` | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
 | Integration work unit | `catalog-integration-work-unit-v1` | job ID, unit ID, profile snapshot including ingestion-unit key, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
 | Audit/evidence record | `catalog-audit-evidence-record-v1` | event name, provider key, profile version, related job, related observation | launched contract | projection can lag |
 
@@ -65,7 +65,7 @@ Profile version rows carry `ingestion_unit_key` as typed read-model identity. Th
 
 Executable mapping contract changes are semantic compatibility changes when they alter Source Observation external keys, source hash material, selected Options, external references, Reference Record targets, duplicate-prevention order, or promotion command plans. Activation requires migration evidence when the mapping fingerprint changes in a breaking way.
 
-Durable integration jobs and work units snapshot profile identity at enqueue time. Worker/API deploy skew must not switch a queued job to a newer active profile. Reapply jobs without `reapplyProfileMode` or profile snapshot metadata are pre-launch cleanup data and must be reset/dropped instead of defaulting to `original-source-profile`.
+Durable integration jobs and work units snapshot profile identity at enqueue time. Worker/API deploy skew must not switch a queued job to a newer active profile. Catalog sync parent runs use the existing integration durable-job table with job kind `catalog-sync-scope`; child provider import jobs may add an optional `syncRunId` payload field, and older child jobs without that field remain valid. Reapply jobs without `reapplyProfileMode` or profile snapshot metadata are pre-launch cleanup data and must be reset/dropped instead of defaulting to `original-source-profile`.
 
 Provider option-query cache identity includes provider key, profile key, profile version, ingestion-unit key, query kind, language code, and parent value. Same-provider option queries for different active units must not share cache entries even when the provider and profile version string are the same.
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
+import { createCatalogIntegrationRolloutControlPolicy } from "./catalog-integration-rollout-controls";
 import { createSourceObservationRuntime } from "./runtime";
 import {
   context,
@@ -136,6 +137,155 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       },
     ]);
+  });
+
+  it("enqueues a parent Catalog sync run and fans out selected provider child import jobs", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+    );
+
+    const run = await services.enqueueCatalogSyncRun({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        providerParticipation: {
+          selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+        },
+      },
+      context,
+    });
+
+    expect(run).toMatchObject({
+      status: "queued",
+      progress: {
+        childJobs: {
+          total: 1,
+          queued: 1,
+        },
+      },
+      selectedUnits: [
+        expect.objectContaining({
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          profileVersion: "2026.06.03",
+          childExecutionScope: {
+            provider: "tcgdex",
+            profileKey: "pokemon-tcg",
+            ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+            language: "en",
+            seriesId: "base",
+            setId: "base1",
+          },
+        }),
+      ],
+      childJobs: [
+        expect.objectContaining({
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          syncRunLinkState: "attached-to-child-payload",
+          status: "queued",
+          job: expect.objectContaining({
+            syncRunId: run.syncRunId,
+            action: "import",
+          }),
+        }),
+      ],
+      consistency: {
+        duplicateSubmissionPolicy: "reuse-active-sync-run",
+        childScopePolicy: "deterministic-from-provider-participation-preview",
+        profileSnapshotPolicy: "selected-active-provider-units-snapshotted-at-enqueue",
+        childRetryResumeCancelPolicy: "delegated-to-provider-import-jobs",
+        partialFailurePolicy: "visible-per-provider-child-job",
+      },
+    });
+
+    const parentRow = harness.insertedJobs.find((job) => job.job_id === run.syncRunId);
+    const childRow = harness.insertedJobs.find(
+      (job) => job.job_kind === "import" && (job.payload as { syncRunId?: string | null }).syncRunId === run.syncRunId,
+    );
+    expect(parentRow).toMatchObject({
+      job_kind: "catalog-sync-scope",
+      status: "completed",
+      result: {
+        childJobs: [
+          expect.objectContaining({
+            childJobId: childRow?.job_id,
+            syncRunLinkState: "attached-to-child-payload",
+          }),
+        ],
+      },
+    });
+    expect(childRow).toBeTruthy();
+
+    await expect(services.getCatalogSyncRun({ syncRunId: run.syncRunId, context })).resolves.toMatchObject({
+      syncRunId: run.syncRunId,
+      childJobs: [
+        expect.objectContaining({
+          childJobId: childRow?.job_id,
+        }),
+      ],
+    });
+  });
+
+  it("keeps parent Catalog sync run partial-failure visibility when a child provider job cannot enqueue", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+      createCatalogIntegrationRolloutControlPolicy({ disabledImports: ["tcgdex"] }),
+    );
+
+    const run = await services.enqueueCatalogSyncRun({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", id: "base1", name: "Base Set", seriesId: "base" },
+        providerParticipation: {
+          selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+        },
+      },
+      context,
+    });
+
+    expect(run).toMatchObject({
+      status: "failed",
+      progress: {
+        childJobs: {
+          total: 1,
+          failed: 1,
+        },
+      },
+      childJobs: [
+        expect.objectContaining({
+          childJobId: null,
+          syncRunLinkState: "child-enqueue-failed",
+          status: "failed",
+          errorMessage: "Catalog integration imports are disabled for the configured provider scope.",
+        }),
+      ],
+    });
+    expect(harness.insertedJobs.filter((job) => job.job_kind === "import")).toEqual([]);
+    expect(harness.insertedJobs.find((job) => job.job_id === run.syncRunId)).toMatchObject({
+      job_kind: "catalog-sync-scope",
+      status: "failed",
+      result: {
+        childJobs: [
+          expect.objectContaining({
+            syncRunLinkState: "child-enqueue-failed",
+            childJobId: null,
+          }),
+        ],
+      },
+    });
   });
 
   it("snapshots reapply profile mode on integration jobs and work units", async () => {
