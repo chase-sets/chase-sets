@@ -574,7 +574,7 @@ describe("guest Buy Now freshness canary", () => {
       "/items/buyable-card?market=buy&listing=lst_1&dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint",
     );
     expect(requestedUrls[0]).toBe(
-      "https://marketplace.staging.chasesets.com/api/marketplace/items?q=charizard&includeTotal=true",
+      "https://marketplace.staging.chasesets.com/api/marketplace/items?search=charizard&includeTotal=true",
     );
     expect(requestedUrls[1]).toBe("https://marketplace.staging.chasesets.com/api/marketplace/items/buyable-card");
   });
