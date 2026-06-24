@@ -838,7 +838,7 @@ export async function resolveGuestBuyNowItemCandidates(options, fetchImpl = fetc
   }
 
   const searchUrl = new URL("/api/marketplace/items", baseUrl);
-  searchUrl.searchParams.set("q", searchQuery);
+  searchUrl.searchParams.set("search", searchQuery);
   searchUrl.searchParams.set("includeTotal", "true");
   const response = await fetchImpl(searchUrl);
   if (!response.ok) {
