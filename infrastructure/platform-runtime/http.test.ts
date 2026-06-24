@@ -6,15 +6,21 @@ import {
   appendFreshWriteToken,
   decodeFreshWriteReceipt,
   encodeFreshWriteReceipt,
+  readCompactPostWriteToken,
+  type PostWriteTokenPayload,
 } from "@chase-sets/http/responses";
 import {
   CHASE_SETS_INTERNAL_API_ORIGIN_ENV,
+  createForwardedAuthHeadersAsync,
   createForwardedAuthFetch,
   createForwardedAuthHeaders,
   loadAfterWrite,
   navigateAfterWrite,
+  navigateAfterWriteWithCompactToken,
   redirectAfterWrite,
+  redirectAfterWriteWithCompactToken,
   resolveInternalApiOrigin,
+  resolvePostWriteTokenRequest,
   resolveRequestApiBaseUrl,
 } from "./http";
 import { registerPostWriteConsistencyRecorder } from "./post-write-consistency";
@@ -26,6 +32,25 @@ afterEach(() => {
   unregisterPostWriteTelemetry = null;
   vi.unstubAllEnvs();
 });
+
+function createTestPostWriteTokenStore() {
+  const payloads = new Map<string, PostWriteTokenPayload>();
+  const storeCalls: Array<Readonly<{ payload: PostWriteTokenPayload; nowMs: number; ttlMs: number }>> = [];
+  let nextToken = 1;
+
+  return {
+    storeCalls,
+    async storePostWriteToken(payload: PostWriteTokenPayload, options: Readonly<{ nowMs: number; ttlMs: number }>) {
+      const token = `pwt_${String(nextToken++).padStart(20, "0")}`;
+      payloads.set(token, payload);
+      storeCalls.push({ payload, ...options });
+      return token;
+    },
+    async resolvePostWriteToken(token: string) {
+      return payloads.get(token) ?? null;
+    },
+  };
+}
 
 describe("resolveInternalApiOrigin", () => {
   it("returns null when no internal API origin is configured", () => {
@@ -148,6 +173,51 @@ describe("createForwardedAuthHeaders", () => {
     expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBe(explicitReceipt);
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
   });
+
+  it("resolves compact post-write tokens before forwarding freshness headers", async () => {
+    const store = createTestPostWriteTokenStore();
+    const observedAtMs = Date.now();
+    const href = await navigateAfterWriteWithCompactToken(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "9",
+            eventIds: ["evt_checkout"],
+          },
+        ],
+        commitEventIds: ["evt_checkout"],
+      },
+      "/account/cart",
+      { nowMs: observedAtMs, postWriteTokenStore: store },
+    );
+    const request = new Request(`https://marketplace.chasesets.test${href}`, {
+      headers: {
+        cookie: "guest=guest_1",
+      },
+    });
+
+    const headers = await createForwardedAuthHeadersAsync(request, undefined, {
+      postWriteTokenResolver: store,
+      readTargetContextName: "checkout",
+      nowMs: observedAtMs,
+    });
+
+    expect(href).toContain("postWriteToken=");
+    expect(href).not.toContain("afterWrite=");
+    expect(headers.get("cookie")).toBe("guest=guest_1");
+    expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), observedAtMs)).toEqual({
+      observedAtMs,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "9",
+          eventIds: ["evt_checkout"],
+        },
+      ],
+    });
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
+  });
 });
 
 describe("createForwardedAuthFetch", () => {
@@ -240,6 +310,69 @@ describe("default-safe post-write navigation runtime", () => {
     );
   });
 
+  it("stores compact post-write token payloads for source-side navigation without URL receipt details", async () => {
+    const recorder = vi.fn();
+    const store = createTestPostWriteTokenStore();
+    unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
+
+    const href = await navigateAfterWriteWithCompactToken(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_1"],
+          },
+        ],
+        commitEventIds: ["evt_1"],
+        email: "seller@example.com",
+      },
+      "/account/listings/lst_1?feedbackWorkflow=listing-publish",
+      {
+        nowMs: 1234,
+        postWriteTokenStore: store,
+        telemetry: {
+          boundedContextName: "marketplace",
+          surface: "account-listing",
+          routeId: "account-listing",
+          routeTemplate: "/account/listings/:listingId",
+        },
+      },
+    );
+
+    expect(readCompactPostWriteToken(href)).toMatch(/^pwt_/);
+    expect(href).not.toContain("afterWrite=");
+    expect(href).not.toContain("postWriteHandoff=");
+    expect(href).not.toContain("evt_1");
+    expect(href).not.toContain("seller%40example.com");
+    expect(store.storeCalls).toEqual([
+      {
+        nowMs: 1234,
+        ttlMs: 120_000,
+        payload: {
+          receipt: {
+            observedAtMs: 1234,
+            sources: [
+              {
+                sourceContextName: "marketplace",
+                maxGlobalPosition: "42",
+                eventIds: ["evt_1"],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundedContextName: "marketplace",
+        surface: "account-listing",
+        strategy: "fresh-read",
+        outcome: "navigation_encoded",
+      }),
+    );
+  });
+
   it("creates telemetry-aware cookie-backed continuation redirects", () => {
     const recorder = vi.fn();
     unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
@@ -287,6 +420,38 @@ describe("default-safe post-write navigation runtime", () => {
     );
   });
 
+  it("creates compact-token redirects with cookie-backed continuation headers", async () => {
+    const store = createTestPostWriteTokenStore();
+
+    const response = await redirectAfterWriteWithCompactToken(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "identity",
+            maxGlobalPosition: "51",
+            eventIds: ["evt_identity_51"],
+          },
+        ],
+        commitEventIds: ["evt_identity_51"],
+      },
+      "/account",
+      {
+        continuation: "cookie-backed",
+        headers: {
+          "Set-Cookie": "chase_sets_session=session_token; Path=/; HttpOnly; SameSite=Lax",
+        },
+        nowMs: 1234,
+        postWriteTokenStore: store,
+      },
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account?postWriteToken=");
+    expect(response.headers.get("Location")).not.toContain("afterWrite=");
+    expect(response.headers.get(COOKIE_BACKED_CONTINUATION_RELOAD_HEADER)).toBe("true");
+    expect(response.headers.get("Set-Cookie")).toContain("chase_sets_session=session_token");
+  });
+
   it("records destination-side read diagnostics for default-safe reads", async () => {
     const recorder = vi.fn();
     unregisterPostWriteTelemetry = registerPostWriteConsistencyRecorder(recorder);
@@ -332,5 +497,98 @@ describe("default-safe post-write navigation runtime", () => {
         freshnessOutcome: "fresh",
       }),
     );
+  });
+
+  it("resolves compact tokens before destination reads and semantic handoff evaluation", async () => {
+    const store = createTestPostWriteTokenStore();
+    const waitForFreshness = vi.fn();
+    const href = await navigateAfterWriteWithCompactToken(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "9",
+            eventIds: ["evt_checkout"],
+          },
+        ],
+        commitEventIds: ["evt_checkout"],
+      },
+      "/account/cart",
+      {
+        nowMs: 1234,
+        postWriteTokenStore: store,
+        handoff: {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          surface: "account-cart",
+        },
+      },
+    );
+
+    const result = await loadAfterWrite({
+      request: new Request(`https://marketplace.chasesets.test${href}`),
+      load: async () => ({ items: [], count: 0 }),
+      isNotFound: () => false,
+      isHandoffSatisfied: (cart, handoff) => handoff.expectation === "collection-non-empty" && cart.items.length > 0,
+      waitForFreshness,
+      nowMs: () => 1234,
+      postWriteTokenResolver: store,
+    });
+
+    expect(waitForFreshness).toHaveBeenCalledWith({
+      observedAtMs: 1234,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "9",
+          eventIds: ["evt_checkout"],
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      kind: "pending",
+      reason: "semantic-handoff-pending",
+      recoveryKind: "pending-projection",
+      handoff: {
+        handoff: {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          surface: "account-cart",
+        },
+      },
+    });
+  });
+
+  it("preserves legacy full-token destination reads while compact resolution is available", async () => {
+    const store = createTestPostWriteTokenStore();
+    const href = navigateAfterWrite(
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_1"],
+          },
+        ],
+        commitEventIds: ["evt_1"],
+      },
+      "/account/listings/lst_1",
+      { nowMs: 1234 },
+    );
+    const request = new Request(`https://marketplace.chasesets.test${href}`);
+
+    await expect(resolvePostWriteTokenRequest(request, store)).resolves.toBe(request);
+    await expect(
+      loadAfterWrite({
+        request,
+        load: async () => ({ listingId: "lst_1" }),
+        isNotFound: () => false,
+        nowMs: () => 1234,
+        postWriteTokenResolver: store,
+      }),
+    ).resolves.toMatchObject({
+      kind: "data",
+      data: { listingId: "lst_1" },
+    });
   });
 });

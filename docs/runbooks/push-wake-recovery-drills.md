@@ -22,6 +22,8 @@ What the `reconciliation` drill does:
 
 This is the #1234 review-update reconciliation gate made executable: a missed relay fan-out shows up as `relay-cursor-behind-event-store-head` even when no fresh notification arrives, and a missed projection wake shows up as `projection-checkpoint-behind-event-store-head` (fallback polling should close that gap in seconds, so a sustained gap is a real failure).
 
+Each evidence artifact also includes `segmentSlo`: browser-visible canary segment summaries (`writeToRedirectMs`, `redirectToDocumentMs`, `documentToReadyMs`, `writeToCheckoutReadyMs`), durable convergence posture by source context, and the current metric gaps. The artifact intentionally keeps server-side notify/relay/store/claim distributions out of the JSON until those histograms exist; join those stages in Grafana by the drill correlation window.
+
 What the `load` drill adds: a bounded synthetic burst (iterations hard-capped at 12, concurrency hard-capped at 4, guest or account flow) through the same canary machinery, followed by the same convergence audit, reporting write-to-checkout-ready min/p50/p95/max and readiness pass rate. This is bounded staging burst evidence for #1237 — explicitly not a production-like volume load test.
 
 Scheduling guidance: do not dispatch drills while a Platform Deploy run is mid-staging (the deploy's own canaries and worker restarts will skew convergence timing). Check the Actions queue first.

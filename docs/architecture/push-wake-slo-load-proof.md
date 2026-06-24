@@ -18,6 +18,7 @@ This document consolidates the numeric SLO, load, and capacity evidence for the 
 | Staging bounded burst drill (6 iterations × concurrency 2, same fixture) | Run `27366686651` (2026-06-11), artifact `staging-wake-drill-load` | All 6 writes `temporary`/`checkout-ready-slo-exceeded` (no per-write ready inside 10 s); **durable convergence 50.9 s** after the burst — relay cursor and all checkout checkpoints reached head, nothing lost. Worst-case contention shape: every iteration buys the same staging fixture item through the platform-wide single-flight checkout projection group |
 | Connection/capacity budgets | [Push-Wake Connection Budget](./push-wake-connection-budget.md) + Terraform plan-time checks `wake_connection_budget`, `wake_listener_topology_parity` | Staging steady-state 48/94, deploy overlap 52/94; production steady-state 46/94, deploy overlap 88/94 — validated on every plan, same logical topology both environments |
 | Recovery/reconciliation drills | [Staging wake drills workflow](../runbooks/push-wake-recovery-drills.md) (`workflow_dispatch`) | Tooling live; produces dated convergence + bounded-burst evidence per dispatch |
+| Release-health Checkout SLO posture | `checkout-session-freshness-slo` in `infrastructure/observability/release-canary-prometheus-queries.json` | Observation-only canary signal over existing Prometheus freshness wait, timeout-rate, and pending-lag metrics. Non-zero means at least one Checkout session freshness SLO clause failed in the canary window; hard promotion still relies on existing required gates until production evidence stabilizes. |
 
 ## Segment SLO Inventory
 
@@ -122,5 +123,6 @@ Supporting decisions:
 
 - Production-like volume load proof: not done (deferred scope above, with owners/path recorded there). The dual SLOs above are ratified on staging gate evidence plus bounded drills; production-scale distributions may justify revisiting the numbers but do not block the ratified values from gating today.
 - Wake-before-wait enqueue latency and interest-index lookup latency: no histograms; safe over-wake rate: unmeasured.
+- Staging wake drill artifacts now include `segmentSlo` summaries for browser-visible canary segments, durable convergence, and metric gaps. Server-side notify/relay/store/claim distributions are still joined through Grafana by the drill/canary correlation window rather than embedded in the artifact.
 - Sustained-observation windows (30-day p95 by segment) have no automated reporting; dashboards exist, reporting is manual.
 - Production proof miss root cause is localized to projection execution under polling in the post-deploy window but not split between cold start and capacity without the production telemetry pull named above. The post-deploy readiness gate (delivered, action 2) splits the regimes going forward: a `ready` gate outcome followed by a canary miss is a steady-state capacity signal, not cold start.

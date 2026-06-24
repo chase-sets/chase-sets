@@ -73,6 +73,17 @@ export const REQUIRED_CANARY_SIGNALS = [
     detail: "No new degraded projection group or poison event may be caused by the canary release.",
   },
   {
+    name: "checkout-session-freshness-slo",
+    owner: "checkout/platform-operations",
+    required: false,
+    gateClass: "observation-only",
+    source: "Prometheus checkout session route freshness wait, timeout, and projection lag telemetry",
+    maxIncrease: 0,
+    currentState: "available-now",
+    detail:
+      "Report whether the checkout session route violates p95/p99 freshness wait, timeout-rate, or pending projection-lag SLOs during the canary window.",
+  },
+  {
     name: "checkout-order-payment-errors",
     owner: "checkout/ordering/payments",
     required: false,
@@ -81,6 +92,17 @@ export const REQUIRED_CANARY_SIGNALS = [
     maxIncrease: 0,
     currentState: "needs-instrumentation",
     detail: "No increase in checkout command, session, payment, or reconciliation failures.",
+  },
+  {
+    name: "account-cart-post-write-consistency",
+    owner: "checkout/account-cart",
+    required: true,
+    gateClass: "required-critical-migrated",
+    source: "account-cart post-write consistency outcome telemetry",
+    maxIncrease: 0,
+    currentState: "available-now",
+    detail:
+      "Account-cart missing-strategy and freshness-timeout post-write consistency outcomes must stay within the zero-failure gate.",
   },
   {
     name: "settlement-payout-errors",

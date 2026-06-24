@@ -41,13 +41,18 @@
     },
     {
       "type": "timeseries",
-      "title": "Checkout timeout rate",
+      "title": "Checkout timeout rate and SLO posture",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
           "expr": "sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"timeout\"}[30m])) / clamp_min(sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m])), 1)",
           "legendFormat": "timeout rate"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "(((histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"fresh\"}[30m]))) or on() vector(0)) > bool 1000) + ((histogram_quantile(0.99, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"fresh\"}[30m]))) or on() vector(0)) > bool 2250) + ((((sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"timeout\"}[30m])) or on() vector(0)) / clamp_min((sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m])) or on() vector(0)), 1)) > bool 0.001) + (((histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_pending_lag_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m]))) or on() vector(0)) > bool 0))",
+          "legendFormat": "checkout session SLO violations"
         }
       ]
     },

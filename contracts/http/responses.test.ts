@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   COOKIE_BACKED_CONTINUATION_RELOAD_HEADER,
+  POST_WRITE_TOKEN_PARAM,
+  appendCompactPostWriteToken,
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
   appendPostWriteHandoff,
@@ -10,6 +12,7 @@ import {
   classifyFreshWriteReadError,
   classifyPostWriteDestinationResult,
   classifyPostWriteRouteRecovery,
+  createPostWriteTokenPayloadFromSources,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
   evaluatePostWriteHandoff,
@@ -17,10 +20,12 @@ import {
   getResponseMetadata,
   isBoundedTemporaryPostWriteRecoveryKind,
   loadAfterWrite,
+  materializePostWriteTokenPayload,
   navigateAfterWrite,
   navigateAfterWriteFromSources,
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
+  readCompactPostWriteToken,
   readFreshWriteToken,
   readFreshWriteTokenState,
   readPostWriteHandoff,
@@ -366,6 +371,93 @@ describe("response consistency metadata", () => {
       expectation: "resource-updated",
       surface: "account-listing",
     });
+  });
+
+  it("builds compact post-write token payloads without leaking receipt details into the URL", () => {
+    const payload = createPostWriteTokenPayloadFromSources(
+      [
+        {
+          commitPositions: [checkoutSource],
+          commitEventIds: ["evt_checkout"],
+          email: "buyer@example.com",
+        },
+      ],
+      {
+        nowMs: 1234,
+        handoff: {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          surface: "account-cart",
+        },
+      },
+    );
+
+    expect(payload).toEqual({
+      receipt: {
+        observedAtMs: 1234,
+        sources: [checkoutSource],
+      },
+      handoff: {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      },
+    });
+
+    const compactHref = appendCompactPostWriteToken(
+      "/account/cart?view=full&afterWrite=legacy&postWriteHandoff=legacy",
+      "pwt_1234567890123456",
+    );
+
+    expect(compactHref).toBe("/account/cart?view=full&postWriteToken=pwt_1234567890123456");
+    expect(readCompactPostWriteToken(compactHref)).toBe("pwt_1234567890123456");
+    expect(compactHref).not.toContain("afterWrite=");
+    expect(compactHref).not.toContain("postWriteHandoff=");
+    expect(compactHref).not.toContain("evt_checkout");
+    expect(compactHref).not.toContain("checkout.cart.add-line");
+    expect(compactHref).not.toContain("buyer%40example.com");
+  });
+
+  it("materializes resolved compact post-write token payloads through the legacy readers", () => {
+    const payload = createPostWriteTokenPayloadFromSources(
+      [{ commitPositions: [checkoutSource], commitEventIds: [] }],
+      {
+        nowMs: 1234,
+        handoff: {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          surface: "account-cart",
+        },
+      },
+    );
+    expect(payload).not.toBeNull();
+
+    const compactHref = appendCompactPostWriteToken("/account/cart?view=full", "pwt_1234567890123456");
+    const legacyHref = materializePostWriteTokenPayload(compactHref, payload!);
+
+    expect(new URL(legacyHref, "https://chase-sets.local").searchParams.has(POST_WRITE_TOKEN_PARAM)).toBe(false);
+    expect(readFreshWriteToken(legacyHref, 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [checkoutSource],
+    });
+    expect(readPostWriteHandoff(legacyHref, 1234)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    });
+    expect(readPostWriteHandoffState(legacyHref, 40_000)).toMatchObject({
+      kind: "not-fresh-write",
+      freshWrite: { kind: "expired" },
+    });
+  });
+
+  it("rejects unsafe compact post-write token text", () => {
+    expect(() => appendCompactPostWriteToken("/account/cart", "https://example.com/account/acc_1")).toThrow(
+      "opaque URL-safe identifiers",
+    );
+    expect(readCompactPostWriteToken("/account/cart?postWriteToken=https%3A%2F%2Fexample.com%2Faccount%2Facc_1")).toBe(
+      null,
+    );
   });
 
   it("rejects sensitive or arbitrary semantic handoff fields", () => {

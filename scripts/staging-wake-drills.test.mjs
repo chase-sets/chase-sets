@@ -19,6 +19,7 @@ import {
   renderDrillStepSummary,
   runStagingWakeDrill,
   selectActiveCheckpoints,
+  summarizeSegmentSlo,
   summarizeLoadResults,
   validateStagingWakeDrillOptions,
 } from "./staging-wake-drills.mjs";
@@ -280,6 +281,63 @@ describe("load summary", () => {
   });
 });
 
+describe("segment SLO summary", () => {
+  it("summarizes browser segments and durable convergence without sensitive labels", () => {
+    const summary = summarizeSegmentSlo({
+      readySloMs: 10_000,
+      canaryWrite: {
+        attempted: true,
+        promotionDecision: "promote",
+        readyLatencyMs: 1200,
+        segments: {
+          writeToRedirectMs: 800,
+          redirectToDocumentMs: 100,
+          documentToReadyMs: 300,
+          writeToCheckoutReadyMs: 1200,
+        },
+      },
+      loadResults: [
+        {
+          promotionDecision: "promote",
+          readyLatencyMs: 1100,
+          segments: { writeToRedirectMs: 700, redirectToDocumentMs: 100, documentToReadyMs: 300 },
+        },
+        {
+          promotionDecision: "warn",
+          readyLatencyMs: 12_000,
+          segments: { writeToRedirectMs: 900, redirectToDocumentMs: 100, documentToReadyMs: 11_000 },
+        },
+      ],
+      convergenceBudgetMs: 120_000,
+      convergence: {
+        converged: true,
+        convergedAfterMs: 4000,
+        sampleCount: 2,
+        finalSamples: {
+          checkout: {
+            relayCursorGap: "0",
+            checkpointGaps: [
+              { checkpointKey: "a", gap: "0", converged: true },
+              { checkpointKey: "b", gap: "3", converged: false },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(summary.browser.singleWrite.sloStatus).toBe("pass");
+    expect(summary.browser.singleWrite.segmentLatencyMs.writeToCheckoutReadyMs.max).toBe(1200);
+    expect(summary.browser.load.readyLatencyMs.p95).toBe(12_000);
+    expect(summary.durableConvergence).toMatchObject({
+      budgetMs: 120_000,
+      status: "pass",
+      sourceContexts: { checkout: { relayCursorGap: "0", maxCheckpointGap: "3", laggingCheckpointCount: 1 } },
+    });
+    expect(JSON.stringify(summary)).not.toContain("http");
+    expect(JSON.stringify(summary)).not.toContain("@");
+  });
+});
+
 describe("drill evidence", () => {
   const convergedConvergence = {
     converged: true,
@@ -317,6 +375,7 @@ describe("drill evidence", () => {
       sourceContexts: ["checkout"],
       convergenceBudgetMs: 120_000,
       pollIntervalMs: 5_000,
+      readySloMs: 10_000,
       convergence: convergedConvergence,
       verdictReasons: [],
     });
@@ -324,6 +383,7 @@ describe("drill evidence", () => {
     expect(evidence.schemaVersion).toBe(STAGING_WAKE_DRILLS_VERSION);
     expect(evidence.verdict).toBe("pass");
     expect(evidence.redaction.databaseUrls).toBe("never-recorded");
+    expect(evidence.segmentSlo.durableConvergence.status).toBe("pass");
   });
 
   it("fails closed when evidence would leak connection strings, emails, or tokens", () => {
@@ -347,22 +407,31 @@ describe("drill evidence", () => {
   });
 
   it("renders a step summary with per-context gaps and load statistics", () => {
-    const summary = renderDrillStepSummary({
+    const loadResults = [
+      { exitCode: 0, promotionDecision: "promote", readyLatencyMs: 1500 },
+      { exitCode: 0, promotionDecision: "promote", readyLatencyMs: 2500 },
+    ];
+    const evidence = buildDrillEvidence({
       drillKind: "load",
-      verdict: "pass",
-      verdictReasons: [],
+      checkedAt: "2026-06-11T00:00:00.000Z",
+      completedAt: "2026-06-11T00:02:00.000Z",
+      correlationPrefix: "wake-drill-test",
+      sourceContexts: ["checkout"],
       convergenceBudgetMs: 120_000,
+      pollIntervalMs: 5_000,
+      readySloMs: 10_000,
       convergence: convergedConvergence,
       loadPlan: { iterations: 4, concurrency: 2 },
-      loadSummary: summarizeLoadResults([
-        { exitCode: 0, promotionDecision: "promote", readyLatencyMs: 1500 },
-        { exitCode: 0, promotionDecision: "promote", readyLatencyMs: 2500 },
-      ]),
+      loadResults,
+      loadSummary: summarizeLoadResults(loadResults),
+      verdictReasons: [],
     });
+    const summary = renderDrillStepSummary(evidence);
 
     expect(summary).toContain("Staging wake drill: load");
     expect(summary).toContain("| checkout | 10 | 0 |");
     expect(summary).toContain("readiness pass rate 1");
+    expect(summary).toContain("Segment SLO:");
     expect(summary).toContain("push-wake-recovery-drills.md");
   });
 });

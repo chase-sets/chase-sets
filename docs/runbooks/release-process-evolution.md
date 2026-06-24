@@ -137,6 +137,7 @@ Initial required signals:
 | Worker health and durable job backlog | Platform Operations / infrastructure runtime | Worker heartbeat and durable job backlog telemetry | Needs instrumentation | No new sustained backlog or runner failure. |
 | Projection lag and poison events | Owning bounded contexts / Platform Operations | Projection operation snapshots and poison-event telemetry | Available now | No new degraded projection group caused by the canary release. |
 | Checkout/order/payment errors | Checkout, Ordering, Payments | Checkout, order, payment, and reconciliation telemetry | Needs instrumentation | No increase in checkout command, session, payment, or reconciliation failures. |
+| Account cart post-write consistency | Checkout / account cart | Post-write consistency outcome telemetry for account cart | Available now | Missing strategy and freshness timeout outcomes remain zero. |
 | Settlement/payout errors | Settlement | Settlement operation telemetry for payout setup, readiness, and provider reconciliation | Available now | No increase in payout setup session failures, payout readiness refresh failures, setup-blocked payout requests, or provider reconciliation failures. |
 | Fulfillment/postage callback errors | Fulfillment | Postage provider callback telemetry | Needs instrumentation | No new provider callback signature, parse, or reconciliation failures. |
 | Transactional email callback errors | Notifications | SES/SNS callback and outbox telemetry | Needs instrumentation | No new SES/SNS callback or outbox delivery failure spike. |
@@ -173,7 +174,7 @@ Each Prometheus signal also carries `gateClass`:
 
 - `platform-required`: required release plumbing such as observability transport.
 - `required-critical-migrated`: migrated critical post-write flow evidence. These signals must be `required: true` once telemetry is live. A temporary `currentState: "needs-instrumentation"` exception must include `owner`, `reviewBy`, `removalIssue`, and `reason`.
-- `observation-only`: useful but non-closing evidence. Optional account-cart-style observations cannot close a milestone while a required critical migrated handoff still has an active exception.
+- `observation-only`: useful but non-closing evidence. Optional observations cannot close a milestone while a required critical migrated handoff still has an active exception.
 
 Canary ownership starts with this matrix:
 
@@ -185,6 +186,7 @@ Canary ownership starts with this matrix:
 | `route-error-rate` | `platform-runtime/route-owner` | HTTP 5xx rate by route and host | Hold promotion once required; compare route-level errors against the stable cohort. |
 | `route-latency-p95` | `platform-runtime/route-owner` | HTTP latency histogram by route and host | Hold promotion until latency source and threshold are understood. |
 | `checkout-order-payment-errors` | `checkout/ordering/payments` | Checkout command, order, payment, and reconciliation counters | Abort promotion and page the owning bounded context before exposing traffic. |
+| `account-cart-post-write-consistency` | `checkout/account-cart` | `chase_sets_post_write_consistency_events_total` filtered to account-cart missing-strategy and freshness-timeout outcomes | Abort promotion and inspect account cart optimistic correction, loader revalidation, and stale-response discard behavior. |
 | `settlement-payout-errors` | `settlement` | `chase_sets_settlement_operations_total` filtered to payout setup/session/readiness/reconciliation failure kinds, anchored with `max_over_time` over the authenticated provider-health canary's `provider-health-checked` operation so sparse canary counters do not disappear as missing | Abort promotion, inspect Payout Operations, and keep the release canary at the current cohort until setup and payout readiness are stable. |
 
 Signals whose `currentState` is `needs-instrumentation` must remain out of production gating until telemetry is live. They can appear in dry-run canary evidence or as `required: false` production evidence, but they must remain visible as `missing` when unsupported; they must not silently pass.
