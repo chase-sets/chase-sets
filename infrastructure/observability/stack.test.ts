@@ -50,6 +50,7 @@ describe("observability stack contracts", () => {
     );
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Route wiring failures");
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Projection lag pending rows");
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("checkout session SLO violations");
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
       "Readiness and semantic handoff failures",
     );

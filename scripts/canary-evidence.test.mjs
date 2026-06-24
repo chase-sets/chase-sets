@@ -76,6 +76,12 @@ describe("canary evidence collector", () => {
       status: "missing",
       source: "projection operation snapshots and poison-event telemetry",
     });
+    expect(evidence.signals.find((signal) => signal.name === "account-cart-post-write-consistency")).toMatchObject({
+      required: true,
+      gateClass: "required-critical-migrated",
+      currentState: "available-now",
+      status: "missing",
+    });
     expect(evidence.signals.find((signal) => signal.name === "sell-rail-accept-checkout-handoff")).toMatchObject({
       required: true,
       gateClass: "required-critical-migrated",
@@ -330,6 +336,24 @@ describe("canary evidence collector", () => {
             maxIncrease: 0,
           },
           {
+            name: "checkout-session-freshness-slo",
+            owner: "checkout/platform-operations",
+            source: "Prometheus checkout session freshness SLO posture",
+            baselineQuery: "checkout_slo_baseline",
+            canaryQuery: "checkout_slo_canary",
+            maxIncrease: 0,
+            required: false,
+            gateClass: "observation-only",
+          },
+          {
+            name: "account-cart-post-write-consistency",
+            owner: "checkout/account-cart",
+            source: "Prometheus account-cart post-write consistency telemetry",
+            baselineQuery: "account_cart_baseline",
+            canaryQuery: "account_cart_canary",
+            maxIncrease: 0,
+          },
+          {
             name: "settlement-payout-errors",
             owner: "settlement",
             source: "Prometheus settlement operation failures",
@@ -391,6 +415,13 @@ describe("canary evidence collector", () => {
       canary: 0,
       currentState: "available-now",
     });
+    expect(result.evidence.signals.find((signal) => signal.name === "checkout-session-freshness-slo")).toMatchObject({
+      required: false,
+      gateClass: "observation-only",
+      baseline: 0,
+      canary: 0,
+      currentState: "available-now",
+    });
     expect(result.analysis.passesCanaryAnalysisGate).toBe(true);
   });
 
@@ -427,6 +458,14 @@ describe("canary evidence collector", () => {
             source: "Prometheus settlement telemetry",
             baselineQuery: "settlement_baseline",
             canaryQuery: "settlement_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "account-cart-post-write-consistency",
+            owner: "checkout/account-cart",
+            source: "Prometheus account-cart post-write consistency telemetry",
+            baselineQuery: "account_cart_baseline",
+            canaryQuery: "account_cart_canary",
             maxIncrease: 0,
           },
           {
@@ -572,6 +611,8 @@ describe("canary evidence collector", () => {
         "route-error-rate",
         "route-latency-p95",
         "projection-lag-poison-events",
+        "checkout-session-freshness-slo",
+        "account-cart-post-write-consistency",
         "checkout-order-payment-errors",
         "settlement-payout-errors",
         "sell-rail-accept-checkout-handoff",
@@ -597,6 +638,17 @@ describe("canary evidence collector", () => {
     );
     expect(projectionLagPoisonSignal.canaryQuery).toContain("chase_sets_projection_freshness_work_signal_errors_total");
     expect(projectionLagPoisonSignal.canaryQuery).not.toContain("chase_sets_projection_freshness_pending_total[15m]");
+    const checkoutFreshnessSloSignal = signals.find((signal) => signal.name === "checkout-session-freshness-slo");
+    expect(checkoutFreshnessSloSignal).toMatchObject({
+      required: false,
+      currentState: "available-now",
+      gateClass: "observation-only",
+      threshold:
+        "checkout session freshness p95<=1000ms, p99<=2250ms, timeout rate<=0.1%, and pending projection lag p95=0",
+    });
+    expect(checkoutFreshnessSloSignal.canaryQuery).toContain("chase_sets_projection_freshness_wait_duration_ms_bucket");
+    expect(checkoutFreshnessSloSignal.canaryQuery).toContain("chase_sets_projection_freshness_pending_lag_bucket");
+    expect(checkoutFreshnessSloSignal.canaryQuery).toContain('route_path="/account/checkout-sessions/:sessionId"');
     expect(signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
       required: false,
       currentState: "needs-instrumentation",
@@ -606,6 +658,15 @@ describe("canary evidence collector", () => {
       required: false,
       currentState: "needs-instrumentation",
     });
+    expect(signals.find((signal) => signal.name === "account-cart-post-write-consistency")).toMatchObject({
+      required: true,
+      currentState: "available-now",
+      gateClass: "required-critical-migrated",
+      threshold: "production account-cart missing-strategy and freshness-timeout outcomes must remain zero",
+    });
+    expect(signals.find((signal) => signal.name === "account-cart-post-write-consistency")?.canaryQuery).toContain(
+      'chase_sets_post_write_consistency_events_total{context="checkout",surface="account-cart"',
+    );
     const settlementPayoutErrorsSignal = signals.find((signal) => signal.name === "settlement-payout-errors");
     expect(settlementPayoutErrorsSignal).toMatchObject({
       required: true,

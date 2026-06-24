@@ -42,6 +42,12 @@ export const DEFAULT_SOURCE_CONTEXTS = Object.freeze(["checkout"]);
 export const DEFAULT_FIXTURE_KEY = "staging-guest-buy-now-fixture";
 export const DEFAULT_LOAD_ITERATIONS = 6;
 export const DEFAULT_LOAD_CONCURRENCY = 2;
+export const CANARY_BROWSER_SEGMENTS = Object.freeze([
+  "writeToRedirectMs",
+  "redirectToDocumentMs",
+  "documentToReadyMs",
+  "writeToCheckoutReadyMs",
+]);
 
 const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const CANARY_SCRIPT_PATH = join(REPO_ROOT, "scripts", "guest-buy-now-freshness-canary.mjs");
@@ -276,6 +282,25 @@ export function summarizeLoadResults(results) {
   };
 }
 
+export function summarizeSegmentSlo(input = {}) {
+  const readySloMs = toFiniteNumber(input.readySloMs);
+  const singleWriteResults = input.canaryWrite?.attempted ? [input.canaryWrite] : [];
+  const loadResults = Array.isArray(input.loadResults) ? input.loadResults : [];
+
+  return {
+    browser: {
+      readySloMs,
+      singleWrite: summarizeCanarySegmentResults(singleWriteResults, readySloMs),
+      load: summarizeCanarySegmentResults(loadResults, readySloMs),
+    },
+    durableConvergence: summarizeDurableConvergence(input.convergence ?? null, input.convergenceBudgetMs),
+    metricGaps: [
+      "wake-before-wait enqueue latency histogram is not emitted yet",
+      "server-side notify/relay/store/claim segment distributions remain dashboard-joined by correlation window",
+    ],
+  };
+}
+
 export function assertRedactedDrillEvidence(evidence) {
   const serialized = JSON.stringify(evidence);
   const leaks = [];
@@ -319,6 +344,12 @@ export function renderDrillStepSummary(evidence) {
       }/${evidence.loadSummary.readyLatencyMs.p95 ?? "-"}/${evidence.loadSummary.readyLatencyMs.max ?? "-"}`,
     );
   }
+  if (evidence.segmentSlo) {
+    lines.push(
+      "",
+      `Segment SLO: single-write ${evidence.segmentSlo.browser.singleWrite.sloStatus}; load ${evidence.segmentSlo.browser.load.sloStatus}; durable convergence ${evidence.segmentSlo.durableConvergence.status}.`,
+    );
+  }
   lines.push(
     "",
     "Interpretation: docs/runbooks/push-wake-recovery-drills.md. Wake-status snapshots and per-iteration canary evidence are in the uploaded drill artifact.",
@@ -340,11 +371,19 @@ export function buildDrillEvidence(input) {
     sourceContexts: input.sourceContexts,
     convergenceBudgetMs: input.convergenceBudgetMs,
     pollIntervalMs: input.pollIntervalMs,
+    readySloMs: input.readySloMs ?? null,
     canaryWrite: input.canaryWrite ?? { attempted: false },
     loadPlan: input.loadPlan ?? null,
     loadResults: input.loadResults ?? null,
     loadSummary: input.loadSummary ?? null,
     convergence: input.convergence ?? null,
+    segmentSlo: summarizeSegmentSlo({
+      readySloMs: input.readySloMs,
+      canaryWrite: input.canaryWrite ?? null,
+      loadResults: input.loadResults ?? null,
+      convergence: input.convergence ?? null,
+      convergenceBudgetMs: input.convergenceBudgetMs,
+    }),
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -657,6 +696,7 @@ export async function runStagingWakeDrill(options, deps) {
     sourceContexts: options.sourceContexts,
     convergenceBudgetMs: options.convergenceBudgetMs,
     pollIntervalMs: options.pollIntervalMs,
+    readySloMs: options.readySloMs,
     canaryWrite,
     loadPlan,
     loadResults,
@@ -711,6 +751,93 @@ function percentile(sortedValues, ratio) {
   }
   const rank = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(ratio * sortedValues.length) - 1));
   return sortedValues[rank];
+}
+
+function summarizeCanarySegmentResults(results, readySloMs) {
+  const attempted = results.length;
+  const promoted = results.filter((result) => result.promotionDecision === "promote").length;
+  const readyLatencies = sortedNumbers(results.map((result) => result.readyLatencyMs));
+  const segments = Object.fromEntries(
+    CANARY_BROWSER_SEGMENTS.map((segmentName) => [
+      segmentName,
+      summarizeNumberSeries(results.map((result) => result.segments?.[segmentName])),
+    ]),
+  );
+
+  return {
+    attempted,
+    promoted,
+    readinessPassRate: attempted === 0 ? null : Number((promoted / attempted).toFixed(4)),
+    readyLatencyMs: summarizeSortedNumbers(readyLatencies),
+    segmentLatencyMs: segments,
+    sloStatus:
+      attempted === 0 || readySloMs === null
+        ? "not-measured"
+        : readyLatencies.some((value) => value <= readySloMs)
+          ? "pass"
+          : "miss",
+  };
+}
+
+function summarizeDurableConvergence(convergence, convergenceBudgetMs) {
+  if (!convergence) {
+    return {
+      budgetMs: toFiniteNumber(convergenceBudgetMs),
+      status: "not-measured",
+      convergedAfterMs: null,
+      sampleCount: 0,
+      sourceContexts: {},
+    };
+  }
+
+  return {
+    budgetMs: toFiniteNumber(convergenceBudgetMs),
+    status: convergence.converged ? "pass" : "miss",
+    convergedAfterMs: toFiniteNumber(convergence.convergedAfterMs),
+    sampleCount: toFiniteNumber(convergence.sampleCount) ?? 0,
+    sourceContexts: Object.fromEntries(
+      Object.entries(convergence.finalSamples ?? {}).map(([contextName, sample]) => [
+        contextName,
+        {
+          relayCursorGap: sample.relayCursorGap ?? null,
+          maxCheckpointGap: maxBigIntString(sample.checkpointGaps?.map((entry) => entry.gap)),
+          laggingCheckpointCount: (sample.checkpointGaps ?? []).filter((entry) => !entry.converged).length,
+        },
+      ]),
+    ),
+  };
+}
+
+function summarizeNumberSeries(values) {
+  return summarizeSortedNumbers(sortedNumbers(values));
+}
+
+function summarizeSortedNumbers(values) {
+  return {
+    samples: values.length,
+    min: values.at(0) ?? null,
+    p50: percentile(values, 0.5),
+    p95: percentile(values, 0.95),
+    max: values.at(-1) ?? null,
+  };
+}
+
+function sortedNumbers(values) {
+  return values
+    .map((value) => toFiniteNumber(value))
+    .filter((value) => value !== null && value >= 0)
+    .sort((left, right) => left - right);
+}
+
+function maxBigIntString(values = []) {
+  let max = null;
+  for (const value of values) {
+    const parsed = toBigInt(value);
+    if (max === null || parsed > max) {
+      max = parsed;
+    }
+  }
+  return max === null ? null : max.toString();
 }
 
 function toBigInt(value) {

@@ -53,6 +53,8 @@ Measure only records where `type=read-after-write.freshness`, `routePaths` conta
 
 The single-write and burst rows are deliberately separate SLOs (#1237 dual-SLO ratification, full evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)): the single-write gate is enforced per deploy, while burst behavior is governed by durable convergence because projection groups are platform-wide single-flight — per-group throughput is bounded by design, and the capacity levers (worker instances, wake-lane runner counts, future group sharding) are recorded against the 6x2 burst baseline in the SLO/load-proof ledger.
 
+Release-health now reports the Checkout session freshness SLO posture from existing Prometheus metrics as `checkout-session-freshness-slo`: p95 and p99 fresh wait histograms, timeout rate, and pending projection lag p95 for the support-safe route template `/account/checkout-sessions/:sessionId`, target context `checkout`, projection `checkout.session-projection`, and source context `checkout`. It is observation-only until production has a stable window of Prometheus evidence; a non-zero value means one or more SLO clauses failed during the canary window and should hold wake-before-wait rollout expansion even if the hard canary gates remain green.
+
 The current platform freshness wait timeout is 2,500 ms. Critical Checkout reads should normally complete before that timeout. The Checkout session API route has a built-in route-scoped budget of 900 ms with a 50 ms poll interval so the marketplace document route keeps enough request time to render Checkout-owned temporary recovery instead of surfacing a proxy or document timeout. A timeout is not a customer-visible failure by itself only when the route renders temporary preparing-checkout recovery and keeps retry bounded by the original token validity.
 
 Critical fresh-write routes that render a browser document must set a route-scoped freshness budget below the document/proxy timeout, including render and retry overhead. Do not rely only on the global freshness timeout for those routes; if the gate waits until infrastructure times out, the customer loses the route-owned recovery contract.
@@ -136,6 +138,7 @@ The first required-critical migrated browser handoffs after guest Buy Now are se
 - missing or invalid target context count/rate.
 - exact-dependency versus target-context wait mode count.
 - pending lag for timeout records, including projection group, source context, runner state, and sanitized last-error presence.
+- canary-window SLO posture for the Checkout session route using the same support-safe labels as release-health.
 
 Dashboard labels must use route templates and context/projection names only. They must not include full paths, session ids, event ids, guest tokens, cookies, account ids, user ids, contact names, or email addresses.
 

@@ -1,15 +1,22 @@
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  COOKIE_BACKED_CONTINUATION_RELOAD_HEADER,
+  appendCompactPostWriteToken,
+  createPostWriteTokenPayloadFromSources,
   encodeFreshWriteReceipt,
   loadAfterWrite as loadAfterWriteWithContract,
+  materializePostWriteTokenPayload,
   navigateAfterWrite as navigateAfterWriteWithContract,
   navigateAfterWriteFromSources as navigateAfterWriteFromSourcesWithContract,
+  readCompactPostWriteToken,
   readFreshWriteToken,
   redirectAfterWriteFromSources as redirectAfterWriteFromSourcesWithContract,
   type LoadAfterWriteOptions,
   type LoadAfterWriteResult,
   type NavigateAfterWriteOptions,
+  type PostWriteTokenResolver,
+  type PostWriteTokenStore,
   type RedirectAfterWriteOptions,
 } from "@chase-sets/http/responses";
 import {
@@ -22,6 +29,7 @@ export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
 const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
+const DEFAULT_POST_WRITE_TOKEN_TTL_MS = 120_000;
 
 export type PlatformPostWriteTelemetry = Readonly<
   Omit<PlatformPostWriteConsistencyEvent, "outcome" | "strategy"> & {
@@ -39,10 +47,32 @@ export type PlatformRedirectAfterWriteOptions = RedirectAfterWriteOptions &
     telemetry?: PlatformPostWriteTelemetry;
   }>;
 
-export type PlatformLoadAfterWriteOptions<T> = LoadAfterWriteOptions<T> &
+export type PlatformCompactPostWriteTokenOptions = NavigateAfterWriteOptions &
   Readonly<{
+    postWriteTokenStore: PostWriteTokenStore;
+    postWriteTokenTtlMs?: number;
     telemetry?: PlatformPostWriteTelemetry;
   }>;
+
+export type PlatformCompactRedirectAfterWriteOptions = RedirectAfterWriteOptions &
+  Readonly<{
+    postWriteTokenStore: PostWriteTokenStore;
+    postWriteTokenTtlMs?: number;
+    telemetry?: PlatformPostWriteTelemetry;
+  }>;
+
+export type PlatformLoadAfterWriteOptions<T> = LoadAfterWriteOptions<T> &
+  Readonly<{
+    postWriteTokenResolver?: PostWriteTokenResolver;
+    telemetry?: PlatformPostWriteTelemetry;
+  }>;
+
+export type PlatformForwardedAuthHeadersOptions = Readonly<{
+  readTargetContextName?: string;
+  postWriteTokenResolver?: PostWriteTokenResolver;
+  nowMs?: number;
+  maxAgeMs?: number;
+}>;
 
 function recordPostWriteTelemetry(
   telemetry: PlatformPostWriteTelemetry | undefined,
@@ -68,6 +98,27 @@ function postWriteReadOutcome<T>(result: LoadAfterWriteResult<T>): PlatformPostW
   }
 
   return result.kind === "pending" ? "read_pending" : "read_permanent";
+}
+
+export async function resolvePostWriteTokenRequest(
+  request: Request,
+  resolver: PostWriteTokenResolver | undefined,
+): Promise<Request> {
+  if (!resolver) {
+    return request;
+  }
+
+  const token = readCompactPostWriteToken(request);
+  if (!token) {
+    return request;
+  }
+
+  const payload = await resolver.resolvePostWriteToken(token);
+  if (!payload) {
+    return request;
+  }
+
+  return new Request(materializePostWriteTokenPayload(request.url, payload), request);
 }
 
 export function resolvePlatformInternalAuthSecret(options: Readonly<{ requireExplicitInProduction?: boolean }> = {}) {
@@ -107,6 +158,60 @@ export function navigateAfterWriteFromSources(
   return destination;
 }
 
+export async function navigateAfterWriteWithCompactToken(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: PlatformCompactPostWriteTokenOptions,
+): Promise<string> {
+  return navigateAfterWriteFromSourcesWithCompactToken([commandResult], destinationRoute, options);
+}
+
+export async function navigateAfterWriteFromSourcesWithCompactToken(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: PlatformCompactPostWriteTokenOptions,
+): Promise<string> {
+  const nowMs = options.nowMs ?? Date.now();
+  const payload = createPostWriteTokenPayloadFromSources(commandResults, {
+    handoff: options.handoff,
+    nowMs,
+  });
+
+  if (!payload) {
+    recordPostWriteTelemetry(
+      options.telemetry,
+      "navigation_missing_receipt",
+      options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
+    );
+    return destinationRoute;
+  }
+
+  const token = await options.postWriteTokenStore.storePostWriteToken(payload, {
+    nowMs,
+    ttlMs: options.postWriteTokenTtlMs ?? DEFAULT_POST_WRITE_TOKEN_TTL_MS,
+  });
+  const destination = appendCompactPostWriteToken(destinationRoute, token);
+  recordPostWriteTelemetry(
+    options.telemetry,
+    "navigation_encoded",
+    options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
+  );
+  return destination;
+}
+
+function createPlatformPostWriteRedirectResponse(
+  destination: string,
+  options: PlatformCompactRedirectAfterWriteOptions,
+): Response {
+  const headers = new Headers(options.headers);
+  headers.set("Location", destination);
+  if (options.continuation === "cookie-backed") {
+    headers.set(COOKIE_BACKED_CONTINUATION_RELOAD_HEADER, "true");
+  }
+
+  return new Response(null, { status: options.status ?? 302, headers });
+}
+
 export function redirectAfterWrite(
   commandResult: unknown,
   destinationRoute: string,
@@ -130,17 +235,36 @@ export function redirectAfterWriteFromSources(
   return response;
 }
 
+export async function redirectAfterWriteWithCompactToken(
+  commandResult: unknown,
+  destinationRoute: string,
+  options: PlatformCompactRedirectAfterWriteOptions,
+): Promise<Response> {
+  return redirectAfterWriteFromSourcesWithCompactToken([commandResult], destinationRoute, options);
+}
+
+export async function redirectAfterWriteFromSourcesWithCompactToken(
+  commandResults: readonly unknown[],
+  destinationRoute: string,
+  options: PlatformCompactRedirectAfterWriteOptions,
+): Promise<Response> {
+  const destination = await navigateAfterWriteFromSourcesWithCompactToken(commandResults, destinationRoute, options);
+  return createPlatformPostWriteRedirectResponse(destination, options);
+}
+
 export async function loadAfterWrite<T>(options: PlatformLoadAfterWriteOptions<T>): Promise<LoadAfterWriteResult<T>> {
-  const result = await loadAfterWriteWithContract(options);
+  const { postWriteTokenResolver, telemetry, ...contractOptions } = options;
+  const request = await resolvePostWriteTokenRequest(options.request, postWriteTokenResolver);
+  const result = await loadAfterWriteWithContract({ ...contractOptions, request });
   const recoveryAction = result.kind === "data" ? "none" : "recoveryKind" in result ? result.recoveryKind : "unknown";
   const correctionSource =
     "handoff" in result && result.handoff && result.handoff.kind !== "not-applicable"
       ? `semantic-handoff:${result.handoff.handoff.kind}`
       : "state" in result && result.state.handoff
         ? `semantic-handoff:${result.state.handoff.kind}`
-        : options.telemetry?.correctionSource;
+        : telemetry?.correctionSource;
 
-  recordPostWriteTelemetry(options.telemetry, postWriteReadOutcome(result), {
+  recordPostWriteTelemetry(telemetry, postWriteReadOutcome(result), {
     correctionSource,
     recoveryAction,
     freshnessOutcome: result.kind === "data" ? "fresh" : result.reason,
@@ -161,12 +285,12 @@ export function createPlatformInternalAuthHeaders(
 export function createForwardedAuthHeaders(
   request: Request,
   initHeaders?: HeadersInit,
-  options: Readonly<{ readTargetContextName?: string }> = {},
+  options: Readonly<{ readTargetContextName?: string; nowMs?: number; maxAgeMs?: number }> = {},
 ): Headers {
   const headers = new Headers(initHeaders);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");
-  const freshWrite = readFreshWriteToken(request);
+  const freshWrite = readFreshWriteToken(request, options.nowMs, options.maxAgeMs);
 
   if (cookie && !headers.has("cookie")) {
     headers.set("cookie", cookie);
@@ -187,10 +311,23 @@ export function createForwardedAuthHeaders(
   return headers;
 }
 
+export async function createForwardedAuthHeadersAsync(
+  request: Request,
+  initHeaders?: HeadersInit,
+  options: PlatformForwardedAuthHeadersOptions = {},
+): Promise<Headers> {
+  const resolvedRequest = await resolvePostWriteTokenRequest(request, options.postWriteTokenResolver);
+  return createForwardedAuthHeaders(resolvedRequest, initHeaders, {
+    readTargetContextName: options.readTargetContextName,
+    nowMs: options.nowMs,
+    maxAgeMs: options.maxAgeMs,
+  });
+}
+
 export function createForwardedAuthFetch(
   request: Request,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-  options: Readonly<{ readTargetContextName?: string }> = {},
+  options: Readonly<{ readTargetContextName?: string; nowMs?: number; maxAgeMs?: number }> = {},
 ): typeof globalThis.fetch {
   return (input, init = {}) =>
     fetchImpl(input, {

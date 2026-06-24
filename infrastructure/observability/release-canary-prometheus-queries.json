@@ -50,6 +50,18 @@
       "threshold": "production projection freshness last-error/work-signal telemetry must remain zero"
     },
     {
+      "name": "checkout-session-freshness-slo",
+      "owner": "checkout/platform-operations",
+      "required": false,
+      "gateClass": "observation-only",
+      "source": "Prometheus checkout session route freshness wait, timeout, and projection lag telemetry",
+      "currentState": "available-now",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "(((histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"fresh\"}[30m]))) or on() vector(0)) > bool 1000) + ((histogram_quantile(0.99, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"fresh\"}[30m]))) or on() vector(0)) > bool 2250) + ((((sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"timeout\"}[30m])) or on() vector(0)) / clamp_min((sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m])) or on() vector(0)), 1)) > bool 0.001) + (((histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_pending_lag_bucket{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m]))) or on() vector(0)) > bool 0))",
+      "maxIncrease": 0,
+      "threshold": "checkout session freshness p95<=1000ms, p99<=2250ms, timeout rate<=0.1%, and pending projection lag p95=0"
+    },
+    {
       "name": "checkout-order-payment-errors",
       "owner": "checkout/ordering/payments",
       "required": false,
@@ -64,8 +76,8 @@
     {
       "name": "account-cart-post-write-consistency",
       "owner": "checkout/account-cart",
-      "required": false,
-      "gateClass": "observation-only",
+      "required": true,
+      "gateClass": "required-critical-migrated",
       "source": "Prometheus account-cart post-write consistency outcome telemetry",
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
