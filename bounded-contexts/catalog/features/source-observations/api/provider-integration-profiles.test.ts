@@ -259,16 +259,22 @@ describe("catalog provider integration profiles", () => {
     expect(profile?.connector).not.toHaveProperty("fixtureBackedOnly");
   });
 
-  it("registers Scrydex Lorcana units against the shared Scrydex credentialed connector", () => {
+  it("registers supported Scrydex Lorcana units against the shared Scrydex credentialed connector", () => {
     const card = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
       profileKey: "lorcana-card-print-source-observation",
     });
     const set = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
       profileKey: "lorcana-set-reference-data",
     });
-    const sealed = getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+    const sealed = getCatalogProviderIntegrationProfileVersion("scrydex", "2026.06.23", {
       profileKey: "lorcana-sealed-product-source-observation",
     });
+
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("scrydex", {
+        profileKey: "lorcana-sealed-product-source-observation",
+      }),
+    ).toBeNull();
 
     expect(card?.profile).toBe(scrydexLorcanaCardPrintProviderProfile);
     expect(set?.profile).toBe(scrydexLorcanaSetReferenceProviderProfile);
@@ -288,6 +294,8 @@ describe("catalog provider integration profiles", () => {
       profile: { normalizedObservationMapping: { kind: "lorcana-set-reference" } },
     });
     expect(sealed).toMatchObject({
+      lifecycle: "test",
+      active: false,
       ingestionUnitIdentity: {
         unitKey: "scrydex:lorcana:sealed-product:source-observation-import",
         productDomain: "lorcana",
@@ -912,7 +920,7 @@ describe("catalog provider integration profiles", () => {
       ["mtgjson", "2026.06.19", "active"],
       ["scrydex", "2026.06.23", "active"],
       ["scrydex", "2026.06.23", "active"],
-      ["scrydex", "2026.06.23", "active"],
+      ["scrydex", "2026.06.23", "test"],
       ["scrydex", "2026.06.22", "active"],
       ["scrydex", "2026.06.22", "active"],
       ["scrydex", "2026.06.22", "active"],

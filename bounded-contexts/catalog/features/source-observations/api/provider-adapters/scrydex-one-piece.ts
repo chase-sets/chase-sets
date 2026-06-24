@@ -330,15 +330,6 @@ export function createScrydexOnePieceProviderAdapter(
           displayName: "Scrydex Lorcana set reference data",
           profileVersion: lorcanaProfileVersion,
         },
-        {
-          unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-          providerKey: "scrydex",
-          productDomain: "lorcana",
-          productForm: "sealed-product",
-          ingestionPurpose: "source-observation-import",
-          displayName: "Scrydex Lorcana sealed-product Source Observation import",
-          profileVersion: lorcanaProfileVersion,
-        },
       ];
     },
     async listOptions(input) {
@@ -1848,7 +1839,6 @@ function scrydexOnePieceUnitKeys(): readonly ScrydexOnePieceUnitKey[] {
     SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
-    SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   ];
 }
 

@@ -1463,6 +1463,7 @@ export function createChangedObservationRefreshHarness(
     deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
+    assetStorage?: CatalogRuntimeDeps["assetStorage"];
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1663,6 +1664,7 @@ export function createChangedObservationRefreshHarness(
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
+    assetStorage: input.assetStorage,
   } as object as CatalogRuntimeDeps;
 
   const items = {

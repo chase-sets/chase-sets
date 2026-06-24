@@ -1,7 +1,13 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CatalogAssetStoragePutInput } from "./asset-storage";
-import { extractApprovedOnePieceImageEvidence, normalizeProductAssetSet } from "./product-asset-normalization";
+import {
+  extractApprovedLorcanaImageEvidence,
+  extractApprovedOnePieceImageEvidence,
+  normalizeLorcanaImageAsset,
+  normalizeProductAssetSet,
+  selectApprovedLorcanaImageEvidence,
+} from "./product-asset-normalization";
 
 describe("product asset normalization", () => {
   it("preserves the source asset and trims transparent display padding before generating variants", async () => {
@@ -133,6 +139,114 @@ describe("product asset normalization", () => {
       "Provider 'bandai-official' is not approved for retained One Piece image evidence.",
     ]);
   });
+
+  it("selects Lorcana image evidence by approved provider precedence", () => {
+    const result = selectApprovedLorcanaImageEvidence([
+      {
+        providerKey: "tcgplayer",
+        imageUrls: ["https://tcgplayer-cdn.tcgplayer.com/product/1005010_200w.jpg"],
+        observedAt: "2026-06-23T00:00:00.000Z",
+      },
+      {
+        providerKey: "scrydex",
+        imageUrls: ["https://images.scrydex.example/lorcana/tfc-041.png"],
+        observedAt: "2026-06-23T00:00:00.000Z",
+      },
+      {
+        providerKey: "lorcanajson",
+        imageUrls: ["https://images.lorcanajson.org/cards/en/1/041.webp"],
+        observedAt: "2026-06-23T00:00:00.000Z",
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      status: "current",
+      providerKey: "lorcanajson",
+      imageUrls: ["https://images.lorcanajson.org/cards/en/1/041.webp"],
+    });
+  });
+
+  it("records missing Lorcana images as review diagnostics instead of retained payloads", () => {
+    const result = extractApprovedLorcanaImageEvidence({
+      providerKey: "lorcast",
+      imageUrls: [],
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("missing");
+    expect(result.imageUrls).toEqual([]);
+    expect(result.diagnostics).toEqual(["lorcast did not provide approved Lorcana image URI evidence."]);
+  });
+
+  it("marks stale Lorcana image evidence for review before rehosting", () => {
+    const result = extractApprovedLorcanaImageEvidence({
+      providerKey: "scrydex",
+      imageUrls: ["https://images.scrydex.example/lorcana/tfc-041.png"],
+      sourceUpdatedAt: "2024-01-01T00:00:00.000Z",
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("stale");
+    expect(result.imageUrls).toEqual(["https://images.scrydex.example/lorcana/tfc-041.png"]);
+    expect(result.diagnostics[0]).toContain("must be reviewed before rehosting");
+  });
+
+  it("excludes official Lorcana validation images from retained image evidence", () => {
+    const result = extractApprovedLorcanaImageEvidence({
+      providerKey: "ravensburger-lorcana-official",
+      imageUrls: ["https://www.ravensburger.example/lorcana/card-image.jpg"],
+      observedAt: "2026-06-23T00:00:00.000Z",
+    });
+
+    expect(result.status).toBe("unapproved");
+    expect(result.imageUrls).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      "Provider 'ravensburger-lorcana-official' is not approved for retained Lorcana image evidence.",
+    ]);
+  });
+
+  it("mirrors approved Lorcana provider images into Catalog-owned Product Asset Sets", async () => {
+    const sourceBody = await transparentPaddedCardImage();
+    const storedAssets: CatalogAssetStoragePutInput[] = [];
+
+    const assetSet = await normalizeLorcanaImageAsset({
+      providerKey: "lorcanajson",
+      imageUrls: ["https://images.lorcanajson.org/cards/en/1/041.webp"],
+      observedAt: "2026-06-23T00:00:00.000Z",
+      storageBaseKey: "catalog/items/cat_lorcana/product-image",
+      fetcher: async (input) =>
+        new Response(copyToArrayBuffer(sourceBody), {
+          status: 200,
+          headers: { "content-type": "image/webp" },
+        }),
+      assetStorage: {
+        async putObject(input) {
+          storedAssets.push(input);
+          return {
+            key: input.key,
+            publicUrl: `https://assets.chasesets.test/${input.key}`,
+          };
+        },
+      },
+    });
+
+    expect(assetSet?.sourcePolicy).toEqual(
+      expect.objectContaining({
+        sourceProviderKey: "lorcanajson",
+        sourceUrlHost: "images.lorcanajson.org",
+        sourceUrlHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        sourceContentType: "image/webp",
+      }),
+    );
+    expect(assetSet?.variants.map((variant) => variant.publicUrl)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("https://assets.chasesets.test/catalog/items/cat_lorcana/product-image/thumbnail"),
+        expect.stringContaining("https://assets.chasesets.test/catalog/items/cat_lorcana/product-image/catalog-detail"),
+      ]),
+    );
+    expect(storedAssets).toHaveLength(7);
+    expect(JSON.stringify(assetSet)).not.toContain("https://images.lorcanajson.org/cards/en/1/041.webp");
+  });
 });
 
 async function transparentPaddedCardImage(): Promise<Uint8Array> {
@@ -159,4 +273,10 @@ async function transparentPaddedCardImage(): Promise<Uint8Array> {
     .toBuffer();
 
   return new Uint8Array(source);
+}
+
+function copyToArrayBuffer(source: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(source.byteLength);
+  new Uint8Array(body).set(source);
+  return body;
 }

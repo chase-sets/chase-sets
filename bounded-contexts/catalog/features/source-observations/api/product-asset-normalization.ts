@@ -10,6 +10,9 @@ import type { CatalogAssetStorage } from "./asset-storage";
 const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const DISPLAY_NORMALIZATION_VERSION = "trim-alpha-v1";
 const ONE_PIECE_IMAGE_EVIDENCE_STALE_AFTER_DAYS = 365;
+const LORCANA_IMAGE_EVIDENCE_STALE_AFTER_DAYS = 365;
+
+const LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE = ["lorcanajson", "scrydex", "lorcast", "tcgplayer"] as const;
 
 export const CATALOG_PRODUCT_IMAGE_RETENTION_POLICY = {
   policyKey: "catalog-product-image-retention-v1",
@@ -21,8 +24,32 @@ export const CATALOG_PRODUCT_IMAGE_RETENTION_POLICY = {
 
 export type OnePieceImageEvidenceProviderKey = "scrydex" | "tcgplayer" | "bandai-official" | "comparison-only";
 
+export type LorcanaImageEvidenceProviderKey =
+  | "lorcanajson"
+  | "lorcast"
+  | "scrydex"
+  | "tcgplayer"
+  | "ravensburger-lorcana-official"
+  | "disney-lorcana-official"
+  | "comparison-only";
+
 export type OnePieceImageEvidenceResult = Readonly<{
   status: "current" | "stale" | "missing" | "unapproved";
+  imageUrls: readonly string[];
+  diagnostics: readonly string[];
+  retentionPolicy: typeof CATALOG_PRODUCT_IMAGE_RETENTION_POLICY;
+}>;
+
+export type LorcanaImageEvidenceCandidate = Readonly<{
+  providerKey: LorcanaImageEvidenceProviderKey | string;
+  imageUrls: readonly string[] | null | undefined;
+  observedAt: string;
+  sourceUpdatedAt?: string | null;
+}>;
+
+export type LorcanaImageEvidenceResult = Readonly<{
+  status: "current" | "stale" | "missing" | "unapproved";
+  providerKey: string;
   imageUrls: readonly string[];
   diagnostics: readonly string[];
   retentionPolicy: typeof CATALOG_PRODUCT_IMAGE_RETENTION_POLICY;
@@ -45,6 +72,17 @@ export type NormalizeProductAssetInput = Readonly<{
   sourceUrl?: string | null;
   storageBaseKey: string;
   generatedAt: string;
+  assetStorage: CatalogAssetStorage;
+  imageProcessor?: CatalogImageProcessor;
+}>;
+
+export type NormalizeLorcanaImageAssetInput = Readonly<{
+  providerKey: LorcanaImageEvidenceProviderKey | string;
+  imageUrls: readonly string[] | null | undefined;
+  sourceUpdatedAt?: string | null;
+  observedAt: string;
+  storageBaseKey: string;
+  fetcher: typeof globalThis.fetch;
   assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
 }>;
@@ -104,6 +142,118 @@ export async function normalizeProductAssetSet(input: NormalizeProductAssetInput
   };
 }
 
+export function extractApprovedLorcanaImageEvidence(input: LorcanaImageEvidenceCandidate): LorcanaImageEvidenceResult {
+  const providerKey = normalizeProviderKey(input.providerKey);
+  const approvedProvider = LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE.includes(
+    providerKey as (typeof LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE)[number],
+  );
+  if (!approvedProvider) {
+    return {
+      status: "unapproved",
+      providerKey,
+      imageUrls: [],
+      diagnostics: [`Provider '${providerKey}' is not approved for retained Lorcana image evidence.`],
+      retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
+    };
+  }
+
+  const imageUrls = [...new Set((input.imageUrls ?? []).map((url) => url.trim()).filter(isHttpsUrl))];
+  if (imageUrls.length === 0) {
+    return {
+      status: "missing",
+      providerKey,
+      imageUrls: [],
+      diagnostics: [`${providerKey} did not provide approved Lorcana image URI evidence.`],
+      retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
+    };
+  }
+
+  if (isStaleImageEvidence(input.sourceUpdatedAt ?? null, input.observedAt, LORCANA_IMAGE_EVIDENCE_STALE_AFTER_DAYS)) {
+    return {
+      status: "stale",
+      providerKey,
+      imageUrls,
+      diagnostics: [
+        `${providerKey} Lorcana image URI evidence is older than ${LORCANA_IMAGE_EVIDENCE_STALE_AFTER_DAYS} days and must be reviewed before rehosting.`,
+      ],
+      retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
+    };
+  }
+
+  return {
+    status: "current",
+    providerKey,
+    imageUrls,
+    diagnostics: [],
+    retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
+  };
+}
+
+export function selectApprovedLorcanaImageEvidence(
+  candidates: readonly LorcanaImageEvidenceCandidate[],
+): LorcanaImageEvidenceResult {
+  const evaluated = candidates.map(extractApprovedLorcanaImageEvidence);
+  const currentByPrecedence = LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE.map((providerKey) =>
+    evaluated.find((candidate) => candidate.providerKey === providerKey && candidate.status === "current"),
+  ).find((candidate): candidate is LorcanaImageEvidenceResult => Boolean(candidate));
+  if (currentByPrecedence) {
+    return currentByPrecedence;
+  }
+
+  const staleByPrecedence = LORCANA_APPROVED_IMAGE_PROVIDER_PRECEDENCE.map((providerKey) =>
+    evaluated.find((candidate) => candidate.providerKey === providerKey && candidate.status === "stale"),
+  ).find((candidate): candidate is LorcanaImageEvidenceResult => Boolean(candidate));
+  if (staleByPrecedence) {
+    return staleByPrecedence;
+  }
+
+  return {
+    status: "missing",
+    providerKey: "none",
+    imageUrls: [],
+    diagnostics: evaluated.flatMap((candidate) => candidate.diagnostics),
+    retentionPolicy: CATALOG_PRODUCT_IMAGE_RETENTION_POLICY,
+  };
+}
+
+export async function normalizeLorcanaImageAsset(
+  input: NormalizeLorcanaImageAssetInput,
+): Promise<ProductAssetSet | null> {
+  const evidence = extractApprovedLorcanaImageEvidence(input);
+  if (evidence.status !== "current") {
+    return null;
+  }
+
+  const sourceUrl = evidence.imageUrls[0];
+  if (!sourceUrl) {
+    return null;
+  }
+
+  const response = await input.fetcher(sourceUrl);
+  if (!response.ok) {
+    throw new Error(`Lorcana image asset request failed with ${response.status} for ${sourceUrl}.`);
+  }
+
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Lorcana image asset response must be an image for ${sourceUrl}.`);
+  }
+
+  const sourceBody = await sharp(new Uint8Array(await response.arrayBuffer()))
+    .webp({ quality: 100 })
+    .toBuffer();
+  return normalizeProductAssetSet({
+    sourceBody: new Uint8Array(sourceBody),
+    sourceContentType: "image/webp",
+    sourceProviderKey: evidence.providerKey,
+    sourceUrl,
+    storageBaseKey: input.storageBaseKey,
+    generatedAt: input.observedAt,
+    assetStorage: input.assetStorage,
+    imageProcessor: input.imageProcessor,
+  });
+}
+
 export function extractApprovedOnePieceImageEvidence(input: {
   providerKey: OnePieceImageEvidenceProviderKey | string;
   imageUrls: readonly string[] | null | undefined;
@@ -131,7 +281,9 @@ export function extractApprovedOnePieceImageEvidence(input: {
     };
   }
 
-  if (isStaleImageEvidence(input.sourceUpdatedAt ?? null, input.observedAt)) {
+  if (
+    isStaleImageEvidence(input.sourceUpdatedAt ?? null, input.observedAt, ONE_PIECE_IMAGE_EVIDENCE_STALE_AFTER_DAYS)
+  ) {
     return {
       status: "stale",
       imageUrls,
@@ -252,7 +404,7 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
-function isStaleImageEvidence(sourceUpdatedAt: string | null, observedAt: string): boolean {
+function isStaleImageEvidence(sourceUpdatedAt: string | null, observedAt: string, staleAfterDays: number): boolean {
   if (!sourceUpdatedAt) {
     return false;
   }
@@ -262,5 +414,5 @@ function isStaleImageEvidence(sourceUpdatedAt: string | null, observedAt: string
     return false;
   }
   const ageMs = observedTime - sourceTime;
-  return ageMs > ONE_PIECE_IMAGE_EVIDENCE_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  return ageMs > staleAfterDays * 24 * 60 * 60 * 1000;
 }

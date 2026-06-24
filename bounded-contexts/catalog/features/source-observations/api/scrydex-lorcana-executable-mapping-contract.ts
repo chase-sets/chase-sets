@@ -145,7 +145,7 @@ export const scrydexLorcanaSealedProductSourceObservationMappingContract = {
     productForm: "sealed-product",
     ingestionPurpose: "source-observation-import",
   }),
-  lifecycle: "active",
+  lifecycle: "test",
   sourceContract: { ...scrydexLorcanaSourceContract, fixtureSetVersion: "scrydex-lorcana-sealed-production-v1" },
   connector: scrydexLorcanaConnectorContract,
   fixtures: sealedFixtures,

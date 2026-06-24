@@ -57,10 +57,8 @@ import {
   TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgplayer";
 import {
-  runScrydexLorcanaSealedProductSourceObservationImportProofDryRun,
   runScrydexLorcanaSetReferenceValidationDryRun,
   runScrydexLorcanaSingleCardSourceObservationImportProofDryRun,
-  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   runScrydexOnePieceSealedProductSourceObservationImportProofDryRun,
@@ -131,10 +129,6 @@ export function createCatalogIntegrationDryRunProofRegistry(
       runScrydexLorcanaSingleCardSourceObservationImportProofDryRun,
     ],
     [SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, runScrydexLorcanaSetReferenceValidationDryRun],
-    [
-      SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      runScrydexLorcanaSealedProductSourceObservationImportProofDryRun,
-    ],
   ],
 ): CatalogIntegrationDryRunProofRegistry {
   return new Map(proofs);

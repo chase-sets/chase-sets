@@ -63,13 +63,6 @@ describe("Scrydex One Piece provider adapter", () => {
         productForm: "set",
         ingestionPurpose: "reference-data",
       }),
-      expect.objectContaining({
-        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        providerKey: "scrydex",
-        productDomain: "lorcana",
-        productForm: "sealed-product",
-        ingestionPurpose: "source-observation-import",
-      }),
     ]);
   });
 
@@ -140,15 +133,6 @@ describe("Scrydex One Piece provider adapter", () => {
         optionQueryBlocking: true,
         diagnosticCode: "credential-missing",
       }),
-      expect.objectContaining({
-        providerKey: "scrydex",
-        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        requirement: "required",
-        state: "missing",
-        importBlocking: true,
-        optionQueryBlocking: true,
-        diagnosticCode: "credential-missing",
-      }),
     ]);
   });
 
@@ -205,13 +189,6 @@ describe("Scrydex One Piece provider adapter", () => {
       expect.objectContaining({
         providerKey: "scrydex",
         unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
-        state: "configured",
-        importBlocking: false,
-        optionQueryBlocking: false,
-      }),
-      expect.objectContaining({
-        providerKey: "scrydex",
-        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         state: "configured",
         importBlocking: false,
         optionQueryBlocking: false,
