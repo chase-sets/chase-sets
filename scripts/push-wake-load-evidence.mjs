@@ -83,6 +83,7 @@ export function buildPushWakeLoadEvidence(input) {
   const leakMatches = assertNoSensitiveLoadEvidenceValues(artifact);
   const loadPlan = isRecord(artifact.loadPlan) ? artifact.loadPlan : {};
   const loadSummary = normalizeLoadSummary(artifact.loadSummary, artifact.loadResults);
+  const loadReadinessDecision = normalizeLoadReadinessDecision(artifact.loadReadinessDecision);
   const convergence = normalizeConvergence(artifact.convergence);
   const wakeStatusBefore = normalizeWakeStatus(artifact.wakeStatusBefore);
   const wakeStatusAfter = normalizeWakeStatus(artifact.wakeStatusAfter);
@@ -119,6 +120,15 @@ export function buildPushWakeLoadEvidence(input) {
   }
   if (convergence.convergedAfterMs === null || convergence.convergedAfterMs > budgets.maxDurableConvergenceMs) {
     verdictReasons.push("durable-convergence-exceeded-budget");
+  }
+  if (loadSummary.attempted > 0 && loadSummary.promoted < loadSummary.attempted) {
+    if (loadReadinessDecision.status !== "accepted-burst-saturation-degradation") {
+      verdictReasons.push("load-readiness-slo-miss-without-accepted-decision");
+    } else {
+      warnings.push(
+        `load per-write readiness missed the ${loadReadinessDecision.readySloMs ?? "configured"} ms budget; accepted by ${loadReadinessDecision.acceptedBy ?? "the recorded burst/saturation decision"}.`,
+      );
+    }
   }
 
   for (const contextName of budgets.requiredSourceContexts) {
@@ -191,6 +201,7 @@ export function buildPushWakeLoadEvidence(input) {
         bounded: loadPlan.bounded === true,
       },
       loadSummary,
+      loadReadinessDecision,
       durableConvergence: {
         converged: convergence.converged,
         convergedAfterMs: convergence.convergedAfterMs,
@@ -233,6 +244,7 @@ export function renderPushWakeLoadEvidenceMarkdown(evidence) {
     `- Evidence produced: ${load.evidenceProduced}/${load.attempted} (${load.evidenceProducedRate})`,
     `- Config errors: ${load.configErrors}`,
     `- Ready latency p95: ${load.readyLatencyMs.p95 ?? "not measured"} ms`,
+    `- Load readiness decision: ${evidence.observations.loadReadinessDecision.status ?? "not recorded"}`,
     "",
     "## Durable Convergence",
     "",
@@ -295,6 +307,19 @@ function normalizeLoadSummary(summaryValue, loadResultsValue) {
     promoted: toFiniteNumber(summary.promoted),
     readinessPassRate: toNullableNumber(summary.readinessPassRate),
     readyLatencyMs: normalizeNumberSummary(summary.readyLatencyMs),
+  };
+}
+
+function normalizeLoadReadinessDecision(value) {
+  const decision = isRecord(value) ? value : {};
+  return {
+    status: sanitizeEvidenceString(decision.status),
+    decision: sanitizeEvidenceString(decision.decision),
+    reason: sanitizeEvidenceString(decision.reason),
+    acceptedBy: sanitizeEvidenceString(decision.acceptedBy),
+    readySloMs: toNullableNumber(decision.readySloMs),
+    readinessPassRate: toNullableNumber(decision.readinessPassRate),
+    durableConvergenceStatus: sanitizeEvidenceString(decision.durableConvergenceStatus),
   };
 }
 

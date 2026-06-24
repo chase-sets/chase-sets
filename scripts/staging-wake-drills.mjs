@@ -299,6 +299,35 @@ export function summarizeSegmentSlo(input = {}) {
   };
 }
 
+export function deriveLoadReadinessDecision(input = {}) {
+  const loadSummary = input.loadSummary;
+  const loadSegment = input.loadSegment;
+  if (!loadSummary || loadSummary.attempted === 0) {
+    return null;
+  }
+
+  const readinessPassRate = toFiniteNumber(loadSummary.readinessPassRate);
+  const promoted = toFiniteNumber(loadSummary.promoted) ?? 0;
+  const attempted = toFiniteNumber(loadSummary.attempted) ?? 0;
+  if (attempted > 0 && promoted >= attempted && loadSegment?.sloStatus !== "miss") {
+    return {
+      status: "met-readiness-budget",
+      readySloMs: toFiniteNumber(input.readySloMs),
+      readinessPassRate,
+    };
+  }
+
+  return {
+    status: "accepted-burst-saturation-degradation",
+    decision: "bounded-load-per-write-readiness-is-best-effort-when-durable-convergence-passes",
+    reason: "ratified-burst-saturation-slo",
+    acceptedBy: "docs/architecture/push-wake-slo-load-proof.md",
+    readySloMs: toFiniteNumber(input.readySloMs),
+    readinessPassRate,
+    durableConvergenceStatus: input.durableConvergence?.status ?? null,
+  };
+}
+
 export function assertRedactedDrillEvidence(evidence) {
   const serialized = JSON.stringify(evidence);
   const leaks = [];
@@ -358,6 +387,21 @@ export function renderDrillStepSummary(evidence) {
 
 export function buildDrillEvidence(input) {
   const verdictReasons = [...(input.verdictReasons ?? [])];
+  const segmentSlo = summarizeSegmentSlo({
+    readySloMs: input.readySloMs,
+    canaryWrite: input.canaryWrite ?? null,
+    loadResults: input.loadResults ?? null,
+    convergence: input.convergence ?? null,
+    convergenceBudgetMs: input.convergenceBudgetMs,
+  });
+  const loadReadinessDecision =
+    input.loadReadinessDecision ??
+    deriveLoadReadinessDecision({
+      loadSummary: input.loadSummary,
+      loadSegment: segmentSlo.browser.load,
+      durableConvergence: segmentSlo.durableConvergence,
+      readySloMs: input.readySloMs,
+    });
 
   const evidence = {
     schemaVersion: STAGING_WAKE_DRILLS_VERSION,
@@ -374,14 +418,9 @@ export function buildDrillEvidence(input) {
     loadPlan: input.loadPlan ?? null,
     loadResults: input.loadResults ?? null,
     loadSummary: input.loadSummary ?? null,
+    loadReadinessDecision,
     convergence: input.convergence ?? null,
-    segmentSlo: summarizeSegmentSlo({
-      readySloMs: input.readySloMs,
-      canaryWrite: input.canaryWrite ?? null,
-      loadResults: input.loadResults ?? null,
-      convergence: input.convergence ?? null,
-      convergenceBudgetMs: input.convergenceBudgetMs,
-    }),
+    segmentSlo,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -645,6 +684,26 @@ export function classifyCanaryWriteResult(result) {
   return null;
 }
 
+export function classifySingleWriteReadinessResult(result, readySloMs) {
+  if (!result?.attempted) {
+    return null;
+  }
+  if (result.promotionDecision === "promote") {
+    return null;
+  }
+  const latency = toFiniteNumber(result.readyLatencyMs);
+  const budget = toFiniteNumber(readySloMs);
+  if (
+    latency === null ||
+    budget === null ||
+    latency > budget ||
+    result.failureReason === "checkout-ready-slo-exceeded"
+  ) {
+    return "checkout-ready-slo-missed";
+  }
+  return null;
+}
+
 export async function runStagingWakeDrill(options, deps) {
   const verdictReasons = [];
   let canaryWrite = { attempted: false };
@@ -676,6 +735,10 @@ export async function runStagingWakeDrill(options, deps) {
     const writeFailure = classifyCanaryWriteResult(writeResult);
     if (writeFailure) {
       verdictReasons.push(writeFailure);
+    }
+    const readinessFailure = classifySingleWriteReadinessResult(canaryWrite, options.readySloMs);
+    if (readinessFailure) {
+      verdictReasons.push(readinessFailure);
     }
   }
 
@@ -847,6 +910,9 @@ function toBigInt(value) {
 }
 
 function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
