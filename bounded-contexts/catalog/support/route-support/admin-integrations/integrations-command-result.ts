@@ -39,3 +39,12 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
 
   return `${url.pathname}${url.search}`;
 }
+
+export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
+  return (
+    result.feedback.status === "success" &&
+    result.feedback.intent === "preview-promotion" &&
+    result.feedback.result === "preview-ready" &&
+    Boolean(result.context.promotionPreviewId)
+  );
+}

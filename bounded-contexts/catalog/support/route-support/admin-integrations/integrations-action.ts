@@ -5,7 +5,11 @@ import {
   type parseCatalogPrimaryWorkbenchRouteContext,
 } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import { dispatchIntegrationsCommand } from "./integrations-command-dispatch";
-import { commandRedirectHref, type CatalogIntegrationsCommandResult } from "./integrations-command-result";
+import {
+  commandRedirectHref,
+  commandResultNeedsRoutableHandoff,
+  type CatalogIntegrationsCommandResult,
+} from "./integrations-command-result";
 
 const DAILY_SURFACE_PATH = catalogPrimaryWorkbenchSurfacePathForSection("import-to-promotion");
 
@@ -35,11 +39,5 @@ function resultStaysOnDailySurface(
 }
 
 function dailyResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
-  return (
-    resultStaysOnDailySurface(result.context, result.section) &&
-    result.feedback.status === "success" &&
-    result.feedback.intent === "preview-promotion" &&
-    result.feedback.result === "preview-ready" &&
-    Boolean(result.context.promotionPreviewId)
-  );
+  return resultStaysOnDailySurface(result.context, result.section) && commandResultNeedsRoutableHandoff(result);
 }
