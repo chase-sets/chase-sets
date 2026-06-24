@@ -10,7 +10,7 @@ import type {
 } from "./contracts";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import {
-  scrydexScryfallCardProviderProfile,
+  scrydexOnePieceCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -95,7 +95,7 @@ function ingestionUnitKeyForProvider(providerKey: string): string {
     return "tcgplayer:pokemon:single-card:source-observation-import";
   }
   if (providerKey === "scrydex") {
-    return "scrydex:product:card:import";
+    return "scrydex:one-piece:single-card:source-observation-import";
   }
 
   return "tcgdex:pokemon:card:import";
@@ -103,7 +103,7 @@ function ingestionUnitKeyForProvider(providerKey: string): string {
 
 function sourceOptionKindsForProvider(providerKey: string): CatalogProviderSourceOptionKind[] {
   const profile = {
-    scrydex: scrydexScryfallCardProviderProfile,
+    scrydex: scrydexOnePieceCardPrintProviderProfile,
     tcgdex: tcgdexPokemonTcgProviderProfile,
     tcgplayer: tcgplayerAutomationClientProviderProfile,
   }[providerKey] as CatalogProviderIntegrationProfile | undefined;

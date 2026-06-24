@@ -126,10 +126,13 @@ activation are opened.
 
 ### Milestone / UAT
 
-The #2039 staging UAT must demonstrate one Magic set synced from MTGJSON,
-Scryfall, and TCGplayer through normal operator navigation, and one Pokemon set
-synced through the same source-scope importer so the Magic rollout cannot
-regress the existing Pokemon operator workflow.
+The #2039 staging UAT was accepted after PR #2108 / merge
+`07d7f99cb604da2dd682e0e38b05b8f5e796d7f1` with interface-only proof that one
+Magic set synced from MTGJSON, Scryfall, and TCGplayer through normal operator
+navigation, and one Pokemon set synced through the same source-scope importer so
+the Magic rollout cannot regress the existing Pokemon operator workflow.
+Validation-only Scrydex/Scryfall-style Magic proof paths are retired from this
+UAT and remain only as explicit test-scoped contract evidence.
 
 Related issues:
 

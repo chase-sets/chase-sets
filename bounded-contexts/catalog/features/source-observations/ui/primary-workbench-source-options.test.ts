@@ -915,29 +915,30 @@ describe("Catalog primary workbench source options", () => {
     const activeTcgdexProfile = profileReview({ active: true, lifecycle: "active" });
     const selectedScrydexProfile = profileReview({
       providerKey: "scrydex",
-      profileKey: "scryfall-card-fixture",
-      profileVersion: "2026.06.03",
+      profileKey: "one-piece-card-print-source-observation",
+      profileVersion: "2026.06.22",
       displayName: "Scrydex",
-      connectorKind: "scrydex-scryfall-json",
+      connectorKind: "scrydex-json",
       active: false,
       lifecycle: "test",
       capabilities: ["source-observation-import", "external-reference-extraction"],
       supportedScopes: ["product/card"],
+      sourceOptionKinds: [],
       mappingOutputKind: "provider-product",
     });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=scrydex&profileVersion=2026.06.03&languageCode=en&seriesId=base&expansionId=base1",
+        "https://admin.example/catalog/integrations?providerKey=scrydex&profileVersion=2026.06.22&languageCode=en&seriesId=base&expansionId=base1",
       scopes: {
         items: [
           sourceObservationScope({
             provider_key: "scrydex",
-            product_line_id: "",
-            product_line_name: "",
+            product_line_id: "one-piece-card-game",
+            product_line_name: "One Piece Card Game",
             series_id: "",
             series_name: "",
-            expansion_id: "khm",
-            expansion_name: "Kaldheim",
+            expansion_id: "op01",
+            expansion_name: "Romance Dawn",
           }),
         ],
         total: 1,
@@ -952,7 +953,7 @@ describe("Catalog primary workbench source options", () => {
     expect(readModel.sourceOptions.selectedProviderKey).toBe("scrydex");
     expect(readModel.sourceOptions.selectedProfile).toMatchObject({
       providerKey: "scrydex",
-      profileVersion: "2026.06.03",
+      profileVersion: "2026.06.22",
       active: false,
     });
     expect(readModel.sourceOptions.optionKinds).toEqual([]);

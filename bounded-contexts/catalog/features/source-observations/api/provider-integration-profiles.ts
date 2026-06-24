@@ -837,6 +837,7 @@ export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{
     | "missing-profile-fixture-flow"
     | "fixture-live-provider-calls"
     | "missing-retirement-plan"
+    | "retired-magic-scrydex-proof-active"
     | "missing-executable-mapping-contract"
     | "mapping-contract-mismatch"
     | "mapping-contract-diagnostic";
@@ -4726,6 +4727,15 @@ export function validateCatalogProviderIntegrationProfileVersion(
     });
   }
 
+  if (isRetiredMagicScrydexProofActive(version)) {
+    diagnostics.push({
+      code: "retired-magic-scrydex-proof-active",
+      path: "profile.connector.kind",
+      diagnosticText:
+        "The retired Scrydex Scryfall-style Magic proof is test-scoped evidence and cannot be activated as a production sync unit. Use MTGJSON, Scryfall, and TCGplayer Magic profiles for production Magic sync.",
+    });
+  }
+
   for (const fixtureDiagnostic of evaluateCatalogIntegrationFixtureCoverageFromProfileVersion({ version })) {
     if (fixtureDiagnostic.code === "fixture-missing-flow") {
       diagnostics.push({
@@ -4787,6 +4797,15 @@ export function validateCatalogProviderIntegrationProfileVersion(
   }
 
   return diagnostics;
+}
+
+function isRetiredMagicScrydexProofActive(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return (
+    version.active &&
+    version.lifecycle === "active" &&
+    normalizeProviderKey(version.providerKey) === "scrydex" &&
+    (version.profile.connector.kind === "scrydex-scryfall-json" || version.profileKey === "scryfall-card-fixture")
+  );
 }
 
 function sameIngestionUnitIdentity(
