@@ -456,6 +456,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: expect.stringMatching(/^chkentry_[0-9a-f]{32}$/),
       source: {
         type: "buy-now",
         listingId: "lst_charizard",
@@ -473,6 +474,20 @@ describe("item detail buy now checkout actions", () => {
     expect(response.status).toBe(302);
     expectFreshWriteRedirect(response, "/checkout/buy/session/chk_buy_now");
     expect(mockAddCartLine).not.toHaveBeenCalled();
+
+    const firstEntryAttemptKey = mockCreateCheckoutSession.mock.calls[0]?.[0]?.entryAttemptKey;
+    const secondResponse = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(secondResponse.status).toBe(302);
+    expect(mockCreateCheckoutSession.mock.calls[1]?.[0]?.entryAttemptKey).toBe(firstEntryAttemptKey);
   });
 
   it("adds selected products to the checkout cart without creating a session", async () => {
@@ -1518,6 +1533,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: expect.stringMatching(/^chkentry_[0-9a-f]{32}$/),
       source: expect.objectContaining({
         type: "buy-now",
         listingId: "lst_charizard",

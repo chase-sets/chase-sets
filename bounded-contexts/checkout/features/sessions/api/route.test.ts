@@ -1856,6 +1856,77 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("asks checkout review to retry when Payments sees newly created orders before pending-payment", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Order ord_1 is not eligible for payment in status pending-reservation."), {
+        status: 400,
+        body: {
+          error: {
+            code: "validation_failed",
+            message: "Order ord_1 is not eligible for payment in status pending-reservation.",
+          },
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_orders_created"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_orders_created"],
+          },
+        ],
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_start_pending",
+        message: "Payment setup is still catching up. Review checkout again before payment starts.",
+      },
+      commitPosition: "77",
+      commitEventIds: ["evt_order_created", "evt_checkout_orders_created"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "77",
+          eventIds: ["evt_checkout_orders_created"],
+        },
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+    });
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("asks checkout review to retry when Payments order-input fresh-read times out", async () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
