@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizePgPoolConnectionString, resolvePgPoolSslConfig } from "./pool";
+import { createPgPool, normalizePgPoolConnectionString, resolvePgPoolSslConfig } from "./pool";
 
 describe("resolvePgPoolSslConfig", () => {
   it("uses libpq-compatible TLS behavior for sslmode=require", () => {
@@ -30,5 +30,35 @@ describe("normalizePgPoolConnectionString", () => {
     const connectionString = "postgresql://user:pass@example.com/defaultdb?sslmode=require&uselibpqcompat=false";
 
     expect(normalizePgPoolConnectionString(connectionString)).toBe(connectionString);
+  });
+});
+
+describe("createPgPool", () => {
+  it("absorbs idle client errors by default", async () => {
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets") as unknown as {
+      emit: (event: string, error: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+
+    expect(() => pool.emit("error", new Error("Connection terminated unexpectedly"))).not.toThrow();
+    await pool.end();
+  });
+
+  it("notifies the idle client error hook without letting hook failures escape", async () => {
+    const idleError = new Error("Connection terminated unexpectedly");
+    const reported: unknown[] = [];
+    const pool = createPgPool("postgresql://postgres:postgres@localhost:5432/chase_sets", {
+      onIdleClientError: ({ error }) => {
+        reported.push(error);
+        throw new Error("observer failed");
+      },
+    }) as unknown as {
+      emit: (event: string, error: unknown) => boolean;
+      end: () => Promise<void>;
+    };
+
+    expect(() => pool.emit("error", idleError)).not.toThrow();
+    expect(reported).toEqual([idleError]);
+    await pool.end();
   });
 });

@@ -354,7 +354,17 @@ const projectionWakeRelaySources: ProjectionWakeRelaySourceRuntime[] = config.pr
       if (listenerDatabaseUrl) {
         projectionWakeRelayListenerPools.set(
           relayConfig.sourceContextName,
-          createPgPool(listenerDatabaseUrl, { ...config.pool, max: 1 }),
+          createPgPool(listenerDatabaseUrl, {
+            ...config.pool,
+            max: 1,
+            onIdleClientError: ({ error }) => {
+              logger.warn("Projection wake relay listener pool idle client error.", {
+                type: "projection-wake-relay.listener_pool.idle_client_error",
+                sourceContextName: relayConfig.sourceContextName,
+                error,
+              });
+            },
+          }),
         );
       } else {
         logger.warn("Projection wake relay source has no listener database URL; relying on catch-up passes only.", {

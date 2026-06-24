@@ -5,6 +5,11 @@ export type PgPoolOptions = Readonly<{
   max?: number;
   idleTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
+  onIdleClientError?: (event: PgPoolIdleClientErrorEvent) => void;
+}>;
+
+export type PgPoolIdleClientErrorEvent = Readonly<{
+  error: unknown;
 }>;
 
 export function resolvePgPoolSslConfig(
@@ -36,13 +41,23 @@ export function normalizePgPoolConnectionString(connectionString: string): strin
 export function createPgPool(connectionString: string, options: PgPoolOptions = {}): PgTransactionalPool {
   const normalizedConnectionString = normalizePgPoolConnectionString(connectionString);
 
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: normalizedConnectionString,
     ssl: resolvePgPoolSslConfig(normalizedConnectionString),
     max: options.max,
     idleTimeoutMillis: options.idleTimeoutMillis,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
-  }) as unknown as PgTransactionalPool;
+  });
+
+  pool.on("error", (error: unknown) => {
+    try {
+      options.onIdleClientError?.({ error });
+    } catch {
+      // Pool idle-client errors must never crash the process.
+    }
+  });
+
+  return pool as unknown as PgTransactionalPool;
 }
 
 function readConnectionStringParam(connectionString: string, param: string) {
