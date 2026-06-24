@@ -322,11 +322,13 @@ Lorcana profile units are narrow ingestion units, not one broad importer branch:
 - `scrydex:lorcana:single-card:source-observation-import`
 - `scrydex:lorcana:set:reference-data`
 
-Scrydex Lorcana sealed-product sync is not a production-active unit because
-Scrydex Lorcana exposes cards, expansions, and price-history surfaces but no
-bulk/list sealed-product endpoint. Lorcana sealed products stay on the existing
-TCGplayer automation unit unless Scrydex adds a supported bulk/list surface and
-source authority approves activation.
+The `scrydex:lorcana:sealed-product:source-observation-import` profile exists
+only as fixture-backed `test` lifecycle contract evidence. It is inactive, is
+not a production import choice, must not appear in Lorcana launch UAT evidence,
+and must not be activated until source authority approves the sealed-product
+data class, rollout controls cover the unit, and UAT expands to that scope.
+Production Lorcana sealed products stay on the existing TCGplayer automation
+unit for this milestone.
 
 The importer shell must discover these units through generic provider,
 product-line, source-scope, and import-purpose metadata. Do not add a Disney

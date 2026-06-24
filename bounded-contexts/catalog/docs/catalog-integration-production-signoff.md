@@ -307,7 +307,7 @@ Tracking:
 | LorcanaJSON | Preferred free bulk-first reference source for sets, cards, languages, variants, image URI evidence, metadata, and official deck files where approved | Set/chapter identifiers, card print identifiers, collector numbers, printed names and versions, rarity, ink, classifications, properties, language facts, image URI evidence when approved, bulk metadata, generated-on, checksum, and freshness evidence | Marketplace product ids as canonical Catalog identity, prices, seller or account facts, raw provider bodies, and unapproved provider imagery copies |
 | Lorcast | Free supplemental source for set/card option queries, image URIs, TCGplayer ids, legalities, and lightweight price evidence where approved | Set-scoped card lookup evidence, supplemental image URI evidence, TCGplayer id bridge candidates, legality diagnostics, lightweight price diagnostics when approved, cache and pacing diagnostics | Canonical winner when LorcanaJSON or official validation disagrees, prices as Catalog identity, raw provider bodies, and provider imagery copies without retained-data approval |
 | TCGplayer | Lorcana marketplace product, SKU, group/set, sealed-product, variant, and price-reference evidence through the existing Chase Sets automation path | Product id external-reference candidates, SKU external-product-reference candidates after selected Options validate, group/set-name matching evidence, condition/language/printing/sealed-form evidence, marketplace product image URI evidence when approved | Prices as Catalog identity, market prices as Catalog truth, latest sales, seller/account facts, inventory, listings, orders, messages, cookies, session material, and TCGCSV as a production provider |
-| Scrydex | Paid supplemental Lorcana source where its coverage is better for cards, sets, variants, sealed products, image evidence, price-reference evidence, and freshness signals | Card and variant identifiers, set identifiers, sealed product identifiers and packaging labels, image URI evidence when approved, provider freshness, usage, credit, and cache diagnostics | API keys or team ids, per-game Scrydex credential settings, seller facts, inventory quantities, listings, orders, raw provider bodies, and unapproved price-history bodies |
+| Scrydex | Paid supplemental Lorcana source where its coverage is better for cards, sets, variants, image evidence, price-reference evidence, and freshness signals; sealed-product sync remains gated/test-only for this milestone | Card and variant identifiers, set identifiers, image URI evidence when approved, provider freshness, usage, credit, and cache diagnostics; sealed-product identifiers and packaging labels only after the gated unit is separately approved | API keys or team ids, per-game Scrydex credential settings, seller facts, inventory quantities, listings, orders, raw provider bodies, unapproved price-history bodies, and unapproved sealed-product promotion |
 | Disney Lorcana/Ravensburger official | Canonical validation reference only unless legal/source-authority approval explicitly permits ingestion | Manual validation reference, source-disagreement evidence after redaction, and operator checklist evidence that provider records align with official release information | Raw official page text, official imagery copies, scraped payload bodies, and automated ingestion facts without explicit approval |
 
 TCGCSV is not a production provider for this milestone. TCGplayer evidence must
@@ -391,8 +391,10 @@ policy/legal approval is recorded for LorcanaJSON, Lorcast, Scrydex Lorcana,
 TCGplayer Lorcana, official validation use, and any approved fallback source;
 retained-data exceptions exist for every retained sample, fixture body, dry-run
 body, provider imagery evidence view, usage export, or export package; Scrydex
-Lorcana card, set, sealed-product, and approved price/freshness import units
-have shared-credential and bulk-first call-budget tests; rollout controls can
+Lorcana card, set, and approved price/freshness import units have
+shared-credential and bulk-first call-budget tests; the Scrydex Lorcana
+sealed-product profile remains inactive test evidence until source authority,
+rollout controls, and UAT separately approve that unit; rollout controls can
 independently block provider transport, option queries, import, promotion,
 reapply, activation, worker processing, and broad read/write access for every
 Lorcana unit, including unit-scoped stops that do not disable the same provider
@@ -422,11 +424,15 @@ The #2481 staging UAT must demonstrate one Lorcana set/source scope synced from
 each active Lorcana provider profile through normal operator navigation, and one
 Pokemon set, one MTG set, and one One Piece set synced through the same
 source-scope importer so the Lorcana rollout cannot regress existing operator
-workflows. The #2486 downstream smoke must prove one promoted/reapplied Lorcana
-item or set projects into a representative downstream read model or UI. Evidence
-must prove normal LorcanaJSON and Scrydex paths used bulk/list/search or
+workflows. The active Lorcana launch profile set is LorcanaJSON card/set
+reference data, Lorcast card/set reference data, Scrydex card/set reference
+data, and TCGplayer card/sealed-product source observations. The gated
+Scrydex sealed-product profile is not part of the active launch profile set.
+The #2486 downstream smoke must prove one promoted/reapplied Lorcana item or
+set projects into a representative downstream read model or UI. Evidence must
+prove normal LorcanaJSON and active Scrydex paths used bulk/list/search or
 set-file ingestion and did not make one provider call per card, variant, or
-sealed product.
+active sealed-product unit.
 
 Related issues:
 
@@ -440,4 +446,6 @@ Related issues:
   merge rules
 - #2481 Staging UAT: sync Lorcana provider scopes through the shared importer
   and verify regressions
+- #2482 Retire validation-only/stub paths and finalize production docs after
+  proof
 - #2486 Smoke one promoted Lorcana item through downstream catalog projection

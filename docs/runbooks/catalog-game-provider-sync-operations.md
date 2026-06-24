@@ -229,6 +229,11 @@ Disney Lorcana Catalog sync draws from LorcanaJSON, Lorcast, Scrydex, and the ex
 
 Operator notes:
 
+- Active launch profiles are LorcanaJSON card/set reference data, Lorcast
+  card/set reference data, Scrydex card/set reference data, and TCGplayer
+  card/sealed-product source observations. The Scrydex Lorcana sealed-product
+  profile is fixture-backed `test` lifecycle evidence only and must not be used
+  as a production import choice or UAT launch scope until separately approved.
 - LorcanaJSON and Lorcast public transports do not require credentials; their normal selected-set path must be bulk/list/search first. LorcanaJSON card and set imports use the selected set file and avoid per-card provider calls; Lorcast card imports use the selected set cards endpoint and selected-card imports still use the set-scoped cards endpoint and filter locally.
 - Scrydex and TCGplayer are shared with other games, so do not use broad provider enablement as proof that Lorcana units are approved; production Lorcana enablement must name the Lorcana unit/profile evidence.
 - Ravensburger is canonical validation reference only; do not scrape or retain official text/images without separate approval.
@@ -242,7 +247,7 @@ Record an interface-only packet with:
 
 - LorcanaJSON card and set reference scopes: provider key, unit key, profile version, selected set label, import job id, terminal job state, estimated request count, Source Observation counts, and review/promotion summary.
 - Lorcast card and set reference scopes: provider key, unit key, profile version, selected set label, cache guidance evidence, import job id, terminal job state, request estimate, Source Observation counts, and review/promotion summary where applicable.
-- Scrydex Lorcana scopes when active: shared credential readiness using `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`, usage/credit state, estimated and actual request/page/cache counts, bulk-first confirmation, selected fields, redacted diagnostics, job id, terminal state, and Source Observation counts.
+- Active Scrydex Lorcana card/set scopes: shared credential readiness using `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`, usage/credit state, estimated and actual request/page/cache counts, bulk-first confirmation, selected fields, redacted diagnostics, job id, terminal state, and Source Observation counts. Do not include the gated Scrydex sealed-product test profile in launch UAT evidence.
 - TCGplayer Lorcana card and sealed scopes: provider key, unit key, profile version, selected product line and set labels, job id, terminal state, external reference/SKU evidence without pricing, inventory, seller, or account facts.
 - Downstream smoke: the promoted/reapplied Lorcana item or set visible through a representative Catalog read model/UI.
 - Regression scopes: one Pokemon set, one MTG set, and one One Piece set exercised through the same Admin importer controls, with provider key, unit key, profile version, import state, Source Observation counts, and promotion preview/result counts.
