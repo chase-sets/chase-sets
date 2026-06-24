@@ -928,6 +928,91 @@ describe("drill orchestration", () => {
     expect(evidence.loadResults.map((result) => result.iteration)).toEqual(["l1", "l2", "l3", "l4", "l5"]);
   });
 
+  it("waits for wake runtime recovery after load before sampling durable convergence", async () => {
+    let wakeStatusCallCount = 0;
+    let postLoadRuntimeRecovered = false;
+    let convergenceSampledAfterRuntimeRecovery = false;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        drillKind: "load",
+        iterations: "2",
+        concurrency: "2",
+        wakeRuntimeReadyBudgetMs: 5_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => {
+          wakeStatusCallCount += 1;
+          if (wakeStatusCallCount === 3 || wakeStatusCallCount === 4) {
+            return noWorkerWakeStatus();
+          }
+          if (wakeStatusCallCount === 5) {
+            postLoadRuntimeRecovered = true;
+          }
+          return readyWakeStatus();
+        },
+        sampleSourceContext: async () => {
+          convergenceSampledAfterRuntimeRecovery = postLoadRuntimeRecovered;
+          return {
+            head: "10",
+            relayCursor: { position: "10", ownerId: "worker-a", ageMs: 100 },
+            checkpoints: [
+              {
+                checkpointKey: "checkout.session-projection:checkout:v1",
+                projectionName: "checkout.session-projection",
+                subscriptionVersion: 1,
+                position: "10",
+                ageMs: 50,
+              },
+            ],
+          };
+        },
+      },
+    );
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.wakeRuntimeAfterLoad).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 2_000,
+      sampleCount: 3,
+      initial: { ready: false },
+      final: { ready: true },
+    });
+    expect(convergenceSampledAfterRuntimeRecovery).toBe(true);
+  });
+
+  it("records a distinct verdict reason when wake runtime does not recover after load", async () => {
+    let wakeStatusCallCount = 0;
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        drillKind: "load",
+        iterations: "2",
+        concurrency: "2",
+        wakeRuntimeReadyBudgetMs: 1_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      {
+        ...fakeDeps(),
+        fetchWakeStatus: async () => (wakeStatusCallCount++ < 2 ? readyWakeStatus() : noWorkerWakeStatus()),
+      },
+    );
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-after-load");
+    expect(evidence.wakeRuntimeAfterLoad).toMatchObject({
+      attempted: true,
+      ready: false,
+      sampleCount: 2,
+      initial: { ready: false },
+      final: { ready: false },
+    });
+    expect(evidence.convergence.converged).toBe(true);
+  });
+
   it("passes load drill convergence when Buy Now readiness projection converges and unrelated checkout projections lag", async () => {
     const evidence = await runStagingWakeDrill(
       {

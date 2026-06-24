@@ -78,6 +78,7 @@ function passingArtifact(overrides = {}) {
     },
     wakeStatusBefore: wakeStatusSnapshot({ queuedCount: 0 }),
     wakeStatusAfter: wakeStatusSnapshot({ queuedCount: 0 }),
+    wakeRuntimeAfterLoad: wakeRuntimeReadiness({ ready: true }),
     verdict: "pass",
     verdictReasons: [],
     redaction: {
@@ -115,6 +116,30 @@ function wakeStatusSnapshot(intentSummary = {}) {
   };
 }
 
+function wakeRuntimeReadiness(overrides = {}) {
+  return {
+    attempted: true,
+    ready: true,
+    readyAfterMs: 1_000,
+    sampleCount: 1,
+    initial: {
+      ready: true,
+      activeWakeCapableWorkerCount: 2,
+      relayLeaseState: "active",
+      relayOwnerId: "worker-a",
+      reasons: [],
+    },
+    final: {
+      ready: true,
+      activeWakeCapableWorkerCount: 2,
+      relayLeaseState: "active",
+      relayOwnerId: "worker-a",
+      reasons: [],
+    },
+    ...overrides,
+  };
+}
+
 describe("push wake load evidence evaluator", () => {
   it("accepts a representative captured staging load artifact against the strict profile", () => {
     const evidence = buildPushWakeLoadEvidence({
@@ -136,6 +161,10 @@ describe("push wake load evidence evaluator", () => {
     expect(evidence.observations.durableConvergence.sourceContexts.checkout.checkpointScope).toMatchObject({
       mode: "projection-names",
       projectionNames: ["checkout.session-projection"],
+    });
+    expect(evidence.observations.wakeRuntime.afterLoad).toMatchObject({
+      attempted: true,
+      ready: true,
     });
     expect(evidence.redaction).toMatchObject({
       sourceArtifactStored: "not-copied",
@@ -272,6 +301,42 @@ describe("push wake load evidence evaluator", () => {
         "wake-queue-age-after-load-exceeded-budget",
       ]),
     );
+  });
+
+  it("fails when the source drill records no wake runtime recovery after load", () => {
+    const evidence = buildPushWakeLoadEvidence({
+      artifact: passingArtifact({
+        wakeRuntimeAfterLoad: wakeRuntimeReadiness({
+          ready: false,
+          readyAfterMs: null,
+          sampleCount: 3,
+          initial: {
+            ready: false,
+            activeWakeCapableWorkerCount: 0,
+            relayLeaseState: "expired",
+            relayOwnerId: "worker-old",
+            reasons: ["no-active-wake-capable-workers", "relay-lease-not-active"],
+          },
+          final: {
+            ready: false,
+            activeWakeCapableWorkerCount: 0,
+            relayLeaseState: "expired",
+            relayOwnerId: "worker-old",
+            reasons: ["no-active-wake-capable-workers", "relay-lease-not-active"],
+          },
+        }),
+      }),
+      checkedAt: "2026-06-24T00:03:00.000Z",
+      profile: "representative-volume",
+      budgetOverrides: {},
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("wake-runtime-not-ready-after-load");
+    expect(evidence.observations.wakeRuntime.afterLoad.final).toMatchObject({
+      activeWakeCapableWorkerCount: 0,
+      relayLeaseState: "expired",
+    });
   });
 
   it("detects sensitive values without copying them into passing observations", () => {

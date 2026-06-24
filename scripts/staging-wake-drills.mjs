@@ -434,6 +434,16 @@ export function renderDrillStepSummary(evidence) {
       }/${evidence.loadSummary.readyLatencyMs.p95 ?? "-"}/${evidence.loadSummary.readyLatencyMs.max ?? "-"}`,
     );
   }
+  if (evidence.wakeRuntimeAfterLoad?.attempted) {
+    lines.push(
+      "",
+      `Wake runtime after load: ${
+        evidence.wakeRuntimeAfterLoad.ready ? "ready" : "not ready"
+      } after ${evidence.wakeRuntimeAfterLoad.readyAfterMs ?? "the configured budget"} ms; samples ${
+        evidence.wakeRuntimeAfterLoad.sampleCount
+      }.`,
+    );
+  }
   if (evidence.segmentSlo) {
     lines.push(
       "",
@@ -488,6 +498,7 @@ export function buildDrillEvidence(input) {
     convergence: input.convergence ?? null,
     segmentSlo,
     wakeRuntimePreflight: input.wakeRuntimePreflight ?? null,
+    wakeRuntimeAfterLoad: input.wakeRuntimeAfterLoad ?? null,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -875,6 +886,7 @@ export async function runStagingWakeDrill(options, deps) {
   let loadPlan = null;
   let loadResults = null;
   let loadSummary = null;
+  let wakeRuntimeAfterLoad = null;
 
   let wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
   let wakeRuntimePreflight = null;
@@ -909,6 +921,7 @@ export async function runStagingWakeDrill(options, deps) {
       loadSummary,
       convergence: null,
       wakeRuntimePreflight,
+      wakeRuntimeAfterLoad,
       wakeStatusBefore: wakeStatusBefore ?? null,
       wakeStatusAfter: wakeStatusAfterRuntimeMiss ?? null,
       verdictReasons,
@@ -921,6 +934,10 @@ export async function runStagingWakeDrill(options, deps) {
     loadSummary = summarizeLoadResults(loadResults);
     if (loadSummary.configErrors > 0) {
       verdictReasons.push("load-iterations-config-error");
+    }
+    wakeRuntimeAfterLoad = await waitForWakeRuntimeReady(options, deps);
+    if (wakeRuntimeAfterLoad.ready === false) {
+      verdictReasons.push("wake-runtime-not-ready-after-load");
     }
   } else if (!options.skipCanaryWrite) {
     const writeResult = await deps.runCanaryWrite(options, "w1");
@@ -969,6 +986,7 @@ export async function runStagingWakeDrill(options, deps) {
     loadSummary,
     convergence,
     wakeRuntimePreflight,
+    wakeRuntimeAfterLoad,
     wakeStatusBefore: wakeStatusBefore ?? null,
     wakeStatusAfter: wakeStatusAfter ?? null,
     verdictReasons,
