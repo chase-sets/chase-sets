@@ -258,6 +258,18 @@ export function CheckoutSessionPage({
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
   const payment = paymentPreview ?? null;
+  const fulfillmentPreviewChanged = Boolean(
+    !isOfferIntent &&
+    preview?.revision &&
+    session.fulfillment_preview_revision &&
+    preview.revision !== session.fulfillment_preview_revision,
+  );
+  const materialChangeDescription = preview?.materialChangeReasons.length
+    ? preview.materialChangeReasons.join(" ")
+    : null;
+  const hasAcknowledgedVisibleFulfillmentPreview = Boolean(
+    preview?.materialChangeReasons.length || fulfillmentPreviewChanged,
+  );
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
   const [editingSection, setEditingSection] = useState<CheckoutEditSection | null>(initialEditSection);
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
@@ -636,12 +648,14 @@ export function CheckoutSessionPage({
     },
     {
       priority: "needs-review",
-      active: !isOfferIntent && Boolean(preview?.materialChangeReasons.length),
+      active: !isOfferIntent && hasAcknowledgedVisibleFulfillmentPreview,
       notice: (
         <CheckoutStateNotice
           tone="warning"
           title={t("checkout.features.sessions.ui.checkoutPage.fulfillment.changed")}
-          description={preview?.materialChangeReasons.join(" ")}
+          description={
+            materialChangeDescription ?? t("checkout.features.sessions.ui.checkoutPage.fulfillment.changed.description")
+          }
         />
       ),
     },
@@ -830,7 +844,7 @@ export function CheckoutSessionPage({
             <HiddenInput
               type="hidden"
               name="acknowledgedMaterialChanges"
-              value={preview?.materialChangeReasons.length ? "true" : ""}
+              value={hasAcknowledgedVisibleFulfillmentPreview ? "true" : ""}
             />
             {!showContactForm ? <HiddenInput type="hidden" name="shippingEmail" value={addressDefaults.email} /> : null}
             {!showDeliveryForm ? (
