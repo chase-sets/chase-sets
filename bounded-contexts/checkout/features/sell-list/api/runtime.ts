@@ -282,31 +282,31 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
 
   const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
     const normalized = await normalizeInput(params);
-    const existingLine = (await listSellListLines(deps.db, params.sellerAccountId)).find((line) =>
+    const existingLine = (await listAggregateSellListLines(params.sellerAccountId)).find((line) =>
       normalized.lineType === "selected-offer" && normalized.offerId
-        ? line.offer_id === normalized.offerId
-        : line.line_type === "product" &&
-          line.product_id === normalized.productId &&
-          line.fallback_mode === normalized.fallbackMode &&
-          (line.minimum_listing_price_amount ?? null) === normalized.minimumListingPriceAmount,
+        ? line.offerId === normalized.offerId
+        : line.lineType === "product" &&
+          line.productId === normalized.productId &&
+          line.fallbackMode === normalized.fallbackMode &&
+          (line.minimumListingPriceAmount ?? null) === normalized.minimumListingPriceAmount,
     );
 
     if (existingLine) {
-      if (existingLine.line_type === "product") {
+      if (existingLine.lineType === "product") {
         const result = await commandHandler({
           streamId: `checkout.sell-list-${params.sellerAccountId}`,
           command: {
             type: "SetSellListLineQuantity",
-            lineId: existingLine.line_id as SellListLineId,
+            lineId: existingLine.lineId,
             quantity: existingLine.quantity + normalized.quantity,
           },
           context,
         });
 
-        return { lineId: existingLine.line_id as SellListLineId, version: result.version, status: "merged" };
+        return { lineId: existingLine.lineId, version: result.version, status: "merged" };
       }
 
-      return { lineId: existingLine.line_id as SellListLineId, version: 0, status: "merged" };
+      return { lineId: existingLine.lineId, version: 0, status: "merged" };
     }
 
     const lineId = createId("sll") as SellListLineId;
