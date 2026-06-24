@@ -99,6 +99,7 @@ const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credi
 const paymentOrderNotFoundPattern = /^Order ord_[0-9A-Za-z_:-]+ was not found\.$/;
 const paymentOrderPendingReservationPattern =
   /^Order ord_[0-9A-Za-z_:-]+ is not eligible for payment in status pending-reservation\.$/;
+const paymentOrderReadinessPendingCodes = new Set(["order_input_not_ready", "order_not_payment_ready"]);
 
 type CheckoutPaymentMethodCategory = (typeof checkoutPaymentMethodCategories)[number];
 
@@ -178,6 +179,16 @@ function paymentStartPendingFromMissingOrder(error: unknown, writeSources: reado
   const status = errorStatus(error);
   const code = readApiErrorCode(errorBody(error));
   if (status === 503 && code === "projection_freshness_timeout") {
+    return {
+      error: {
+        code: paymentStartPendingCode,
+        message: t("checkout.features.sessions.api.route.payment.start.pending"),
+      },
+      ...checkoutCommitMetadataFromSources(writeSources),
+    };
+  }
+
+  if (status === 400 && paymentOrderReadinessPendingCodes.has(code ?? "")) {
     return {
       error: {
         code: paymentStartPendingCode,

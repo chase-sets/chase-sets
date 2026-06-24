@@ -1867,7 +1867,7 @@ describe("checkout session routes", () => {
         status: 400,
         body: {
           error: {
-            code: "validation_failed",
+            code: "order_not_payment_ready",
             message: "Order ord_1 is not eligible for payment in status pending-reservation.",
           },
         },

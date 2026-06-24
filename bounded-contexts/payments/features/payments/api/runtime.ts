@@ -438,10 +438,13 @@ async function loadAccountOrders(db: PgQueryable, orderIds: readonly OrderId[], 
   for (const orderId of orderIds) {
     const order = ordersById.get(orderId);
     if (!order) {
-      throw new PaymentsDomainError(`Order ${orderId} was not found.`);
+      throw new PaymentsDomainError(`Order ${orderId} was not found.`, "order_input_not_ready");
     }
     if (order.status !== "pending-payment") {
-      throw new PaymentsDomainError(`Order ${orderId} is not eligible for payment in status ${order.status}.`);
+      throw new PaymentsDomainError(
+        `Order ${orderId} is not eligible for payment in status ${order.status}.`,
+        order.status === "pending-reservation" ? "order_not_payment_ready" : "validation_failed",
+      );
     }
   }
 
