@@ -10,7 +10,12 @@ import {
   useNavigation,
   useRouteError,
 } from "react-router";
-import { loadFreshlyWrittenResource, readApiErrorCode, type SourceCommitPosition } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  loadFreshlyWrittenResource,
+  readApiErrorCode,
+  type SourceCommitPosition,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createAuthRequestApiClient } from "@chase-sets/auth/server";
@@ -461,6 +466,23 @@ function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPrev
   );
 }
 
+function requestWithoutReadAfterWrite(request: Request) {
+  const url = new URL(request.url);
+  const hadAfterWrite = url.searchParams.has("afterWrite");
+  const hadFreshWriteHeader = request.headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  if (!hadAfterWrite && !hadFreshWriteHeader) {
+    return request;
+  }
+
+  url.searchParams.delete("afterWrite");
+  const headers = new Headers(request.headers);
+  headers.delete(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+  return new Request(url, {
+    headers,
+    method: request.method,
+  });
+}
+
 async function loadSavedCheckoutInstruments(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -596,7 +618,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
-  const api = createCheckoutRequestApiClient(request);
+  const internalApiRequest = requestWithoutReadAfterWrite(request);
+  const api = createCheckoutRequestApiClient(internalApiRequest);
 
   try {
     if (intent === "select-optimization-goal") {
@@ -619,7 +642,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
         shippingAddress,
       });
-      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(request, api, session, {
+      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, api, session, {
         shippingOption,
         shippingAddress,
       });
@@ -659,7 +682,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
-      const shippingOptionResult = hasCommittedCheckoutSideEffects(session)
+      const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
+      const shippingOptionResult = hasCommittedSideEffects
         ? null
         : await api.selectShippingOption(params.sessionId, {
             shippingOption,
@@ -675,13 +699,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
         sourceType.length > 0 &&
         sourceType !== "offer-intent" &&
         !marketplaceCheckoutFeeQuoteFingerprint &&
-        !session?.payment_id;
-      const shouldRefreshReviewBeforeConfirm = sourceType !== "offer-intent" && visibleReviewChanged;
+        !session?.payment_id &&
+        !hasCommittedSideEffects;
+      const shouldRefreshReviewBeforeConfirm =
+        sourceType !== "offer-intent" && visibleReviewChanged && !hasCommittedSideEffects;
       if (shouldRefreshReviewBeforeConfirm || needsPaymentQuote) {
         const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
-        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(request, api, session, {
+        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, api, session, {
           shippingOption,
           shippingAddress,
         });
