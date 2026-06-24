@@ -44,6 +44,22 @@ const shippingAddress = {
   country: "US",
 } as const;
 
+const orderingWriteResult = {
+  orderIds: ["ord_1"],
+  commandReceipt: {
+    mode: "eventual",
+    commitPosition: "42",
+    commitEventIds: ["evt_order_created"],
+    commitPositions: [
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ],
+  },
+} as const;
+
 function createGuestBuyerActor(): CheckoutApiEnv["Variables"]["actor"] {
   return createAccountUserTestActor({
     sessionId: "guest:tok_1",
@@ -1023,6 +1039,7 @@ describe("checkout session routes", () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
     });
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
     const services = createServices({
@@ -1088,6 +1105,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+      null,
+      orderingWriteResult,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
@@ -1258,6 +1277,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+      null,
+      undefined,
     );
     expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1633,6 +1654,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+      null,
+      undefined,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       expect.objectContaining({ paymentId: "pay_existing" }),
@@ -1675,6 +1698,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+      null,
+      undefined,
     );
   });
 
@@ -1822,6 +1847,71 @@ describe("checkout session routes", () => {
       expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
       expect.any(Object),
     );
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("asks checkout review to retry when Payments order-input fresh-read times out", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockRejectedValue(
+      Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+        status: 503,
+        body: {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        },
+      }),
+    );
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_orders_created"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_orders_created"],
+          },
+        ],
+      })),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_start_pending",
+        message: "Payment setup is still catching up. Review checkout again before payment starts.",
+      },
+      commitPosition: "77",
+      commitEventIds: ["evt_checkout_orders_created"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "77",
+          eventIds: ["evt_checkout_orders_created"],
+        },
+      ],
+    });
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
@@ -1989,6 +2079,8 @@ describe("checkout session routes", () => {
       "pci_saved",
       false,
       "/account/payments/:paymentId",
+      null,
+      undefined,
     );
   });
 
@@ -2026,6 +2118,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/checkout/payments/:paymentId",
+      null,
+      undefined,
     );
   });
 
@@ -2154,6 +2248,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/checkout/payments/:paymentId",
+      null,
+      undefined,
     );
   });
 
@@ -2277,6 +2373,8 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+      null,
+      undefined,
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
       {

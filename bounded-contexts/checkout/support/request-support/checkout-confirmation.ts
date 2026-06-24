@@ -1,5 +1,5 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
-import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
+import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
 import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import {
@@ -53,6 +53,7 @@ export async function createCheckoutOrdersThroughOrdering(
   return {
     orderIds: parseOrderIds((result as { orderIds?: unknown }).orderIds),
     readyLineKeys: preview.readyLineKeys,
+    writeResult: result,
   };
 }
 
@@ -86,11 +87,23 @@ export async function createCheckoutPaymentThroughPayments(
   savePaymentMethodForFuture?: boolean,
   returnUrlPath?: string | null,
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
+  orderCreationWriteResult?: unknown,
 ) {
-  const paymentsApi = createPaymentsRequestApiClient(request);
   const confirmedFingerprint = marketplaceCheckoutFeeQuoteFingerprint?.trim();
   if (!confirmedFingerprint) {
     throw new Error("Review the payment quote before creating checkout payment.");
+  }
+
+  const needsOrderInputFreshRead = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
+  const paymentsApi = needsOrderInputFreshRead
+    ? createPaymentsRequestApiClient(request, { afterWriteSource: orderCreationWriteResult })
+    : createPaymentsRequestApiClient(request);
+  if (needsOrderInputFreshRead) {
+    await paymentsApi.getCheckoutStatus({
+      orderIds,
+      requestedBalanceCreditAmount,
+      paymentMethodCategory,
+    });
   }
 
   return paymentsApi.createAccountPayment({
