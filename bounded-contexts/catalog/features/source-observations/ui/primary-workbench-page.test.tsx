@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-profiles";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
+import type { SourceObservationLorcanaCardPrintNormalized } from "../domain/domain";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
@@ -1120,15 +1121,22 @@ describe("CatalogPrimaryWorkbenchPage", () => {
             source_profile_version: "2026.06.23",
             status: "observed",
             normalized: {
-              ...sourceObservationListItem().normalized,
               kind: "lorcana-card-print",
               tcg: "lorcana",
+              languageCode: "en",
               name: "Stitch - Carefree Surfer",
+              cardNumber: "21",
               setId: "1",
+              setCode: null,
               setName: "The First Chapter",
-              expansionId: "1",
               expansionName: "The First Chapter",
+              rarity: null,
+              cardType: null,
+              inkColor: null,
+              releaseDate: null,
+              releaseYear: null,
               productLineName: "Disney Lorcana",
+              imageUrls: [],
               mergeIdentity: {
                 tcg: "lorcana",
                 productLineName: "Disney Lorcana",
@@ -1137,7 +1145,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
                 collectorNumber: "21",
                 languageCode: "en",
               },
-            },
+            } satisfies SourceObservationLorcanaCardPrintNormalized,
           }),
         ],
         total: 1,
