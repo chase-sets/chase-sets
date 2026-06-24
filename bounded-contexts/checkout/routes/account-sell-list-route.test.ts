@@ -803,7 +803,12 @@ describe("checkout web routes: account sell list", () => {
       product_summary: "Raw / Near Mint",
       quantity_requested: 2,
     });
-    mockAddSellListLine.mockResolvedValue({ status: "added" });
+    mockAddSellListLine.mockResolvedValue({
+      id: "sll_1",
+      version: 1,
+      status: "added",
+      commandReceipt: checkoutCommit("42", "evt_sell_list_line"),
+    });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getOfferMatch: mockGetOfferMatch,
     });
@@ -843,7 +848,9 @@ describe("checkout web routes: account sell list", () => {
       minimumListingPriceAmount: null,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/account/sell-list?postWriteToken=");
+    expect(location).not.toContain("afterWrite=");
   });
 
   it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {

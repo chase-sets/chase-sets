@@ -645,8 +645,20 @@ describe("sell list checkout runtime readiness boundary", () => {
       ),
     ).resolves.toEqual({
       lineId: "sll_offer",
-      version: 0,
+      version: 1,
       status: "merged",
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "1",
+        commitEventIds: ["evt_1"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "1",
+            eventIds: ["evt_1"],
+          },
+        ],
+      },
     });
     expect(allEvents).toEqual([]);
   });

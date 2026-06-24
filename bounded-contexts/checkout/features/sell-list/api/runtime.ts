@@ -6,6 +6,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CommandReceiptMetadata } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SellListLineId } from "../../../support/runtime-support/common";
@@ -128,7 +129,12 @@ export type CheckoutSellListServices = Readonly<{
   addLine: (
     params: AddCheckoutSellListLineInput,
     context: EventStoreContext,
-  ) => Promise<{ lineId: SellListLineId; version: number; status: "added" | "merged" }>;
+  ) => Promise<{
+    lineId: SellListLineId;
+    version: number;
+    status: "added" | "merged";
+    commandReceipt?: CommandReceiptMetadata | null;
+  }>;
   removeLine: (
     params: Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId }>,
     context: EventStoreContext,
@@ -262,6 +268,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     return `checkout.sell-list-${sellerAccountId}`;
   }
 
+  async function listAggregateSellListLines(sellerAccountId: string): Promise<readonly CheckoutSellListLine[]> {
+    const aggregate = await repository.load(sellListStreamId(sellerAccountId));
+    return aggregate.state.lines;
+  }
+
   async function pruneProjectedSellListLines(sellerAccountId: string, lineIds: readonly string[]) {
     if (lineIds.length === 0) {
       return;
@@ -275,14 +286,10 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     );
   }
 
-  async function listAggregateSellListLines(sellerAccountId: string): Promise<readonly CheckoutSellListLine[]> {
-    const aggregate = await repository.load(sellListStreamId(sellerAccountId));
-    return aggregate.state.lines;
-  }
-
   const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
     const normalized = await normalizeInput(params);
-    const existingLine = (await listAggregateSellListLines(params.sellerAccountId)).find((line) =>
+    const aggregate = await repository.load(sellListStreamId(params.sellerAccountId));
+    const existingLineIndex = aggregate.state.lines.findIndex((line) =>
       normalized.lineType === "selected-offer" && normalized.offerId
         ? line.offerId === normalized.offerId
         : line.lineType === "product" &&
@@ -290,6 +297,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           line.fallbackMode === normalized.fallbackMode &&
           (line.minimumListingPriceAmount ?? null) === normalized.minimumListingPriceAmount,
     );
+    const existingLine = existingLineIndex >= 0 ? aggregate.state.lines[existingLineIndex] : null;
 
     if (existingLine) {
       if (existingLine.lineType === "product") {
@@ -306,7 +314,34 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         return { lineId: existingLine.lineId, version: result.version, status: "merged" };
       }
 
-      return { lineId: existingLine.lineId, version: 0, status: "merged" };
+      const storedEvent = aggregate.storedEvents.find(
+        (event) =>
+          event.eventType === "checkout.sell-list.line-added" &&
+          typeof event.payload === "object" &&
+          event.payload !== null &&
+          (event.payload as { lineId?: unknown }).lineId === existingLine.lineId,
+      );
+      const commandReceipt: CommandReceiptMetadata | null = storedEvent
+        ? {
+            mode: "eventual",
+            commitPosition: storedEvent.globalPosition,
+            commitEventIds: [storedEvent.eventId],
+            commitPositions: [
+              {
+                sourceContextName: "checkout",
+                maxGlobalPosition: storedEvent.globalPosition,
+                eventIds: [storedEvent.eventId],
+              },
+            ],
+          }
+        : null;
+
+      return {
+        lineId: existingLine.lineId,
+        version: aggregate.version,
+        status: "merged",
+        ...(commandReceipt ? { commandReceipt } : {}),
+      };
     }
 
     const lineId = createId("sll") as SellListLineId;
