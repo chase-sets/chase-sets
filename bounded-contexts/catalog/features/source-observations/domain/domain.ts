@@ -443,6 +443,7 @@ export function isLorcanaSetReferenceSourceObservationNormalized(
 
 export type SourceObservationState = Readonly<{
   id: string | null;
+  syncRunId: string | null;
   providerKey: string;
   externalKey: string;
   sourceUrl: string;
@@ -467,6 +468,7 @@ export type SourceObservationState = Readonly<{
 
 export const initialSourceObservationState: SourceObservationState = {
   id: null,
+  syncRunId: null,
   providerKey: "",
   externalKey: "",
   sourceUrl: "",
@@ -492,6 +494,7 @@ export const initialSourceObservationState: SourceObservationState = {
 export type RecordSourceObservationCommand = Readonly<{
   type: "RecordSourceObservation";
   observationId: string;
+  syncRunId?: string | null;
   providerKey: string;
   externalKey: string;
   sourceUrl: string;
@@ -669,6 +672,7 @@ export const decideSourceObservation: AggregateDecider<
       assert(command.providerKey.trim().length > 0, "Source observations require a provider.");
       assert(command.externalKey.trim().length > 0, "Source observations require an external key.");
       assert(command.sourceRecordHash.trim().length > 0, "Source observations require a source hash.");
+      assertOptionalLaunchMarker(command.syncRunId, "Catalog sync run ID");
       assert(command.sourceProfileKey.trim().length > 0, "Source observations require a source profile key.");
       assert(command.sourceProfileVersion.trim().length > 0, "Source observations require a source profile version.");
       assert(
@@ -852,6 +856,7 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
       return {
         ...state,
         id: event.data.observationId,
+        syncRunId: event.data.syncRunId ?? null,
         providerKey: event.data.providerKey,
         externalKey: event.data.externalKey,
         sourceUrl: event.data.sourceUrl,
@@ -871,6 +876,7 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
       return {
         ...state,
         id: event.data.observationId,
+        syncRunId: event.data.syncRunId ?? null,
         providerKey: event.data.providerKey,
         externalKey: event.data.externalKey,
         sourceUrl: event.data.sourceUrl,
@@ -890,6 +896,7 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
       return {
         ...state,
         id: event.data.observationId,
+        syncRunId: event.data.syncRunId ?? null,
         providerKey: event.data.providerKey,
         externalKey: event.data.externalKey,
         sourceUrl: event.data.sourceUrl,
@@ -994,6 +1001,7 @@ function requireReviewable(state: SourceObservationState): asserts state is Sour
 function recordEventData(command: RecordSourceObservationCommand): SourceObservationRecordEventData {
   return {
     observationId: command.observationId,
+    syncRunId: normalizeOptionalKey(command.syncRunId),
     providerKey: normalizeKey(command.providerKey),
     externalKey: command.externalKey.trim(),
     sourceUrl: command.sourceUrl.trim(),
@@ -1037,6 +1045,14 @@ function assertLaunchProfileMarker(value: string, label: string): void {
   requireLaunchProfileMarker(value, label);
 }
 
+function assertOptionalLaunchMarker(value: string | null | undefined, label: string): void {
+  const marker = value?.trim();
+  if (!marker) {
+    return;
+  }
+  assert(marker.toLowerCase() !== "legacy", `${label} cannot use the retired legacy marker.`);
+}
+
 function requireLaunchProfileMarker(value: string | null | undefined, label: string): string {
   const marker = value?.trim();
   assert(marker !== undefined && marker.length > 0, `${label} is required.`);
@@ -1046,4 +1062,9 @@ function requireLaunchProfileMarker(value: string | null | undefined, label: str
 
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeOptionalKey(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }

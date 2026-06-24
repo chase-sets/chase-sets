@@ -123,6 +123,7 @@ async function upsertCandidate(
     `INSERT INTO catalog_merge_candidates (
        candidate_id,
        identity_fingerprint,
+       sync_run_ids_json,
        status,
        status_reason,
        identity_json,
@@ -138,9 +139,10 @@ async function upsertCandidate(
        created_at,
        updated_at,
        stale_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15::timestamptz, now()), $16, $17)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16::timestamptz, now()), $17, $18)
      ON CONFLICT (candidate_id) DO UPDATE SET
        identity_fingerprint = EXCLUDED.identity_fingerprint,
+       sync_run_ids_json = EXCLUDED.sync_run_ids_json,
        status = EXCLUDED.status,
        status_reason = EXCLUDED.status_reason,
        identity_json = EXCLUDED.identity_json,
@@ -158,6 +160,7 @@ async function upsertCandidate(
     [
       input.candidateId,
       input.snapshot.identityFingerprint,
+      JSON.stringify(input.snapshot.syncRunIds),
       input.status,
       input.statusReason,
       JSON.stringify(input.snapshot.identity),
@@ -197,6 +200,7 @@ async function upsertCandidateMember(
     `INSERT INTO catalog_merge_candidate_observations (
        candidate_id,
        observation_id,
+       sync_run_id,
        provider_key,
        external_key,
        source_record_hash,
@@ -205,8 +209,9 @@ async function upsertCandidateMember(
        source_mapping_fingerprint,
        observed_at,
        added_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (candidate_id, observation_id) DO UPDATE SET
+       sync_run_id = EXCLUDED.sync_run_id,
        provider_key = EXCLUDED.provider_key,
        external_key = EXCLUDED.external_key,
        source_record_hash = EXCLUDED.source_record_hash,
@@ -218,6 +223,7 @@ async function upsertCandidateMember(
     [
       candidateId,
       member.observationId,
+      member.syncRunId,
       member.providerKey,
       member.externalKey,
       member.sourceRecordHash,

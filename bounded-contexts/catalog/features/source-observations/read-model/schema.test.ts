@@ -5,6 +5,7 @@ describe("catalogSourceObservationSchemaSql", () => {
   it("persists Catalog Merge Candidates with review, provenance, and promotion-planning shape", () => {
     expect(catalogSourceObservationSchemaSql).toContain("CREATE TABLE IF NOT EXISTS catalog_merge_candidates");
     expect(catalogSourceObservationSchemaSql).toContain("identity_fingerprint text NOT NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb");
     expect(catalogSourceObservationSchemaSql).toContain("matched_catalog_item_id text NULL");
     expect(catalogSourceObservationSchemaSql).toContain("matched_product_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb");
     expect(catalogSourceObservationSchemaSql).toContain(
@@ -31,6 +32,13 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).toContain("PRIMARY KEY (candidate_id, observation_id)");
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_observation_idx",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain("sync_run_id text NULL");
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx",
     );
     expect(catalogSourceObservationSchemaSql).toContain(
       "REFERENCES catalog_merge_candidates (candidate_id)\n    ON DELETE CASCADE",

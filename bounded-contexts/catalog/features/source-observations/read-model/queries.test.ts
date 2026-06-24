@@ -4,6 +4,8 @@ import {
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
+  listCatalogMergeCandidates,
+  listSourceObservationsForCandidateMatching,
   previewSourceObservationPromotionIds,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
@@ -49,6 +51,45 @@ describe("source observation read-model queries", () => {
       "en",
       "base1",
       ["observed", "changed"],
+      "%charizard%",
+    ]);
+  });
+
+  it("lists candidate matching observations by sync run without relying on job payload parsing", async () => {
+    const db = queryable([{ observation_id: "obs_sync_1", sync_run_id: "job_sync_1" }]);
+
+    const rows = await listSourceObservationsForCandidateMatching(db, {
+      syncRunId: "job_sync_1",
+      language: "en",
+    });
+
+    expect(rows).toEqual([{ observation_id: "obs_sync_1", sync_run_id: "job_sync_1" }]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("sync_run_id = $1"), [
+      "job_sync_1",
+      "en",
+      ["observed", "changed", "promoted"],
+    ]);
+  });
+
+  it("lists merge candidates by sync run and status for review workbenches", async () => {
+    const db = queryableSequence([[{ count: "1" }], [{ candidate_id: "cand_1", observation_count: 2 }]]);
+
+    const result = await listCatalogMergeCandidates(db, {
+      syncRunId: "job_sync_1",
+      status: "has-conflicts",
+      search: "charizard",
+      limit: 10,
+    });
+
+    expect(result).toEqual({ items: [{ candidate_id: "cand_1", observation_count: 2 }], total: 1 });
+    expect(db.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("FROM catalog_merge_candidates c WHERE c.status = $1 AND c.sync_run_ids_json ? $2"),
+      ["has-conflicts", "job_sync_1", "%charizard%"],
+    );
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LEFT JOIN"), [
+      "has-conflicts",
+      "job_sync_1",
       "%charizard%",
     ]);
   });
