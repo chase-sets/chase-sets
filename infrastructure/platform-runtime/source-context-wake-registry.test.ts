@@ -32,6 +32,7 @@ describe("source-context wake registry", () => {
     expect(listEventStoreWakeNotificationSourceContexts().map((entry) => entry.sourceContextName)).toEqual([
       "catalog",
       "checkout",
+      "inventory",
       "marketplace",
       "ordering",
       "payments",
@@ -45,7 +46,21 @@ describe("source-context wake registry", () => {
         relayFanOutEnabled: true,
         priorityLane: "standard",
       },
-      ...["checkout", "marketplace", "ordering", "payments"].map((sourceContextName) => ({
+      {
+        sourceContextName: "checkout",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-1-checkout-hot-path",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+      {
+        sourceContextName: "inventory",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-2-commerce-dependencies",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+      ...["marketplace", "ordering", "payments"].map((sourceContextName) => ({
         sourceContextName,
         rolloutState: "staging-enabled",
         rolloutWave: "wave-1-checkout-hot-path",
@@ -64,9 +79,9 @@ describe("source-context wake registry", () => {
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 6,
-      enabledEventStoreWakeContextCount: 6,
-      enabledRelayFanOutContextCount: 6,
+      activeEntryCount: 7,
+      enabledEventStoreWakeContextCount: 7,
+      enabledRelayFanOutContextCount: 7,
     });
   });
 
@@ -102,7 +117,7 @@ describe("source-context wake registry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
 
     expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" })).toMatchObject({
-      enabled: false,
+      enabled: true,
       channel: "platform_event_store_commits",
       source: "event-core-postgres",
     });
@@ -113,27 +128,7 @@ describe("source-context wake registry", () => {
       source: "event-core-postgres",
     });
 
-    const registry = withRegistryEntryPatch("inventory", {
-      rolloutState: "staging-enabled",
-      enablement: {
-        eventStoreWakeNotifications: true,
-        relayFanOut: true,
-      },
-    });
-
-    expect(() =>
-      validateSourceContextWakeRegistry({ registry, boundedContextNames: inventory.contextNames }),
-    ).not.toThrow();
-    expect(
-      createEventStoreWakeNotificationConfigForSourceContext({
-        sourceContextName: "inventory",
-        registry,
-      }),
-    ).toMatchObject({
-      enabled: true,
-      channel: "platform_event_store_commits",
-    });
-    expect(listSourceContextWakeRelayConfigs({ registry })).toMatchObject([
+    expect(listSourceContextWakeRelayConfigs()).toMatchObject([
       {
         sourceContextName: "catalog",
         relayFanOutEnabled: true,

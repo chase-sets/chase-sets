@@ -44,7 +44,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
-| `checkout:checkout-marketplace-seller-options-projection` | Checkout | **catalog**, identity, inventory, **marketplace** | push-eligible | 2/4 |
+| `checkout:checkout-marketplace-seller-options-projection` | Checkout | **catalog**, identity, **inventory**, **marketplace** | push-eligible | 3/4 |
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
@@ -54,7 +54,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-market-projection` | Discovery | **catalog**, identity, inventory, **marketplace** | push-eligible | 2/4 |
+| `discovery:discovery-market-projection` | Discovery | **catalog**, identity, **inventory**, **marketplace** | push-eligible | 3/4 |
 | `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
 | `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
@@ -69,14 +69,14 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-shipping-address-projection` | Identity | identity | push-eligible | 0/1 |
 | `identity:identity-user-projection` | Identity | identity | push-eligible | 0/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
-| `inventory:inventory-hold-projection` | Inventory | inventory | push-eligible | 0/1 |
-| `inventory:inventory-item-projection` | Inventory | inventory | push-eligible | 0/1 |
+| `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |
+| `inventory:inventory-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
-| `inventory:inventory-reservation-projection` | Inventory | inventory | push-eligible | 0/1 |
-| `inventory:inventory-storage-location-projection` | Inventory | inventory | push-eligible | 0/1 |
+| `inventory:inventory-reservation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
+| `inventory:inventory-storage-location-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
 | `marketplace:marketplace-identity-account-projection` | Marketplace | identity, **marketplace** | push-eligible | 1/2 |
-| `marketplace:marketplace-inventory-supply-projection` | Marketplace | inventory | push-eligible | 0/1 |
+| `marketplace:marketplace-inventory-supply-projection` | Marketplace | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:reputation-account-projection` | Marketplace | identity | push-eligible | 0/1 |
@@ -87,8 +87,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `notifications:notifications-source-facts-outbox-projection` | Notifications | fulfillment, **ordering** | push-eligible | 1/2 |
 | `ordering:ordering-account-projection` | Ordering | identity | push-eligible | 0/1 |
 | `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
-| `ordering:ordering-inventory-reservation-outcomes` | Ordering | inventory | push-eligible | 0/1 |
-| `ordering:ordering-inventory-supply-input-projection` | Ordering | inventory | push-eligible | 0/1 |
+| `ordering:ordering-inventory-reservation-outcomes` | Ordering | **inventory** | push-enabled | 1/1 |
+| `ordering:ordering-inventory-supply-input-projection` | Ordering | **inventory** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
@@ -102,7 +102,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 | `pricing:pricing-catalog-input-projection` | Pricing | **catalog** | push-enabled | 1/1 |
 | `pricing:pricing-fulfillment-input-projection` | Pricing | fulfillment | push-eligible | 0/1 |
-| `pricing:pricing-inventory-input-projection` | Pricing | inventory | push-eligible | 0/1 |
+| `pricing:pricing-inventory-input-projection` | Pricing | **inventory** | push-enabled | 1/1 |
 | `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | public-presence | push-eligible | 0/1 |
@@ -114,7 +114,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
 
-Totals: 33 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 41 `push-enabled`, 35 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (62)
 
@@ -159,10 +159,10 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `identity.shipping-addresses-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
-| `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | poll-bounded until wave 2 |
-| `inventory.item-adjust-to-detail` | inventory | critical | exact wait | poll-bounded until wave 2 |
-| `inventory.item-create-to-detail` | inventory | important | exact wait | poll-bounded until wave 2 |
-| `inventory.storage-locations-list` | inventory | important | exact wait | poll-bounded until wave 2 |
+| `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | push-accelerated |
+| `inventory.item-adjust-to-detail` | inventory | critical | exact wait | push-accelerated |
+| `inventory.item-create-to-detail` | inventory | important | exact wait | push-accelerated |
+| `inventory.storage-locations-list` | inventory | important | exact wait | push-accelerated |
 | `marketplace.import-listing-inventory-handoff` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-create-from-list-to-detail` | marketplace | critical | exact wait | push-accelerated |
@@ -191,7 +191,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The wave-1 listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` already cover all four contexts in both staging and the production worst case, so these flips change no Terraform.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
-- **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `fulfillment`, `identity`, and `inventory` remain eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
+- **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `inventory` is staging-enabled for reservation outcome and supply freshness consumed by Ordering, Marketplace, Pricing, and Inventory. `fulfillment` and `identity` remain eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
 - **Wave 3 (`discovery`, `public-presence`, `settlement`, `support`)** — `settlement` is staging-enabled for seller payout-readiness freshness; the remaining wave-3 contexts are eligible and follow wave 2 with owner approval.
 - **Wave 4 (`auth`, `commercial-terms`, `experience`, `insights`, `notifications`, `platform-operations`, `pricing`, `tax`)** — deferred or not currently source-enabled. Newly inventoried Auth and Commercial Terms self-owned projections/routes are classified here but remain relay-disabled until owner approval and the production-gate evidence path is ready.
 

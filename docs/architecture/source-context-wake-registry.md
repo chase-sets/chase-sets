@@ -11,7 +11,7 @@ The registry lives in `@chase-sets/platform-runtime/source-context-wake-registry
 
 ## Current Runtime State
 
-The full wave-1 hot path — `checkout`, `marketplace`, `ordering`, `payments` — is `staging-enabled` with both runtime halves on (`checkout` since 2026-06-10; the wave-1 remainder since 2026-06-11 on the back of checkout's staging push-loop evidence in the [SLO/load proof](./push-wake-slo-load-proof.md)). `catalog` is also `staging-enabled` in wave 2 for Source Observation import/review freshness and Catalog-sourced consumer projections. `settlement` is `staging-enabled` in wave 3 for payout-readiness projection freshness used by seller checkout readiness. Terraform currently provisions direct `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` values only for wave 1, so `catalog` and `settlement` relay fan-out rely on catch-up passes when no direct listener URL is present; that is staging acceleration evidence, not direct LISTEN latency proof for production. Other entries remain non-emitting and non-listening:
+The full wave-1 hot path — `checkout`, `marketplace`, `ordering`, `payments` — is `staging-enabled` with both runtime halves on (`checkout` since 2026-06-10; the wave-1 remainder since 2026-06-11 on the back of checkout's staging push-loop evidence in the [SLO/load proof](./push-wake-slo-load-proof.md)). `catalog` and `inventory` are also `staging-enabled` in wave 2: `catalog` for Source Observation import/review freshness and Catalog-sourced consumer projections, `inventory` for Inventory reservation outcomes and supply projections consumed by Ordering, Marketplace, Pricing, and Inventory. `settlement` is `staging-enabled` in wave 3 for payout-readiness projection freshness used by seller checkout readiness. Terraform currently provisions direct `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` values only for wave 1, so `catalog`, `inventory`, and `settlement` relay fan-out rely on catch-up passes when no direct listener URL is present; that is staging acceleration evidence, not direct LISTEN latency proof for production. Other entries remain non-emitting and non-listening:
 
 ```ts
 enablement: {
@@ -53,7 +53,7 @@ Tests compare the registry to bounded-context metadata so new contexts, projecti
 | Wave | Contexts | Intent |
 | --- | --- | --- |
 | `wave-1-checkout-hot-path` | `checkout`, `marketplace`, `ordering`, `payments` | Protect guest Buy Now, payment handoff, submitted-offer, and order/payment hot paths first. |
-| `wave-2-commerce-dependencies` | `catalog`, `fulfillment`, `identity`, `inventory` | Add high-fanout commerce dependencies after capacity and topology proof; `catalog` is staging-enabled for import/review freshness. |
+| `wave-2-commerce-dependencies` | `catalog`, `fulfillment`, `identity`, `inventory` | Add high-fanout commerce dependencies after capacity and topology proof; `catalog` is staging-enabled for import/review freshness, and `inventory` is staging-enabled for reservation outcome and supply freshness. |
 | `wave-3-platform-expansion` | `discovery`, `platform-operations`, `public-presence`, `settlement` | Expand lower-criticality or narrower fan-out contexts with owner approval; `settlement` is staging-enabled for seller payout-readiness freshness. |
 | `wave-4-deferred-or-not-eligible` | `auth`, `commercial-terms`, `notifications`, `pricing` | Keep deferred or not-yet-eligible source contexts explicitly classified while their relay fan-out remains disabled. |
 
@@ -68,7 +68,7 @@ Production proof or production enabled states require evidence from:
 - #1246 durable wake-store capacity proof.
 - #1249 phase map and phase-gate evidence.
 
-High-volume contexts should not be enabled until the wake-store capacity evidence and dashboard/runbook evidence are linked from the owning issue. Catalog is the current high-fanout staging exception because provider imports write Source Observation events that must become reviewable without waiting on fallback projection polling. Settlement is a low-volume staging exception for payout-readiness writes that directly gate seller checkout readiness.
+High-volume contexts should not be enabled until the wake-store capacity evidence and dashboard/runbook evidence are linked from the owning issue. Catalog is a high-fanout staging exception because provider imports write Source Observation events that must become reviewable without waiting on fallback projection polling. Inventory is a high-volume staging exception for reservation outcome and supply writes that unblock Ordering, Marketplace, Pricing, and self-owned Inventory freshness. Settlement is a low-volume staging exception for payout-readiness writes that directly gate seller checkout readiness.
 
 ## Runtime Consumers
 
