@@ -8,6 +8,7 @@ import {
   reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
+  reconcileRepresentativeOrderingSupplyState,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
   type CatalogRepresentativeServices,
@@ -44,6 +45,7 @@ type RepresentativeCommerceStateRun = Readonly<{
   listings: readonly MarketplaceRepresentativeListingResult[];
   offers: readonly MarketplaceRepresentativeOfferResult[];
   acceptedOffers: readonly MarketplaceRepresentativeOfferAcceptanceResult[];
+  orderingSupply: Awaited<ReturnType<typeof reconcileRepresentativeOrderingSupplyState>>;
   discovery: Awaited<ReturnType<typeof reconcileRepresentativeDiscoveryMarketState>>;
 }>;
 
@@ -77,6 +79,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     }
 
     await syncRepresentativeProjection(runtime, "inventory", "inventory-item-projection");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-supply-input-projection");
     const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), stock);
@@ -86,6 +89,16 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     const acceptedOffers = await acceptRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
+    const orderingSupply = await reconcileRepresentativeOrderingSupplyState(
+      {
+        inventoryDb: seedRuntime.pools.inventory,
+        marketplaceDb: seedRuntime.pools.marketplace,
+        orderingDb: seedRuntime.pools.ordering,
+      },
+      {
+        listingIds: listings.map((listing) => listing.listingId),
+      },
+    );
     const discovery = await reconcileRepresentativeDiscoveryMarketState(
       {
         discoveryDb: seedRuntime.pools.discovery,
@@ -97,7 +110,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       },
     );
 
-    run = { candidates, stock, listings, offers, acceptedOffers, discovery };
+    run = { candidates, stock, listings, offers, acceptedOffers, orderingSupply, discovery };
   }, 300_000);
 
   it("loads the current Catalog Item with product schema and resolved measures", () => {
@@ -226,6 +239,11 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   it("reconciles representative listings into Ordering checkout supply inputs", async () => {
     const state = requireRepresentativeRun();
     const listingId = state.listings[0]?.listingId;
+    expect(state.orderingSupply).toMatchObject({
+      listingCount: 1,
+      inventoryItemCount: 1,
+      inventoryHoldCount: 0,
+    });
     const supply = await seedRuntime.pools.ordering.query<{
       listing_id: string;
       status: string;
