@@ -13,6 +13,8 @@ import {
 } from "./scrydex-one-piece";
 
 const fixtureBaseUrl = "https://fixture.chase-sets.local/scrydex/onepiece/v1";
+const fixtureLorcanaBaseUrl = fixtureBaseUrl.replace("/onepiece/v1", "/lorcana/v1");
+const fixtureAccountBaseUrl = fixtureBaseUrl.replace("/onepiece/v1", "/account/v1");
 const fixtureCredentials = { apiKey: "api-key-fixture", teamId: "team-id-fixture" };
 const fixtureNow = new Date("2026-06-22T00:00:00.000Z");
 
@@ -490,6 +492,135 @@ describe("Scrydex One Piece provider adapter", () => {
     expect(JSON.stringify(payloads)).not.toMatch(/price|seller|api-key-fixture|team-id-fixture|X-Api-Key/i);
   });
 
+  it("unwraps Scrydex Lorcana set-reference detail envelopes", async () => {
+    const detailUrl = `${fixtureLorcanaBaseUrl}/expansions/TFC`;
+    const fixture = scrydexResponseFixtureFetch({
+      [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
+      [detailUrl]: {
+        data: {
+          ...scrydexLorcanaExpansion,
+          market_price: "199.99",
+          seller: { account: "not-catalog-truth" },
+        },
+      },
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      fetch: fixture.fetch,
+      now: () => fixtureNow,
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set-reference",
+      values: { expansionId: "TFC" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+
+    expect(plan).toMatchObject({
+      unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      planKey: "scrydex:lorcana:set:tfc",
+      usageEstimate: {
+        requestStrategy: "single-record",
+        estimatedRequestCount: 1,
+        perRecordFallbackReason: "Selected set-reference import uses the Scrydex expansion detail endpoint.",
+      },
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        externalKey: "set:TFC",
+        payload: {
+          kind: "lorcana-set-reference",
+          expansion: scrydexLorcanaExpansion,
+          sourceUrl: detailUrl,
+        },
+        provenance: expect.objectContaining({
+          sourceUrl: detailUrl,
+          sourceUpdatedAt: "2023-08-18",
+          contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(fixture.calls.map((call) => call.url)).toEqual([`${fixtureAccountBaseUrl}/usage`, detailUrl]);
+    expect(JSON.stringify(payloads)).not.toMatch(/price|seller|api-key-fixture|team-id-fixture|X-Api-Key/i);
+  });
+
+  it("resolves code-selected Scrydex Lorcana set-reference imports through the bulk expansion list", async () => {
+    const detailUrl = `${fixtureLorcanaBaseUrl}/expansions/TFC`;
+    const listUrl = `${fixtureLorcanaBaseUrl}/expansions?page=1&page_size=100&select=id%2Cname%2Ccode%2Ctotal%2Crelease_date%2Clanguage%2Clanguage_code`;
+    const fixture = scrydexResponseFixtureFetch({
+      [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
+      [listUrl]: { data: [{ ...scrydexLorcanaExpansion, id: "1" }], total_pages: 1 },
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      fetch: fixture.fetch,
+      now: () => fixtureNow,
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set-reference",
+      values: { expansionId: "TFC" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        externalKey: "set:1",
+        payload: {
+          kind: "lorcana-set-reference",
+          expansion: { ...scrydexLorcanaExpansion, id: "1" },
+          sourceUrl: listUrl,
+        },
+      }),
+    ]);
+    expect(fixture.calls.map((call) => call.url)).toEqual([`${fixtureAccountBaseUrl}/usage`, detailUrl, listUrl]);
+  });
+
+  it("resolves code-selected Scrydex Lorcana sealed imports through the bulk expansion list before paging sealed products", async () => {
+    const selectedCodeSealedUrl = `${fixtureLorcanaBaseUrl}/expansions/TFC/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion`;
+    const listUrl = `${fixtureLorcanaBaseUrl}/expansions?page=1&page_size=100&select=id%2Cname%2Ccode%2Ctotal%2Crelease_date%2Clanguage%2Clanguage_code`;
+    const resolvedIdSealedUrl = `${fixtureLorcanaBaseUrl}/expansions/1/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion`;
+    const fixture = scrydexResponseFixtureFetch({
+      [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
+      [listUrl]: { data: [{ ...scrydexLorcanaExpansion, id: "1" }], total_pages: 1 },
+      [resolvedIdSealedUrl]: { data: [scrydexLorcanaSealedProduct], total_pages: 1 },
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      fetch: fixture.fetch,
+      now: () => fixtureNow,
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { expansionId: "TFC" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "sealed:tfc-booster-box",
+        payload: {
+          kind: "lorcana-sealed-product",
+          sealedProduct: scrydexLorcanaSealedProduct,
+          sourceUrl: resolvedIdSealedUrl,
+        },
+      }),
+    ]);
+    expect(fixture.calls.map((call) => call.url)).toEqual([
+      `${fixtureAccountBaseUrl}/usage`,
+      selectedCodeSealedUrl,
+      listUrl,
+      resolvedIdSealedUrl,
+    ]);
+  });
+
   it("emits deterministic external keys and content hashes with sanitized payloads", async () => {
     const firstFixture = scrydexFixtureFetch();
     const secondFixture = scrydexFixtureFetch();
@@ -647,15 +778,8 @@ function scrydexFixtureFetch(): Readonly<{
   calls: ScrydexFixtureCall[];
   fetch: typeof globalThis.fetch;
 }> {
-  const calls: ScrydexFixtureCall[] = [];
   const responses: Readonly<Record<string, unknown>> = {
-    [`${fixtureBaseUrl.replace("/onepiece/v1", "/account/v1")}/usage`]: {
-      total_credits: 1000,
-      remaining_credits: 875,
-      used_credits: 125,
-      overage_credit_rate: "0.01",
-      updated_at: "2026-06-22T00:00:00.000Z",
-    },
+    [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
     [`${fixtureBaseUrl}/expansions?page=1&page_size=100&select=id%2Cname%2Ccode%2Ctotal%2Crelease_date%2Clanguage%2Clanguage_code`]:
       {
         data: [scrydexExpansion],
@@ -689,6 +813,14 @@ function scrydexFixtureFetch(): Readonly<{
     },
   };
 
+  return scrydexResponseFixtureFetch(responses);
+}
+
+function scrydexResponseFixtureFetch(responses: Readonly<Record<string, unknown>>): Readonly<{
+  calls: ScrydexFixtureCall[];
+  fetch: typeof globalThis.fetch;
+}> {
+  const calls: ScrydexFixtureCall[] = [];
   return {
     calls,
     fetch: async (input, init) => {
@@ -707,6 +839,14 @@ function scrydexFixtureFetch(): Readonly<{
   };
 }
 
+const scrydexUsageResponse = {
+  total_credits: 1000,
+  remaining_credits: 875,
+  used_credits: 125,
+  overage_credit_rate: "0.01",
+  updated_at: "2026-06-22T00:00:00.000Z",
+};
+
 function endpoint(url: string): string {
   return new URL(url).pathname.replace("/scrydex/onepiece/v1", "");
 }
@@ -721,6 +861,16 @@ const scrydexExpansion = {
   code: "OP-01",
   total: 121,
   release_date: "2022-12-02",
+  language: "English",
+  language_code: "en",
+};
+
+const scrydexLorcanaExpansion = {
+  id: "TFC",
+  name: "The First Chapter",
+  code: "TFC",
+  total: 204,
+  release_date: "2023-08-18",
   language: "English",
   language_code: "en",
 };
@@ -806,4 +956,13 @@ const scrydexSealedProduct = {
   language: "English",
   language_code: "en",
   expansion: scrydexExpansion,
+};
+
+const scrydexLorcanaSealedProduct = {
+  id: "tfc-booster-box",
+  name: "The First Chapter Booster Box",
+  type: "booster_box",
+  language: "English",
+  language_code: "en",
+  expansion: { ...scrydexLorcanaExpansion, id: "1" },
 };
