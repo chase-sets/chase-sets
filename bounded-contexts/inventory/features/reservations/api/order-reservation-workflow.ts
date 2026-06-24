@@ -92,9 +92,7 @@ export async function reserveOrderInventoryRequest(
 }
 
 function isTerminalHoldPlacementFailure(error: unknown): error is InventoryHoldPlacementError {
-  return (
-    error instanceof InventoryHoldPlacementError && error.kind === "insufficient-available-quantity"
-  );
+  return error instanceof InventoryHoldPlacementError && error.kind === "insufficient-available-quantity";
 }
 
 function isTransientHoldPlacementFailure(error: unknown): error is InventoryHoldPlacementError {
