@@ -113,11 +113,22 @@ describe("staging wake drills argument handling", () => {
 
     expect(options.drillKind).toBe("reconciliation");
     expect(options.sourceContexts).toEqual([...DEFAULT_SOURCE_CONTEXTS]);
+    expect(options.convergenceProjectionNames).toEqual(["checkout.session-projection"]);
     expect(options.convergenceBudgetMs).toBe(DEFAULT_CONVERGENCE_BUDGET_MS);
     expect(options.searchQuery).toBe("air balloon");
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
     expect(options.controlDatabaseUrl).toBe(baseEnv.PLATFORM_CONTROL_DATABASE_URL);
     expect(validateStagingWakeDrillOptions(options)).toEqual([]);
+  });
+
+  it("defaults synthetic Buy Now convergence to the session projection and lets operators opt into all checkpoints", () => {
+    expect(parsedOptions(["load"]).convergenceProjectionNames).toEqual(["checkout.session-projection"]);
+    expect(parsedOptions(["reconciliation", "--skip-canary-write"]).convergenceProjectionNames).toEqual([]);
+    expect(
+      parsedOptions(["load", "--convergence-projection-names", "checkout.cart-projection, checkout.session-projection"])
+        .convergenceProjectionNames,
+    ).toEqual(["checkout.cart-projection", "checkout.session-projection"]);
+    expect(parsedOptions(["load", "--convergence-projection-names", "all"]).convergenceProjectionNames).toEqual([]);
   });
 
   it("maps hyphenated context names onto database env names", () => {
@@ -229,6 +240,63 @@ describe("checkpoint selection and convergence evaluation", () => {
     expect(missing.reasons).toContain("relay-cursor-missing");
     expect(missing.reasons).toContain("no-projection-checkpoints-found");
   });
+
+  it("can gate convergence to the projection required by the synthetic checkout surface", () => {
+    const evaluation = evaluateConvergenceSample(
+      {
+        head: "1772",
+        relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+        checkpoints: [
+          {
+            checkpointKey: "checkout.cart-projection:checkout:v1",
+            projectionName: "checkout.cart-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.sell-list-projection:checkout:v1",
+            projectionName: "checkout.sell-list-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.session-projection:checkout:v1",
+            projectionName: "checkout.session-projection",
+            subscriptionVersion: 1,
+            position: "1772",
+          },
+        ],
+      },
+      { projectionNames: ["checkout.session-projection"] },
+    );
+
+    expect(evaluation.converged).toBe(true);
+    expect(evaluation.checkpointGaps.map((entry) => entry.checkpointKey)).toEqual([
+      "checkout.session-projection:checkout:v1",
+    ]);
+    expect(evaluation.checkpointScope).toMatchObject({
+      mode: "projection-names",
+      projectionNames: ["checkout.session-projection"],
+      excludedCheckpointCount: 2,
+      excludedLaggingCheckpointCount: 2,
+      excludedMaxCheckpointGap: "12",
+    });
+  });
+
+  it("fails scoped convergence when the required projection checkpoint is missing", () => {
+    const evaluation = evaluateConvergenceSample(
+      {
+        head: "42",
+        relayCursor: { position: "42" },
+        checkpoints: [{ checkpointKey: "a:checkout:v1", projectionName: "a", subscriptionVersion: 1, position: "42" }],
+      },
+      { projectionNames: ["checkout.session-projection"] },
+    );
+
+    expect(evaluation.converged).toBe(false);
+    expect(evaluation.reasons).toContain("required-projection-checkpoint-not-found");
+    expect(evaluation.checkpointScope.missingProjectionNames).toEqual(["checkout.session-projection"]);
+  });
 });
 
 describe("convergence polling", () => {
@@ -274,6 +342,49 @@ describe("convergence polling", () => {
     expect(result.converged).toBe(false);
     expect(result.convergedAfterMs).toBeNull();
     expect(result.finalSamples.checkout.relayCursorGap).toBe("6");
+  });
+
+  it("does not fail a scoped Buy Now convergence poll on unrelated checkout checkpoint gaps", async () => {
+    const deps = fakeDeps({
+      sampleSourceContext: async () => ({
+        head: "1772",
+        relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+        checkpoints: [
+          {
+            checkpointKey: "checkout.cart-projection:checkout:v1",
+            projectionName: "checkout.cart-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.sell-list-projection:checkout:v1",
+            projectionName: "checkout.sell-list-projection",
+            subscriptionVersion: 1,
+            position: "1760",
+          },
+          {
+            checkpointKey: "checkout.session-projection:checkout:v1",
+            projectionName: "checkout.session-projection",
+            subscriptionVersion: 1,
+            position: "1772",
+          },
+        ],
+      }),
+    });
+
+    const result = await pollForConvergence(
+      {
+        sourceContexts: ["checkout"],
+        convergenceProjectionNames: ["checkout.session-projection"],
+        convergenceBudgetMs: 120_000,
+        pollIntervalMs: 5_000,
+      },
+      deps,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.sampleCount).toBe(1);
+    expect(result.finalSamples.checkout.checkpointScope.excludedLaggingCheckpointCount).toBe(2);
   });
 });
 
@@ -815,6 +926,59 @@ describe("drill orchestration", () => {
     expect(seenIterations).toHaveLength(5);
     expect(evidence.loadSummary.promoted).toBe(5);
     expect(evidence.loadResults.map((result) => result.iteration)).toEqual(["l1", "l2", "l3", "l4", "l5"]);
+  });
+
+  it("passes load drill convergence when Buy Now readiness projection converges and unrelated checkout projections lag", async () => {
+    const evidence = await runStagingWakeDrill(
+      {
+        ...reconciliationOptions,
+        drillKind: "load",
+        iterations: "2",
+        concurrency: "2",
+        convergenceProjectionNames: ["checkout.session-projection"],
+      },
+      fakeDeps({
+        sampleSourceContext: async () => ({
+          head: "1772",
+          relayCursor: { position: "1772", ownerId: "worker-a", ageMs: 10 },
+          checkpoints: [
+            {
+              checkpointKey: "checkout.cart-projection:checkout:v1",
+              projectionName: "checkout.cart-projection",
+              subscriptionVersion: 1,
+              position: "1760",
+            },
+            {
+              checkpointKey: "checkout.sell-list-projection:checkout:v1",
+              projectionName: "checkout.sell-list-projection",
+              subscriptionVersion: 1,
+              position: "1760",
+            },
+            {
+              checkpointKey: "checkout.session-projection:checkout:v1",
+              projectionName: "checkout.session-projection",
+              subscriptionVersion: 1,
+              position: "1772",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.convergenceProjectionNames).toEqual(["checkout.session-projection"]);
+    expect(evidence.convergence.finalSamples.checkout.checkpointGaps).toEqual([
+      expect.objectContaining({ checkpointKey: "checkout.session-projection:checkout:v1", gap: "0" }),
+    ]);
+    expect(evidence.segmentSlo.durableConvergence.sourceContexts.checkout).toMatchObject({
+      maxCheckpointGap: "0",
+      laggingCheckpointCount: 0,
+      checkpointScope: expect.objectContaining({
+        excludedCheckpointCount: 2,
+        excludedLaggingCheckpointCount: 2,
+        excludedMaxCheckpointGap: "12",
+      }),
+    });
   });
 
   it("keeps degraded wake-status snapshots from masking the drill verdict reasons", async () => {

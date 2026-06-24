@@ -40,6 +40,7 @@ export const MAX_CONVERGENCE_BUDGET_MS = 600_000;
 export const DEFAULT_POLL_INTERVAL_MS = 5_000;
 export const DEFAULT_WAKE_RUNTIME_READY_BUDGET_MS = 120_000;
 export const DEFAULT_SOURCE_CONTEXTS = Object.freeze(["checkout"]);
+export const DEFAULT_BUY_NOW_CONVERGENCE_PROJECTION_NAMES = Object.freeze(["checkout.session-projection"]);
 export const DEFAULT_FIXTURE_KEY = "staging-guest-buy-now-fixture";
 export const DEFAULT_LOAD_ITERATIONS = 6;
 export const DEFAULT_LOAD_CONCURRENCY = 2;
@@ -64,6 +65,16 @@ export function contextDatabaseEnvName(sourceContextName) {
 export function parseStagingWakeDrillArgs(argv, env = process.env) {
   const drillKind = argv[0] && !argv[0].startsWith("--") ? argv[0] : (readEnv("WAKE_DRILL_KIND", env) ?? "");
   const optionArgs = argv[0] && !argv[0].startsWith("--") ? argv.slice(1) : argv;
+  const sourceContexts = readCsv(
+    readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
+    DEFAULT_SOURCE_CONTEXTS,
+  );
+  const skipCanaryWrite =
+    readFlag(optionArgs, "--skip-canary-write") || readBoolean(readEnv("WAKE_DRILL_SKIP_CANARY_WRITE", env));
+  const convergenceProjectionNames = readConvergenceProjectionNames(
+    readOption(optionArgs, "--convergence-projection-names") ?? readEnv("WAKE_DRILL_CONVERGENCE_PROJECTION_NAMES", env),
+    { drillKind, sourceContexts, skipCanaryWrite },
+  );
 
   return {
     drillKind,
@@ -73,10 +84,8 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       readOption(optionArgs, "--out") ??
       readEnv("WAKE_DRILL_OUT", env) ??
       `artifacts/wake-drills/staging-wake-drill-${drillKind || "unknown"}.json`,
-    sourceContexts: readCsv(
-      readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
-      DEFAULT_SOURCE_CONTEXTS,
-    ),
+    sourceContexts,
+    convergenceProjectionNames,
     convergenceBudgetMs: clampInteger(
       readOption(optionArgs, "--convergence-budget-ms") ?? readEnv("WAKE_DRILL_CONVERGENCE_BUDGET_MS", env),
       DEFAULT_CONVERGENCE_BUDGET_MS,
@@ -102,8 +111,7 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       250,
       30_000,
     ),
-    skipCanaryWrite:
-      readFlag(optionArgs, "--skip-canary-write") || readBoolean(readEnv("WAKE_DRILL_SKIP_CANARY_WRITE", env)),
+    skipCanaryWrite,
     searchQuery:
       readOption(optionArgs, "--search-query") ??
       readEnv("WAKE_DRILL_SEARCH_QUERY", env) ??
@@ -135,10 +143,7 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
     adminPassword: readEnv("PLATFORM_ADMIN_PASSWORD", env),
     controlDatabaseUrl: readEnv("PLATFORM_CONTROL_DATABASE_URL", env),
     contextDatabaseUrls: Object.fromEntries(
-      readCsv(
-        readOption(optionArgs, "--source-contexts") ?? readEnv("WAKE_DRILL_SOURCE_CONTEXTS", env),
-        DEFAULT_SOURCE_CONTEXTS,
-      ).map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
+      sourceContexts.map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
     ),
     checkedAt: readOption(optionArgs, "--checked-at") ?? new Date().toISOString(),
   };
@@ -199,6 +204,15 @@ export function clampLoadPlan(input = {}) {
   };
 }
 
+export function defaultConvergenceProjectionNames(input = {}) {
+  const usesSyntheticBuyNowWrite =
+    input.drillKind === "load" || (input.drillKind === "reconciliation" && input.skipCanaryWrite !== true);
+  const sourceContexts = Array.isArray(input.sourceContexts) ? input.sourceContexts : [];
+  return usesSyntheticBuyNowWrite && sourceContexts.includes("checkout")
+    ? [...DEFAULT_BUY_NOW_CONVERGENCE_PROJECTION_NAMES]
+    : [];
+}
+
 // Subscription checkpoint rows can include retired subscription versions
 // (checkpoint_key '<projection>:<source>:v<N>'). Only the highest version per
 // projection participates in convergence: a stale v1 row behind an active v2
@@ -223,9 +237,10 @@ export function selectActiveCheckpoints(rows) {
   return [...byProjection.values()].sort((left, right) => left.checkpointKey.localeCompare(right.checkpointKey));
 }
 
-export function evaluateConvergenceSample(sample) {
+export function evaluateConvergenceSample(sample, scope = {}) {
   const head = toBigInt(sample.head);
   const reasons = [];
+  const requestedProjectionNames = normalizeProjectionNames(scope.projectionNames);
 
   let relayCursorGap = null;
   if (!sample.relayCursor) {
@@ -237,7 +252,17 @@ export function evaluateConvergenceSample(sample) {
     }
   }
 
-  const checkpoints = sample.checkpoints ?? [];
+  const allCheckpoints = sample.checkpoints ?? [];
+  const checkpoints =
+    requestedProjectionNames.length === 0
+      ? allCheckpoints
+      : allCheckpoints.filter((checkpoint) => requestedProjectionNames.includes(checkpoint.projectionName));
+  const missingProjectionNames = requestedProjectionNames.filter(
+    (projectionName) => !checkpoints.some((checkpoint) => checkpoint.projectionName === projectionName),
+  );
+  if (missingProjectionNames.length > 0) {
+    reasons.push("required-projection-checkpoint-not-found");
+  }
   if (checkpoints.length === 0) {
     reasons.push("no-projection-checkpoints-found");
   }
@@ -255,6 +280,22 @@ export function evaluateConvergenceSample(sample) {
   if (checkpointGaps.some((entry) => !entry.converged)) {
     reasons.push("projection-checkpoint-behind-event-store-head");
   }
+  const excludedCheckpointGaps =
+    requestedProjectionNames.length === 0
+      ? []
+      : allCheckpoints
+          .filter((checkpoint) => !requestedProjectionNames.includes(checkpoint.projectionName))
+          .map((checkpoint) => {
+            const gap = head - toBigInt(checkpoint.position);
+            return {
+              checkpointKey: checkpoint.checkpointKey,
+              projectionName: checkpoint.projectionName,
+              subscriptionVersion: checkpoint.subscriptionVersion,
+              position: checkpoint.position,
+              gap: gap.toString(),
+              converged: gap <= 0n,
+            };
+          });
 
   return {
     head: head.toString(),
@@ -262,6 +303,14 @@ export function evaluateConvergenceSample(sample) {
     relayCursorGap: relayCursorGap === null ? null : relayCursorGap.toString(),
     relayCursorAgeMs: sample.relayCursor ? toFiniteNumber(sample.relayCursor.ageMs) : null,
     relayCursorOwnerId: sample.relayCursor ? (sample.relayCursor.ownerId ?? null) : null,
+    checkpointScope: {
+      mode: requestedProjectionNames.length === 0 ? "all-active-projections" : "projection-names",
+      projectionNames: requestedProjectionNames,
+      missingProjectionNames,
+      excludedCheckpointCount: excludedCheckpointGaps.length,
+      excludedLaggingCheckpointCount: excludedCheckpointGaps.filter((entry) => !entry.converged).length,
+      excludedMaxCheckpointGap: maxBigIntString(excludedCheckpointGaps.map((entry) => entry.gap)),
+    },
     checkpointGaps,
     converged: reasons.length === 0,
     reasons,
@@ -425,6 +474,7 @@ export function buildDrillEvidence(input) {
     completedAt: input.completedAt,
     correlationPrefix: input.correlationPrefix,
     sourceContexts: input.sourceContexts,
+    convergenceProjectionNames: normalizeProjectionNames(input.convergenceProjectionNames),
     convergenceBudgetMs: input.convergenceBudgetMs,
     pollIntervalMs: input.pollIntervalMs,
     wakeRuntimeReadyBudgetMs: input.wakeRuntimeReadyBudgetMs ?? null,
@@ -663,7 +713,9 @@ export async function pollForConvergence(options, deps) {
     let allConverged = true;
     for (const contextName of options.sourceContexts) {
       const sample = await deps.sampleSourceContext(contextName);
-      const evaluation = evaluateConvergenceSample(sample);
+      const evaluation = evaluateConvergenceSample(sample, {
+        projectionNames: options.convergenceProjectionNames,
+      });
       finalSamples[contextName] = evaluation;
       if (!evaluation.converged) {
         allConverged = false;
@@ -845,6 +897,7 @@ export async function runStagingWakeDrill(options, deps) {
       completedAt: new Date(deps.now()).toISOString(),
       correlationPrefix: options.correlationPrefix,
       sourceContexts: options.sourceContexts,
+      convergenceProjectionNames: options.convergenceProjectionNames,
       convergenceBudgetMs: options.convergenceBudgetMs,
       pollIntervalMs: options.pollIntervalMs,
       wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
@@ -904,6 +957,7 @@ export async function runStagingWakeDrill(options, deps) {
     completedAt: new Date(deps.now()).toISOString(),
     correlationPrefix: options.correlationPrefix,
     sourceContexts: options.sourceContexts,
+    convergenceProjectionNames: options.convergenceProjectionNames,
     convergenceBudgetMs: options.convergenceBudgetMs,
     pollIntervalMs: options.pollIntervalMs,
     wakeRuntimeReadyBudgetMs: options.wakeRuntimeReadyBudgetMs,
@@ -1013,6 +1067,7 @@ function summarizeDurableConvergence(convergence, convergenceBudgetMs) {
         contextName,
         {
           relayCursorGap: sample.relayCursorGap ?? null,
+          checkpointScope: sample.checkpointScope ?? null,
           maxCheckpointGap: maxBigIntString(sample.checkpointGaps?.map((entry) => entry.gap)),
           laggingCheckpointCount: (sample.checkpointGaps ?? []).filter((entry) => !entry.converged).length,
         },
@@ -1051,6 +1106,25 @@ function maxBigIntString(values = []) {
     }
   }
   return max === null ? null : max.toString();
+}
+
+function readConvergenceProjectionNames(value, fallbackInput) {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return defaultConvergenceProjectionNames(fallbackInput);
+  }
+  if (/^(all|\*)$/i.test(normalized)) {
+    return [];
+  }
+  return normalizeProjectionNames(readCsv(normalized, []));
+}
+
+function normalizeProjectionNames(values) {
+  return [
+    ...new Set(
+      (Array.isArray(values) ? values : []).map((value) => normalizeString(value)).filter((value) => Boolean(value)),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
 }
 
 function toBigInt(value) {

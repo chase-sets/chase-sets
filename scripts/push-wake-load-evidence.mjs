@@ -343,11 +343,25 @@ function normalizeConvergenceSample(value) {
   return {
     head: readString(sample.head),
     relayCursorGap: sample.relayCursorGap === null ? null : readString(sample.relayCursorGap),
+    checkpointScope: normalizeCheckpointScope(sample.checkpointScope),
     laggingCheckpointCount: checkpointGaps.filter((checkpoint) => isRecord(checkpoint) && checkpoint.converged !== true)
       .length,
     maxCheckpointGap: maxBigIntString(
       checkpointGaps.map((checkpoint) => (isRecord(checkpoint) ? checkpoint.gap : "0")),
     ),
+  };
+}
+
+function normalizeCheckpointScope(value) {
+  const scope = isRecord(value) ? value : {};
+  return {
+    mode: sanitizeEvidenceString(scope.mode),
+    projectionNames: readStringArray(scope.projectionNames).map(sanitizeEvidenceString),
+    missingProjectionNames: readStringArray(scope.missingProjectionNames).map(sanitizeEvidenceString),
+    excludedCheckpointCount: toFiniteNumber(scope.excludedCheckpointCount),
+    excludedLaggingCheckpointCount: toFiniteNumber(scope.excludedLaggingCheckpointCount),
+    excludedMaxCheckpointGap:
+      scope.excludedMaxCheckpointGap === null ? null : readString(scope.excludedMaxCheckpointGap),
   };
 }
 

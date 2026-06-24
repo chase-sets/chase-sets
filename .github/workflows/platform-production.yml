@@ -981,13 +981,18 @@ jobs:
           GUEST_BUY_NOW_PROBE_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
           GUEST_BUY_NOW_PROBE_SLO_MODE: ${{ vars.GUEST_BUY_NOW_CANARY_SLO_MODE || 'warn' }}
           GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
+          GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_BUDGET_MS || '120000' }}
+          GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
           MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
+          admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$marketplace_domain" ]; then
-            echo "Required staging marketplace domain was not present in Terraform outputs." >&2
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required staging admin or marketplace domain was not present in Terraform outputs." >&2
             exit 1
           fi
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -997,11 +1002,14 @@ jobs:
           common_args=(
             --environment staging
             --base-url "https://${marketplace_domain}"
+            --admin-base-url "https://${admin_domain}"
             --search-query "${GUEST_BUY_NOW_PROBE_SEARCH_QUERY}"
             --fixture-key "${GUEST_BUY_NOW_PROBE_FIXTURE_KEY}"
             --timeout-ms "${GUEST_BUY_NOW_PROBE_TIMEOUT_MS}"
             --ready-slo-ms "${GUEST_BUY_NOW_PROBE_READY_SLO_MS}"
             --attempts "${GUEST_BUY_NOW_PROBE_ATTEMPTS}"
+            --wake-runtime-ready-budget-ms "${GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_BUDGET_MS}"
+            --wake-runtime-ready-poll-interval-ms "${GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS}"
           )
           if [ -n "${GUEST_BUY_NOW_PROBE_ITEM_PATH}" ]; then
             common_args+=(--item-path "${GUEST_BUY_NOW_PROBE_ITEM_PATH}")
@@ -1073,7 +1081,7 @@ jobs:
             echo "| guest | ${guest_final_state} | ${guest_promotion_decision} | ${guest_failure_reason} | ${guest_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-guest |"
             echo "| account | ${account_final_state} | ${account_promotion_decision} | ${account_failure_reason} | ${account_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account |"
             echo ""
-            echo "Interpretation: docs/runbooks/guest-buy-now-freshness-probe.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
+            echo "Interpretation: docs/runbooks/guest-buy-now-freshness-probe.md. Each probe artifact records wake-runtime preflight status; join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
             if [ "$promotion_decision" = "warn" ]; then
               echo ""
               echo "WARNING: ready SLO exceeded with a user-safe final state. Recorded as a release-health warning; promotion was not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md)."

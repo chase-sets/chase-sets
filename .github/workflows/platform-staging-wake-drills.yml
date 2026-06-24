@@ -52,6 +52,11 @@ on:
         required: false
         default: "120000"
         type: string
+      convergence_projection_names:
+        description: Comma-separated gated projection names for checkpoint convergence; leave blank for the drill default, or use "all" for every active checkpoint.
+        required: false
+        default: ""
+        type: string
       load_evidence_profile:
         description: Budget profile for the no-secret artifact evaluator after load drills.
         required: false
@@ -218,6 +223,7 @@ jobs:
         env:
           WAKE_DRILL_CORRELATION_PREFIX: wake-drill-${{ github.run_id }}-${{ github.run_attempt }}
           WAKE_DRILL_CONVERGENCE_BUDGET_MS: ${{ inputs.convergence_budget_ms }}
+          WAKE_DRILL_CONVERGENCE_PROJECTION_NAMES: ${{ inputs.convergence_projection_names }}
           WAKE_DRILL_LOAD_ITERATIONS: ${{ inputs.load_iterations }}
           WAKE_DRILL_LOAD_CONCURRENCY: ${{ inputs.load_concurrency }}
           WAKE_DRILL_FLOW: ${{ inputs.load_flow }}
