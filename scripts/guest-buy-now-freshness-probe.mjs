@@ -353,6 +353,7 @@ export function buildGuestBuyNowProbeEvidence(input) {
     checkoutDocumentStatus: normalizeHttpStatus(observation.checkoutDocumentStatus),
     stateWaitOutcome: normalizeStateWaitOutcome(observation.stateWaitOutcome),
     runtimeFailure: normalizeRuntimeFailure(observation),
+    accountItemPageFallback: normalizeRuntimeFallback(observation.accountItemPageFallback),
     negativeProbe: normalizeNegativeProbe(observation.negativeProbe),
     paymentOrOrderSideEffects: "not-attempted",
     redaction: {
@@ -410,6 +411,18 @@ function normalizeRuntimeFailure(observation) {
     stage: normalizeString(observation.runtimeFailureStage) ?? "unknown",
     reason: normalizeString(observation.runtimeFailureReason) ?? "browser-runtime-error",
     message: normalizeString(observation.runtimeFailureMessage) ?? null,
+  };
+}
+
+function normalizeRuntimeFallback(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    stage: normalizeString(value.stage) ?? "unknown",
+    reason: normalizeString(value.reason) ?? "browser-runtime-error",
+    message: value.message ? sanitizeRuntimeErrorMessage(value.message) : null,
   };
 }
 
@@ -776,19 +789,46 @@ async function observeBuyNowCheckout(options) {
     for (const fixtureCandidate of fixtureCandidates) {
       const itemUrl = new URL(fixtureCandidate.path, baseUrl);
       stage = "load-buy-now-item-page";
-      await page.goto(itemUrl.toString(), buyNowItemPageNavigationWaitOptions(options.timeoutMs));
-      const buyNowButton = page
-        .locator(
-          'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
-        )
-        .first();
-
+      let accountItemPageFallback = null;
       let startedAt;
       if (flow === "account") {
-        startedAt = Date.now();
-        stage = "click-account-buy-now";
-        await buyNowButton.click({ timeout: options.timeoutMs });
+        try {
+          await page.goto(itemUrl.toString(), buyNowItemPageNavigationWaitOptions(options.timeoutMs));
+          const buyNowButton = page
+            .locator(
+              'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
+            )
+            .first();
+          startedAt = Date.now();
+          stage = "click-account-buy-now";
+          await buyNowButton.click({ timeout: options.timeoutMs });
+        } catch (error) {
+          const fallbackReason = normalizeRuntimeError(error, stage);
+          if (
+            fallbackReason.stage !== "load-buy-now-item-page" ||
+            fallbackReason.reason !== "browser-navigation-timeout"
+          ) {
+            throw error;
+          }
+          accountItemPageFallback = fallbackReason;
+          startedAt = Date.now();
+          stage = "submit-account-buy-now-action-fallback";
+          const checkoutUrl = await submitAccountBuyNowActionFallback(
+            page,
+            itemUrl,
+            fixtureCandidate,
+            options.timeoutMs,
+          );
+          stage = "load-account-buy-now-fallback-session";
+          await page.goto(checkoutUrl.toString(), buyNowRouteTransitionWaitOptions(options.timeoutMs));
+        }
       } else {
+        await page.goto(itemUrl.toString(), buyNowItemPageNavigationWaitOptions(options.timeoutMs));
+        const buyNowButton = page
+          .locator(
+            'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
+          )
+          .first();
         stage = "click-guest-buy-now";
         await buyNowButton.click({ timeout: options.timeoutMs });
         stage = "wait-guest-buy-readiness";
@@ -848,6 +888,7 @@ async function observeBuyNowCheckout(options) {
         stateWaitOutcome: readiness.stateWaitOutcome,
         waitMode,
         pageText,
+        accountItemPageFallback,
         negativeProbe: options.skipNegativeProbe
           ? { attempted: false }
           : await runNegativeProbe(page, baseUrl, options),
@@ -866,6 +907,40 @@ async function observeBuyNowCheckout(options) {
   } finally {
     await browser.close();
   }
+}
+
+export function accountBuyNowActionFormForCandidate(candidate) {
+  const line = Array.isArray(candidate?.previewRequest?.lines) ? candidate.previewRequest.lines[0] : null;
+  const listingId = normalizeString(line?.lockedListingId) ?? normalizeString(line?.listingId) ?? "";
+  return {
+    intent: "buy-this-listing",
+    productId: normalizeString(line?.productId) ?? "",
+    selectedOptions: JSON.stringify(Array.isArray(line?.selectedOptions) ? line.selectedOptions : []),
+    productSummary: normalizeString(line?.productSummary) ?? "",
+    quantity: String(normalizePositiveInteger(line?.quantity, 1)),
+    lockedListingId: listingId,
+  };
+}
+
+export async function submitAccountBuyNowActionFallback(page, itemUrl, fixtureCandidate, timeoutMs) {
+  const response = await page.request.post(itemUrl.toString(), {
+    form: accountBuyNowActionFormForCandidate(fixtureCandidate),
+    maxRedirects: 0,
+    timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS),
+  });
+  const status = response.status();
+  const location = response.headers().location;
+  if (status >= 300 && status < 400 && location) {
+    return new URL(location, itemUrl);
+  }
+  if (status >= 500) {
+    throw probeHttpError(`Buy Now probe account action fallback failed with HTTP ${status}.`, status);
+  }
+  const error = new Error(
+    `Buy Now probe account action fallback expected a checkout redirect but received HTTP ${status}.`,
+  );
+  error.reason = "account-buy-now-action-unexpected-response";
+  throw error;
 }
 
 async function checkoutStartRecoveryObservationFromPage({
