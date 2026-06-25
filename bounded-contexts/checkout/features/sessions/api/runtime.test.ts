@@ -582,6 +582,94 @@ describe("checkout session runtime", () => {
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
   });
 
+  it("reads a committed Buy Now session from the aggregate when checkout_session_pages has not projected it", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("checkout_catalog_items")) {
+          return {
+            rows: [
+              {
+                catalog_item_id: "cat_1",
+                status: "active",
+                product_schema: null,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+    const created = await services.createBuyNow(
+      {
+        accountId: "acc_buyer" as never,
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        shippingOption: "standard",
+        fulfillmentPreviewRevision: "buy_now_supply_ready",
+        sessionIdOverride: "chk_buy_now_projection_missing" as never,
+      },
+      context,
+    );
+    await services.setShippingAddress(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: serviceableShippingAddress,
+      },
+      context,
+    );
+    await services.recordOrdersCreated(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1"],
+        fulfilledLineKeys: ["lst_1"],
+        orderWriteCommitPositions: [
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
+          },
+        ],
+      },
+      context,
+    );
+
+    await expect(services.getSession(created.sessionId, "acc_buyer" as never)).resolves.toMatchObject({
+      session_id: "chk_buy_now_projection_missing",
+      source_type: "buy-now",
+      order_ids: ["ord_1"],
+      order_write_commit_positions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+      payment_id: null,
+    });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("checkout_session_pages"), [
+      "chk_buy_now_projection_missing",
+      "acc_buyer",
+    ]);
+  });
+
   it("rejects buy-now session creation when fulfillment is not assigned", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = { query: vi.fn(async () => ({ rows: [] })) };
