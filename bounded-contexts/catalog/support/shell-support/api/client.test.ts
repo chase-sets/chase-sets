@@ -217,6 +217,42 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     );
   });
 
+  it("posts merge candidate review actions with safe ignore wording", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ action: "ignore" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.ignoreCatalogMergeCandidate<{ action: string }>("cand_1", {
+        reason: "Provider grouping is not a Catalog Item.",
+        conflictResolutions: [
+          {
+            conflictCode: "provider-disagreement",
+            fieldPath: null,
+            chosenValue: "ignore",
+            reason: "Unsafe grouping.",
+            observationIds: ["obs_1"],
+          },
+        ],
+      }),
+    ).resolves.toEqual({ action: "ignore" });
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/merge-candidates/cand_1/ignore");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        reason: "Provider grouping is not a Catalog Item.",
+        conflictResolutions: [
+          {
+            conflictCode: "provider-disagreement",
+            fieldPath: null,
+            chosenValue: "ignore",
+            reason: "Unsafe grouping.",
+            observationIds: ["obs_1"],
+          },
+        ],
+      }),
+    );
+  });
+
   it("streams scoped replay jobs with original source profile mode", async () => {
     const completedResult = {
       requested: 1,

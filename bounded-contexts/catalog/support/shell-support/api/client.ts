@@ -1249,6 +1249,81 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listCatalogMergeCandidates<T>(query = ""): Promise<T> {
+      const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidates${search}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async generateCatalogMergeCandidates<T>(body: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidates/generate`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async promoteCatalogMergeCandidate<T>(candidateId: string, body: unknown): Promise<T> {
+      return dispatchCatalogMergeCandidateAction<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        candidateId,
+        action: "promote",
+        body,
+      });
+    },
+    async splitCatalogMergeCandidate<T>(candidateId: string, body: unknown): Promise<T> {
+      return dispatchCatalogMergeCandidateAction<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        candidateId,
+        action: "split",
+        body,
+      });
+    },
+    async updateCatalogMergeCandidate<T>(candidateId: string, body: unknown): Promise<T> {
+      return dispatchCatalogMergeCandidateAction<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        candidateId,
+        action: "update",
+        body,
+      });
+    },
+    async ignoreCatalogMergeCandidate<T>(candidateId: string, body: unknown): Promise<T> {
+      return dispatchCatalogMergeCandidateAction<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        candidateId,
+        action: "ignore",
+        body,
+      });
+    },
+    async deferCatalogMergeCandidate<T>(candidateId: string, body: unknown): Promise<T> {
+      return dispatchCatalogMergeCandidateAction<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        candidateId,
+        action: "defer",
+        body,
+      });
+    },
     async importTcgdexSet<T>(body: unknown, options: CatalogImportProgressOptions = {}): Promise<T> {
       const scope = tcgdexImportScope(body);
       const job = await startIntegrationJob<CatalogSourceObservationIntegrationJobResult>({
@@ -1808,6 +1883,30 @@ async function sourceObservationIntegrationJobLifecycleCommand<T>(input: {
     {
       method: "POST",
       headers: headersToRecord(input.headers),
+    },
+  );
+  return parseJsonResponse<T>(response);
+}
+
+async function dispatchCatalogMergeCandidateAction<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  candidateId: string;
+  action: "promote" | "split" | "update" | "ignore" | "defer";
+  body: unknown;
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/merge-candidates/${encodeURIComponent(
+      input.candidateId,
+    )}/${input.action}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...headersToRecord(input.headers),
+      },
+      body: JSON.stringify(input.body),
     },
   );
   return parseJsonResponse<T>(response);

@@ -104,6 +104,11 @@ describe("source observation routes: review and control-plane reads", () => {
       enqueueBulkReviewJob: vi.fn(),
       promoteObservation: vi.fn(),
       rejectObservation: vi.fn(),
+      promoteCatalogMergeCandidate: vi.fn(),
+      splitCatalogMergeCandidate: vi.fn(),
+      updateCatalogMergeCandidate: vi.fn(),
+      ignoreCatalogMergeCandidate: vi.fn(),
+      deferCatalogMergeCandidate: vi.fn(),
     } as unknown as SourceObservationRouteServices;
     const app = buildApp(services, undefined, viewOnlyActor);
     const requests: Array<readonly [string, RequestInit | undefined]> = [
@@ -123,6 +128,11 @@ describe("source observation routes: review and control-plane reads", () => {
       ["/source-observations/bulk-promote", { method: "POST", body: "{}" }],
       ["/source-observations/bulk-reject", { method: "POST", body: '{"reason":"duplicate"}' }],
       ["/source-observations/bulk-defer/jobs", { method: "POST", body: "{}" }],
+      ["/source-observations/merge-candidates/cand_1/promote", { method: "POST", body: "{}" }],
+      ["/source-observations/merge-candidates/cand_1/split", { method: "POST", body: "{}" }],
+      ["/source-observations/merge-candidates/cand_1/update", { method: "POST", body: "{}" }],
+      ["/source-observations/merge-candidates/cand_1/ignore", { method: "POST", body: "{}" }],
+      ["/source-observations/merge-candidates/cand_1/defer", { method: "POST", body: "{}" }],
       ["/source-observations/obs_1/promote", { method: "POST" }],
       ["/source-observations/obs_1/reject", { method: "POST", body: "{}" }],
     ];
@@ -137,6 +147,11 @@ describe("source observation routes: review and control-plane reads", () => {
     expect(services.enqueueBulkReviewJob).not.toHaveBeenCalled();
     expect(services.promoteObservation).not.toHaveBeenCalled();
     expect(services.rejectObservation).not.toHaveBeenCalled();
+    expect(services.promoteCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.splitCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.updateCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.ignoreCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.deferCatalogMergeCandidate).not.toHaveBeenCalled();
   });
 
   it("requires a reason for single Source Observation rejection", async () => {
@@ -179,6 +194,93 @@ describe("source observation routes: review and control-plane reads", () => {
       reason: "Duplicate provider row.",
       context,
     });
+  });
+
+  it("passes candidate review actions through with audit context and safe ignore language", async () => {
+    const result = {
+      candidateId: "cand_1",
+      action: "ignore",
+      version: 2,
+      status: "rejected",
+      statusReason: "Candidate ignored: Not a Catalog Item.",
+      snapshot: null,
+    };
+    const ignoreCatalogMergeCandidate = vi.fn(async () => result);
+    const services = {
+      ignoreCatalogMergeCandidate,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/merge-candidates/cand_1/ignore", {
+      method: "POST",
+      body: JSON.stringify({
+        reason: " Not a Catalog Item. ",
+        conflictResolutions: [
+          {
+            conflictCode: "provider-disagreement",
+            fieldPath: null,
+            chosenValue: "ignore",
+            reason: "Grouping is unsafe.",
+            observationIds: ["obs_1"],
+          },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(result);
+    expect(ignoreCatalogMergeCandidate).toHaveBeenCalledWith({
+      candidateId: "cand_1",
+      reason: "Not a Catalog Item.",
+      conflictResolutions: [
+        {
+          conflictCode: "provider-disagreement",
+          fieldPath: null,
+          chosenValue: "ignore",
+          reason: "Grouping is unsafe.",
+          observationIds: ["obs_1"],
+        },
+      ],
+      context,
+    });
+  });
+
+  it("requires candidate action reasons and snapshots where needed", async () => {
+    const services = {
+      promoteCatalogMergeCandidate: vi.fn(),
+      updateCatalogMergeCandidate: vi.fn(),
+      splitCatalogMergeCandidate: vi.fn(),
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const promoteResponse = await app.request("/source-observations/merge-candidates/cand_1/promote", {
+      method: "POST",
+      body: JSON.stringify({ reason: " " }),
+      headers: { "content-type": "application/json" },
+    });
+    const updateResponse = await app.request("/source-observations/merge-candidates/cand_1/update", {
+      method: "POST",
+      body: JSON.stringify({ reason: "Correct identity." }),
+      headers: { "content-type": "application/json" },
+    });
+    const splitResponse = await app.request("/source-observations/merge-candidates/cand_1/split", {
+      method: "POST",
+      body: JSON.stringify({ reason: "Separate variants." }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(promoteResponse.status).toBe(400);
+    await expect(promoteResponse.json()).resolves.toEqual({ error: "Promotion requires a reason." });
+    expect(updateResponse.status).toBe(400);
+    await expect(updateResponse.json()).resolves.toEqual({ error: "Update requires a candidate snapshot." });
+    expect(splitResponse.status).toBe(400);
+    await expect(splitResponse.json()).resolves.toEqual({
+      error: "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+    });
+    expect(services.promoteCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.updateCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(services.splitCatalogMergeCandidate).not.toHaveBeenCalled();
   });
 
   it("lists observations using the shared source query param as provider scope", async () => {

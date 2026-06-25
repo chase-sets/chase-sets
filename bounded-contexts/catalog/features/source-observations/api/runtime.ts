@@ -68,7 +68,12 @@ import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
+  type CatalogMergeCandidateCommand,
+  type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
+  type CatalogMergeCandidateReviewActor,
+  type CatalogMergeCandidateReviewSnapshot,
+  type CatalogMergeCandidateState,
 } from "../domain/catalog-merge-candidate";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
 import {
@@ -1054,12 +1059,62 @@ export type CatalogMergeCandidateGenerationResult = Readonly<{
   candidates: readonly CatalogMergeCandidateMatchResult[];
 }>;
 
+export type CatalogMergeCandidateActionResult = Readonly<{
+  candidateId: string;
+  action: "promote" | "split" | "update" | "ignore" | "defer";
+  version: number;
+  status: CatalogMergeCandidateState["status"];
+  statusReason: string | null;
+  snapshot: CatalogMergeCandidateReviewSnapshot | null;
+  splitCandidate?: Readonly<{
+    candidateId: string;
+    version: number;
+    status: CatalogMergeCandidateState["status"];
+    statusReason: string | null;
+    snapshot: CatalogMergeCandidateReviewSnapshot | null;
+  }>;
+}>;
+
 export type CatalogMergeCandidateServices = Readonly<{
   generateCatalogMergeCandidates: (input: {
     syncRunId?: string | null;
     scope?: SourceObservationFilterScope;
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateGenerationResult>;
+  promoteCatalogMergeCandidate: (input: {
+    candidateId: string;
+    reason: string;
+    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateActionResult>;
+  splitCatalogMergeCandidate: (input: {
+    candidateId: string;
+    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
+    splitCandidateId: string;
+    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+    reason: string;
+    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateActionResult>;
+  updateCatalogMergeCandidate: (input: {
+    candidateId: string;
+    snapshot: CatalogMergeCandidateReviewSnapshot;
+    reason: string;
+    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateActionResult>;
+  ignoreCatalogMergeCandidate: (input: {
+    candidateId: string;
+    reason: string;
+    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateActionResult>;
+  deferCatalogMergeCandidate: (input: {
+    candidateId: string;
+    reason: string;
+    conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateActionResult>;
 }>;
 
 export type ControlPlaneTelemetryServices = Readonly<{
@@ -1134,13 +1189,14 @@ export function createSourceObservationRuntime(
     evolve: evolveSourceObservation,
     decide: decideSourceObservation,
   });
-  const { commandHandler: catalogMergeCandidateCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>(),
-    initialState: () => initialCatalogMergeCandidateState,
-    evolve: evolveCatalogMergeCandidate,
-    decide: decideCatalogMergeCandidate,
-  });
+  const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>(),
+      initialState: () => initialCatalogMergeCandidateState,
+      evolve: evolveCatalogMergeCandidate,
+      decide: decideCatalogMergeCandidate,
+    });
   const projectors = [
     createProjectionHandlerSet({
       projectionName: "catalog-source-observation-projection",
@@ -1301,6 +1357,54 @@ export function createSourceObservationRuntime(
       observationCount: observations.length,
       candidateCount: generated.length,
       candidates: generated,
+    };
+  }
+
+  async function dispatchCatalogMergeCandidateCommand(input: {
+    candidateId: string;
+    action: CatalogMergeCandidateActionResult["action"];
+    command: CatalogMergeCandidateCommand;
+    context: EventStoreContext;
+  }): Promise<CatalogMergeCandidateActionResult> {
+    const result = await catalogMergeCandidateCommandHandler({
+      streamId: catalogMergeCandidateStreamId(input.candidateId),
+      command: input.command,
+      context: input.context,
+    });
+
+    return {
+      candidateId: input.candidateId,
+      action: input.action,
+      version: result.version,
+      status: result.state.status,
+      statusReason: result.state.statusReason,
+      snapshot: result.state.snapshot,
+    };
+  }
+
+  async function createSplitCatalogMergeCandidate(input: {
+    candidateId: string;
+    snapshot: CatalogMergeCandidateReviewSnapshot;
+    createdAt: string;
+    context: EventStoreContext;
+  }): Promise<NonNullable<CatalogMergeCandidateActionResult["splitCandidate"]>> {
+    const result = await catalogMergeCandidateCommandHandler({
+      streamId: catalogMergeCandidateStreamId(input.candidateId),
+      command: {
+        type: "CreateCatalogMergeCandidate",
+        candidateId: input.candidateId,
+        snapshot: input.snapshot,
+        createdAt: input.createdAt,
+      },
+      context: input.context,
+    });
+
+    return {
+      candidateId: input.candidateId,
+      version: result.version,
+      status: result.state.status,
+      statusReason: result.state.statusReason,
+      snapshot: result.state.snapshot,
     };
   }
 
@@ -4527,6 +4631,100 @@ export function createSourceObservationRuntime(
   return {
     commandHandler,
     generateCatalogMergeCandidates,
+    promoteCatalogMergeCandidate: (input) =>
+      dispatchCatalogMergeCandidateCommand({
+        candidateId: input.candidateId,
+        action: "promote",
+        command: {
+          type: "PromoteCatalogMergeCandidate",
+          reason: input.reason,
+          actor: catalogMergeCandidateReviewActor(input.context),
+          promotedAt: new Date().toISOString(),
+          conflictResolutions: input.conflictResolutions,
+        },
+        context: input.context,
+      }),
+    splitCatalogMergeCandidate: async (input) => {
+      const splitAt = new Date().toISOString();
+      const splitCommand: CatalogMergeCandidateCommand = {
+        type: "SplitCatalogMergeCandidate",
+        remainingSnapshot: input.remainingSnapshot,
+        splitCandidateId: input.splitCandidateId,
+        splitSnapshot: input.splitSnapshot,
+        reason: input.reason,
+        actor: catalogMergeCandidateReviewActor(input.context),
+        splitAt,
+        conflictResolutions: input.conflictResolutions,
+      };
+      const originalCandidate = await catalogMergeCandidateRepository.load(
+        catalogMergeCandidateStreamId(input.candidateId),
+      );
+      decideCatalogMergeCandidate(originalCandidate.state, splitCommand);
+      const existingSplitEvents = await deps.eventStore.readStream({
+        streamId: catalogMergeCandidateStreamId(input.splitCandidateId),
+      });
+      if (existingSplitEvents.length > 0) {
+        throw new Error("Split Catalog Merge Candidate already exists.");
+      }
+
+      const splitCandidate = await createSplitCatalogMergeCandidate({
+        candidateId: input.splitCandidateId,
+        snapshot: input.splitSnapshot,
+        createdAt: splitAt,
+        context: input.context,
+      });
+      const original = await dispatchCatalogMergeCandidateCommand({
+        candidateId: input.candidateId,
+        action: "split",
+        command: splitCommand,
+        context: input.context,
+      });
+
+      return {
+        ...original,
+        splitCandidate,
+      };
+    },
+    updateCatalogMergeCandidate: (input) =>
+      dispatchCatalogMergeCandidateCommand({
+        candidateId: input.candidateId,
+        action: "update",
+        command: {
+          type: "UpdateCatalogMergeCandidate",
+          snapshot: input.snapshot,
+          reason: input.reason,
+          actor: catalogMergeCandidateReviewActor(input.context),
+          updatedAt: new Date().toISOString(),
+          conflictResolutions: input.conflictResolutions,
+        },
+        context: input.context,
+      }),
+    ignoreCatalogMergeCandidate: (input) =>
+      dispatchCatalogMergeCandidateCommand({
+        candidateId: input.candidateId,
+        action: "ignore",
+        command: {
+          type: "IgnoreCatalogMergeCandidate",
+          reason: input.reason,
+          actor: catalogMergeCandidateReviewActor(input.context),
+          ignoredAt: new Date().toISOString(),
+          conflictResolutions: input.conflictResolutions,
+        },
+        context: input.context,
+      }),
+    deferCatalogMergeCandidate: (input) =>
+      dispatchCatalogMergeCandidateCommand({
+        candidateId: input.candidateId,
+        action: "defer",
+        command: {
+          type: "DeferCatalogMergeCandidate",
+          reason: input.reason,
+          actor: catalogMergeCandidateReviewActor(input.context),
+          deferredAt: new Date().toISOString(),
+          conflictResolutions: input.conflictResolutions,
+        },
+        context: input.context,
+      }),
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
@@ -7679,6 +7877,13 @@ function sourceObservationStreamId(observationId: string): string {
 
 function catalogMergeCandidateStreamId(candidateId: string): string {
   return `catalog.merge-candidate-${candidateId}`;
+}
+
+function catalogMergeCandidateReviewActor(context: EventStoreContext): CatalogMergeCandidateReviewActor {
+  return {
+    userId: context.audit.performedByUserId ? String(context.audit.performedByUserId) : null,
+    accountId: context.audit.forAccountId ? String(context.audit.forAccountId) : null,
+  };
 }
 
 type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
