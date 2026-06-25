@@ -1,12 +1,13 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_READY_SLO_MS,
   GUEST_BUY_NOW_FRESHNESS_PROBE_VERSION,
   PRODUCTION_FEASIBILITY_DECISION,
   SEGMENT_METRIC_REFERENCES,
+  accountBuyNowActionFormForCandidate,
   assertRedactedEvidence,
   buildGuestBuyNowProbeEvidence,
   buyNowItemPageNavigationWaitOptions,
@@ -21,6 +22,7 @@ import {
   resolveGuestBuyNowItemCandidates,
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessProbe,
+  submitAccountBuyNowActionFallback,
   validateGuestBuyNowProbeOptions,
   waitForWakeRuntimePreflight,
 } from "./guest-buy-now-freshness-probe.mjs";
@@ -173,6 +175,38 @@ describe("guest Buy Now freshness probe", () => {
       promotionDecision: "promote",
       failureReason: null,
     });
+  });
+
+  it("records account item-page fallback evidence without weakening checkout readiness classification", () => {
+    const evidence = buildGuestBuyNowProbeEvidence({
+      ...baseOptions,
+      flow: "account",
+      observation: {
+        afterWritePresent: false,
+        postWriteTokenPresent: true,
+        sessionCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 900,
+        negativeProbe: healthyProbe,
+        accountItemPageFallback: {
+          stage: "load-buy-now-item-page",
+          reason: "browser-navigation-timeout",
+          message:
+            'page.goto: Timeout 45000ms exceeded. navigating to "https://marketplace.staging.chasesets.com/items/canary?postWriteToken=compact-token"',
+        },
+      },
+    });
+
+    expect(evidence).toMatchObject({
+      finalState: "pass",
+      promotionDecision: "promote",
+      accountItemPageFallback: {
+        stage: "load-buy-now-item-page",
+        reason: "browser-navigation-timeout",
+        message: 'page.goto: Timeout 45000ms exceeded. navigating to "[redacted-url]"',
+      },
+    });
+    expect(assertRedactedEvidence(evidence)).toEqual([]);
   });
 
   it("fails on the original permanent not-found symptom", () => {
@@ -1119,6 +1153,93 @@ describe("guest Buy Now freshness probe", () => {
     expect(JSON.stringify(evidence)).not.toContain("compact-token");
     expect(JSON.stringify(evidence)).not.toContain("guest-buy-now-canary@example.test");
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("builds the signed-in Buy Now action fallback form from the resolved checkout-ready fixture", () => {
+    expect(
+      accountBuyNowActionFormForCandidate({
+        previewRequest: {
+          lines: [
+            {
+              listingId: "lst_1",
+              lockedListingId: "lst_locked",
+              productId: "prod_1",
+              productSummary: "Near Mint",
+              selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
+              quantity: 2,
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      intent: "buy-this-listing",
+      productId: "prod_1",
+      selectedOptions: JSON.stringify([{ dimensionId: "condition", optionId: "near-mint" }]),
+      productSummary: "Near Mint",
+      quantity: "2",
+      lockedListingId: "lst_locked",
+    });
+  });
+
+  it("submits the signed-in Buy Now fallback without following the checkout redirect", async () => {
+    const post = vi.fn().mockResolvedValue({
+      status: () => 302,
+      headers: () => ({ location: "/checkout/buy/session/chk_1?postWriteToken=compact" }),
+    });
+    const checkoutUrl = await submitAccountBuyNowActionFallback(
+      { request: { post } },
+      new URL("https://marketplace.staging.chasesets.com/items/canary?market=buy&listing=lst_1"),
+      {
+        previewRequest: {
+          lines: [
+            {
+              listingId: "lst_1",
+              productId: "prod_1",
+              selectedOptions: [],
+              quantity: 1,
+            },
+          ],
+        },
+      },
+      45_000,
+    );
+
+    expect(checkoutUrl.toString()).toBe(
+      "https://marketplace.staging.chasesets.com/checkout/buy/session/chk_1?postWriteToken=compact",
+    );
+    expect(post).toHaveBeenCalledWith(
+      "https://marketplace.staging.chasesets.com/items/canary?market=buy&listing=lst_1",
+      {
+        form: {
+          intent: "buy-this-listing",
+          productId: "prod_1",
+          selectedOptions: "[]",
+          productSummary: "",
+          quantity: "1",
+          lockedListingId: "lst_1",
+        },
+        maxRedirects: 0,
+        timeout: 45_000,
+      },
+    );
+  });
+
+  it("keeps fallback platform failures retryable", async () => {
+    await expect(
+      submitAccountBuyNowActionFallback(
+        {
+          request: {
+            post: vi.fn().mockResolvedValue({
+              status: () => 503,
+              headers: () => ({}),
+            }),
+          },
+        },
+        new URL("https://marketplace.staging.chasesets.com/items/canary"),
+        { previewRequest: { lines: [] } },
+        45_000,
+      ),
+    ).rejects.toMatchObject({ reason: "platform-temporary-unavailable" });
   });
 
   it("records checkout start recovery as a hard fixture or availability failure", async () => {
