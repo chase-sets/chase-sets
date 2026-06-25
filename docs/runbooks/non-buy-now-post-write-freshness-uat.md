@@ -24,12 +24,15 @@ Do not record account ids, cart ids, event ids, compact tokens, raw `afterWrite`
 5. Account cart stale response: perform a rapid quantity or remove/update sequence and confirm an older response cannot overwrite the newest visible cart state.
 6. Generate the redacted account-cart artifact with `scripts/account-cart-consistency-probe.mjs`; the artifact must promote and must not contain sensitive values.
 7. Sell List accept-to-checkout: from `/account/sell`, accept an eligible sell readiness flow into checkout and confirm the handoff reaches the expected checkout or readiness state without fallback failure.
-8. Payout-ready return: use an operator-owned payout-ready account flow and confirm returning to Sell List shows payout readiness without setup-blocked recovery.
-9. Listing freshness: create or update a staging listing through the account listing flow, then confirm `/account/listings`, `/account/listings/:id`, and the public listing/product surface show the expected fresh state or an owned temporary recovery state.
-10. Query the same window in Grafana/Prometheus using the Projection Freshness dashboard and the starter queries in [Observability](./observability.md).
-11. Confirm the telemetry observations are `zero` or within SLO: `account-cart-post-write-consistency`, `sell-rail-accept-checkout-handoff`, `payout-ready-handoff`, `marketplace-listing-freshness-slo`, `settlement-payout-errors`, and `projection-lag-poison-events`.
-12. Record remaining gaps separately: listing freshness has low-cardinality telemetry but no dedicated live mutation canary or automated comparison gate until fixture ownership and cleanup are explicit.
-13. Include the generated UAT JSON in the release-health report input so the Projection Freshness Evidence section records account cart, Sell List, payout, and listing coverage:
+8. Before payout-ready return or listing freshness, run the `Platform Staging Representative Commerce State` workflow for the deployed release ref and read the `chromeUatSelector` object from `representative-commerce-state.complete`. Continue only when `chromeUatSelector.status` is `ready`.
+9. Use `chromeUatSelector.selectedPersonaAlias` with private operator login tooling to open Chrome as that staging persona. Public evidence may name only the alias and selector categories, not the email, account id, provider reference, listing id, item detail, token, or full URL.
+10. Payout-ready return: with the selected persona, return to `/account/sell` and confirm payout readiness is visible without setup-blocked recovery. If the selector reports `payout-not-ready`, stop and complete private payout setup first; do not substitute sandbox provider smoke evidence.
+11. Listing freshness: create or update a fixture-owned staging listing through the account listing flow, then confirm `/account/listings`, `/account/listings/:id`, and the public listing/product surface show the expected fresh state or an owned temporary recovery state.
+12. Cleanup: restore the updated listing fields or withdraw any temporary listing before ending the UAT window. If immediate cleanup is blocked, record the private cleanup owner and a 24-hour TTL outside public evidence.
+13. Query the same window in Grafana/Prometheus using the Projection Freshness dashboard and the starter queries in [Observability](./observability.md).
+14. Confirm the telemetry observations are `zero` or within SLO: `account-cart-post-write-consistency`, `sell-rail-accept-checkout-handoff`, `payout-ready-handoff`, `marketplace-listing-freshness-slo`, `settlement-payout-errors`, and `projection-lag-poison-events`.
+15. Record remaining gaps separately: listing freshness has low-cardinality telemetry but no dedicated live mutation canary or automated comparison gate until fixture ownership and cleanup are explicit.
+16. Include the generated UAT JSON in the release-health report input so the Projection Freshness Evidence section records account cart, Sell List, payout, and listing coverage:
 
 ```powershell
 pnpm run ops release-health:report `
@@ -50,6 +53,8 @@ The report fails the UAT row when any required flow is missing, when telemetry i
   "checkedAt": "<iso>",
   "browser": "chrome",
   "evidenceReference": "STAGING-NON-BUY-NOW-FRESHNESS-YYYY-MM-DD",
+  "chromeUatPersonaAlias": "card-vault",
+  "chromeUatSelectorStatus": "ready",
   "flows": [
     { "name": "account-cart", "routeTemplate": "/account/cart", "outcome": "promote" },
     { "name": "sell-list-accept-to-checkout", "routeTemplate": "/account/sell", "outcome": "fresh" },

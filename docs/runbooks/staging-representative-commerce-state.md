@@ -23,6 +23,17 @@ For local or non-standard non-production environments, set `REPRESENTATIVE_COMME
 
 Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command asks Catalog to resolve product measurements for the bounded current item window, skipping Catalog Items that already have resolved product measurement snapshots, selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff, and asks Discovery to reconcile the selected representative account/listing/offer facts for visible product/search market presentation without replaying the full Marketplace event backlog. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`; Catalog measurement preparation uses a larger bounded timeout because it may need to resolve newly imported items after a provider pull.
 
+The completion payload also includes `chromeUatSelector`, a support-safe selector for the remaining projection freshness Chrome UAT. It evaluates the representative selling persona aliases `card-vault` and `sealed-stockroom` without printing account ids, user ids, emails, provider references, inventory ids, listing ids, item details, compact tokens, or URLs. Use only these selector fields in public issue or PR evidence:
+
+- `status`: `ready` means one persona can be used for Chrome UAT; `operator-action-required` means staging still needs private payout setup or representative state refresh.
+- `selectedPersonaAlias`: the alias to use from private operator credential tooling when `status=ready`.
+- `personas[].chromeLogin`: whether the alias has a Chrome-login-capable magic-link identity.
+- `personas[].payoutReadiness`: whether Settlement shows provider-backed payout readiness.
+- `personas[].listingState`, `activeListingCount`, `mutableListingCount`, and `inventoryItemCount`: whether the alias owns mutable representative listing and inventory state.
+- `personas[].blockerCategories`: support-safe missing-state categories such as `payout-not-ready` or `owned-active-listing-missing`.
+
+If `status=operator-action-required`, do not treat sandbox provider verification as Chrome UAT evidence. Complete the private operator action named by `nextOperatorAction`, usually finishing or refreshing payout setup for one selected alias through staging provider-managed setup, then rerun this workflow. Do not publish the underlying login email, account id, provider account reference, payout id, listing id, or item detail used to satisfy the selector.
+
 ## Expected Data
 
 The representative profile keeps real Catalog integration output in place. It first resolves product measurements for a bounded active Catalog Item window, finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
@@ -53,6 +64,7 @@ The representative usage layer should reconcile:
 - Do not create fake Catalog Items in staging representative runs. Import/promote Catalog Items through Catalog integration workflows first.
 - Prefer Catalog Items with no existing listings or offers so refreshes can add coverage after every integration pull.
 - Skip Catalog Items without product measurement snapshots because accepted offers flow into Ordering and order creation requires product measurements.
+- Keep Chrome UAT listing mutations fixture-owned: use the `selectedPersonaAlias`, mutate only representative staging inventory/listings owned by that alias, and restore the previous listing state or withdraw any temporary listing in the same UAT window. If cleanup cannot happen immediately, record a private cleanup owner and a 24-hour TTL outside public evidence.
 - Document direct scenario links in Platform Operations or this runbook as they become available.
 
 ## Verification
@@ -64,4 +76,5 @@ After the command runs:
 3. Confirm at least one purchasing account has purchases, payments, shipments, reviews, notifications, and support requests.
 4. Confirm at least one selling account has listings, offer matches, sales, shipments, wallet activity, payouts, reviews, and support requests.
 5. Confirm the command emitted `representative-commerce-state.complete`; if a step timeout occurs, inspect the named projection backlog before retrying.
-6. Run staging smoke checks before promoting the release.
+6. Confirm `chromeUatSelector.status=ready` before using representative state as the source for payout-ready return or listing-freshness Chrome UAT. If it is not ready, follow the support-safe blocker categories instead of guessing at a private account.
+7. Run staging smoke checks before promoting the release.

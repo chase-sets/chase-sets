@@ -42,6 +42,56 @@ const CONFIRMATION_PHRASE = "seed staging commerce";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
 const MAX_STEP_TIMEOUT_MS = 600_000;
 
+type ChromeUatPersonaAlias = "card-vault" | "sealed-stockroom";
+type ChromeUatReadinessStatus = "ready" | "operator-action-required";
+type ChromeUatPersonaBlocker =
+  | "chrome-login-not-ready"
+  | "payout-not-ready"
+  | "owned-inventory-missing"
+  | "owned-active-listing-missing";
+
+type ChromeUatPersonaCandidate = Readonly<{
+  alias: ChromeUatPersonaAlias;
+  accountId: string;
+  userId: string;
+}>;
+
+export type ChromeUatPersonaReadiness = Readonly<{
+  personaAlias: ChromeUatPersonaAlias;
+  chromeLogin: "magic-link-ready" | "not-ready";
+  payoutReadiness: "ready" | "not-ready";
+  listingState: "owned-mutable" | "missing";
+  activeListingCount: number;
+  mutableListingCount: number;
+  inventoryItemCount: number;
+  blockerCategories: readonly ChromeUatPersonaBlocker[];
+}>;
+
+export type ChromeUatRepresentativePersonaSelection = Readonly<{
+  schemaVersion: "representative-commerce-state.chrome-uat-selector/v1";
+  status: ChromeUatReadinessStatus;
+  selectedPersonaAlias: ChromeUatPersonaAlias | null;
+  checkedPersonaCount: number;
+  personas: readonly ChromeUatPersonaReadiness[];
+  evidencePolicy: "support-safe";
+  nextOperatorAction:
+    | "use-selected-private-login-and-record-redacted-uat"
+    | "complete-private-payout-setup-or-refresh-representative-state";
+}>;
+
+const chromeUatPersonaCandidates: readonly ChromeUatPersonaCandidate[] = [
+  {
+    alias: "card-vault",
+    accountId: "acc_repr_card_vault_account",
+    userId: "usr_repr_card_vault_user",
+  },
+  {
+    alias: "sealed-stockroom",
+    accountId: "acc_repr_sealed_stockroom_account",
+    userId: "usr_repr_sealed_stockroom_user",
+  },
+];
+
 export function assertRepresentativeCommerceStateRunAllowed(
   input: Readonly<{
     deploymentEnvironment: string | null | undefined;
@@ -194,6 +244,14 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         },
       ),
     );
+    const chromeUatSelector = await runRepresentativeStep("select support-safe Chrome UAT persona", () =>
+      selectChromeUatRepresentativePersona({
+        identityDb: getIdentityDb(runtime.services),
+        inventoryDb: getInventoryDb(runtime.services),
+        marketplaceDb: getMarketplaceDb(runtime.services),
+        settlementDb: getSettlementDb(runtime.services),
+      }),
+    );
 
     console.log(
       JSON.stringify({
@@ -202,39 +260,21 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         dataProfiles: representativeCommerceStateDataProfiles,
         sourceCatalogCandidateCount: sourceCandidates.length,
         untouchedCatalogCandidateCount: candidates.length,
-        untouchedCatalogCandidates: candidates.map((candidate) => candidate.catalogItemId),
         marketplaceReconciledCatalogItemCount: marketplaceReconciledCount,
         inventoryReconciledCatalogItemCount: inventoryReconciledCount,
         representativeInventoryStockCount: inventoryStock.length,
-        representativeInventoryStock: inventoryStock.map((stock) => ({
-          catalogItemId: stock.catalogItemId,
-          accountId: stock.accountId,
-          inventoryItemId: stock.inventoryItemId,
-        })),
+        representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
         representativeListingCount: listings.length,
-        representativeListings: listings.map((listing) => ({
-          catalogItemId: listing.catalogItemId,
-          accountId: listing.accountId,
-          listingId: listing.listingId,
-        })),
+        representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
         representativeOfferCount: offers.length,
-        representativeOffers: offers.map((offer) => ({
-          catalogItemId: offer.catalogItemId,
-          buyerAccountId: offer.buyerAccountId,
-          offerId: offer.offerId,
-        })),
+        representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
         representativeAcceptedOfferCount: acceptedOffers.filter(
           (offer) => offer.status === "accepted" || offer.status === "already-accepted",
         ).length,
-        representativeAcceptedOffers: acceptedOffers.map((offer) => ({
-          catalogItemId: offer.catalogItemId,
-          sellerAccountId: offer.sellerAccountId,
-          offerId: offer.offerId,
-          status: offer.status,
-          reason: offer.reason,
-        })),
+        representativeAcceptedOfferSkippedCount: acceptedOffers.filter((offer) => offer.status === "skipped").length,
         representativeOrderingSupplyState: orderingSupplyState,
         representativeDiscoveryMarketState: discoveryMarketState,
+        chromeUatSelector,
         contexts: runtime.mountedContexts.map((context) => context.contextName),
       }),
     );
@@ -359,38 +399,41 @@ function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQ
   return getMarketplaceServices(services).db;
 }
 
-function getDiscoveryDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
-  const discovery = services.discovery;
-  if (
-    !discovery ||
-    typeof discovery !== "object" ||
-    !("db" in discovery) ||
-    !discovery.db ||
-    typeof discovery.db !== "object" ||
-    !("query" in discovery.db) ||
-    typeof discovery.db.query !== "function"
-  ) {
-    throw new Error("Representative commerce state requires mounted Discovery services with a queryable db.");
-  }
+function getIdentityDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  return getServiceDb(services, "identity", "Representative commerce state requires mounted Identity services.");
+}
 
-  return discovery.db as Pick<PgQueryable, "query">;
+function getSettlementDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  return getServiceDb(services, "settlement", "Representative commerce state requires mounted Settlement services.");
+}
+
+function getDiscoveryDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  return getServiceDb(services, "discovery", "Representative commerce state requires mounted Discovery services.");
 }
 
 function getOrderingDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
-  const ordering = services.ordering;
+  return getServiceDb(services, "ordering", "Representative commerce state requires mounted Ordering services.");
+}
+
+function getServiceDb(
+  services: Readonly<Record<string, unknown>>,
+  serviceName: string,
+  errorMessage: string,
+): Pick<PgQueryable, "query"> {
+  const service = services[serviceName];
   if (
-    !ordering ||
-    typeof ordering !== "object" ||
-    !("db" in ordering) ||
-    !ordering.db ||
-    typeof ordering.db !== "object" ||
-    !("query" in ordering.db) ||
-    typeof ordering.db.query !== "function"
+    !service ||
+    typeof service !== "object" ||
+    !("db" in service) ||
+    !service.db ||
+    typeof service.db !== "object" ||
+    !("query" in service.db) ||
+    typeof service.db.query !== "function"
   ) {
-    throw new Error("Representative commerce state requires mounted Ordering services with a queryable db.");
+    throw new Error(errorMessage);
   }
 
-  return ordering.db as Pick<PgQueryable, "query">;
+  return service.db as Pick<PgQueryable, "query">;
 }
 
 function getInventoryDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
@@ -456,6 +499,190 @@ function getInventoryServices(services: Readonly<Record<string, unknown>>): Repr
   }
 
   return inventory as RepresentativeInventoryServices;
+}
+
+export async function selectChromeUatRepresentativePersona(
+  services: Readonly<{
+    identityDb: Pick<PgQueryable, "query">;
+    inventoryDb: Pick<PgQueryable, "query">;
+    marketplaceDb: Pick<PgQueryable, "query">;
+    settlementDb: Pick<PgQueryable, "query">;
+  }>,
+  candidates: readonly ChromeUatPersonaCandidate[] = chromeUatPersonaCandidates,
+): Promise<ChromeUatRepresentativePersonaSelection> {
+  const personas = await Promise.all(candidates.map((candidate) => evaluateChromeUatPersona(services, candidate)));
+  const selectedPersonaAlias = personas.find((persona) => persona.blockerCategories.length === 0)?.personaAlias ?? null;
+
+  return {
+    schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
+    status: selectedPersonaAlias ? "ready" : "operator-action-required",
+    selectedPersonaAlias,
+    checkedPersonaCount: personas.length,
+    personas,
+    evidencePolicy: "support-safe",
+    nextOperatorAction: selectedPersonaAlias
+      ? "use-selected-private-login-and-record-redacted-uat"
+      : "complete-private-payout-setup-or-refresh-representative-state",
+  };
+}
+
+async function evaluateChromeUatPersona(
+  services: Parameters<typeof selectChromeUatRepresentativePersona>[0],
+  candidate: ChromeUatPersonaCandidate,
+): Promise<ChromeUatPersonaReadiness> {
+  const [login, payout, listing, inventory] = await Promise.all([
+    readChromeLoginPosture(services.identityDb, candidate),
+    readPayoutReadinessPosture(services.settlementDb, candidate.accountId),
+    readListingPosture(services.marketplaceDb, candidate.accountId),
+    readInventoryPosture(services.inventoryDb, candidate.accountId),
+  ]);
+  const blockerCategories: ChromeUatPersonaBlocker[] = [];
+
+  if (!login.magicLinkReady) {
+    blockerCategories.push("chrome-login-not-ready");
+  }
+  if (!payout.ready) {
+    blockerCategories.push("payout-not-ready");
+  }
+  if (inventory.inventoryItemCount < 1) {
+    blockerCategories.push("owned-inventory-missing");
+  }
+  if (listing.activeListingCount < 1) {
+    blockerCategories.push("owned-active-listing-missing");
+  }
+
+  return {
+    personaAlias: candidate.alias,
+    chromeLogin: login.magicLinkReady ? "magic-link-ready" : "not-ready",
+    payoutReadiness: payout.ready ? "ready" : "not-ready",
+    listingState:
+      listing.mutableListingCount > 0 && listing.activeListingCount > 0 && inventory.inventoryItemCount > 0
+        ? "owned-mutable"
+        : "missing",
+    activeListingCount: listing.activeListingCount,
+    mutableListingCount: listing.mutableListingCount,
+    inventoryItemCount: inventory.inventoryItemCount,
+    blockerCategories,
+  };
+}
+
+async function readChromeLoginPosture(
+  db: Pick<PgQueryable, "query">,
+  candidate: ChromeUatPersonaCandidate,
+): Promise<Readonly<{ magicLinkReady: boolean }>> {
+  const result = await db.query<{
+    account_ready: boolean;
+    membership_ready: boolean;
+    magic_link_ready: boolean;
+  }>(
+    `SELECT
+       EXISTS (
+         SELECT 1
+         FROM identity_accounts
+         WHERE account_id = $1
+           AND status = 'active'
+       ) AS account_ready,
+       EXISTS (
+         SELECT 1
+         FROM identity_memberships
+         WHERE account_id = $1
+           AND user_id = $2
+           AND status = 'active'
+       ) AS membership_ready,
+       EXISTS (
+         SELECT 1
+         FROM identity_users
+         WHERE user_id = $2
+           AND status = 'active'
+           AND auth_methods ? 'magic-link'
+       ) AS magic_link_ready`,
+    [candidate.accountId, candidate.userId],
+  );
+  const row = result.rows[0];
+
+  return {
+    magicLinkReady: Boolean(row?.account_ready && row.membership_ready && row.magic_link_ready),
+  };
+}
+
+async function readPayoutReadinessPosture(
+  db: Pick<PgQueryable, "query">,
+  accountId: string,
+): Promise<Readonly<{ ready: boolean }>> {
+  const result = await db.query<{
+    status: string;
+    has_provider_reference: boolean;
+    onboarding_status: string;
+    payout_capability_status: string;
+    payout_destination_status: string;
+  }>(
+    `SELECT
+       status,
+       provider_reference IS NOT NULL AS has_provider_reference,
+       onboarding_status,
+       payout_capability_status,
+       payout_destination_status
+     FROM settlement_payout_readiness_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    ready: Boolean(
+      row?.status === "ready" &&
+        row.has_provider_reference &&
+        row.onboarding_status === "complete" &&
+        row.payout_capability_status === "active" &&
+        row.payout_destination_status === "ready",
+    ),
+  };
+}
+
+async function readListingPosture(
+  db: Pick<PgQueryable, "query">,
+  accountId: string,
+): Promise<Readonly<{ activeListingCount: number; mutableListingCount: number }>> {
+  const result = await db.query<{
+    active_listing_count: number | string | null;
+    mutable_listing_count: number | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'active')::int AS active_listing_count,
+       COUNT(*) FILTER (WHERE status IN ('active', 'draft', 'paused'))::int AS mutable_listing_count
+     FROM marketplace_listing_pages
+     WHERE account_id = $1
+       AND listing_id LIKE 'lst$_repr$_%' ESCAPE '$'`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    activeListingCount: normalizeCount(row?.active_listing_count),
+    mutableListingCount: normalizeCount(row?.mutable_listing_count),
+  };
+}
+
+async function readInventoryPosture(
+  db: Pick<PgQueryable, "query">,
+  accountId: string,
+): Promise<Readonly<{ inventoryItemCount: number }>> {
+  const result = await db.query<{ inventory_item_count: number | string | null }>(
+    `SELECT COUNT(*)::int AS inventory_item_count
+     FROM inventory_items
+     WHERE account_id = $1
+       AND item_id LIKE 'inv$_repr$_%' ESCAPE '$'
+       AND total_quantity > 0`,
+    [accountId],
+  );
+
+  return { inventoryItemCount: normalizeCount(result.rows[0]?.inventory_item_count) };
+}
+
+function normalizeCount(value: number | string | null | undefined): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? "0"), 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
