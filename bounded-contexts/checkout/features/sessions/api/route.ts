@@ -713,6 +713,36 @@ export function createAccountCheckoutSessionRoutes(
         },
         context,
       );
+      if (sessionIdOverride && result.sessionId !== sessionIdOverride) {
+        const replacementSupplyPreview = await previewBuyNowCheckoutSupplyThroughOrdering(c.req.raw, {
+          checkoutSessionId: result.sessionId,
+          shippingOption,
+          optimizationGoal,
+          line: buyNowLine,
+        });
+        if (replacementSupplyPreview.readyLineKeys.length === 0) {
+          throw new CheckoutDomainError(
+            buyNowOrderingPreflightMessage(replacementSupplyPreview.unavailableLines[0]?.reason),
+            "unresolved_fulfillment",
+          );
+        }
+        const fulfillmentPreviewResult = await services.recordFulfillmentPreview(
+          {
+            sessionId: result.sessionId,
+            accountId: access.actor.accountId as AccountId,
+            fulfillmentPreviewRevision: replacementSupplyPreview.revision,
+          },
+          context,
+        );
+        return c.json(
+          checkoutSessionStartedResponse({
+            ...result,
+            ...checkoutCommitMetadataFromSources([result, fulfillmentPreviewResult]),
+          }),
+          201,
+        );
+      }
+
       return c.json(checkoutSessionStartedResponse(result), 201);
     } catch (error) {
       const code = errorCode(error);

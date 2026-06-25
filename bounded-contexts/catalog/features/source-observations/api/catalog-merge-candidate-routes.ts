@@ -1,6 +1,11 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { CatalogMergeCandidateStatus } from "../domain/catalog-merge-candidate";
+import type {
+  CatalogMergeCandidateConflictResolution,
+  CatalogMergeCandidateReviewSnapshot,
+  CatalogMergeCandidateStatus,
+} from "../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateServices, SourceObservationReadServices } from "./runtime";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
@@ -59,6 +64,136 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result, 202);
   });
 
+  app.post("/admin/merge-candidates/:candidateId/promote", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = await requestBody(c.req);
+    const reason = requiredReason(body, "promote");
+    if (!reason.ok) {
+      return c.json({ error: reason.error }, 400);
+    }
+
+    const result = await services.promoteCatalogMergeCandidate({
+      candidateId: c.req.param("candidateId"),
+      reason: reason.value,
+      conflictResolutions: conflictResolutions(body),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/admin/merge-candidates/:candidateId/split", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = await requestBody(c.req);
+    const reason = requiredReason(body, "split");
+    if (!reason.ok) {
+      return c.json({ error: reason.error }, 400);
+    }
+    if (
+      !isRecord(body.remainingSnapshot) ||
+      !isRecord(body.splitSnapshot) ||
+      typeof body.splitCandidateId !== "string"
+    ) {
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots") },
+        400,
+      );
+    }
+
+    const result = await services.splitCatalogMergeCandidate({
+      candidateId: c.req.param("candidateId"),
+      remainingSnapshot: body.remainingSnapshot as CatalogMergeCandidateReviewSnapshot,
+      splitCandidateId: body.splitCandidateId,
+      splitSnapshot: body.splitSnapshot as CatalogMergeCandidateReviewSnapshot,
+      reason: reason.value,
+      conflictResolutions: conflictResolutions(body),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/admin/merge-candidates/:candidateId/update", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = await requestBody(c.req);
+    const reason = requiredReason(body, "update");
+    if (!reason.ok) {
+      return c.json({ error: reason.error }, 400);
+    }
+    if (!isRecord(body.snapshot)) {
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot") },
+        400,
+      );
+    }
+
+    const result = await services.updateCatalogMergeCandidate({
+      candidateId: c.req.param("candidateId"),
+      snapshot: body.snapshot as CatalogMergeCandidateReviewSnapshot,
+      reason: reason.value,
+      conflictResolutions: conflictResolutions(body),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/admin/merge-candidates/:candidateId/ignore", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = await requestBody(c.req);
+    const reason = requiredReason(body, "ignore");
+    if (!reason.ok) {
+      return c.json({ error: reason.error }, 400);
+    }
+
+    const result = await services.ignoreCatalogMergeCandidate({
+      candidateId: c.req.param("candidateId"),
+      reason: reason.value,
+      conflictResolutions: conflictResolutions(body),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/admin/merge-candidates/:candidateId/defer", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = await requestBody(c.req);
+    const reason = requiredReason(body, "defer");
+    if (!reason.ok) {
+      return c.json({ error: reason.error }, 400);
+    }
+
+    const result = await services.deferCatalogMergeCandidate({
+      candidateId: c.req.param("candidateId"),
+      reason: reason.value,
+      conflictResolutions: conflictResolutions(body),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
   return app;
 }
 
@@ -89,4 +224,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function textValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+async function requestBody(req: { json: () => Promise<unknown> }): Promise<Record<string, unknown>> {
+  const body = await req.json().catch(() => ({}));
+  return isRecord(body) ? body : {};
+}
+
+function requiredReason(
+  body: Record<string, unknown>,
+  action: CatalogMergeCandidateRouteAction,
+): Readonly<{ ok: true; value: string } | { ok: false; error: string }> {
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  return reason ? { ok: true, value: reason } : { ok: false, error: candidateActionReasonMessage(action) };
+}
+
+type CatalogMergeCandidateRouteAction = "promote" | "split" | "update" | "ignore" | "defer";
+
+function candidateActionReasonMessage(action: CatalogMergeCandidateRouteAction): string {
+  switch (action) {
+    case "promote":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.promote.requires.reason");
+    case "split":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.reason");
+    case "update":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.reason");
+    case "ignore":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.ignore.requires.reason");
+    case "defer":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.defer.requires.reason");
+  }
+}
+
+function conflictResolutions(
+  body: Record<string, unknown>,
+): readonly CatalogMergeCandidateConflictResolution[] | undefined {
+  return Array.isArray(body.conflictResolutions)
+    ? (body.conflictResolutions as CatalogMergeCandidateConflictResolution[])
+    : undefined;
 }

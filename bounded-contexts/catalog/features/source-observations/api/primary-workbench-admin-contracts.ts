@@ -53,6 +53,11 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "execute-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
+  | "promote-merge-candidate"
+  | "split-merge-candidate"
+  | "update-merge-candidate"
+  | "ignore-merge-candidate"
+  | "defer-merge-candidate"
   | "start-reapply"
   | "start-replay";
 
@@ -2238,6 +2243,65 @@ export const catalogPrimaryWorkbenchActions = [
     blockerCategories: ["selection-empty", "permission-denied", "authorization-denied"],
     idempotencyRequired: true,
   }),
+  action(
+    "promote-merge-candidate",
+    "POST",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "selection-empty",
+        "permission-denied",
+        "authorization-denied",
+        "promotion-conflict",
+        "source-projection-stale",
+      ],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "split-merge-candidate",
+    "POST",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/split",
+    "catalog.manage",
+    {
+      blockerCategories: ["selection-empty", "permission-denied", "authorization-denied", "source-projection-stale"],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "update-merge-candidate",
+    "POST",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/update",
+    "catalog.manage",
+    {
+      blockerCategories: ["selection-empty", "permission-denied", "authorization-denied", "source-projection-stale"],
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "ignore-merge-candidate",
+    "POST",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/ignore",
+    "catalog.manage",
+    {
+      blockerCategories: ["selection-empty", "permission-denied", "authorization-denied"],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "defer-merge-candidate",
+    "POST",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/defer",
+    "catalog.manage",
+    {
+      blockerCategories: ["selection-empty", "permission-denied", "authorization-denied"],
+      idempotencyRequired: true,
+    },
+  ),
   action("start-reapply", "POST", "/api/catalog/source-observations/admin/reapply-jobs", "catalog.manage", {
     blockerCategories: ["profile-version-missing", "stale-replay", "idempotency-replay", "security-privacy-blocked"],
     idempotencyRequired: true,

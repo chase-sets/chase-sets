@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
     CHECK (promotion_intent IN ('create-catalog-item', 'update-catalog-item', 'link-existing-catalog-item'))
 );
 
+ALTER TABLE catalog_merge_candidates
+  ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
   candidate_id text NOT NULL,
   observation_id text NOT NULL,
@@ -109,6 +112,9 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
     REFERENCES catalog_merge_candidates (candidate_id)
     ON DELETE CASCADE
 );
+
+ALTER TABLE catalog_merge_candidate_observations
+  ADD COLUMN IF NOT EXISTS sync_run_id text NULL;
 
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
   ON catalog_merge_candidates (status, updated_at DESC);

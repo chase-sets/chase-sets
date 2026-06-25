@@ -426,6 +426,14 @@ describe("Catalog primary workbench admin contracts", () => {
       method: "GET",
       requiredPermission: "catalog.view",
     });
+    expect(actionsByKey.get("ignore-merge-candidate")).toMatchObject({
+      method: "POST",
+      routePattern: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/ignore",
+      requiredPermission: "catalog.manage",
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    });
+    expect(actionsByKey.get("ignore-merge-candidate")?.routePattern).not.toMatch(/delete/i);
 
     for (const action of catalogPrimaryWorkbenchActions) {
       expect(action.routePattern).toMatch(
