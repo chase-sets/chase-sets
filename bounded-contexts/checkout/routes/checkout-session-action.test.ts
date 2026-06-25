@@ -1014,12 +1014,17 @@ describe("checkout web routes: checkout session action", () => {
           message: "Payment setup is still catching up. Review checkout again before payment starts.",
         },
         commitPosition: "77",
-        commitEventIds: ["evt_checkout_orders_created"],
+        commitEventIds: ["evt_order_created", "evt_checkout_orders_created"],
         commitPositions: [
           {
             sourceContextName: "checkout",
             maxGlobalPosition: "77",
             eventIds: ["evt_checkout_orders_created"],
+          },
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
           },
         ],
       }),
@@ -1062,12 +1067,12 @@ describe("checkout web routes: checkout session action", () => {
       location,
       "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=",
     );
-    expect(receipt?.commitPosition).toBe("77");
+    expect(receipt?.commitPosition).toBeUndefined();
     expect(receipt?.sources).toEqual([
       {
-        sourceContextName: "checkout",
-        maxGlobalPosition: "77",
-        eventIds: ["evt_checkout_orders_created"],
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
       },
     ]);
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(

@@ -238,6 +238,43 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
   };
 }
 
+function hasCommittedSessionSideEffects(session: CheckoutSessionRow) {
+  return Boolean(
+    session.payment_id ||
+    session.submitted_offer_id ||
+    (Array.isArray(session.order_ids) && session.order_ids.length > 0),
+  );
+}
+
+function sessionPageIsBehindCommittedAggregate(
+  session: CheckoutSessionRow,
+  aggregateSession: CheckoutSessionRow | null,
+) {
+  if (!aggregateSession || !hasCommittedSessionSideEffects(aggregateSession)) {
+    return false;
+  }
+
+  if (aggregateSession.payment_id && aggregateSession.payment_id !== session.payment_id) {
+    return true;
+  }
+
+  if (aggregateSession.submitted_offer_id && aggregateSession.submitted_offer_id !== session.submitted_offer_id) {
+    return true;
+  }
+
+  if (aggregateSession.order_ids.length > 0) {
+    const projectedOrderIds = new Set(session.order_ids);
+    const missingOrder = aggregateSession.order_ids.some((orderId) => !projectedOrderIds.has(orderId));
+    if (missingOrder) {
+      return true;
+    }
+
+    return aggregateSession.order_write_commit_positions.length > session.order_write_commit_positions.length;
+  }
+
+  return false;
+}
+
 function readinessStaleError(code = "readiness_snapshot_stale") {
   return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
 }
@@ -862,9 +899,15 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       );
     },
     getSession: async (sessionId, accountId) => {
+      const projectedSession = await getCheckoutSession(deps.db, sessionId, accountId);
+      const aggregateSession =
+        !projectedSession || !hasCommittedSessionSideEffects(projectedSession)
+          ? await loadSessionRowForBuyerFromAggregate(sessionId, accountId)
+          : null;
       const session =
-        (await getCheckoutSession(deps.db, sessionId, accountId)) ??
-        (await loadSessionRowForBuyerFromAggregate(sessionId, accountId));
+        projectedSession && !sessionPageIsBehindCommittedAggregate(projectedSession, aggregateSession)
+          ? projectedSession
+          : aggregateSession;
       if (!session) {
         return null;
       }

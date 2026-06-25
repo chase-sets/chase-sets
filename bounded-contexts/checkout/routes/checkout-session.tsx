@@ -561,6 +561,21 @@ function sourceCommitEventIds(sources: readonly SourceCommitPosition[]) {
   return [...new Set(sources.flatMap((source) => source.eventIds))];
 }
 
+function paymentStartRetryFreshWriteSource(source: unknown): VisibleFreshWriteSource | null {
+  const commitPositions =
+    visibleFreshWriteSource(source).commitPositions?.filter((position) =>
+      PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES.has(position.sourceContextName),
+    ) ?? [];
+  if (commitPositions.length === 0) {
+    return null;
+  }
+
+  return {
+    commitEventIds: sourceCommitEventIds(commitPositions),
+    commitPositions,
+  };
+}
+
 function requestWithOnlyFreshWriteSources(request: Request, sourceContextNames: ReadonlySet<string>) {
   const receipt = readFreshWriteToken(request);
   const commitPositions = receipt?.sources.filter((source) => sourceContextNames.has(source.sourceContextName)) ?? [];
@@ -879,16 +894,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
           shippingAddress,
         });
       } catch (error) {
-        const refreshPath = shouldRefreshPaymentQuote(error)
+        const refreshPaymentQuote = shouldRefreshPaymentQuote(error);
+        const refreshPaymentStart = shouldRefreshPaymentStart(error);
+        const refreshPath = refreshPaymentQuote
           ? paymentQuoteRefreshPath(params.sessionId, visiblePaymentMethodCategory)
-          : shouldRefreshPaymentStart(error)
+          : refreshPaymentStart
             ? paymentStartRefreshPath(params.sessionId, visiblePaymentMethodCategory)
             : null;
         if (refreshPath) {
           return redirect(
             await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
               reviewedPreviewWriteSources([
-                error instanceof CheckoutApiError ? visibleFreshWriteSource(error.body) : null,
+                error instanceof CheckoutApiError && refreshPaymentStart
+                  ? paymentStartRetryFreshWriteSource(error.body)
+                  : error instanceof CheckoutApiError
+                    ? visibleFreshWriteSource(error.body)
+                    : null,
               ]),
               refreshPath,
             ),
