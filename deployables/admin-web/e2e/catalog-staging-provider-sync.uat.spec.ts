@@ -96,6 +96,12 @@ const onePieceScrydexSetChoice: SelectChoice = {
   fallbackToFirstAvailableOption: { valuePattern: /^(?:OP|ST|EB|PRB)-?\d+$/i },
 };
 
+const onePieceScrydexSealedSetChoice: SelectChoice = {
+  labels: ["Emperors In The New World", "Romance Dawn"],
+  values: ["OP09", "op-01", "OP01", "OP-01"],
+  fallbackToFirstAvailableOption: { valuePattern: /^OP-?0?9$/i },
+};
+
 const tcgplayerOnePieceSetChoice: SelectChoice = {
   labels: ["Romance Dawn"],
   fallbackToFirstAvailableOption: {},
@@ -147,7 +153,7 @@ const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
     name: "One Piece sealed products through Scrydex bulk-first shared importer",
     providerKey: "scrydex",
     unitKey: "scrydex:one-piece:sealed-product:source-observation-import",
-    scope: [{ label: "Set", choice: onePieceScrydexSetChoice }],
+    scope: [{ label: "Set", choice: onePieceScrydexSealedSetChoice }],
     preflight: {
       requestStrategy: "bulk-first",
       allowedUsageStates: ["checked", "not-configured", "unknown"],

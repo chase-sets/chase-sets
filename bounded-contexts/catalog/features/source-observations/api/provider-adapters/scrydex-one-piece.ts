@@ -1239,6 +1239,9 @@ async function fetchScrydexExpansionChildPagedJson<TItem>(input: {
     });
     const fallbackExpansionId = stringValue(fallback?.expansion.id);
     if (!fallbackExpansionId || fallbackExpansionId === input.expansionId) {
+      if (fallback && input.childPath === "sealed") {
+        return [];
+      }
       throw error;
     }
     return fetchScrydexPagedJson<TItem>(path(fallbackExpansionId), input.query, input.options, input.productDomain);

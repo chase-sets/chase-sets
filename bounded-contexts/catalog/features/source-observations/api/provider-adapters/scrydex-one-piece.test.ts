@@ -686,6 +686,45 @@ describe("Scrydex One Piece provider adapter", () => {
     });
   });
 
+  it("completes an OP-code sealed import with no payloads when Scrydex has the expansion but no sealed child page", async () => {
+    const selectedCodeSealedUrl = `${fixtureBaseUrl}/expansions/OP16/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion`;
+    const listUrl = `${fixtureBaseUrl}/expansions?page=1&page_size=100&select=id%2Cname%2Ccode%2Ctotal%2Crelease_date%2Clanguage%2Clanguage_code`;
+    const fixture = scrydexResponseFixtureFetch({
+      [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
+      [listUrl]: {
+        data: [
+          {
+            id: "OP16",
+            name: "The Time Of Battle",
+            code: "OP16",
+            release_date: "2026/06/12",
+            language: "English",
+            language_code: "EN",
+          },
+        ],
+        total_pages: 1,
+      },
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      fetch: fixture.fetch,
+      now: () => fixtureNow,
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { expansionId: "OP16" },
+    });
+
+    await expect(collectPayloads(adapter.fetchPayloads(plan))).resolves.toEqual([]);
+    expect(fixture.calls.map((call) => call.url)).toEqual([
+      `${fixtureAccountBaseUrl}/usage`,
+      selectedCodeSealedUrl,
+      listUrl,
+    ]);
+  });
+
   it("emits deterministic external keys and content hashes with sanitized payloads", async () => {
     const firstFixture = scrydexFixtureFetch();
     const secondFixture = scrydexFixtureFetch();
