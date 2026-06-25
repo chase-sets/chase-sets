@@ -21,8 +21,12 @@ function parseOrderIds(value: unknown) {
 }
 
 const defaultPaymentStartReadinessRetry = {
-  maxAttempts: 6,
-  delayMs: 250,
+  // Payment start waits on a chained handoff after Ordering order creation:
+  // Inventory reserves stock, Ordering records pending-payment, then Payments
+  // projects the updated order input. The default covers that multi-context
+  // readiness path without changing Payments' strict payment-ready rule.
+  maxAttempts: 24,
+  delayMs: 500,
 } as const;
 
 const paymentOrderReadinessPendingCodes = new Set(["order_input_not_ready", "order_not_payment_ready"]);

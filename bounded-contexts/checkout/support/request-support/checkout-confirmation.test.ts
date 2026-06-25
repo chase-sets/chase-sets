@@ -53,6 +53,7 @@ function paymentsApiError(status: number, code: string, message: string) {
 
 describe("checkout confirmation request support", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     mockCreateAccountPayment.mockReset();
     mockGetCheckoutStatus.mockReset();
@@ -183,6 +184,53 @@ describe("checkout confirmation request support", () => {
     );
 
     expect(mockGetCheckoutStatus).toHaveBeenCalledTimes(2);
+    expect(mockCreateAccountPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("covers the chained reservation handoff before surfacing payment-start recovery", async () => {
+    vi.useFakeTimers();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      mockGetCheckoutStatus.mockRejectedValueOnce(
+        paymentsApiError(
+          400,
+          "order_not_payment_ready",
+          "Order ord_1 is not eligible for payment in status pending-reservation.",
+        ),
+      );
+    }
+    mockGetCheckoutStatus.mockResolvedValue({ orderIds: ["ord_1"] });
+    mockCreateAccountPayment.mockResolvedValue({ payment_id: "pay_ready" });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
+    const orderCreationWriteResult = {
+      commandReceipt: {
+        commitEventIds: ["evt_order_created"],
+        commitPositions: [
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
+          },
+        ],
+      },
+    };
+
+    const paymentPromise = createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+      null,
+      orderCreationWriteResult,
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(paymentPromise).resolves.toEqual({ payment_id: "pay_ready" });
+    expect(mockGetCheckoutStatus).toHaveBeenCalledTimes(9);
     expect(mockCreateAccountPayment).toHaveBeenCalledTimes(1);
   });
 
