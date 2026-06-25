@@ -95,6 +95,13 @@ import {
   type CatalogMergeCandidateMatchResult,
 } from "./catalog-merge-candidate-matcher";
 import {
+  planCatalogMergeCandidatePromotionCommands,
+  type CatalogMergeCandidatePromotionCommandPlanResult,
+  type CatalogMergeCandidatePromotionCandidate,
+  type CatalogMergeCandidatePromotionCatalogMapping,
+  type CatalogMergeCandidatePromotionAssetPlan,
+} from "./catalog-merge-candidate-promotion-planner";
+import {
   normalizeTcgdexImageAsset,
   type TcgdexExpansionOption,
   type TcgdexLanguageOption,
@@ -1050,6 +1057,12 @@ export type CatalogMergeCandidateServices = Readonly<{
     scope?: SourceObservationFilterScope;
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateGenerationResult>;
+  previewCatalogMergeCandidatePromotionPlan: (input: {
+    candidate: CatalogMergeCandidatePromotionCandidate;
+    catalog: CatalogMergeCandidatePromotionCatalogMapping;
+    createCatalogItemId?: CatalogItemId | null;
+    assetPlan?: CatalogMergeCandidatePromotionAssetPlan | null;
+  }) => CatalogMergeCandidatePromotionCommandPlanResult;
 }>;
 
 export type ControlPlaneTelemetryServices = Readonly<{
@@ -4217,6 +4230,7 @@ export function createSourceObservationRuntime(
   return {
     commandHandler,
     generateCatalogMergeCandidates,
+    previewCatalogMergeCandidatePromotionPlan: (input) => planCatalogMergeCandidatePromotionCommands(input),
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processIntegrationImportJob,
