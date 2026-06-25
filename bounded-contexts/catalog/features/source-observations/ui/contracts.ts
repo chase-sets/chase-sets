@@ -272,6 +272,7 @@ export interface CatalogIntegrationRecentJobResultSummary {
   skipped: number;
   failed: number;
   outcomeCount: number;
+  redactedFailureReasons?: string[];
 }
 
 export interface CatalogIntegrationProviderReadiness {

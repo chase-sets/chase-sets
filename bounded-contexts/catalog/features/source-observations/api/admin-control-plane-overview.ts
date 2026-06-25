@@ -57,6 +57,7 @@ export type CatalogIntegrationRecentJobResultSummary = Readonly<{
   skipped: number;
   failed: number;
   outcomeCount: number;
+  redactedFailureReasons: readonly string[];
 }>;
 
 export type CatalogIntegrationProviderReadinessSummary = Readonly<{
@@ -429,7 +430,53 @@ function jobResultSummary(
     skipped: result.skipped,
     failed: result.failed,
     outcomeCount: result.outcomes.length,
+    redactedFailureReasons: redactedJobFailureReasons(result),
   };
+}
+
+function redactedJobFailureReasons(result: SourceObservationIntegrationJobResult): readonly string[] {
+  const reasons = new Set<string>();
+  for (const outcome of result.outcomes) {
+    if (outcome.status !== "failed") {
+      continue;
+    }
+    const reason = redactedJobFailureReason(outcome.reason);
+    if (reason) {
+      reasons.add(reason);
+    }
+    if (reasons.size >= 3) {
+      break;
+    }
+  }
+  return [...reasons];
+}
+
+function redactedJobFailureReason(reason: string | null): string | null {
+  const normalized = reason?.trim().replace(/\s+/g, " ") ?? "";
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized
+    .replace(/https?:\/\/[^\s),]+/gi, redactUrl)
+    .replace(
+      /\b(api[-_ ]?key|x-api-key|team[-_ ]?id|x-team-id|authorization|bearer|token|secret|password)(\s*[=:]\s*)([^\s,;]+)/gi,
+      "$1$2[redacted]",
+    )
+    .slice(0, 240);
+}
+
+function redactUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "[redacted-url]";
+  }
 }
 
 function profileSnapshotPointer(
