@@ -2,7 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type EventStoreContext, type GlobalPosition } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
@@ -12,8 +12,9 @@ import {
   evolveInventoryItem,
   initialInventoryItemState,
   type InventoryItemEvent,
+  type InventoryItemState,
 } from "../../inventory-items/domain/domain";
-import { getInventoryHoldableItem } from "../../inventory-items/read-model/queries";
+import { getInventoryHoldableItem, type InventoryHoldableItemRow } from "../../inventory-items/read-model/queries";
 import {
   decideInventoryHold,
   evolveInventoryHold,
@@ -24,6 +25,25 @@ import {
 } from "../domain/domain";
 import { buildInventoryHoldProjectionHandlers } from "../read-model/projection";
 import { getInventoryHold } from "../read-model/queries";
+
+type InventoryStockSnapshot = Readonly<{
+  itemId: string;
+  accountId: AccountId;
+  totalQuantity: number;
+  heldQuantity: number;
+  availableQuantity: number;
+}>;
+
+type AggregateHoldSnapshot = Readonly<{
+  accountId: AccountId;
+  itemId: string;
+  quantity: number;
+  active: boolean;
+}>;
+
+type InventoryItemRepository = Readonly<{
+  load: (streamId: string) => Promise<Readonly<{ state: InventoryItemState }>>;
+}>;
 
 export type InventoryHoldPlacementFailureKind =
   | "hold-id-conflict"
@@ -106,19 +126,17 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
         itemId: params.itemId,
         accountId: params.accountId,
       });
-      if (!item) {
-        const aggregate = await itemRepository.load(`inventory.item-${params.itemId}`);
-        if (aggregate.state.id !== params.itemId || aggregate.state.accountId !== params.accountId) {
-          throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
-        }
+      const stock = item
+        ? stockSnapshotFromReadModel(item)
+        : await loadAggregateStockSnapshot({
+            eventStore: deps.eventStore,
+            itemRepository,
+            itemId: params.itemId,
+            accountId: params.accountId,
+            context,
+          });
 
-        throw new InventoryHoldPlacementError(
-          "inventory-item-projection-missing",
-          "Inventory item stock projection has not caught up.",
-        );
-      }
-
-      if (item.available_quantity < params.quantity) {
+      if (stock.availableQuantity < params.quantity) {
         throw new InventoryHoldPlacementError(
           "insufficient-available-quantity",
           "Holds cannot exceed the available quantity for an inventory item.",
@@ -172,4 +190,107 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       }),
     ],
   };
+}
+
+async function loadAggregateStockSnapshot(input: {
+  eventStore: InventoryRuntimeDeps["eventStore"];
+  itemRepository: InventoryItemRepository;
+  itemId: string;
+  accountId: AccountId;
+  context: EventStoreContext;
+}): Promise<InventoryStockSnapshot> {
+  const aggregate = await input.itemRepository.load(`inventory.item-${input.itemId}`);
+  if (aggregate.state.id !== input.itemId || aggregate.state.accountId !== input.accountId) {
+    throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
+  }
+
+  const holds = await loadAggregateHoldSnapshots(input.eventStore, input.context);
+  const heldQuantity = [...holds.values()]
+    .filter((hold) => hold.active && hold.accountId === input.accountId && hold.itemId === input.itemId)
+    .reduce((total, hold) => total + hold.quantity, 0);
+
+  return {
+    itemId: input.itemId,
+    accountId: input.accountId,
+    totalQuantity: aggregate.state.totalQuantity,
+    heldQuantity,
+    availableQuantity: aggregate.state.totalQuantity - heldQuantity,
+  };
+}
+
+function stockSnapshotFromReadModel(item: InventoryHoldableItemRow): InventoryStockSnapshot {
+  return {
+    itemId: item.item_id,
+    accountId: item.account_id as AccountId,
+    totalQuantity: item.total_quantity,
+    heldQuantity: item.held_quantity,
+    availableQuantity: item.available_quantity,
+  };
+}
+
+async function loadAggregateHoldSnapshots(
+  eventStore: InventoryRuntimeDeps["eventStore"],
+  context: EventStoreContext,
+): Promise<Map<string, AggregateHoldSnapshot>> {
+  const holds = new Map<string, AggregateHoldSnapshot>();
+  let afterGlobalPosition: GlobalPosition = ZERO_GLOBAL_POSITION;
+  const limit = 500;
+
+  while (true) {
+    const events = await eventStore.readAll({
+      afterGlobalPosition,
+      tenantId: context.tenantId,
+      eventTypes: ["inventory.hold.placed", "inventory.hold.released"],
+      streamPrefixes: ["inventory.hold-"],
+      limit,
+    });
+    if (events.length === 0) {
+      return holds;
+    }
+
+    for (const event of events) {
+      afterGlobalPosition = event.globalPosition;
+
+      if (event.eventType === "inventory.hold.placed") {
+        const payload = event.payload as {
+          holdId?: unknown;
+          accountId?: unknown;
+          itemId?: unknown;
+          quantity?: unknown;
+        };
+        if (
+          typeof payload.holdId !== "string" ||
+          typeof payload.accountId !== "string" ||
+          typeof payload.itemId !== "string" ||
+          typeof payload.quantity !== "number"
+        ) {
+          continue;
+        }
+
+        holds.set(payload.holdId, {
+          accountId: payload.accountId as AccountId,
+          itemId: payload.itemId,
+          quantity: payload.quantity,
+          active: true,
+        });
+        continue;
+      }
+
+      if (event.eventType === "inventory.hold.released") {
+        const payload = event.payload as { holdId?: unknown };
+        if (typeof payload.holdId !== "string") {
+          continue;
+        }
+
+        const existing = holds.get(payload.holdId);
+        if (existing) {
+          holds.set(payload.holdId, { ...existing, active: false });
+        }
+      }
+    }
+
+    if (events.length < limit) {
+      return holds;
+    }
+  }
 }
