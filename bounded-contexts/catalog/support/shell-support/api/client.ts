@@ -1897,7 +1897,7 @@ async function dispatchCatalogMergeCandidateAction<T>(input: {
   body: unknown;
 }): Promise<T> {
   const response = await input.fetch(
-    `${input.baseUrl.replace(/\/$/, "")}/source-observations/merge-candidates/${encodeURIComponent(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/admin/merge-candidates/${encodeURIComponent(
       input.candidateId,
     )}/${input.action}`,
     {

@@ -2246,7 +2246,7 @@ export const catalogPrimaryWorkbenchActions = [
   action(
     "promote-merge-candidate",
     "POST",
-    "/api/catalog/source-observations/merge-candidates/:candidateId/promote",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
     "catalog.manage",
     {
       blockerCategories: [
@@ -2263,7 +2263,7 @@ export const catalogPrimaryWorkbenchActions = [
   action(
     "split-merge-candidate",
     "POST",
-    "/api/catalog/source-observations/merge-candidates/:candidateId/split",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/split",
     "catalog.manage",
     {
       blockerCategories: ["selection-empty", "permission-denied", "authorization-denied", "source-projection-stale"],
@@ -2274,7 +2274,7 @@ export const catalogPrimaryWorkbenchActions = [
   action(
     "update-merge-candidate",
     "POST",
-    "/api/catalog/source-observations/merge-candidates/:candidateId/update",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/update",
     "catalog.manage",
     {
       blockerCategories: ["selection-empty", "permission-denied", "authorization-denied", "source-projection-stale"],
@@ -2284,7 +2284,7 @@ export const catalogPrimaryWorkbenchActions = [
   action(
     "ignore-merge-candidate",
     "POST",
-    "/api/catalog/source-observations/merge-candidates/:candidateId/ignore",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/ignore",
     "catalog.manage",
     {
       blockerCategories: ["selection-empty", "permission-denied", "authorization-denied"],
@@ -2295,7 +2295,7 @@ export const catalogPrimaryWorkbenchActions = [
   action(
     "defer-merge-candidate",
     "POST",
-    "/api/catalog/source-observations/merge-candidates/:candidateId/defer",
+    "/api/catalog/source-observations/admin/merge-candidates/:candidateId/defer",
     "catalog.manage",
     {
       blockerCategories: ["selection-empty", "permission-denied", "authorization-denied"],

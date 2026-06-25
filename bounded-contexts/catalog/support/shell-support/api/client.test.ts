@@ -236,7 +236,9 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
       }),
     ).resolves.toEqual({ action: "ignore" });
 
-    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/merge-candidates/cand_1/ignore");
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      "/api/catalog/source-observations/admin/merge-candidates/cand_1/ignore",
+    );
     expect(fetch.mock.calls[0][1]?.body).toBe(
       JSON.stringify({
         reason: "Provider grouping is not a Catalog Item.",

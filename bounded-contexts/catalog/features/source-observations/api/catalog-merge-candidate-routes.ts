@@ -63,7 +63,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result, 202);
   });
 
-  app.post("/merge-candidates/:candidateId/promote", async (c) => {
+  app.post("/admin/merge-candidates/:candidateId/promote", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
     if (permissionError) {
       return permissionError;
@@ -85,7 +85,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result);
   });
 
-  app.post("/merge-candidates/:candidateId/split", async (c) => {
+  app.post("/admin/merge-candidates/:candidateId/split", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
     if (permissionError) {
       return permissionError;
@@ -117,7 +117,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result);
   });
 
-  app.post("/merge-candidates/:candidateId/update", async (c) => {
+  app.post("/admin/merge-candidates/:candidateId/update", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
     if (permissionError) {
       return permissionError;
@@ -143,7 +143,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result);
   });
 
-  app.post("/merge-candidates/:candidateId/ignore", async (c) => {
+  app.post("/admin/merge-candidates/:candidateId/ignore", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
     if (permissionError) {
       return permissionError;
@@ -165,7 +165,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     return c.json(result);
   });
 
-  app.post("/merge-candidates/:candidateId/defer", async (c) => {
+  app.post("/admin/merge-candidates/:candidateId/defer", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
     if (permissionError) {
       return permissionError;

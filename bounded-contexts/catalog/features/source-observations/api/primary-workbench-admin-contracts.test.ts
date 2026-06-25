@@ -428,7 +428,7 @@ describe("Catalog primary workbench admin contracts", () => {
     });
     expect(actionsByKey.get("ignore-merge-candidate")).toMatchObject({
       method: "POST",
-      routePattern: "/api/catalog/source-observations/merge-candidates/:candidateId/ignore",
+      routePattern: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/ignore",
       requiredPermission: "catalog.manage",
       confirmationRequired: true,
       idempotencyRequired: true,
@@ -437,7 +437,7 @@ describe("Catalog primary workbench admin contracts", () => {
 
     for (const action of catalogPrimaryWorkbenchActions) {
       expect(action.routePattern).toMatch(
-        /^\/api\/catalog\/source-observations\/(?:admin\/|catalog-sync-scope\/runs$|merge-candidates\/)/,
+        /^\/api\/catalog\/source-observations\/(?:admin\/|catalog-sync-scope\/runs$)/,
       );
       expect(action.routePattern).not.toContain("/catalog/integrations");
       expect(action.routePattern).not.toContain("/admin/catalog/source-observations");

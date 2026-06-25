@@ -128,11 +128,11 @@ describe("source observation routes: review and control-plane reads", () => {
       ["/source-observations/bulk-promote", { method: "POST", body: "{}" }],
       ["/source-observations/bulk-reject", { method: "POST", body: '{"reason":"duplicate"}' }],
       ["/source-observations/bulk-defer/jobs", { method: "POST", body: "{}" }],
-      ["/source-observations/merge-candidates/cand_1/promote", { method: "POST", body: "{}" }],
-      ["/source-observations/merge-candidates/cand_1/split", { method: "POST", body: "{}" }],
-      ["/source-observations/merge-candidates/cand_1/update", { method: "POST", body: "{}" }],
-      ["/source-observations/merge-candidates/cand_1/ignore", { method: "POST", body: "{}" }],
-      ["/source-observations/merge-candidates/cand_1/defer", { method: "POST", body: "{}" }],
+      ["/source-observations/admin/merge-candidates/cand_1/promote", { method: "POST", body: "{}" }],
+      ["/source-observations/admin/merge-candidates/cand_1/split", { method: "POST", body: "{}" }],
+      ["/source-observations/admin/merge-candidates/cand_1/update", { method: "POST", body: "{}" }],
+      ["/source-observations/admin/merge-candidates/cand_1/ignore", { method: "POST", body: "{}" }],
+      ["/source-observations/admin/merge-candidates/cand_1/defer", { method: "POST", body: "{}" }],
       ["/source-observations/obs_1/promote", { method: "POST" }],
       ["/source-observations/obs_1/reject", { method: "POST", body: "{}" }],
     ];
@@ -211,7 +211,7 @@ describe("source observation routes: review and control-plane reads", () => {
     } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
-    const response = await app.request("/source-observations/merge-candidates/cand_1/ignore", {
+    const response = await app.request("/source-observations/admin/merge-candidates/cand_1/ignore", {
       method: "POST",
       body: JSON.stringify({
         reason: " Not a Catalog Item. ",
@@ -254,17 +254,17 @@ describe("source observation routes: review and control-plane reads", () => {
     } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
-    const promoteResponse = await app.request("/source-observations/merge-candidates/cand_1/promote", {
+    const promoteResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/promote", {
       method: "POST",
       body: JSON.stringify({ reason: " " }),
       headers: { "content-type": "application/json" },
     });
-    const updateResponse = await app.request("/source-observations/merge-candidates/cand_1/update", {
+    const updateResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/update", {
       method: "POST",
       body: JSON.stringify({ reason: "Correct identity." }),
       headers: { "content-type": "application/json" },
     });
-    const splitResponse = await app.request("/source-observations/merge-candidates/cand_1/split", {
+    const splitResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/split", {
       method: "POST",
       body: JSON.stringify({ reason: "Separate variants." }),
       headers: { "content-type": "application/json" },
