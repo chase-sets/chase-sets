@@ -455,6 +455,18 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     return loaded.state;
   }
 
+  async function loadSessionRowForBuyerFromAggregate(
+    sessionId: string,
+    accountId: AccountId | string,
+  ): Promise<CheckoutSessionRow | null> {
+    const loaded = await repository.load(`checkout.session-${sessionId}`);
+    if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) {
+      return null;
+    }
+
+    return stateToCheckoutSessionRow(loaded.state);
+  }
+
   function assertBuyNowHandoffReady(
     params: Readonly<{
       listingId: string;
@@ -850,7 +862,9 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       );
     },
     getSession: async (sessionId, accountId) => {
-      const session = await getCheckoutSession(deps.db, sessionId, accountId);
+      const session =
+        (await getCheckoutSession(deps.db, sessionId, accountId)) ??
+        (await loadSessionRowForBuyerFromAggregate(sessionId, accountId));
       if (!session) {
         return null;
       }
