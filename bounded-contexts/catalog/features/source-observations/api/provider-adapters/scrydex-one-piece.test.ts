@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../scrydex-one-piece-executable-mapping-contract";
+import { normalizeCatalogProviderSourceObservation } from "../provider-source-observation-normalizer";
 import type { ProviderPayloadEnvelope } from "./provider-adapter";
 import {
   createScrydexOnePieceProviderAdapter,
@@ -596,6 +598,92 @@ describe("Scrydex One Piece provider adapter", () => {
       listUrl,
       resolvedIdSealedUrl,
     ]);
+  });
+
+  it("normalizes OP-code sealed rows when Scrydex wraps the product and omits a display name", async () => {
+    const selectedCodeSealedUrl = `${fixtureBaseUrl}/expansions/OP16/sealed?page=1&page_size=100&select=id%2Cname%2Ctype%2Cimages%2Clanguage%2Clanguage_code%2Cexpansion`;
+    const fixture = scrydexResponseFixtureFetch({
+      [`${fixtureAccountBaseUrl}/usage`]: scrydexUsageResponse,
+      [selectedCodeSealedUrl]: {
+        status: "success",
+        data: [
+          {
+            sealedProduct: {
+              id: "OP16-s1",
+              type: "Booster Box",
+              images: ["https://images.scrydex.example/onepiece/OP16-s1/large"],
+              expansion: {
+                id: "OP16",
+                name: "The Time Of Battle",
+                code: "OP16",
+                release_date: "2026/06/12",
+                language: "English",
+                language_code: "EN",
+              },
+              language: "English",
+              languageCode: "EN",
+            },
+          },
+        ],
+        page: 1,
+        pageSize: 100,
+        totalCount: 1,
+      },
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      fetch: fixture.fetch,
+      now: () => fixtureNow,
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { expansionId: "OP16" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const payload = payloads[0]?.payload;
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        externalKey: "sealed:OP16-s1",
+        payload: {
+          kind: "one-piece-sealed-product",
+          sealedProduct: expect.objectContaining({
+            id: "OP16-s1",
+            name: "The Time Of Battle Booster Box",
+            type: "Booster Box",
+            language_code: "EN",
+            imageUrls: ["https://images.scrydex.example/onepiece/OP16-s1/large"],
+            expansion: expect.objectContaining({
+              id: "OP16",
+              name: "The Time Of Battle",
+            }),
+          }),
+          sourceUrl: selectedCodeSealedUrl,
+        },
+      }),
+    ]);
+    expect(fixture.calls.map((call) => call.url)).toEqual([`${fixtureAccountBaseUrl}/usage`, selectedCodeSealedUrl]);
+
+    const normalized = normalizeCatalogProviderSourceObservation({
+      contract: scrydexOnePieceSealedProductSourceObservationMappingContract,
+      payload: payload ?? null,
+      observedAt: fixtureNow.toISOString(),
+    });
+
+    expect(normalized.diagnostics).toEqual([]);
+    expect(normalized.observation).toMatchObject({
+      observationId: "scrydex_one_piece_sealed_EN_OP16-s1",
+      externalKey: "sealed:OP16-s1",
+      normalized: expect.objectContaining({
+        kind: "one-piece-sealed-product",
+        name: "The Time Of Battle Booster Box",
+        tcg: "one-piece",
+        sealedProductForm: "sealed-product",
+      }),
+    });
   });
 
   it("emits deterministic external keys and content hashes with sanitized payloads", async () => {

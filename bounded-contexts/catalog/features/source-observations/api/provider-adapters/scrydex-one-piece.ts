@@ -1679,17 +1679,65 @@ function sanitizeScrydexCardVariants(value: JsonValue | undefined): readonly Scr
 }
 
 function sanitizeScrydexSealedProduct(value: JsonValue): ScrydexOnePieceSealedProduct {
-  const record = jsonRecord(value);
+  const record = unwrapScrydexSealedProductRecord(value);
+  const expansion = sanitizeScrydexExpansion(record.expansion);
   const imageUrls = scrydexImageUrls(record.images);
   return compactRecord({
-    id: stringValue(record.id),
-    name: stringValue(record.name),
-    type: stringValue(record.type),
+    id: stringValue(
+      record.id ?? record.sealed_product_id ?? record.sealedProductId ?? record.product_id ?? record.productId,
+    ),
+    name:
+      stringValue(record.name ?? record.title ?? record.product_name ?? record.productName) ??
+      scrydexSealedProductFallbackName(record, expansion),
+    type: stringValue(record.type ?? record.product_type ?? record.productType),
     imageUrls: imageUrls.length > 0 ? imageUrls : null,
     language: stringValue(record.language),
-    language_code: stringValue(record.language_code),
-    expansion: sanitizeScrydexExpansion(record.expansion),
+    language_code: stringValue(record.language_code ?? record.languageCode),
+    expansion,
   });
+}
+
+function unwrapScrydexSealedProductRecord(value: JsonValue): Readonly<Record<string, JsonValue>> {
+  const responseRecord = jsonRecord(value);
+  const record = unwrapScrydexProductResponseRecord(responseRecord);
+  for (const key of ["sealedProduct", "sealed_product", "product"]) {
+    const nested = record[key];
+    if (isJsonRecord(nested)) {
+      return nested;
+    }
+  }
+  return record;
+}
+
+function unwrapScrydexProductResponseRecord(
+  record: Readonly<Record<string, JsonValue>>,
+): Readonly<Record<string, JsonValue>> {
+  for (const key of ["data", "result", "item", "record"]) {
+    const nested = record[key];
+    if (isJsonRecord(nested)) {
+      return nested;
+    }
+    if (Array.isArray(nested)) {
+      const firstRecord = nested.find(isJsonRecord);
+      if (firstRecord) {
+        return firstRecord;
+      }
+    }
+  }
+  return record;
+}
+
+function scrydexSealedProductFallbackName(
+  record: Readonly<Record<string, JsonValue>>,
+  expansion: ScrydexOnePieceExpansion,
+): string | null {
+  const type = stringValue(record.type ?? record.product_type ?? record.productType);
+  if (!type) {
+    return null;
+  }
+
+  const expansionLabel = stringValue(expansion.name ?? expansion.code ?? expansion.id);
+  return expansionLabel ? `${expansionLabel} ${type}` : null;
 }
 
 function scrydexImageUrls(value: JsonValue | undefined): readonly string[] {
@@ -1700,8 +1748,12 @@ function scrydexImageUrls(value: JsonValue | undefined): readonly string[] {
   return [
     ...new Set(
       value.flatMap((entry) => {
+        const directUrl = stringValue(entry);
+        if (directUrl && isHttpsUrl(directUrl)) {
+          return [directUrl];
+        }
         const record = jsonRecord(entry);
-        return [record.large, record.medium, record.small]
+        return [record.large, record.medium, record.small, record.url]
           .map(stringValue)
           .filter((url): url is string => typeof url === "string" && isHttpsUrl(url));
       }),
