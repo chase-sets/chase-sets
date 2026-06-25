@@ -8,6 +8,7 @@ import { CatalogIntegrationSourceObservationReviewModule } from "../source-obser
 import type { CatalogSyncRun } from "../../contracts";
 import { CatalogSyncScopeModule } from "./catalog-sync-scope-module";
 import { CatalogIntegrationCreateItemsStage } from "./create-items-stage";
+import { CatalogIntegrationMergeCandidateReviewModule } from "./merge-candidate-review-module";
 import { buildFlowStages, CatalogIntegrationFlowStepper } from "./primary-steps-module";
 import { CatalogSourceScopeWorksetModule } from "./source-scope-workset-module";
 import { useImportToPromotionWorkspace, type ImportToPromotionStageKey } from "./use-import-to-promotion-workspace";
@@ -74,14 +75,23 @@ export function CatalogIntegrationImportToPromotionWorkspace({
       </WorkbenchStack>
     ),
     "review-changes": (
-      <CatalogIntegrationSourceObservationReviewModule
-        readModel={readModel}
-        selectedObservationKeys={selectedObservationKeys}
-        onSelectedObservationKeysChange={setSelectedObservationKeys}
-        selectedEligibleObservationCount={selectedEligibleObservationCount}
-        selectedReviewableObservationCount={selectedReviewableObservationCount}
-        aliasVisibility={aliasVisibility}
-      />
+      <WorkbenchStack>
+        <CatalogIntegrationMergeCandidateReviewModule readModel={readModel} />
+        <ProgressiveDisclosure
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.sourceObservations")}
+          icon="dashboard"
+          defaultOpen={readModel.mergeCandidateReview.rows.length === 0}
+        >
+          <CatalogIntegrationSourceObservationReviewModule
+            readModel={readModel}
+            selectedObservationKeys={selectedObservationKeys}
+            onSelectedObservationKeysChange={setSelectedObservationKeys}
+            selectedEligibleObservationCount={selectedEligibleObservationCount}
+            selectedReviewableObservationCount={selectedReviewableObservationCount}
+            aliasVisibility={aliasVisibility}
+          />
+        </ProgressiveDisclosure>
+      </WorkbenchStack>
     ),
     "create-items": <CatalogIntegrationCreateItemsStage readModel={readModel} />,
   };

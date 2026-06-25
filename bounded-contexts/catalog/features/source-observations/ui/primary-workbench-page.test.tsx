@@ -15,6 +15,7 @@ import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import type { SourceObservationIntegrationOptionResponse } from "./contracts";
 import {
   controlPlaneOverview,
+  catalogMergeCandidateListItem,
   integrationJobSummary,
   profileAuthoringModel,
   profileReview,
@@ -263,6 +264,67 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="selectedUnitKeys"]')?.value).toBe(
       "tcgdex:pokemon:card:import",
     );
+  });
+
+  it("reviews merged candidates before Source Observation evidence with detail mapping and action affordances", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      mergeCandidates: { items: [catalogMergeCandidateListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Merged candidate review" })).toBeTruthy();
+    expect(screen.getAllByText("Charizard / Base Set / #4 / en / standard").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/tcgdex: obs_001/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/tcgplayer: obs_tcgplayer_001/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0 blocking").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Promote: Charizard/ }).length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getAllByRole("button", { name: /Split: Charizard/ })
+        .at(0)
+        ?.hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByRole("button", { name: /Update: Charizard/ })
+        .at(0)
+        ?.hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.getAllByRole("button", { name: /Ignore: Charizard/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Defer: Charizard/ }).length).toBeGreaterThan(0);
+
+    const promoteForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="promote-merge-candidate"]',
+    );
+    expect(promoteForm?.querySelector<HTMLInputElement>('input[name="candidateId"]')?.value).toBe(
+      "cand_pokemon_base1_004_standard",
+    );
+    expect(promoteForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
+      "Promote from the scope-first Catalog sync workbench.",
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
+
+    expect(screen.getByRole("dialog", { name: /Candidate detail:/ })).toBeTruthy();
+    expect(screen.getByText("Source comparison")).toBeTruthy();
+    expect(screen.getByText(/tcgdex obs_001 name: Charizard/)).toBeTruthy();
+    expect(screen.getByText("Field provenance")).toBeTruthy();
+    expect(screen.getByText(/cardNumber: tcgplayer 2026.06.04 High/)).toBeTruthy();
+    expect(screen.getByText("Proposed references and Product mapping")).toBeTruthy();
+    expect(screen.getAllByText("tcgdex:base1-4").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgplayer:sku:123 -> condition:near-mint").length).toBeGreaterThan(0);
+    expect(screen.getByText("Proposed facts")).toBeTruthy();
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
   it("shows selected-scope import preflight usage evidence before sync", async () => {

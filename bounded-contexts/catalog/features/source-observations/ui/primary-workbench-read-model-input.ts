@@ -3,6 +3,7 @@ import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../ap
 import type { CatalogPrimaryWorkbenchLifecycleOperation } from "../api/primary-workbench-admin-contracts";
 import type {
   CatalogIntegrationControlPlaneOverview,
+  CatalogMergeCandidateListItem,
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
@@ -13,6 +14,7 @@ import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-
 export type CatalogPrimaryWorkbenchReadModelFailure =
   | "control-plane-overview"
   | "integration-scopes"
+  | "merge-candidate-review"
   | "source-observation-review";
 
 export type CatalogPrimaryWorkbenchInput = Readonly<{
@@ -27,6 +29,7 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   > | null;
   sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
+  mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;

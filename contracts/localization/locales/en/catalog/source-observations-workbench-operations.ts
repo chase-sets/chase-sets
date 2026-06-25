@@ -104,6 +104,47 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.key": "Partial failure scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.value":
     "Per-observation failures stay in scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.aria": "{action}: {candidate}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.defer": "Defer",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.ignore": "Ignore",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.promote": "Promote",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.reason":
+    "{action} from the scope-first Catalog sync workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.split": "Split",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.action.update": "Update",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count": "{count} with conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflicts.blocking": "{count} blocking",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflicts.warning": "{count} warnings",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.description":
+    "Review merged candidates first, then inspect Source Observation evidence only when provenance needs a closer look.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.conflicts": "Conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.description":
+    "Compare source values, provenance, proposed references, Product mapping, and review actions for this candidate.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.fieldProvenance": "Field provenance",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.proposedFacts": "Proposed facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.references":
+    "Proposed references and Product mapping",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.sourceComparison":
+    "Source comparison",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.title": "Candidate detail: {name}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.description":
+    "Run or refresh a Catalog sync for this scope, then generate merge candidates from the resulting Source Observations.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.empty.title": "No merged candidates",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.scope": "Catalog scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.search": "Search",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.status": "Candidate status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.syncRun": "Sync run",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.candidate": "Candidate",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.catalogItem": "Catalog Item",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.intent": "Promotion intent",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.products": "Products",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.ready.count": "{count} ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.sources.count": "{count} source(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.table.identity": "Identity",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.table.readiness": "Promote readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.table.sources": "Sources",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.table.status": "Status and conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.title": "Merged candidate review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan": "Command plan",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.description":
     "Preview counts, stale protections, and recovery decisions before Catalog writes run.",
@@ -511,6 +552,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.command.plan":
     "Promotion command plan detail",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs": "Durable import job detail",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.sourceObservations":
+    "Source Observation evidence",
   "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.evidence":
     "{count} active or recent job(s) for the selected context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.label":

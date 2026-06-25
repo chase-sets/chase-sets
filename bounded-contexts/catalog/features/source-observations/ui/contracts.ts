@@ -1,5 +1,15 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
+import type {
+  CatalogMergeCandidateConflict,
+  CatalogMergeCandidateExternalCatalogItemReference,
+  CatalogMergeCandidateExternalProductReference,
+  CatalogMergeCandidateFieldProvenance,
+  CatalogMergeCandidateIdentity,
+  CatalogMergeCandidatePromotionIntent,
+  CatalogMergeCandidateStatus,
+  CatalogMergeCandidateWarning,
+} from "../domain/catalog-merge-candidate";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
@@ -49,6 +59,28 @@ export interface SourceObservationListItem {
 
 export interface SourceObservationDetail extends SourceObservationListItem {
   source_payload: JsonValue;
+}
+
+export interface CatalogMergeCandidateListItem {
+  candidate_id: string;
+  identity_fingerprint: string;
+  sync_run_ids_json: string[];
+  status: CatalogMergeCandidateStatus;
+  status_reason: string | null;
+  identity_json: CatalogMergeCandidateIdentity;
+  matched_catalog_item_id: string | null;
+  matched_product_ids_json: string[];
+  proposed_catalog_item_facts_json: JsonValue;
+  proposed_external_catalog_item_references_json: CatalogMergeCandidateExternalCatalogItemReference[];
+  proposed_external_product_references_json: CatalogMergeCandidateExternalProductReference[];
+  conflicts_json: CatalogMergeCandidateConflict[];
+  warnings_json: CatalogMergeCandidateWarning[];
+  field_provenance_json: CatalogMergeCandidateFieldProvenance[];
+  promotion_intent: CatalogMergeCandidatePromotionIntent;
+  created_at: string;
+  updated_at: string;
+  stale_at: string | null;
+  observation_count: number;
 }
 
 export interface SourceObservationIntegrationScope {
