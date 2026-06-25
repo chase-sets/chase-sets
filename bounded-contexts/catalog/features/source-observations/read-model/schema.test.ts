@@ -46,6 +46,28 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).not.toContain("REFERENCES catalog_source_observations");
   });
 
+  it("evolves Catalog Merge Candidate sync-run columns before indexing them", () => {
+    const candidateAlterPosition = catalogSourceObservationSchemaSql.indexOf("ALTER TABLE catalog_merge_candidates");
+    const candidateIndexPosition = catalogSourceObservationSchemaSql.indexOf(
+      "CREATE INDEX IF NOT EXISTS catalog_merge_candidates_sync_run_ids_idx",
+    );
+    const observationAlterPosition = catalogSourceObservationSchemaSql.indexOf(
+      "ALTER TABLE catalog_merge_candidate_observations",
+    );
+    const observationIndexPosition = catalogSourceObservationSchemaSql.indexOf(
+      "CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx",
+    );
+
+    expect(candidateAlterPosition).toBeGreaterThan(0);
+    expect(candidateIndexPosition).toBeGreaterThan(candidateAlterPosition);
+    expect(observationAlterPosition).toBeGreaterThan(0);
+    expect(observationIndexPosition).toBeGreaterThan(observationAlterPosition);
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS sync_run_id text NULL");
+  });
+
   it("evolves provider option query cache profile columns before lookup indexing", () => {
     const alterPosition = catalogSourceObservationSchemaSql.indexOf("ALTER TABLE catalog_provider_option_query_cache");
     const indexPosition = catalogSourceObservationSchemaSql.indexOf(
