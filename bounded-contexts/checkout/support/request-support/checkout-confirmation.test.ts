@@ -39,6 +39,18 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 
 import { createCheckoutPaymentThroughPayments } from "./checkout-confirmation";
 
+function paymentsApiError(status: number, code: string, message: string) {
+  return Object.assign(new Error(message), {
+    status,
+    body: {
+      error: {
+        code,
+        message,
+      },
+    },
+  });
+}
+
 describe("checkout confirmation request support", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -125,6 +137,98 @@ describe("checkout confirmation request support", () => {
     expect(mockGetCheckoutStatus.mock.invocationCallOrder[0]).toBeLessThan(
       mockCreateAccountPayment.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
+  });
+
+  it("retries payment start when the same-request order input is still reservation-pending", async () => {
+    mockGetCheckoutStatus
+      .mockRejectedValueOnce(
+        paymentsApiError(
+          400,
+          "order_not_payment_ready",
+          "Order ord_1 is not eligible for payment in status pending-reservation.",
+        ),
+      )
+      .mockResolvedValue({ orderIds: ["ord_1"] });
+    mockCreateAccountPayment.mockResolvedValue({ payment_id: "pay_fresh" });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
+    const orderCreationWriteResult = {
+      orderIds: ["ord_1"],
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "42",
+        commitEventIds: ["evt_order_created"],
+        commitPositions: [
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
+          },
+        ],
+      },
+    };
+
+    await createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+      null,
+      orderCreationWriteResult,
+      { maxAttempts: 2, delayMs: 0 },
+    );
+
+    expect(mockGetCheckoutStatus).toHaveBeenCalledTimes(2);
+    expect(mockCreateAccountPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries payment creation when Payments catches a pending order input after the status read", async () => {
+    mockGetCheckoutStatus.mockResolvedValue({ orderIds: ["ord_1"] });
+    mockCreateAccountPayment
+      .mockRejectedValueOnce(
+        paymentsApiError(
+          400,
+          "order_not_payment_ready",
+          "Order ord_1 is not eligible for payment in status pending-reservation.",
+        ),
+      )
+      .mockResolvedValue({ payment_id: "pay_retry" });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
+    const orderCreationWriteResult = {
+      commandReceipt: {
+        commitEventIds: ["evt_order_created"],
+        commitPositions: [
+          {
+            sourceContextName: "ordering",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_order_created"],
+          },
+        ],
+      },
+    };
+
+    const payment = await createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+      null,
+      orderCreationWriteResult,
+      { maxAttempts: 2, delayMs: 0 },
+    );
+
+    expect(payment).toEqual({ payment_id: "pay_retry" });
+    expect(mockGetCheckoutStatus).toHaveBeenCalledTimes(2);
+    expect(mockCreateAccountPayment).toHaveBeenCalledTimes(2);
   });
 
   it("fresh-reads Payments checkout status before payment creation when retry request carries afterWrite", async () => {
