@@ -138,11 +138,96 @@ describe("inventory hold runtime", () => {
     await services.createHold(params, context);
 
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
-    expect(db.query).toHaveBeenCalledTimes(3);
+    expect(db.query).toHaveBeenCalledTimes(1);
   });
 
-  it("reports missing item projections with a typed hold placement failure", async () => {
+  it("places holds from stock rows without storage location detail joins", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = createInventoryDb({
+      itemRows: [
+        {
+          item_id: "inv_1",
+          account_id: "acc_seller",
+          total_quantity: 1,
+          held_quantity: 0,
+          available_quantity: 1,
+        },
+      ],
+    });
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db,
+    });
+
+    await services.createHold(
+      {
+        holdId: "hld_order_reservation_rsv_1" as InventoryHoldId,
+        accountId: "acc_seller" as AccountId,
+        itemId: "inv_1",
+        quantity: 1,
+        reason: "Ordering commitment",
+        notes: null,
+      },
+      context,
+    );
+
+    const stockQuery = String(db.query.mock.calls[0]?.[0] ?? "");
+    expect(stockQuery).toContain("FROM inventory_items AS item");
+    expect(stockQuery).not.toContain("inventory_storage_locations");
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
+  });
+
+  it("reports missing item aggregates with a typed hold placement failure", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createInventoryHoldRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: createInventoryDb({ itemRows: [] }),
+    });
+
+    await expect(
+      services.createHold(
+        {
+          holdId: "hld_order_reservation_rsv_1" as InventoryHoldId,
+          accountId: "acc_seller" as AccountId,
+          itemId: "inv_1",
+          quantity: 1,
+          reason: "Ordering commitment",
+          notes: null,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      kind: "inventory-item-missing",
+      name: "InventoryHoldPlacementError",
+    } satisfies Partial<InventoryHoldPlacementError>);
+    expect(readAllEvents()).toHaveLength(0);
+  });
+
+  it("keeps existing item aggregates transient when the stock row has not projected", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "inventory.item-inv_1",
+      expectedVersion: "no_stream",
+      events: [
+        {
+          eventType: "inventory.item.created",
+          payload: {
+            itemId: "inv_1",
+            accountId: "acc_seller",
+            catalogItemId: "cat_1",
+            productId: "prod_1",
+            selectedOptions: [],
+            gradedCard: null,
+            storageLocationId: "loc_1",
+            totalQuantity: 1,
+            acquisitionCostAmount: null,
+          },
+        },
+      ],
+      context,
+    });
     const services = createInventoryHoldRuntime({
       eventStore,
       checkpointStore: {} as never,
@@ -165,6 +250,6 @@ describe("inventory hold runtime", () => {
       kind: "inventory-item-projection-missing",
       name: "InventoryHoldPlacementError",
     } satisfies Partial<InventoryHoldPlacementError>);
-    expect(readAllEvents()).toHaveLength(0);
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
   });
 });
