@@ -21,6 +21,15 @@ describe("Catalog provider mapping boundaries", () => {
     expect(content).not.toMatch(executableMappingImportPattern);
   });
 
+  it("keeps runtime import planning off concrete provider-key branches", () => {
+    const content = readFileSync(runtimePath, "utf8");
+
+    expect(content).not.toMatch(/providerProfile\.providerKey\s*(?:===|!==)\s*["'](?:tcgdex|tcgplayer)["']/);
+    expect(content).not.toContain("processTcgplayerIntegrationImportJob");
+    expect(content).not.toContain("previewTcgplayerIntegrationImportTargets");
+    expect(content).not.toContain("previewTcgdexIntegrationImportTargets");
+  });
+
   it("keeps transport clients from owning Source Observation mapping semantics", () => {
     for (const filePath of transportClientPaths) {
       const content = readFileSync(filePath, "utf8");

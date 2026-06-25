@@ -172,6 +172,32 @@ Reapply and replay previews use the shared [Catalog Integration Impact Analysis]
 
 The Catalog Integrations admin surface summarizes Source Observations by provider, language, Expansion, and Series. It is a read-model view over Catalog-owned observations, not a separate provider configuration aggregate. Operators use it to load provider source options, select a concrete source scope, pull that selected scope, see what has already been pulled, promote all eligible observations in the selected scope, resync one set, jump into the exact Source Observation scope for record-level review or rejection, and sync current integration mapping to promoted observations after mapping logic changes. Future provider integrations should appear in the same summary once they record Source Observations with stable provider, language, and source-scope facts.
 
+## Provider-Specific Runtime Cleanup Inventory
+
+Preview, durable enqueue, target resolution, import, and reapply now share the
+provider/unit/profile import planner. The planner resolves import targets from
+the active or snapshotted Provider Integration Profile, asks the matching
+ProviderAdapter for transport plans and payloads, then runs the executable
+mapping contract before recording Source Observations. TCGdex Expansion fanout
+and TCGplayer product-line/set-name fanout are profile option-query semantics,
+not separate provider-key import workers.
+
+TCGdex Reference Record hierarchy provisioning and alias candidate intake remain
+named semantic helpers because the current executable mapping contract cannot
+yet express those behaviors safely. They are invoked from the shared import path
+only when the active profile declares the matching connector/capability, and
+they remain fixture-backed clean launch extension points rather than alternate
+provider import branches.
+
+The `importTcgdexSet` and `importTcgplayerScope` runtime service methods are
+temporary compatibility entry points for existing callers. `importTcgplayerScope`
+delegates to the shared profile-driven integration import path. `importTcgdexSet`
+is retained for the one-set admin/import compatibility surface while scope-sync
+and durable worker paths use the shared planner. New import, preview, enqueue,
+promotion, reapply, or option-query behavior must add profile data, shared
+interpreter support, or adapter transport methods instead of new provider-key
+runtime branches.
+
 ## Conflict Pressure Tests
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.
