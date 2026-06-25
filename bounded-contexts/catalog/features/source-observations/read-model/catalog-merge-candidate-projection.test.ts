@@ -24,6 +24,7 @@ describe("Catalog Merge Candidate projections", () => {
     expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("INSERT INTO catalog_merge_candidates"), [
       "cand_pokemon_en_base1_043_standard",
       "sha256:pokemon:en:base1:43:standard",
+      JSON.stringify(candidateSnapshot().syncRunIds),
       "ready",
       null,
       JSON.stringify(candidateSnapshot().identity),
@@ -78,9 +79,9 @@ describe("Catalog Merge Candidate projections", () => {
 
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
     expect(query.mock.calls[0]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_standard");
-    expect(query.mock.calls[0]?.[1]?.[2]).toBe("has-conflicts");
-    expect(query.mock.calls[0]?.[1]?.[10]).toBe(JSON.stringify(snapshot.conflicts));
-    expect(query.mock.calls[0]?.[1]?.[12]).toBe(JSON.stringify(snapshot.fieldProvenance));
+    expect(query.mock.calls[0]?.[1]?.[3]).toBe("has-conflicts");
+    expect(query.mock.calls[0]?.[1]?.[11]).toBe(JSON.stringify(snapshot.conflicts));
+    expect(query.mock.calls[0]?.[1]?.[13]).toBe(JSON.stringify(snapshot.fieldProvenance));
   });
 
   it("marks stale candidates without changing Source Observation rows", async () => {
@@ -140,6 +141,7 @@ function candidateSnapshot(
 ): CatalogMergeCandidateReviewSnapshot {
   return {
     identityFingerprint: "sha256:pokemon:en:base1:43:standard",
+    syncRunIds: ["job_sync_base1"],
     identity: {
       tcg: "pokemon",
       productLineName: "Pokemon TCG",
@@ -209,6 +211,7 @@ function observationMember(
 ): CatalogMergeCandidateObservationMember {
   return {
     observationId,
+    syncRunId: "job_sync_base1",
     providerKey,
     externalKey,
     sourceRecordHash: `${observationId}-hash`,

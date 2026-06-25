@@ -7,9 +7,20 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type {
+  CatalogMergeCandidateExternalCatalogItemReference,
+  CatalogMergeCandidateExternalProductReference,
+  CatalogMergeCandidateFieldProvenance,
+  CatalogMergeCandidateIdentity,
+  CatalogMergeCandidatePromotionIntent,
+  CatalogMergeCandidateStatus,
+  CatalogMergeCandidateWarning,
+  CatalogMergeCandidateConflict,
+} from "../domain/catalog-merge-candidate";
 
 export type SourceObservationListRow = Readonly<{
   observation_id: string;
+  sync_run_id: string | null;
   provider_key: string;
   external_key: string;
   source_url: string;
@@ -40,12 +51,43 @@ export type SourceObservationDetailRow = SourceObservationListRow &
 export type SourceObservationFilterScope = Readonly<{
   search?: string;
   status?: string;
+  syncRunId?: string;
   provider?: string;
   language?: string;
   productLineId?: string;
   seriesId?: string;
   expansionId?: string;
   setId?: string;
+}>;
+
+export type CatalogMergeCandidateListRow = Readonly<{
+  candidate_id: string;
+  identity_fingerprint: string;
+  sync_run_ids_json: readonly string[];
+  status: CatalogMergeCandidateStatus;
+  status_reason: string | null;
+  identity_json: CatalogMergeCandidateIdentity;
+  matched_catalog_item_id: string | null;
+  matched_product_ids_json: readonly string[];
+  proposed_catalog_item_facts_json: JsonValue;
+  proposed_external_catalog_item_references_json: readonly CatalogMergeCandidateExternalCatalogItemReference[];
+  proposed_external_product_references_json: readonly CatalogMergeCandidateExternalProductReference[];
+  conflicts_json: readonly CatalogMergeCandidateConflict[];
+  warnings_json: readonly CatalogMergeCandidateWarning[];
+  field_provenance_json: readonly CatalogMergeCandidateFieldProvenance[];
+  promotion_intent: CatalogMergeCandidatePromotionIntent;
+  created_at: string;
+  updated_at: string;
+  stale_at: string | null;
+  observation_count: number;
+}>;
+
+export type CatalogMergeCandidateFilterScope = Readonly<{
+  search?: string;
+  status?: CatalogMergeCandidateStatus | "";
+  syncRunId?: string;
+  identityFingerprint?: string;
+  matchedCatalogItemId?: string;
 }>;
 
 export type SourceObservationPromotionPreview = Readonly<{
@@ -136,6 +178,59 @@ export async function listSourceObservations(
   );
 
   return executeListQuery<SourceObservationListRow>(db, query.countSql, query.listSql, query.values);
+}
+
+export async function listCatalogMergeCandidates(
+  db: PgQueryable,
+  params: ListParams & CatalogMergeCandidateFilterScope = {},
+): Promise<ListResult<CatalogMergeCandidateListRow>> {
+  const filter = buildCatalogMergeCandidateFilter(params);
+  let values = [...filter.values];
+  const conditions = [...filter.conditions];
+  if (params.search?.trim()) {
+    values.push(`%${params.search.trim()}%`);
+    const param = `$${values.length}`;
+    conditions.push(
+      `(c.candidate_id ILIKE ${param} OR c.identity_fingerprint ILIKE ${param} OR (c.identity_json->>'printedProductName') ILIKE ${param} OR (c.identity_json->>'setName') ILIKE ${param} OR (c.identity_json->>'collectorNumber') ILIKE ${param} OR c.matched_catalog_item_id ILIKE ${param})`,
+    );
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = params.limit ?? 50;
+  const offset = params.offset ?? 0;
+  const countSql = `SELECT COUNT(*) as count FROM catalog_merge_candidates c ${where}`;
+  const listSql = `SELECT c.*,
+                          COALESCE(m.observation_count, 0)::integer AS observation_count
+                   FROM catalog_merge_candidates c
+                   LEFT JOIN (
+                     SELECT candidate_id, COUNT(*)::integer AS observation_count
+                     FROM catalog_merge_candidate_observations
+                     GROUP BY candidate_id
+                   ) m ON m.candidate_id = c.candidate_id
+                   ${where}
+                   ORDER BY c.updated_at DESC, c.candidate_id ASC
+                   LIMIT ${limit} OFFSET ${offset}`;
+
+  return executeListQuery<CatalogMergeCandidateListRow>(db, countSql, listSql, values);
+}
+
+export async function listSourceObservationsForCandidateMatching(
+  db: PgQueryable,
+  params: SourceObservationFilterScope = {},
+): Promise<readonly SourceObservationListRow[]> {
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses: ["observed", "changed", "promoted"],
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const result = await db.query<SourceObservationListRow>(
+    `SELECT *
+     FROM catalog_source_observations
+     ${where}
+     ORDER BY observed_at DESC, observation_id ASC`,
+    filter.values,
+  );
+
+  return result.rows;
 }
 
 export async function listSourceObservationIntegrationScopes(
@@ -662,6 +757,11 @@ function buildSourceObservationFilter(
     conditions.push(`provider_key = $${values.length}`);
   }
 
+  if (scope.syncRunId) {
+    values.push(scope.syncRunId);
+    conditions.push(`sync_run_id = $${values.length}`);
+  }
+
   if (scope.language) {
     values.push(scope.language);
     conditions.push(`language_code = $${values.length}`);
@@ -711,6 +811,7 @@ function normalizeSourceObservationFilterScope(
   return {
     search: params.search?.trim() ?? "",
     status: params.status?.trim() ?? "",
+    syncRunId: params.syncRunId?.trim() ?? "",
     provider: params.provider?.trim() ?? "",
     language: params.language?.trim() ?? "",
     productLineId: params.productLineId?.trim() ?? "",
@@ -718,6 +819,36 @@ function normalizeSourceObservationFilterScope(
     expansionId,
     setId: expansionId,
   };
+}
+
+function buildCatalogMergeCandidateFilter(params: CatalogMergeCandidateFilterScope): {
+  conditions: string[];
+  values: unknown[];
+} {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (params.status?.trim()) {
+    values.push(params.status.trim());
+    conditions.push(`c.status = $${values.length}`);
+  }
+
+  if (params.syncRunId?.trim()) {
+    values.push(params.syncRunId.trim());
+    conditions.push(`c.sync_run_ids_json ? $${values.length}`);
+  }
+
+  if (params.identityFingerprint?.trim()) {
+    values.push(params.identityFingerprint.trim());
+    conditions.push(`c.identity_fingerprint = $${values.length}`);
+  }
+
+  if (params.matchedCatalogItemId?.trim()) {
+    values.push(params.matchedCatalogItemId.trim());
+    conditions.push(`c.matched_catalog_item_id = $${values.length}`);
+  }
+
+  return { conditions, values };
 }
 
 function reviewableStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {

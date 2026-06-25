@@ -9,6 +9,7 @@ const SOURCE_OBSERVATION_STREAM_PREFIX = "catalog.source-observation-";
 
 type ObservationProjectionData = {
   observationId: string;
+  syncRunId?: string | null;
   providerKey: string;
   externalKey: string;
   sourceUrl: string;
@@ -253,6 +254,7 @@ async function upsertObservation(
   await db.query(
     `INSERT INTO catalog_source_observations (
        observation_id,
+       sync_run_id,
        provider_key,
        external_key,
        source_url,
@@ -274,8 +276,9 @@ async function upsertObservation(
        promotion_profile_version,
        promotion_plan_fingerprint,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
      ON CONFLICT (observation_id) DO UPDATE SET
+       sync_run_id = EXCLUDED.sync_run_id,
        provider_key = EXCLUDED.provider_key,
        external_key = EXCLUDED.external_key,
        source_url = EXCLUDED.source_url,
@@ -294,6 +297,7 @@ async function upsertObservation(
        updated_at = EXCLUDED.updated_at`,
     [
       input.data.observationId,
+      input.data.syncRunId?.trim() || null,
       input.data.providerKey,
       input.data.externalKey,
       input.data.sourceUrl,

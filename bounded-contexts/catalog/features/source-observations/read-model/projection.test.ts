@@ -54,6 +54,7 @@ describe("Source Observation projections", () => {
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO catalog_source_observations"), [
       "tcgdex_en_base1_043",
+      "job_sync_base1",
       "tcgdex",
       "base1-43",
       "https://api.tcgdex.net/v2/en/cards/base1-43",
@@ -97,7 +98,7 @@ describe("Source Observation projections", () => {
     expect(query.mock.calls[0]?.[0]).not.toContain(
       "promoted_reference_record_id = EXCLUDED.promoted_reference_record_id",
     );
-    expect(query.mock.calls[0]?.[1]?.[13]).toBe("changed");
+    expect(query.mock.calls[0]?.[1]?.[14]).toBe("changed");
   });
 
   it("projects Reference Record promotion targets separately from Catalog Item targets", async () => {
@@ -171,10 +172,12 @@ function observationData(
     sourceProfileKey: string;
     sourceProfileVersion: string;
     sourceMappingFingerprint: string;
+    syncRunId: string | null;
   }> = {},
 ) {
   return {
     observationId: "tcgdex_en_base1_043",
+    syncRunId: "job_sync_base1",
     providerKey: "tcgdex",
     externalKey: "base1-43",
     sourceUrl: "https://api.tcgdex.net/v2/en/cards/base1-43",

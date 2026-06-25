@@ -553,6 +553,7 @@ export function sourceObservationDetailRow(overrides: Record<string, unknown> = 
 
   return {
     observation_id: "obs_selected",
+    sync_run_id: "job_sync_selected",
     provider_key: "tcgdex",
     external_key: "base1-1",
     source_url: "https://api.tcgdex.net/v2/en/cards/base1-1",
@@ -1516,6 +1517,7 @@ export function createChangedObservationRefreshHarness(
     });
   const observationRow = {
     observation_id: "obs_changed",
+    sync_run_id: "job_sync_changed",
     provider_key: input.providerKey ?? "tcgdex",
     external_key: input.externalKey ?? "me02.5-136:reverse-holo",
     source_url: input.sourceUrl ?? "https://api.tcgdex.net/v2/en/cards/me02.5-136",
@@ -1543,6 +1545,7 @@ export function createChangedObservationRefreshHarness(
     storedEvent(1, streamId, "catalog.source-observation.recorded", {
       ...observationRow,
       observationId: observationRow.observation_id,
+      syncRunId: observationRow.sync_run_id,
       providerKey: observationRow.provider_key,
       externalKey: observationRow.external_key,
       sourceUrl: observationRow.source_url,
@@ -1758,6 +1761,7 @@ export function createBulkReviewJobHarness(
       observationId,
       {
         observation_id: observationId,
+        sync_run_id: "job_bulk_review",
         provider_key: "tcgdex",
         external_key: `card-${index + 1}`,
         source_url: `https://api.tcgdex.net/v2/en/cards/card-${index + 1}`,
@@ -2084,6 +2088,7 @@ export function createBulkReviewJobHarness(
         return [
           storedEvent(1, input.streamId, "catalog.source-observation.recorded", {
             observationId: row.observation_id,
+            syncRunId: row.sync_run_id,
             providerKey: row.provider_key,
             externalKey: row.external_key,
             sourceUrl: row.source_url,

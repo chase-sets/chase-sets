@@ -46,6 +46,16 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "{unitKey} requires a provider set name for this Catalog scope.",
   "catalog.features.sourceObservations.api.catalogSyncScopePlanner.productLineRequired":
     "{unitKey} requires a provider product-line/category parent for this Catalog scope.",
+  "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.multipleExistingCatalogItems":
+    "Matched Source Observations point at more than one existing Catalog Item.",
+  "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.fieldMismatch":
+    "Provider observations disagree about {field}.",
+  "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.warning.imageSourceDiffers":
+    "Provider image URLs differ; keep image choice reviewable before promotion.",
+  "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.mergeIdentityMismatch":
+    "Exact external reference matched observations with different merge identities.",
+  "catalog.features.sourceObservations.api.catalogMergeCandidateMatcher.conflict.repeatedExternalCatalogItemReference":
+    "One provider identifier appears on materially different Source Observation identities.",
   "catalog.features.sourceObservations.ui.detail.card.illustrator": "Card Illustrator",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
   "catalog.features.sourceObservations.ui.detail.card.number": "Card Number",
