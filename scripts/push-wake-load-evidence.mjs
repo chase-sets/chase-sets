@@ -87,6 +87,7 @@ export function buildPushWakeLoadEvidence(input) {
   const convergence = normalizeConvergence(artifact.convergence);
   const wakeStatusBefore = normalizeWakeStatus(artifact.wakeStatusBefore);
   const wakeStatusAfter = normalizeWakeStatus(artifact.wakeStatusAfter);
+  const wakeRuntimeAfterLoad = normalizeWakeRuntimeReadiness(artifact.wakeRuntimeAfterLoad);
   const sourceContexts = readStringArray(artifact.sourceContexts);
   const verdictReasons = [];
   const warnings = [];
@@ -169,6 +170,9 @@ export function buildPushWakeLoadEvidence(input) {
   if (wakeStatusAfter.activeWakeCapableWorkerCount < budgets.minimumActiveWakeCapableWorkers) {
     verdictReasons.push("active-wake-capable-worker-count-below-budget");
   }
+  if (wakeRuntimeAfterLoad.attempted && wakeRuntimeAfterLoad.ready === false) {
+    verdictReasons.push("wake-runtime-not-ready-after-load");
+  }
 
   if (input.profile === "bounded-staging") {
     warnings.push(
@@ -211,6 +215,9 @@ export function buildPushWakeLoadEvidence(input) {
       wakeStatus: {
         before: wakeStatusBefore.summary,
         after: wakeStatusAfter.summary,
+      },
+      wakeRuntime: {
+        afterLoad: wakeRuntimeAfterLoad.summary,
       },
     },
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -392,6 +399,36 @@ function normalizeWakeStatus(value) {
       activeWakeCapableWorkerCount: normalized.activeWakeCapableWorkerCount,
       intentSummary: normalized.intentSummary,
     },
+  };
+}
+
+function normalizeWakeRuntimeReadiness(value) {
+  const readiness = isRecord(value) ? value : {};
+  const initial = normalizeWakeRuntimeEvaluation(readiness.initial);
+  const final = normalizeWakeRuntimeEvaluation(readiness.final);
+  const normalized = {
+    attempted: readiness.attempted === true,
+    ready: typeof readiness.ready === "boolean" ? readiness.ready : null,
+    readyAfterMs: toNullableNumber(readiness.readyAfterMs),
+    sampleCount: toFiniteNumber(readiness.sampleCount),
+    initial,
+    final,
+  };
+
+  return {
+    ...normalized,
+    summary: normalized,
+  };
+}
+
+function normalizeWakeRuntimeEvaluation(value) {
+  const evaluation = isRecord(value) ? value : {};
+  return {
+    ready: typeof evaluation.ready === "boolean" ? evaluation.ready : null,
+    activeWakeCapableWorkerCount: toFiniteNumber(evaluation.activeWakeCapableWorkerCount),
+    relayLeaseState: sanitizeEvidenceString(evaluation.relayLeaseState),
+    relayOwnerId: sanitizeEvidenceString(evaluation.relayOwnerId),
+    reasons: readStringArray(evaluation.reasons).map(sanitizeEvidenceString),
   };
 }
 
