@@ -377,6 +377,64 @@ describe("checkout session runtime", () => {
     expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
+  it("replaces half-confirmed Buy Now entry sessions that never reached payment", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const buyNowInput = {
+      accountId: "acc_buyer" as never,
+      listingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: "lst_1",
+      shippingOption: "standard",
+      fulfillmentPreviewRevision: "buy_now_supply_ready",
+      sessionIdOverride: "chk_buy_now_stuck_preparing" as never,
+    };
+
+    const first = await services.createBuyNow(buyNowInput, context);
+    await services.setShippingAddress(
+      {
+        sessionId: first.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: serviceableShippingAddress,
+      },
+      context,
+    );
+    await services.recordOrdersCreated(
+      {
+        sessionId: first.sessionId,
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_stuck"],
+        fulfilledLineKeys: ["lst_1"],
+      },
+      context,
+    );
+
+    const replacement = await services.createBuyNow(buyNowInput, context);
+
+    expect(replacement.sessionId).toMatch(/^chk_/);
+    expect(replacement.sessionId).not.toBe(first.sessionId);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(2);
+    expect(
+      allEvents.filter(
+        (event) =>
+          event.streamId === `checkout.session-${replacement.sessionId}` &&
+          event.eventType === "checkout.session.started",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("rejects unavailable shipping options before mutating the session", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({

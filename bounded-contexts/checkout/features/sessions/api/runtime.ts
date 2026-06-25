@@ -507,14 +507,17 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     }>,
     context: EventStoreContext,
   ) {
-    const sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
-    const streamId = `checkout.session-${sessionId}`;
-    async function existingStartedSession(): Promise<CheckoutSessionCreateResult | null> {
-      if (!params.sessionIdOverride) {
+    let sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
+    let streamId = `checkout.session-${sessionId}`;
+    async function existingStartedSession(
+      candidateSessionId: CheckoutSessionId,
+      candidateStreamId: string,
+    ): Promise<Readonly<{ result: CheckoutSessionCreateResult; state: CheckoutSessionState }> | null> {
+      if (!params.sessionIdOverride || candidateSessionId !== params.sessionIdOverride) {
         return null;
       }
 
-      const storedEvents = await deps.eventStore.readStream({ streamId });
+      const storedEvents = await deps.eventStore.readStream({ streamId: candidateStreamId });
       const started = storedEvents.find((event) => event.eventType === "checkout.session.started");
       if (!started) {
         return null;
@@ -522,22 +525,36 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       const payload = started.payload as { sessionId?: unknown; buyerAccountId?: unknown; sourceType?: unknown };
       if (
-        payload.sessionId !== sessionId ||
+        payload.sessionId !== candidateSessionId ||
         payload.buyerAccountId !== params.accountId ||
         payload.sourceType !== params.sourceType
       ) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
 
+      const loaded = await repository.load(candidateStreamId);
       return {
-        sessionId,
-        ...commitMetadataFromStoredEvents(storedEvents),
+        result: {
+          sessionId: candidateSessionId,
+          ...commitMetadataFromStoredEvents(storedEvents),
+        },
+        state: loaded.state,
       };
     }
 
-    const existing = await existingStartedSession();
+    const existing = await existingStartedSession(sessionId, streamId);
     if (existing) {
-      return existing;
+      if (
+        params.sourceType !== "buy-now" ||
+        existing.state.orderIds.length === 0 ||
+        existing.state.paymentId ||
+        existing.state.submittedOfferId
+      ) {
+        return existing.result;
+      }
+
+      sessionId = createId("chk") as CheckoutSessionId;
+      streamId = `checkout.session-${sessionId}`;
     }
 
     let result: Awaited<ReturnType<typeof commandHandler>>;
@@ -563,9 +580,16 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         throw error;
       }
 
-      const replayed = await existingStartedSession();
+      if (sessionId !== params.sessionIdOverride) {
+        throw error;
+      }
+
+      const replayed = await existingStartedSession(
+        params.sessionIdOverride,
+        `checkout.session-${params.sessionIdOverride}`,
+      );
       if (replayed) {
-        return replayed;
+        return replayed.result;
       }
 
       throw error;
