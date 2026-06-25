@@ -62,6 +62,14 @@ export type InventoryListingStockItemRow = Readonly<{
   available_quantity: number;
 }>;
 
+export type InventoryHoldableItemRow = Readonly<{
+  item_id: string;
+  account_id: string;
+  total_quantity: number;
+  held_quantity: number;
+  available_quantity: number;
+}>;
+
 type CatalogItemSummaryRow = Readonly<{
   catalog_item_id: string;
   language_code: string;
@@ -261,6 +269,36 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
     ...enriched,
     holds: holdsResult.rows,
   } satisfies InventoryItemDetailRow;
+}
+
+export async function getInventoryHoldableItem(
+  db: PgQueryable,
+  params: Readonly<{
+    itemId: string;
+    accountId: string;
+  }>,
+): Promise<InventoryHoldableItemRow | null> {
+  const result = await db.query<InventoryHoldableItemRow>(
+    `SELECT
+       item.item_id,
+       item.account_id,
+       item.total_quantity,
+       COALESCE(active_holds.held_quantity, 0)::integer AS held_quantity,
+       item.total_quantity - COALESCE(active_holds.held_quantity, 0)::integer AS available_quantity
+     FROM inventory_items AS item
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM inventory_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS active_holds
+       ON active_holds.item_id = item.item_id
+     WHERE item.item_id = $1
+       AND item.account_id = $2`,
+    [params.itemId, params.accountId],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function getInventoryItemForListingStock(

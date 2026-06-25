@@ -7,7 +7,13 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
-import { getInventoryItem } from "../../inventory-items/read-model/queries";
+import {
+  decideInventoryItem,
+  evolveInventoryItem,
+  initialInventoryItemState,
+  type InventoryItemEvent,
+} from "../../inventory-items/domain/domain";
+import { getInventoryHoldableItem } from "../../inventory-items/read-model/queries";
 import {
   decideInventoryHold,
   evolveInventoryHold,
@@ -21,6 +27,7 @@ import { getInventoryHold } from "../read-model/queries";
 
 export type InventoryHoldPlacementFailureKind =
   | "hold-id-conflict"
+  | "inventory-item-missing"
   | "insufficient-available-quantity"
   | "inventory-item-projection-missing";
 
@@ -66,6 +73,13 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     evolve: evolveInventoryHold,
     decide: decideInventoryHold,
   });
+  const { repository: itemRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
+    initialState: () => initialInventoryItemState,
+    evolve: evolveInventoryItem,
+    decide: decideInventoryItem,
+  });
 
   return {
     commandHandler,
@@ -88,9 +102,20 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
         throw new InventoryHoldPlacementError("hold-id-conflict", "Inventory hold already exists for different stock.");
       }
 
-      const item = await getInventoryItem(deps.db, params.itemId, params.accountId);
+      const item = await getInventoryHoldableItem(deps.db, {
+        itemId: params.itemId,
+        accountId: params.accountId,
+      });
       if (!item) {
-        throw new InventoryHoldPlacementError("inventory-item-projection-missing", "Inventory item not found.");
+        const aggregate = await itemRepository.load(`inventory.item-${params.itemId}`);
+        if (aggregate.state.id !== params.itemId || aggregate.state.accountId !== params.accountId) {
+          throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
+        }
+
+        throw new InventoryHoldPlacementError(
+          "inventory-item-projection-missing",
+          "Inventory item stock projection has not caught up.",
+        );
       }
 
       if (item.available_quantity < params.quantity) {
