@@ -145,7 +145,7 @@ describe("order inventory reservation workflow", () => {
     );
   });
 
-  it("rejects a reservation only for terminal stock exhaustion", async () => {
+  it("rejects a reservation for terminal stock exhaustion", async () => {
     const services = createServices({
       createHold: vi.fn(async () => {
         throw new InventoryHoldPlacementError(
@@ -162,6 +162,25 @@ describe("order inventory reservation workflow", () => {
         command: expect.objectContaining({
           type: "RejectInventoryReservation",
           reason: "Holds cannot exceed the available quantity for an inventory item.",
+        }),
+      }),
+    );
+  });
+
+  it("rejects a reservation for terminal missing inventory items", async () => {
+    const services = createServices({
+      createHold: vi.fn(async () => {
+        throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
+      }),
+    });
+
+    await reserveOrderInventoryRequest(services, { orderId: "ord_1", request, context });
+
+    expect(services.reservations.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "RejectInventoryReservation",
+          reason: "Inventory item not found.",
         }),
       }),
     );
