@@ -17,6 +17,10 @@ type CandidateSnapshotEventData = {
   refreshedAt?: string;
 };
 
+type CandidateActionAuditData = {
+  reason: string;
+};
+
 export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.merge-candidate.created": async (event) => {
@@ -101,6 +105,110 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         candidateId,
         reason: `Source Observation membership changed: ${data.reason}`,
         staleAt: data.removedAt,
+        updatedAt: event.timing.recordedAt,
+      });
+    },
+    "catalog.merge-candidate.promoted": async (event) => {
+      const data = event.data as {
+        candidateId?: string;
+        audit: CandidateActionAuditData;
+        promotedAt: string;
+      };
+      const candidateId = candidateIdFromEvent(data, event.streamId);
+
+      await updateCandidateReviewStatus(db, {
+        candidateId,
+        status: "promoted",
+        reason: `Candidate accepted for Catalog promotion planning: ${data.audit.reason}`,
+        actionAt: data.promotedAt,
+        updatedAt: event.timing.recordedAt,
+      });
+    },
+    "catalog.merge-candidate.split": async (event) => {
+      const data = event.data as {
+        candidateId?: string;
+        status: Extract<CatalogMergeCandidateStatus, "ready" | "has-conflicts">;
+        remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
+        splitCandidateId: string;
+        splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+        audit: CandidateActionAuditData;
+        splitAt: string;
+      };
+      const candidateId = candidateIdFromEvent(data, event.streamId);
+
+      await upsertCandidate(db, {
+        candidateId,
+        status: data.status,
+        statusReason: `Candidate split: ${data.audit.reason}`,
+        snapshot: data.remainingSnapshot,
+        createdAt: null,
+        updatedAt: event.timing.recordedAt,
+        staleAt: null,
+      });
+      await replaceCandidateMembership(db, candidateId, data.remainingSnapshot.membership);
+      await upsertCandidate(db, {
+        candidateId: data.splitCandidateId,
+        status: data.splitSnapshot.conflicts.some((conflict) => conflict.severity === "blocking")
+          ? "has-conflicts"
+          : "ready",
+        statusReason: `Candidate split from ${candidateId}: ${data.audit.reason}`,
+        snapshot: data.splitSnapshot,
+        createdAt: data.splitAt,
+        updatedAt: event.timing.recordedAt,
+        staleAt: null,
+      });
+      await replaceCandidateMembership(db, data.splitCandidateId, data.splitSnapshot.membership);
+    },
+    "catalog.merge-candidate.updated": async (event) => {
+      const data = event.data as {
+        candidateId?: string;
+        status: Extract<CatalogMergeCandidateStatus, "ready" | "has-conflicts">;
+        snapshot: CatalogMergeCandidateReviewSnapshot;
+        audit: CandidateActionAuditData;
+        updatedAt: string;
+      };
+      const candidateId = candidateIdFromEvent(data, event.streamId);
+
+      await upsertCandidate(db, {
+        candidateId,
+        status: data.status,
+        statusReason: `Candidate updated: ${data.audit.reason}`,
+        snapshot: data.snapshot,
+        createdAt: null,
+        updatedAt: event.timing.recordedAt,
+        staleAt: null,
+      });
+      await replaceCandidateMembership(db, candidateId, data.snapshot.membership);
+    },
+    "catalog.merge-candidate.ignored": async (event) => {
+      const data = event.data as {
+        candidateId?: string;
+        audit: CandidateActionAuditData;
+        ignoredAt: string;
+      };
+      const candidateId = candidateIdFromEvent(data, event.streamId);
+
+      await updateCandidateReviewStatus(db, {
+        candidateId,
+        status: "rejected",
+        reason: `Candidate ignored: ${data.audit.reason}`,
+        actionAt: data.ignoredAt,
+        updatedAt: event.timing.recordedAt,
+      });
+    },
+    "catalog.merge-candidate.deferred": async (event) => {
+      const data = event.data as {
+        candidateId?: string;
+        audit: CandidateActionAuditData;
+        deferredAt: string;
+      };
+      const candidateId = candidateIdFromEvent(data, event.streamId);
+
+      await updateCandidateReviewStatus(db, {
+        candidateId,
+        status: "deferred",
+        reason: data.audit.reason,
+        actionAt: data.deferredAt,
         updatedAt: event.timing.recordedAt,
       });
     },
@@ -257,5 +365,26 @@ async function markCandidateMembershipChanged(
          updated_at = $4
      WHERE candidate_id = $1`,
     [input.candidateId, input.reason, input.staleAt, input.updatedAt],
+  );
+}
+
+async function updateCandidateReviewStatus(
+  db: PgQueryable,
+  input: Readonly<{
+    candidateId: string;
+    status: Extract<CatalogMergeCandidateStatus, "promoted" | "rejected" | "deferred">;
+    reason: string;
+    actionAt: string;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_merge_candidates
+     SET status = $2,
+         status_reason = $3,
+         stale_at = NULL,
+         updated_at = $4
+     WHERE candidate_id = $1`,
+    [input.candidateId, input.status, input.reason, input.updatedAt],
   );
 }

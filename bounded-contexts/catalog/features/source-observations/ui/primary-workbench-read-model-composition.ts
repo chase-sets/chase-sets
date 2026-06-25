@@ -1363,6 +1363,36 @@ function buildActions(input: {
           : null,
     },
     {
+      key: "promote-merge-candidate",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+    },
+    {
+      key: "split-merge-candidate",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+    },
+    {
+      key: "update-merge-candidate",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+    },
+    {
+      key: "ignore-merge-candidate",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+    },
+    {
+      key: "defer-merge-candidate",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+    },
+    {
       key: "start-reapply",
       state: reapplyState,
       blockers: reapplyBlockers,

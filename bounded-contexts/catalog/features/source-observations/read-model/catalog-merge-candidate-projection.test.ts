@@ -134,6 +134,87 @@ describe("Catalog Merge Candidate projections", () => {
       "2026-06-24T10:10:01.000Z",
     ]);
   });
+
+  it("projects candidate review actions without mutating Source Observations", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildCatalogMergeCandidateProjectionHandlers({ query });
+
+    await handlers["catalog.merge-candidate.ignored"]?.({
+      streamId: "catalog.merge-candidate-cand_pokemon_en_base1_043_standard",
+      data: {
+        audit: {
+          reason: "Provider grouping is not a Catalog Item.",
+        },
+        ignoredAt: "2026-06-24T10:45:00.000Z",
+      },
+      timing: { recordedAt: "2026-06-24T10:45:01.000Z" },
+    } as never);
+    await handlers["catalog.merge-candidate.deferred"]?.({
+      streamId: "catalog.merge-candidate-cand_pokemon_en_base1_043_standard",
+      data: {
+        audit: {
+          reason: "Waiting for SKU evidence.",
+        },
+        deferredAt: "2026-06-24T10:50:00.000Z",
+      },
+      timing: { recordedAt: "2026-06-24T10:50:01.000Z" },
+    } as never);
+
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("SET status = $2"), [
+      "cand_pokemon_en_base1_043_standard",
+      "rejected",
+      "Candidate ignored: Provider grouping is not a Catalog Item.",
+      "2026-06-24T10:45:01.000Z",
+    ]);
+    expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining("SET status = $2"), [
+      "cand_pokemon_en_base1_043_standard",
+      "deferred",
+      "Waiting for SKU evidence.",
+      "2026-06-24T10:50:01.000Z",
+    ]);
+    expect(query.mock.calls.flatMap((call) => call[0])).not.toContain("catalog_source_observations");
+  });
+
+  it("projects split candidates as separate review rows with separate memberships", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildCatalogMergeCandidateProjectionHandlers({ query });
+    const remainingSnapshot = candidateSnapshot({
+      membership: [observationMember("obs_tcgdex_base1_43", "tcgdex", "base1-43")],
+      proposedExternalCatalogItemReferences: [{ providerKey: "tcgdex", externalKey: "base1-43" }],
+      proposedExternalProductReferences: [],
+    });
+    const splitSnapshot = candidateSnapshot({
+      identityFingerprint: "sha256:pokemon:en:base1:43:tcgplayer",
+      membership: [observationMember("obs_tcgplayer_base1_43", "tcgplayer", "product:42382")],
+      proposedExternalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42382" }],
+    });
+
+    await handlers["catalog.merge-candidate.split"]?.({
+      streamId: "catalog.merge-candidate-cand_pokemon_en_base1_043_standard",
+      data: {
+        status: "ready",
+        remainingSnapshot,
+        splitCandidateId: "cand_pokemon_en_base1_043_tcgplayer",
+        splitSnapshot,
+        audit: {
+          reason: "Different variant.",
+        },
+        splitAt: "2026-06-24T10:30:00.000Z",
+      },
+      timing: { recordedAt: "2026-06-24T10:30:01.000Z" },
+    } as never);
+
+    expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
+    expect(query.mock.calls[0]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_standard");
+    expect(query.mock.calls[0]?.[1]?.[4]).toBe("Candidate split: Different variant.");
+    expect(query.mock.calls[3]?.[0]).toContain("INSERT INTO catalog_merge_candidates");
+    expect(query.mock.calls[3]?.[1]?.[0]).toBe("cand_pokemon_en_base1_043_tcgplayer");
+    expect(query.mock.calls[3]?.[1]?.[4]).toBe(
+      "Candidate split from cand_pokemon_en_base1_043_standard: Different variant.",
+    );
+    expect(query.mock.calls[2]?.[1]?.[1]).toBe("obs_tcgdex_base1_43");
+    expect(query.mock.calls[5]?.[1]?.[1]).toBe("obs_tcgplayer_base1_43");
+  });
 });
 
 function candidateSnapshot(

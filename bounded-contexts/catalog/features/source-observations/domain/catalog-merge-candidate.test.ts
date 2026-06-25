@@ -213,7 +213,247 @@ describe("Catalog Merge Candidate domain", () => {
       "obs_tcgplayer_base1_43",
     ]);
   });
+
+  it("promotes a conflict-free candidate as accepted for promotion planning with audit metadata", () => {
+    const state = createdCandidateState();
+
+    const promoted = decideCatalogMergeCandidate(state, {
+      type: "PromoteCatalogMergeCandidate",
+      reason: "Reviewed matching provider evidence.",
+      actor: reviewActor(),
+      promotedAt: "2026-06-24T10:20:00.000Z",
+    })[0];
+    const updated = evolveCatalogMergeCandidate(state, promoted);
+
+    expect(promoted).toMatchObject({
+      type: "catalog.merge-candidate.promoted",
+      data: {
+        audit: {
+          action: "promote",
+          actor: { userId: "usr_catalog_manager", accountId: "acc_ops" },
+          reason: "Reviewed matching provider evidence.",
+          beforeIdentity: candidateSnapshot().identity,
+          afterIdentity: candidateSnapshot().identity,
+          membershipChanges: { addedObservationIds: [], removedObservationIds: [] },
+        },
+      },
+    });
+    expect(updated).toMatchObject({
+      status: "promoted",
+      statusReason: "Candidate accepted for Catalog promotion planning: Reviewed matching provider evidence.",
+    });
+  });
+
+  it("requires blocking conflict resolutions before promotion", () => {
+    const state = createdCandidateState(
+      candidateSnapshot({
+        conflicts: [
+          {
+            code: "rarity-mismatch",
+            severity: "blocking",
+            message: "Provider observations disagree about rarity.",
+            fieldPath: "catalogItem.rarity",
+            observationIds: ["obs_tcgdex_base1_43", "obs_tcgplayer_base1_43"],
+            existingValue: null,
+            proposedValue: "Uncommon",
+          },
+        ],
+      }),
+    );
+
+    expect(() =>
+      decideCatalogMergeCandidate(state, {
+        type: "PromoteCatalogMergeCandidate",
+        reason: "Looks right.",
+        actor: reviewActor(),
+        promotedAt: "2026-06-24T10:20:00.000Z",
+      }),
+    ).toThrow("Blocking Catalog Merge Candidate conflicts require review resolutions before promotion.");
+
+    const promoted = decideCatalogMergeCandidate(state, {
+      type: "PromoteCatalogMergeCandidate",
+      reason: "Rarity verified from TCGdex.",
+      actor: reviewActor(),
+      promotedAt: "2026-06-24T10:21:00.000Z",
+      conflictResolutions: [
+        {
+          conflictCode: "rarity-mismatch",
+          fieldPath: "catalogItem.rarity",
+          chosenValue: "Common",
+          reason: "TCGdex profile has higher field authority for Pokemon rarity.",
+          observationIds: ["obs_tcgdex_base1_43"],
+        },
+      ],
+    })[0];
+
+    expect(promoted).toMatchObject({
+      data: {
+        audit: {
+          conflictResolutions: [
+            expect.objectContaining({
+              conflictCode: "rarity-mismatch",
+              chosenValue: "Common",
+            }),
+          ],
+        },
+      },
+    });
+  });
+
+  it("splits one candidate into two review objects while preserving Source Observation membership", () => {
+    const state = createdCandidateState();
+    const remainingSnapshot = candidateSnapshot({
+      membership: [observationMember("obs_tcgdex_base1_43", "tcgdex", "base1-43")],
+      proposedExternalCatalogItemReferences: [{ providerKey: "tcgdex", externalKey: "base1-43" }],
+      proposedExternalProductReferences: [],
+    });
+    const splitSnapshot = candidateSnapshot({
+      identityFingerprint: "sha256:pokemon:en:base1:43:tcgplayer",
+      membership: [observationMember("obs_tcgplayer_base1_43", "tcgplayer", "product:42382")],
+      proposedExternalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42382" }],
+      proposedExternalProductReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:114090",
+          selectedOptions: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+          reviewEvidence: { providerVariantName: "Near Mint" },
+        },
+      ],
+    });
+
+    const split = decideCatalogMergeCandidate(state, {
+      type: "SplitCatalogMergeCandidate",
+      remainingSnapshot,
+      splitCandidateId: "cand_pokemon_en_base1_043_tcgplayer",
+      splitSnapshot,
+      reason: "TCGplayer row describes a separate sellable variant.",
+      actor: reviewActor(),
+      splitAt: "2026-06-24T10:30:00.000Z",
+    })[0];
+    const updated = evolveCatalogMergeCandidate(state, split);
+
+    expect(split).toMatchObject({
+      type: "catalog.merge-candidate.split",
+      data: {
+        splitCandidateId: "cand_pokemon_en_base1_043_tcgplayer",
+        audit: {
+          action: "split",
+          membershipChanges: {
+            removedObservationIds: ["obs_tcgplayer_base1_43"],
+          },
+        },
+      },
+    });
+    expect(updated.snapshot?.membership.map((member) => member.observationId)).toEqual(["obs_tcgdex_base1_43"]);
+    expect(
+      (split as { data: { splitSnapshot: CatalogMergeCandidateReviewSnapshot } }).data.splitSnapshot.membership,
+    ).toEqual([expect.objectContaining({ observationId: "obs_tcgplayer_base1_43" })]);
+  });
+
+  it("updates candidate identity and field choices while preserving provenance", () => {
+    const state = createdCandidateState();
+    const snapshot = candidateSnapshot({
+      identity: {
+        ...candidateSnapshot().identity,
+        printedProductName: "Abra - corrected",
+      },
+      proposedCatalogItemFacts: {
+        ...candidateSnapshot().proposedCatalogItemFacts,
+        name: "Abra - corrected",
+      },
+      fieldProvenance: [
+        ...candidateSnapshot().fieldProvenance,
+        {
+          fieldPath: "catalogItem.name",
+          value: "Abra - corrected",
+          observationId: "obs_tcgplayer_base1_43",
+          providerKey: "tcgplayer",
+          sourceProfileKey: "tcgplayer-pokemon-card",
+          sourceProfileVersion: "2026.06.24",
+          confidence: "manual",
+          evidence: { operatorCorrection: true },
+        },
+      ],
+    });
+
+    const event = decideCatalogMergeCandidate(state, {
+      type: "UpdateCatalogMergeCandidate",
+      snapshot,
+      reason: "Operator corrected provider display text before promotion.",
+      actor: reviewActor(),
+      updatedAt: "2026-06-24T10:40:00.000Z",
+    })[0];
+    const updated = evolveCatalogMergeCandidate(state, event);
+
+    expect(event).toMatchObject({
+      type: "catalog.merge-candidate.updated",
+      data: {
+        audit: {
+          action: "update",
+          beforeIdentity: { printedProductName: "Abra" },
+          afterIdentity: { printedProductName: "Abra - corrected" },
+        },
+      },
+    });
+    expect(updated.snapshot?.fieldProvenance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          confidence: "manual",
+          evidence: { operatorCorrection: true },
+        }),
+      ]),
+    );
+  });
+
+  it("ignores and defers candidates without deleting provider evidence", () => {
+    const state = createdCandidateState();
+
+    const ignored = decideCatalogMergeCandidate(state, {
+      type: "IgnoreCatalogMergeCandidate",
+      reason: "Provider grouping is not a Catalog Item.",
+      actor: reviewActor(),
+      ignoredAt: "2026-06-24T10:45:00.000Z",
+    })[0];
+    expect(evolveCatalogMergeCandidate(state, ignored)).toMatchObject({
+      status: "rejected",
+      statusReason: "Candidate ignored: Provider grouping is not a Catalog Item.",
+      snapshot: expect.objectContaining({
+        membership: expect.arrayContaining([expect.objectContaining({ observationId: "obs_tcgdex_base1_43" })]),
+      }),
+    });
+
+    const deferred = decideCatalogMergeCandidate(state, {
+      type: "DeferCatalogMergeCandidate",
+      reason: "Waiting for provider SKU evidence.",
+      actor: reviewActor(),
+      deferredAt: "2026-06-24T10:50:00.000Z",
+    })[0];
+    expect(evolveCatalogMergeCandidate(state, deferred)).toMatchObject({
+      status: "deferred",
+      statusReason: "Waiting for provider SKU evidence.",
+      snapshot: expect.objectContaining({
+        membership: expect.arrayContaining([expect.objectContaining({ observationId: "obs_tcgplayer_base1_43" })]),
+      }),
+    });
+  });
 });
+
+function createdCandidateState(snapshot = candidateSnapshot()) {
+  const created = decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
+    type: "CreateCatalogMergeCandidate",
+    candidateId: "cand_pokemon_en_base1_043_standard",
+    snapshot,
+    createdAt: "2026-06-24T10:00:00.000Z",
+  })[0];
+  return evolveCatalogMergeCandidate(initialCatalogMergeCandidateState, created);
+}
+
+function reviewActor() {
+  return {
+    userId: "usr_catalog_manager",
+    accountId: "acc_ops",
+  };
+}
 
 function candidateSnapshot(
   overrides: Partial<CatalogMergeCandidateReviewSnapshot> = {},

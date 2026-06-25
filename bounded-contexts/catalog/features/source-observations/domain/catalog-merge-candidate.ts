@@ -93,6 +93,39 @@ export type CatalogMergeCandidateFieldProvenance = JsonObject &
     evidence: JsonObject;
   }>;
 
+export type CatalogMergeCandidateReviewActor = JsonObject &
+  Readonly<{
+    userId: string | null;
+    accountId: string | null;
+  }>;
+
+export type CatalogMergeCandidateConflictResolution = JsonObject &
+  Readonly<{
+    conflictCode: string;
+    fieldPath: string | null;
+    chosenValue: JsonValue;
+    reason: string;
+    observationIds: readonly string[];
+  }>;
+
+export type CatalogMergeCandidateMembershipChanges = JsonObject &
+  Readonly<{
+    addedObservationIds: readonly string[];
+    removedObservationIds: readonly string[];
+  }>;
+
+export type CatalogMergeCandidateActionAudit = JsonObject &
+  Readonly<{
+    action: "promote" | "split" | "update" | "ignore" | "defer";
+    actor: CatalogMergeCandidateReviewActor;
+    reason: string;
+    decidedAt: string;
+    beforeIdentity: CatalogMergeCandidateIdentity;
+    afterIdentity: CatalogMergeCandidateIdentity;
+    membershipChanges: CatalogMergeCandidateMembershipChanges;
+    conflictResolutions: readonly CatalogMergeCandidateConflictResolution[];
+  }>;
+
 export type CatalogMergeCandidateReviewSnapshot = JsonObject &
   Readonly<{
     identityFingerprint: string;
@@ -162,12 +195,61 @@ export type RemoveObservationFromCatalogMergeCandidateCommand = Readonly<{
   removedAt: string;
 }>;
 
+export type PromoteCatalogMergeCandidateCommand = Readonly<{
+  type: "PromoteCatalogMergeCandidate";
+  reason: string;
+  actor: CatalogMergeCandidateReviewActor;
+  promotedAt: string;
+  conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
+export type SplitCatalogMergeCandidateCommand = Readonly<{
+  type: "SplitCatalogMergeCandidate";
+  remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
+  splitCandidateId: string;
+  splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+  reason: string;
+  actor: CatalogMergeCandidateReviewActor;
+  splitAt: string;
+  conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
+export type UpdateCatalogMergeCandidateCommand = Readonly<{
+  type: "UpdateCatalogMergeCandidate";
+  snapshot: CatalogMergeCandidateReviewSnapshot;
+  reason: string;
+  actor: CatalogMergeCandidateReviewActor;
+  updatedAt: string;
+  conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
+export type IgnoreCatalogMergeCandidateCommand = Readonly<{
+  type: "IgnoreCatalogMergeCandidate";
+  reason: string;
+  actor: CatalogMergeCandidateReviewActor;
+  ignoredAt: string;
+  conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
+export type DeferCatalogMergeCandidateCommand = Readonly<{
+  type: "DeferCatalogMergeCandidate";
+  reason: string;
+  actor: CatalogMergeCandidateReviewActor;
+  deferredAt: string;
+  conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
 export type CatalogMergeCandidateCommand =
   | CreateCatalogMergeCandidateCommand
   | RefreshCatalogMergeCandidateCommand
   | MarkCatalogMergeCandidateStaleCommand
   | AddObservationToCatalogMergeCandidateCommand
-  | RemoveObservationFromCatalogMergeCandidateCommand;
+  | RemoveObservationFromCatalogMergeCandidateCommand
+  | PromoteCatalogMergeCandidateCommand
+  | SplitCatalogMergeCandidateCommand
+  | UpdateCatalogMergeCandidateCommand
+  | IgnoreCatalogMergeCandidateCommand
+  | DeferCatalogMergeCandidateCommand;
 
 type CatalogMergeCandidateCreatedEventData = JsonObject &
   Readonly<{
@@ -208,6 +290,47 @@ type CatalogMergeCandidateObservationRemovedEventData = JsonObject &
     removedAt: string;
   }>;
 
+type CatalogMergeCandidatePromotedEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    audit: CatalogMergeCandidateActionAudit;
+    promotedAt: string;
+  }>;
+
+type CatalogMergeCandidateSplitEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    status: Extract<CatalogMergeCandidateStatus, "ready" | "has-conflicts">;
+    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
+    splitCandidateId: string;
+    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+    audit: CatalogMergeCandidateActionAudit;
+    splitAt: string;
+  }>;
+
+type CatalogMergeCandidateUpdatedEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    status: Extract<CatalogMergeCandidateStatus, "ready" | "has-conflicts">;
+    snapshot: CatalogMergeCandidateReviewSnapshot;
+    audit: CatalogMergeCandidateActionAudit;
+    updatedAt: string;
+  }>;
+
+type CatalogMergeCandidateIgnoredEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    audit: CatalogMergeCandidateActionAudit;
+    ignoredAt: string;
+  }>;
+
+type CatalogMergeCandidateDeferredEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    audit: CatalogMergeCandidateActionAudit;
+    deferredAt: string;
+  }>;
+
 export type CatalogMergeCandidateCreatedEvent = DomainEvent<
   "catalog.merge-candidate.created",
   CatalogMergeCandidateCreatedEventData
@@ -233,12 +356,42 @@ export type CatalogMergeCandidateObservationRemovedEvent = DomainEvent<
   CatalogMergeCandidateObservationRemovedEventData
 >;
 
+export type CatalogMergeCandidatePromotedEvent = DomainEvent<
+  "catalog.merge-candidate.promoted",
+  CatalogMergeCandidatePromotedEventData
+>;
+
+export type CatalogMergeCandidateSplitEvent = DomainEvent<
+  "catalog.merge-candidate.split",
+  CatalogMergeCandidateSplitEventData
+>;
+
+export type CatalogMergeCandidateUpdatedEvent = DomainEvent<
+  "catalog.merge-candidate.updated",
+  CatalogMergeCandidateUpdatedEventData
+>;
+
+export type CatalogMergeCandidateIgnoredEvent = DomainEvent<
+  "catalog.merge-candidate.ignored",
+  CatalogMergeCandidateIgnoredEventData
+>;
+
+export type CatalogMergeCandidateDeferredEvent = DomainEvent<
+  "catalog.merge-candidate.deferred",
+  CatalogMergeCandidateDeferredEventData
+>;
+
 export type CatalogMergeCandidateEvent =
   | CatalogMergeCandidateCreatedEvent
   | CatalogMergeCandidateRefreshedEvent
   | CatalogMergeCandidateMarkedStaleEvent
   | CatalogMergeCandidateObservationAddedEvent
-  | CatalogMergeCandidateObservationRemovedEvent;
+  | CatalogMergeCandidateObservationRemovedEvent
+  | CatalogMergeCandidatePromotedEvent
+  | CatalogMergeCandidateSplitEvent
+  | CatalogMergeCandidateUpdatedEvent
+  | CatalogMergeCandidateIgnoredEvent
+  | CatalogMergeCandidateDeferredEvent;
 
 export const decideCatalogMergeCandidate: AggregateDecider<
   CatalogMergeCandidateState,
@@ -336,6 +489,144 @@ export const decideCatalogMergeCandidate: AggregateDecider<
         },
       ];
     }
+    case "PromoteCatalogMergeCandidate": {
+      requireReviewActionable(state);
+      assert(state.status !== "stale", "Stale Catalog Merge Candidates must be refreshed before promotion.");
+      requireConflictResolutionsForBlockingConflicts(state, command.conflictResolutions ?? []);
+      const reason = requireText(command.reason, "Promotion reason");
+
+      return [
+        {
+          type: "catalog.merge-candidate.promoted",
+          data: {
+            candidateId: state.id,
+            promotedAt: command.promotedAt,
+            audit: actionAudit({
+              action: "promote",
+              actor: command.actor,
+              reason,
+              decidedAt: command.promotedAt,
+              beforeSnapshot: state.snapshot,
+              afterSnapshot: state.snapshot,
+              conflictResolutions: command.conflictResolutions ?? [],
+            }),
+          },
+        },
+      ];
+    }
+    case "SplitCatalogMergeCandidate": {
+      requireReviewActionable(state);
+      const remainingSnapshot = normalizeReviewSnapshot(command.remainingSnapshot);
+      const splitSnapshot = normalizeReviewSnapshot(command.splitSnapshot);
+      const splitCandidateId = requireText(command.splitCandidateId, "Split Catalog Merge Candidate ID");
+      assert(splitCandidateId !== state.id, "Split Catalog Merge Candidate ID must differ from the original.");
+      assert(
+        remainingSnapshot.membership.length < state.snapshot.membership.length,
+        "Split must remove at least one Source Observation from the original candidate.",
+      );
+      assert(
+        splitSnapshot.membership.length > 0,
+        "Split Catalog Merge Candidate requires at least one Source Observation.",
+      );
+      assertNoOverlappingMembership(remainingSnapshot, splitSnapshot);
+      assertSameMembership(state.snapshot, [...remainingSnapshot.membership, ...splitSnapshot.membership]);
+      const reason = requireText(command.reason, "Split reason");
+
+      return [
+        {
+          type: "catalog.merge-candidate.split",
+          data: {
+            candidateId: state.id,
+            status: statusForSnapshot(remainingSnapshot),
+            remainingSnapshot,
+            splitCandidateId,
+            splitSnapshot,
+            splitAt: command.splitAt,
+            audit: actionAudit({
+              action: "split",
+              actor: command.actor,
+              reason,
+              decidedAt: command.splitAt,
+              beforeSnapshot: state.snapshot,
+              afterSnapshot: remainingSnapshot,
+              conflictResolutions: command.conflictResolutions ?? [],
+            }),
+          },
+        },
+      ];
+    }
+    case "UpdateCatalogMergeCandidate": {
+      requireReviewActionable(state);
+      const snapshot = normalizeReviewSnapshot(command.snapshot);
+      const reason = requireText(command.reason, "Update reason");
+
+      return [
+        {
+          type: "catalog.merge-candidate.updated",
+          data: {
+            candidateId: state.id,
+            status: statusForSnapshot(snapshot),
+            snapshot,
+            updatedAt: command.updatedAt,
+            audit: actionAudit({
+              action: "update",
+              actor: command.actor,
+              reason,
+              decidedAt: command.updatedAt,
+              beforeSnapshot: state.snapshot,
+              afterSnapshot: snapshot,
+              conflictResolutions: command.conflictResolutions ?? [],
+            }),
+          },
+        },
+      ];
+    }
+    case "IgnoreCatalogMergeCandidate": {
+      requireReviewActionable(state);
+      const reason = requireText(command.reason, "Ignore reason");
+
+      return [
+        {
+          type: "catalog.merge-candidate.ignored",
+          data: {
+            candidateId: state.id,
+            ignoredAt: command.ignoredAt,
+            audit: actionAudit({
+              action: "ignore",
+              actor: command.actor,
+              reason,
+              decidedAt: command.ignoredAt,
+              beforeSnapshot: state.snapshot,
+              afterSnapshot: state.snapshot,
+              conflictResolutions: command.conflictResolutions ?? [],
+            }),
+          },
+        },
+      ];
+    }
+    case "DeferCatalogMergeCandidate": {
+      requireReviewActionable(state);
+      const reason = requireText(command.reason, "Deferral reason");
+
+      return [
+        {
+          type: "catalog.merge-candidate.deferred",
+          data: {
+            candidateId: state.id,
+            deferredAt: command.deferredAt,
+            audit: actionAudit({
+              action: "defer",
+              actor: command.actor,
+              reason,
+              decidedAt: command.deferredAt,
+              beforeSnapshot: state.snapshot,
+              afterSnapshot: state.snapshot,
+              conflictResolutions: command.conflictResolutions ?? [],
+            }),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -400,6 +691,48 @@ export const evolveCatalogMergeCandidate: AggregateEvolver<CatalogMergeCandidate
         updatedAt: event.data.removedAt,
         staleAt: event.data.removedAt,
       };
+    case "catalog.merge-candidate.promoted":
+      return {
+        ...state,
+        status: "promoted",
+        statusReason: promotedStatusReason(event.data.audit.reason),
+        updatedAt: event.data.promotedAt,
+        staleAt: null,
+      };
+    case "catalog.merge-candidate.split":
+      return {
+        ...state,
+        status: event.data.status,
+        statusReason: `Candidate split: ${event.data.audit.reason}`,
+        snapshot: event.data.remainingSnapshot,
+        updatedAt: event.data.splitAt,
+        staleAt: null,
+      };
+    case "catalog.merge-candidate.updated":
+      return {
+        ...state,
+        status: event.data.status,
+        statusReason: `Candidate updated: ${event.data.audit.reason}`,
+        snapshot: event.data.snapshot,
+        updatedAt: event.data.updatedAt,
+        staleAt: null,
+      };
+    case "catalog.merge-candidate.ignored":
+      return {
+        ...state,
+        status: "rejected",
+        statusReason: `Candidate ignored: ${event.data.audit.reason}`,
+        updatedAt: event.data.ignoredAt,
+        staleAt: null,
+      };
+    case "catalog.merge-candidate.deferred":
+      return {
+        ...state,
+        status: "deferred",
+        statusReason: event.data.audit.reason,
+        updatedAt: event.data.deferredAt,
+        staleAt: null,
+      };
     default:
       return assertNever(event);
   }
@@ -414,6 +747,13 @@ function requireRefreshable(state: CatalogMergeCandidateState): asserts state is
     state.status !== "promoted" && state.status !== "rejected",
     "Terminal Catalog Merge Candidates cannot be changed.",
   );
+}
+
+function requireReviewActionable(state: CatalogMergeCandidateState): asserts state is CatalogMergeCandidateState & {
+  id: string;
+  snapshot: CatalogMergeCandidateReviewSnapshot;
+} {
+  requireRefreshable(state);
 }
 
 function requireSnapshot(state: CatalogMergeCandidateState): CatalogMergeCandidateReviewSnapshot {
@@ -581,10 +921,108 @@ function normalizeFieldProvenance(
   });
 }
 
+function normalizeReviewActor(actor: CatalogMergeCandidateReviewActor): CatalogMergeCandidateReviewActor {
+  return {
+    userId: actor.userId?.trim() || null,
+    accountId: actor.accountId?.trim() || null,
+  };
+}
+
+function normalizeConflictResolutions(
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+): CatalogMergeCandidateConflictResolution[] {
+  return resolutions.map((resolution) => ({
+    conflictCode: requireText(resolution.conflictCode, "Conflict resolution code"),
+    fieldPath: resolution.fieldPath?.trim() || null,
+    chosenValue: resolution.chosenValue,
+    reason: requireText(resolution.reason, "Conflict resolution reason"),
+    observationIds: normalizeObservationIds(resolution.observationIds),
+  }));
+}
+
+function actionAudit(input: {
+  action: CatalogMergeCandidateActionAudit["action"];
+  actor: CatalogMergeCandidateReviewActor;
+  reason: string;
+  decidedAt: string;
+  beforeSnapshot: CatalogMergeCandidateReviewSnapshot;
+  afterSnapshot: CatalogMergeCandidateReviewSnapshot;
+  conflictResolutions: readonly CatalogMergeCandidateConflictResolution[];
+}): CatalogMergeCandidateActionAudit {
+  return {
+    action: input.action,
+    actor: normalizeReviewActor(input.actor),
+    reason: requireText(input.reason, "Candidate action reason"),
+    decidedAt: requireText(input.decidedAt, "Candidate action timestamp"),
+    beforeIdentity: input.beforeSnapshot.identity,
+    afterIdentity: input.afterSnapshot.identity,
+    membershipChanges: membershipChanges(input.beforeSnapshot, input.afterSnapshot),
+    conflictResolutions: normalizeConflictResolutions(input.conflictResolutions),
+  };
+}
+
+function membershipChanges(
+  beforeSnapshot: CatalogMergeCandidateReviewSnapshot,
+  afterSnapshot: CatalogMergeCandidateReviewSnapshot,
+): CatalogMergeCandidateMembershipChanges {
+  const beforeIds = beforeSnapshot.membership.map((member) => member.observationId);
+  const afterIds = afterSnapshot.membership.map((member) => member.observationId);
+  return {
+    addedObservationIds: afterIds.filter((observationId) => !beforeIds.includes(observationId)).sort(),
+    removedObservationIds: beforeIds.filter((observationId) => !afterIds.includes(observationId)).sort(),
+  };
+}
+
+function requireConflictResolutionsForBlockingConflicts(
+  state: CatalogMergeCandidateState & { snapshot: CatalogMergeCandidateReviewSnapshot },
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+): void {
+  const blockingConflicts = state.snapshot.conflicts.filter((conflict) => conflict.severity === "blocking");
+  if (blockingConflicts.length === 0) {
+    return;
+  }
+
+  const resolvedCodes = new Set(resolutions.map((resolution) => resolution.conflictCode.trim()).filter(Boolean));
+  for (const conflict of blockingConflicts) {
+    assert(
+      resolvedCodes.has(conflict.code),
+      "Blocking Catalog Merge Candidate conflicts require review resolutions before promotion.",
+    );
+  }
+}
+
+function assertNoOverlappingMembership(
+  left: CatalogMergeCandidateReviewSnapshot,
+  right: CatalogMergeCandidateReviewSnapshot,
+): void {
+  const leftIds = new Set(left.membership.map((member) => member.observationId));
+  assert(
+    right.membership.every((member) => !leftIds.has(member.observationId)),
+    "Split Catalog Merge Candidate membership cannot overlap the original candidate.",
+  );
+}
+
+function assertSameMembership(
+  beforeSnapshot: CatalogMergeCandidateReviewSnapshot,
+  afterMembership: readonly CatalogMergeCandidateObservationMember[],
+): void {
+  const beforeIds = beforeSnapshot.membership.map((member) => member.observationId).sort();
+  const afterIds = afterMembership.map((member) => member.observationId).sort();
+  assert(
+    beforeIds.length === afterIds.length &&
+      beforeIds.every((observationId, index) => observationId === afterIds[index]),
+    "Split Catalog Merge Candidate membership must preserve every Source Observation.",
+  );
+}
+
 function statusForSnapshot(
   snapshot: CatalogMergeCandidateReviewSnapshot,
 ): Extract<CatalogMergeCandidateStatus, "ready" | "has-conflicts"> {
   return snapshot.conflicts.some((conflict) => conflict.severity === "blocking") ? "has-conflicts" : "ready";
+}
+
+function promotedStatusReason(reason: string): string {
+  return `Candidate accepted for Catalog promotion planning: ${reason}`;
 }
 
 function membershipChangedStatusReason(reason?: string): string {
