@@ -124,7 +124,6 @@ function integrationJobFixture(
     completedAt: generatedAt,
     updatedAt: generatedAt,
     ...overrides,
-    profileSnapshot: overrides.profileSnapshot === undefined ? profileSnapshot : overrides.profileSnapshot,
   };
 }
 
