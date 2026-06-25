@@ -27,12 +27,13 @@ The completion payload also includes `chromeUatSelector`, a support-safe selecto
 
 - `status`: `ready` means one persona can be used for Chrome UAT; `operator-action-required` means staging still needs private payout setup or representative state refresh.
 - `selectedPersonaAlias`: the alias to use from private operator credential tooling when `status=ready`.
+- `recommendedOperatorActionPersonaAlias`: the support-safe alias to use for the next private operator action when the selector can identify one. This field does not expose account ids, emails, provider references, listing ids, inventory ids, or URLs.
 - `personas[].chromeLogin`: whether the alias has a Chrome-login-capable magic-link identity.
 - `personas[].payoutReadiness`: whether Settlement shows provider-backed payout readiness.
 - `personas[].listingState`, `activeListingCount`, `mutableListingCount`, and `inventoryItemCount`: whether the alias owns mutable representative listing and inventory state.
 - `personas[].blockerCategories`: support-safe missing-state categories such as `payout-not-ready` or `owned-active-listing-missing`.
 
-If `status=operator-action-required`, do not treat sandbox provider verification as Chrome UAT evidence. Complete the private operator action named by `nextOperatorAction`, usually finishing or refreshing payout setup for one selected alias through staging provider-managed setup, then rerun this workflow. Do not publish the underlying login email, account id, provider account reference, payout id, listing id, or item detail used to satisfy the selector.
+If `status=operator-action-required`, do not treat sandbox provider verification as Chrome UAT evidence. Complete the private operator action named by `nextOperatorAction`, then rerun this workflow. When `nextOperatorAction=complete-private-payout-setup-for-recommended-persona`, use `recommendedOperatorActionPersonaAlias` with private operator credential tooling, open that account's staging `/account/payouts/setup` flow, finish provider-managed embedded payout setup until Settlement records `onboarding_status=complete`, `payout_capability_status=active`, and `payout_destination_status=ready`, then rerun the workflow. When `nextOperatorAction=refresh-representative-state-and-rerun-selector`, rerun the representative commerce state workflow after confirming current Catalog candidates and projection catch-up. Do not publish the underlying login email, account id, provider account reference, payout id, listing id, inventory id, or item detail used to satisfy the selector.
 
 ## Expected Data
 

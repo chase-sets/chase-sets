@@ -71,12 +71,14 @@ export type ChromeUatRepresentativePersonaSelection = Readonly<{
   schemaVersion: "representative-commerce-state.chrome-uat-selector/v1";
   status: ChromeUatReadinessStatus;
   selectedPersonaAlias: ChromeUatPersonaAlias | null;
+  recommendedOperatorActionPersonaAlias: ChromeUatPersonaAlias | null;
   checkedPersonaCount: number;
   personas: readonly ChromeUatPersonaReadiness[];
   evidencePolicy: "support-safe";
   nextOperatorAction:
     | "use-selected-private-login-and-record-redacted-uat"
-    | "complete-private-payout-setup-or-refresh-representative-state";
+    | "complete-private-payout-setup-for-recommended-persona"
+    | "refresh-representative-state-and-rerun-selector";
 }>;
 
 const chromeUatPersonaCandidates: readonly ChromeUatPersonaCandidate[] = [
@@ -511,18 +513,23 @@ export async function selectChromeUatRepresentativePersona(
   candidates: readonly ChromeUatPersonaCandidate[] = chromeUatPersonaCandidates,
 ): Promise<ChromeUatRepresentativePersonaSelection> {
   const personas = await Promise.all(candidates.map((candidate) => evaluateChromeUatPersona(services, candidate)));
-  const selectedPersonaAlias = personas.find((persona) => persona.blockerCategories.length === 0)?.personaAlias ?? null;
+  const selectedPersona = personas.find((persona) => persona.blockerCategories.length === 0) ?? null;
+  const payoutOnlyPersona = personas.find((persona) => hasOnlyPayoutBlocker(persona)) ?? null;
+  const recommendedPersona = selectedPersona ?? payoutOnlyPersona;
 
   return {
     schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
-    status: selectedPersonaAlias ? "ready" : "operator-action-required",
-    selectedPersonaAlias,
+    status: selectedPersona ? "ready" : "operator-action-required",
+    selectedPersonaAlias: selectedPersona?.personaAlias ?? null,
+    recommendedOperatorActionPersonaAlias: recommendedPersona?.personaAlias ?? null,
     checkedPersonaCount: personas.length,
     personas,
     evidencePolicy: "support-safe",
-    nextOperatorAction: selectedPersonaAlias
+    nextOperatorAction: selectedPersona
       ? "use-selected-private-login-and-record-redacted-uat"
-      : "complete-private-payout-setup-or-refresh-representative-state",
+      : payoutOnlyPersona
+        ? "complete-private-payout-setup-for-recommended-persona"
+        : "refresh-representative-state-and-rerun-selector",
   };
 }
 
@@ -530,12 +537,16 @@ async function evaluateChromeUatPersona(
   services: Parameters<typeof selectChromeUatRepresentativePersona>[0],
   candidate: ChromeUatPersonaCandidate,
 ): Promise<ChromeUatPersonaReadiness> {
-  const [login, payout, listing, inventory] = await Promise.all([
+  const [login, payout, listing] = await Promise.all([
     readChromeLoginPosture(services.identityDb, candidate),
     readPayoutReadinessPosture(services.settlementDb, candidate.accountId),
     readListingPosture(services.marketplaceDb, candidate.accountId),
-    readInventoryPosture(services.inventoryDb, candidate.accountId),
   ]);
+  const inventory = await readInventoryPosture(
+    services.inventoryDb,
+    candidate.accountId,
+    listing.representativeInventoryItemIds,
+  );
   const blockerCategories: ChromeUatPersonaBlocker[] = [];
 
   if (!login.magicLinkReady) {
@@ -564,6 +575,10 @@ async function evaluateChromeUatPersona(
     inventoryItemCount: inventory.inventoryItemCount,
     blockerCategories,
   };
+}
+
+function hasOnlyPayoutBlocker(persona: ChromeUatPersonaReadiness): boolean {
+  return persona.blockerCategories.length === 1 && persona.blockerCategories[0] === "payout-not-ready";
 }
 
 async function readChromeLoginPosture(
@@ -642,14 +657,26 @@ async function readPayoutReadinessPosture(
 async function readListingPosture(
   db: Pick<PgQueryable, "query">,
   accountId: string,
-): Promise<Readonly<{ activeListingCount: number; mutableListingCount: number }>> {
+): Promise<
+  Readonly<{
+    activeListingCount: number;
+    mutableListingCount: number;
+    representativeInventoryItemIds: readonly string[];
+  }>
+> {
   const result = await db.query<{
     active_listing_count: number | string | null;
     mutable_listing_count: number | string | null;
+    representative_inventory_item_ids: string[] | null;
   }>(
     `SELECT
        COUNT(*) FILTER (WHERE status = 'active')::int AS active_listing_count,
-       COUNT(*) FILTER (WHERE status IN ('active', 'draft', 'paused'))::int AS mutable_listing_count
+       COUNT(*) FILTER (WHERE status IN ('active', 'draft', 'paused'))::int AS mutable_listing_count,
+       COALESCE(
+         array_agg(DISTINCT inventory_item_id)
+           FILTER (WHERE status IN ('active', 'draft', 'paused') AND inventory_item_id IS NOT NULL),
+         ARRAY[]::text[]
+       ) AS representative_inventory_item_ids
      FROM marketplace_listing_pages
      WHERE account_id = $1
        AND listing_id LIKE 'lst$_repr$_%' ESCAPE '$'`,
@@ -660,23 +687,49 @@ async function readListingPosture(
   return {
     activeListingCount: normalizeCount(row?.active_listing_count),
     mutableListingCount: normalizeCount(row?.mutable_listing_count),
+    representativeInventoryItemIds: normalizeTextArray(row?.representative_inventory_item_ids),
   };
 }
 
 async function readInventoryPosture(
   db: Pick<PgQueryable, "query">,
   accountId: string,
+  representativeInventoryItemIds: readonly string[],
 ): Promise<Readonly<{ inventoryItemCount: number }>> {
+  if (representativeInventoryItemIds.length > 0) {
+    const result = await db.query<{ inventory_item_count: number | string | null }>(
+      `SELECT COUNT(*)::int AS inventory_item_count
+       FROM inventory_items
+       WHERE account_id = $1
+         AND item_id = ANY($2::text[])
+         AND total_quantity > 0`,
+      [accountId, representativeInventoryItemIds],
+    );
+
+    return { inventoryItemCount: normalizeCount(result.rows[0]?.inventory_item_count) };
+  }
+
   const result = await db.query<{ inventory_item_count: number | string | null }>(
     `SELECT COUNT(*)::int AS inventory_item_count
      FROM inventory_items
      WHERE account_id = $1
-       AND item_id LIKE 'inv$_repr$_%' ESCAPE '$'
+       AND (
+         item_id LIKE 'inv$_repr$_%' ESCAPE '$'
+         OR item_id LIKE 'inv$_listing$_stock$_%' ESCAPE '$'
+       )
        AND total_quantity > 0`,
     [accountId],
   );
 
   return { inventoryItemCount: normalizeCount(result.rows[0]?.inventory_item_count) };
+}
+
+function normalizeTextArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
 }
 
 function normalizeCount(value: number | string | null | undefined): number {

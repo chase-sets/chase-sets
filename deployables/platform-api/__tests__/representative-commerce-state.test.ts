@@ -64,6 +64,7 @@ describe("representative Chrome UAT persona selector", () => {
       schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
       status: "ready",
       selectedPersonaAlias: "card-vault",
+      recommendedOperatorActionPersonaAlias: "card-vault",
       checkedPersonaCount: 2,
       evidencePolicy: "support-safe",
       nextOperatorAction: "use-selected-private-login-and-record-redacted-uat",
@@ -104,7 +105,8 @@ describe("representative Chrome UAT persona selector", () => {
 
     expect(selection.status).toBe("operator-action-required");
     expect(selection.selectedPersonaAlias).toBeNull();
-    expect(selection.nextOperatorAction).toBe("complete-private-payout-setup-or-refresh-representative-state");
+    expect(selection.recommendedOperatorActionPersonaAlias).toBe("card-vault");
+    expect(selection.nextOperatorAction).toBe("complete-private-payout-setup-for-recommended-persona");
     expect(selection.personas.map((persona) => persona.blockerCategories)).toEqual([
       ["payout-not-ready"],
       ["payout-not-ready"],
@@ -128,6 +130,65 @@ describe("representative Chrome UAT persona selector", () => {
       mutableListingCount: 0,
       blockerCategories: ["owned-active-listing-missing"],
     });
+  });
+
+  it("counts auto-managed Inventory stock referenced by representative listings", async () => {
+    const inventoryQueries: [string, readonly unknown[] | undefined][] = [];
+    const selection = await selectChromeUatRepresentativePersona({
+      identityDb: {
+        query: async <Row>() => ({
+          rows: [{ account_ready: true, membership_ready: true, magic_link_ready: true }] as Row[],
+        }),
+      },
+      settlementDb: {
+        query: async <Row>() => ({
+          rows: [
+            {
+              status: "ready",
+              has_provider_reference: true,
+              onboarding_status: "complete",
+              payout_capability_status: "active",
+              payout_destination_status: "ready",
+            },
+          ] as Row[],
+        }),
+      },
+      marketplaceDb: {
+        query: async <Row>() => ({
+          rows: [
+            {
+              active_listing_count: "1",
+              mutable_listing_count: "1",
+              representative_inventory_item_ids: ["inv_listing_stock_representative"],
+            },
+          ] as Row[],
+        }),
+      },
+      inventoryDb: {
+        query: async <Row>(sql: string, params?: readonly unknown[]) => {
+          inventoryQueries.push([sql, params]);
+
+          return {
+            rows: [
+              {
+                inventory_item_count:
+                  Array.isArray(params?.[1]) && params[1].includes("inv_listing_stock_representative") ? "1" : "0",
+              },
+            ] as Row[],
+          };
+        },
+      },
+    });
+
+    expect(selection.status).toBe("ready");
+    expect(selection.personas[0]).toMatchObject({
+      personaAlias: "card-vault",
+      listingState: "owned-mutable",
+      inventoryItemCount: 1,
+      blockerCategories: [],
+    });
+    expect(String(inventoryQueries[0]?.[0])).toContain("item_id = ANY($2::text[])");
+    expect(String(inventoryQueries[0]?.[0])).not.toContain("inv$_repr$_%");
   });
 });
 
@@ -175,6 +236,7 @@ function selectorServices(
             {
               active_listing_count: hasListings ? "2" : "0",
               mutable_listing_count: hasListings ? "3" : "0",
+              representative_inventory_item_ids: hasListings ? [`inv_listing_stock_${alias}`] : [],
             },
           ] as Row[],
         };
