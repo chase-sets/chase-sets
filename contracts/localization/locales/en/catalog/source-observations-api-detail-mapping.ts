@@ -151,6 +151,16 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
     "Bulk deferral requires selected observations or an explicit review scope.",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",
   "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.promote.requires.reason":
+    "Promotion requires a reason.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.reason": "Split requires a reason.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots":
+    "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.update.requires.reason": "Update requires a reason.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot":
+    "Update requires a candidate snapshot.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.ignore.requires.reason": "Ignore requires a reason.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.defer.requires.reason": "Deferral requires a reason.",
   "catalog.features.sourceObservations.ui.mappingExpressionEditor.add.expression": "Add expression",
   "catalog.features.sourceObservations.ui.mappingExpressionEditor.add.field": "Add field",
   "catalog.features.sourceObservations.ui.mappingExpressionEditor.add.selector": "Add selector",

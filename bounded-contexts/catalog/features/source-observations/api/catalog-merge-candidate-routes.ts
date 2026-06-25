@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type {
@@ -70,7 +71,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     }
 
     const body = await requestBody(c.req);
-    const reason = requiredReason(body, "Promotion");
+    const reason = requiredReason(body, "promote");
     if (!reason.ok) {
       return c.json({ error: reason.error }, 400);
     }
@@ -92,7 +93,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     }
 
     const body = await requestBody(c.req);
-    const reason = requiredReason(body, "Split");
+    const reason = requiredReason(body, "split");
     if (!reason.ok) {
       return c.json({ error: reason.error }, 400);
     }
@@ -101,7 +102,10 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       !isRecord(body.splitSnapshot) ||
       typeof body.splitCandidateId !== "string"
     ) {
-      return c.json({ error: "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot." }, 400);
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.snapshots") },
+        400,
+      );
     }
 
     const result = await services.splitCatalogMergeCandidate({
@@ -124,12 +128,15 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     }
 
     const body = await requestBody(c.req);
-    const reason = requiredReason(body, "Update");
+    const reason = requiredReason(body, "update");
     if (!reason.ok) {
       return c.json({ error: reason.error }, 400);
     }
     if (!isRecord(body.snapshot)) {
-      return c.json({ error: "Update requires a candidate snapshot." }, 400);
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.snapshot") },
+        400,
+      );
     }
 
     const result = await services.updateCatalogMergeCandidate({
@@ -150,7 +157,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     }
 
     const body = await requestBody(c.req);
-    const reason = requiredReason(body, "Ignore");
+    const reason = requiredReason(body, "ignore");
     if (!reason.ok) {
       return c.json({ error: reason.error }, 400);
     }
@@ -172,7 +179,7 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
     }
 
     const body = await requestBody(c.req);
-    const reason = requiredReason(body, "Deferral");
+    const reason = requiredReason(body, "defer");
     if (!reason.ok) {
       return c.json({ error: reason.error }, 400);
     }
@@ -226,10 +233,27 @@ async function requestBody(req: { json: () => Promise<unknown> }): Promise<Recor
 
 function requiredReason(
   body: Record<string, unknown>,
-  label: string,
+  action: CatalogMergeCandidateRouteAction,
 ): Readonly<{ ok: true; value: string } | { ok: false; error: string }> {
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
-  return reason ? { ok: true, value: reason } : { ok: false, error: `${label} requires a reason.` };
+  return reason ? { ok: true, value: reason } : { ok: false, error: candidateActionReasonMessage(action) };
+}
+
+type CatalogMergeCandidateRouteAction = "promote" | "split" | "update" | "ignore" | "defer";
+
+function candidateActionReasonMessage(action: CatalogMergeCandidateRouteAction): string {
+  switch (action) {
+    case "promote":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.promote.requires.reason");
+    case "split":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.split.requires.reason");
+    case "update":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.update.requires.reason");
+    case "ignore":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.ignore.requires.reason");
+    case "defer":
+      return t("catalog.features.sourceObservations.api.route.merge.candidate.defer.requires.reason");
+  }
 }
 
 function conflictResolutions(
