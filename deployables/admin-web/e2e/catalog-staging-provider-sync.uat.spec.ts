@@ -1238,7 +1238,13 @@ async function visibleImportJobRowTexts(
 }
 
 function importJobRowTextMatchesSelectedScope(row: string, scopeLabels: readonly string[]): boolean {
-  return scopeLabels.some((label) => row.includes(`Scope: ${label}`));
+  const rowScope = importJobRowScopeLabel(row);
+  return Boolean(rowScope && scopeLabels.includes(rowScope));
+}
+
+function importJobRowScopeLabel(row: string): string | null {
+  const match = row.match(/\bScope:\s+(?<scope>.+?)(?=\s+(?:Queued|Running|Completed|Failed|Cancelled)\b|$)/i);
+  return match?.groups?.scope ? normalizeWhitespace(match.groups.scope) : null;
 }
 
 function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
