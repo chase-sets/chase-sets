@@ -5,6 +5,7 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   decodeFreshWriteReceipt,
+  readApiErrorCode,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
@@ -17,6 +18,63 @@ export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
 function parseOrderIds(value: unknown) {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+const defaultPaymentStartReadinessRetry = {
+  maxAttempts: 6,
+  delayMs: 250,
+} as const;
+
+const paymentOrderReadinessPendingCodes = new Set(["order_input_not_ready", "order_not_payment_ready"]);
+
+type PaymentStartReadinessRetryOptions = Readonly<{
+  maxAttempts?: number;
+  delayMs?: number;
+}>;
+
+function responseLikeErrorStatus(error: unknown) {
+  return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
+    ? error.status
+    : null;
+}
+
+function responseLikeErrorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error ? (error as { body?: unknown }).body : null;
+}
+
+function paymentOrderReadinessIsPending(error: unknown) {
+  const status = responseLikeErrorStatus(error);
+  const code = readApiErrorCode(responseLikeErrorBody(error));
+
+  if (status === 503 && code === "projection_freshness_timeout") {
+    return true;
+  }
+
+  return status === 400 && paymentOrderReadinessPendingCodes.has(code ?? "");
+}
+
+function normalizeRetryAttemptCount(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) {
+    return defaultPaymentStartReadinessRetry.maxAttempts;
+  }
+
+  return Math.max(1, Math.floor(value));
+}
+
+function normalizeRetryDelayMs(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) {
+    return defaultPaymentStartReadinessRetry.delayMs;
+  }
+
+  return Math.max(0, Math.floor(value));
+}
+
+async function waitForPaymentStartRetry(delayMs: number) {
+  if (delayMs <= 0) {
+    return;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 export async function createCheckoutOrdersThroughOrdering(
@@ -94,6 +152,7 @@ export async function createCheckoutPaymentThroughPayments(
   returnUrlPath?: string | null,
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
   orderCreationWriteResult?: unknown,
+  readinessRetry?: PaymentStartReadinessRetryOptions,
 ) {
   const confirmedFingerprint = marketplaceCheckoutFeeQuoteFingerprint?.trim();
   if (!confirmedFingerprint) {
@@ -109,26 +168,41 @@ export async function createCheckoutPaymentThroughPayments(
     : forwardedFreshReadHeaders
       ? createPaymentsRequestApiClient(request, { headers: forwardedFreshReadHeaders })
       : createPaymentsRequestApiClient(request);
-  if (needsOrderInputFreshRead) {
-    await paymentsApi.getCheckoutStatus({
-      orderIds,
-      requestedBalanceCreditAmount,
-      paymentMethodCategory,
-    });
+
+  const maxAttempts = needsOrderInputFreshRead ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
+  const delayMs = normalizeRetryDelayMs(readinessRetry?.delayMs);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      if (needsOrderInputFreshRead) {
+        await paymentsApi.getCheckoutStatus({
+          orderIds,
+          requestedBalanceCreditAmount,
+          paymentMethodCategory,
+        });
+      }
+
+      return await paymentsApi.createAccountPayment({
+        orderIds,
+        sourceContext: "checkout",
+        sourceReferenceId: sessionId,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory,
+        marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
+        savedCheckoutInstrumentId,
+        savePaymentMethodForFuture,
+        returnUrlPath,
+        agenticPayment,
+      });
+    } catch (error) {
+      if (attempt >= maxAttempts || !paymentOrderReadinessIsPending(error)) {
+        throw error;
+      }
+
+      await waitForPaymentStartRetry(delayMs);
+    }
   }
 
-  return paymentsApi.createAccountPayment({
-    orderIds,
-    sourceContext: "checkout",
-    sourceReferenceId: sessionId,
-    requestedBalanceCreditAmount,
-    paymentMethodCategory,
-    marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
-    savedCheckoutInstrumentId,
-    savePaymentMethodForFuture,
-    returnUrlPath,
-    agenticPayment,
-  });
+  throw new Error("Payment start retry loop exited without creating payment.");
 }
 
 function paymentsFreshReadHeadersFromForwardedRequest(request: Request): HeadersInit | undefined {
