@@ -3,6 +3,7 @@ import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durabl
 
 export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
+  sync_run_id text NULL,
   provider_key text NOT NULL,
   external_key text NOT NULL,
   source_url text NOT NULL,
@@ -28,6 +29,7 @@ export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
 );
 
 ALTER TABLE catalog_source_observations
+  ADD COLUMN IF NOT EXISTS sync_run_id text NULL,
   ADD COLUMN IF NOT EXISTS source_profile_key text,
   ADD COLUMN IF NOT EXISTS source_profile_version text,
   ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text,
@@ -48,6 +50,9 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_provider_idx
   ON catalog_source_observations (provider_key, language_code);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_status_idx
   ON catalog_source_observations (status);
+CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx
+  ON catalog_source_observations (sync_run_id, observed_at DESC)
+  WHERE sync_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_source_observations_source_profile_idx
   ON catalog_source_observations (provider_key, source_profile_version);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_promotion_profile_idx
@@ -64,6 +69,7 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
 CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
   candidate_id text PRIMARY KEY,
   identity_fingerprint text NOT NULL,
+  sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL,
   status_reason text NULL,
   identity_json jsonb NOT NULL,
@@ -88,6 +94,7 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
 CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
   candidate_id text NOT NULL,
   observation_id text NOT NULL,
+  sync_run_id text NULL,
   provider_key text NOT NULL,
   external_key text NOT NULL,
   source_record_hash text NOT NULL,
@@ -107,11 +114,16 @@ CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
   ON catalog_merge_candidates (status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_identity_fingerprint_idx
   ON catalog_merge_candidates (identity_fingerprint);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidates_sync_run_ids_idx
+  ON catalog_merge_candidates USING gin (sync_run_ids_json);
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_matched_catalog_item_idx
   ON catalog_merge_candidates (matched_catalog_item_id)
   WHERE matched_catalog_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_observation_idx
   ON catalog_merge_candidate_observations (observation_id);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_sync_run_idx
+  ON catalog_merge_candidate_observations (sync_run_id, candidate_id)
+  WHERE sync_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_merge_candidate_observations_provider_idx
   ON catalog_merge_candidate_observations (provider_key, source_profile_version);
 

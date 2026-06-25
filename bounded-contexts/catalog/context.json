@@ -749,6 +749,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/resume",
         "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/retry",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /merge-candidates/generate",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /bulk-promote/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/impact",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/preview",
@@ -765,11 +766,12 @@
       ],
       "visibleDestination": {
         "routeId": "integrations",
-        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
+        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run, candidate generation, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, and observation review routes return the durable job/profile/review/preview snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Route tests cover Catalog sync scope preview/run, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Route tests cover Catalog sync scope preview/run, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, and preview/impact responses.",
         "tests": [
+          "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts",

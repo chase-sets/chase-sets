@@ -216,6 +216,50 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
+  it("forwards visible fulfillment preview acknowledgement to checkout confirmation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("fulfillmentPreviewRevision", "fulfillment_rev_visible");
+    form.set("acknowledgedMaterialChanges", "true");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1?review=updated", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        fulfillmentPreviewRevision: "fulfillment_rev_visible",
+        acknowledgedMaterialChanges: true,
+      }),
+    );
+  });
+
   it("preserves payment freshness metadata on the confirmation handoff", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});

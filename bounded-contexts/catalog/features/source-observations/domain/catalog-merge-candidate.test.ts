@@ -220,6 +220,7 @@ function candidateSnapshot(
 ): CatalogMergeCandidateReviewSnapshot {
   return {
     identityFingerprint: "sha256:pokemon:en:base1:43:standard",
+    syncRunIds: ["job_sync_base1"],
     identity: {
       tcg: "pokemon",
       productLineName: "Pokemon TCG",
@@ -289,6 +290,7 @@ function observationMember(
 ): CatalogMergeCandidateObservationMember {
   return {
     observationId,
+    syncRunId: "job_sync_base1",
     providerKey,
     externalKey,
     sourceRecordHash: `${observationId}-hash`,

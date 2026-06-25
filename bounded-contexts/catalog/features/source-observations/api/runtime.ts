@@ -64,9 +64,17 @@ import {
   type SourceObservationPromotionProfileEvidence,
   type SourceObservationState,
 } from "../domain/domain";
+import {
+  decideCatalogMergeCandidate,
+  evolveCatalogMergeCandidate,
+  initialCatalogMergeCandidateState,
+  type CatalogMergeCandidateEvent,
+} from "../domain/catalog-merge-candidate";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
 import {
   getSourceObservationDetail,
+  listCatalogMergeCandidates,
+  listSourceObservationsForCandidateMatching,
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
@@ -82,6 +90,10 @@ import {
   type SourceObservationPromotionPreview,
   type SourceObservationReapplyPreview,
 } from "../read-model/queries";
+import {
+  buildCatalogMergeCandidatesFromObservations,
+  type CatalogMergeCandidateMatchResult,
+} from "./catalog-merge-candidate-matcher";
 import {
   normalizeTcgdexImageAsset,
   type TcgdexExpansionOption,
@@ -1020,6 +1032,9 @@ export type SourceObservationReadServices = Readonly<{
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
+  listCatalogMergeCandidates: (
+    params?: Parameters<typeof listCatalogMergeCandidates>[1],
+  ) => ReturnType<typeof listCatalogMergeCandidates>;
   listIntegrationScopes: (params?: {
     provider?: string;
     language?: string;
@@ -1029,6 +1044,22 @@ export type SourceObservationReadServices = Readonly<{
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
+}>;
+
+export type CatalogMergeCandidateGenerationResult = Readonly<{
+  syncRunId: string | null;
+  scope: SourceObservationFilterScope;
+  observationCount: number;
+  candidateCount: number;
+  candidates: readonly CatalogMergeCandidateMatchResult[];
+}>;
+
+export type CatalogMergeCandidateServices = Readonly<{
+  generateCatalogMergeCandidates: (input: {
+    syncRunId?: string | null;
+    scope?: SourceObservationFilterScope;
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateGenerationResult>;
 }>;
 
 export type ControlPlaneTelemetryServices = Readonly<{
@@ -1057,6 +1088,7 @@ export type SourceObservationServices = SourceObservationCommandServices &
   BulkReviewJobServices &
   IntegrationJobServices &
   SourceObservationReadServices &
+  CatalogMergeCandidateServices &
   ControlPlaneTelemetryServices &
   SourceObservationRetentionServices &
   SourceObservationProjectorServices;
@@ -1101,6 +1133,13 @@ export function createSourceObservationRuntime(
     initialState: () => initialSourceObservationState,
     evolve: evolveSourceObservation,
     decide: decideSourceObservation,
+  });
+  const { commandHandler: catalogMergeCandidateCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>(),
+    initialState: () => initialCatalogMergeCandidateState,
+    evolve: evolveCatalogMergeCandidate,
+    decide: decideCatalogMergeCandidate,
   });
   const projectors = [
     createProjectionHandlerSet({
@@ -1220,6 +1259,49 @@ export function createSourceObservationRuntime(
       },
       context,
     });
+  }
+
+  async function generateCatalogMergeCandidates(input: {
+    syncRunId?: string | null;
+    scope?: SourceObservationFilterScope;
+    context: EventStoreContext;
+  }): Promise<CatalogMergeCandidateGenerationResult> {
+    const syncRunId = normalizeOptionalKey(input.syncRunId);
+    const scope = normalizeCandidateGenerationScope(input.scope ?? {}, syncRunId);
+    const observations = await listSourceObservationsForCandidateMatching(deps.db, scope);
+    const generated = buildCatalogMergeCandidatesFromObservations(observations, {
+      addedAt: new Date().toISOString(),
+    });
+
+    for (const candidate of generated) {
+      const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+      const existingEvents = await deps.eventStore.readStream({ streamId });
+      await catalogMergeCandidateCommandHandler({
+        streamId,
+        command:
+          existingEvents.length > 0
+            ? {
+                type: "RefreshCatalogMergeCandidate",
+                snapshot: candidate.snapshot,
+                refreshedAt: new Date().toISOString(),
+              }
+            : {
+                type: "CreateCatalogMergeCandidate",
+                candidateId: candidate.candidateId,
+                snapshot: candidate.snapshot,
+                createdAt: new Date().toISOString(),
+              },
+        context: input.context,
+      });
+    }
+
+    return {
+      syncRunId,
+      scope,
+      observationCount: observations.length,
+      candidateCount: generated.length,
+      candidates: generated,
+    };
   }
 
   /**
@@ -2093,6 +2175,7 @@ export function createSourceObservationRuntime(
     setId: string;
     seriesId?: string | null;
     providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
+    syncRunId?: string | null;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -2145,7 +2228,7 @@ export function createSourceObservationRuntime(
     for (const [index, observation] of observations.entries()) {
       await input.beforeRecordObservation?.();
       await (input.runRecordObservation ?? runSourceObservationSideEffectImmediately)(() =>
-        recordObservation(observation, input.context),
+        recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context),
       );
       await input.onProgress?.({
         phase: "recording",
@@ -3433,6 +3516,7 @@ export function createSourceObservationRuntime(
       languageCode,
       providerProfile,
       providerProfileVersion,
+      syncRunId: input.job.syncRunId,
       context: input.job.eventContext,
       beforeRecordObservation: async () => {
         throwIfJobRunCancelled(input.context);
@@ -3665,6 +3749,7 @@ export function createSourceObservationRuntime(
     languageCode: string;
     providerProfile: CatalogProviderIntegrationProfile;
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    syncRunId?: string | null;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -3676,6 +3761,7 @@ export function createSourceObservationRuntime(
         setId: input.expansion.expansionId,
         seriesId: input.expansion.seriesId,
         providerProfileVersion: input.providerProfileVersion,
+        syncRunId: input.syncRunId,
         context: input.context,
         onProgress: input.onProgress,
         beforeRecordObservation: input.beforeRecordObservation,
@@ -3765,6 +3851,7 @@ export function createSourceObservationRuntime(
       target: nextTarget,
       providerProfile: input.providerProfile,
       providerProfileVersion: input.providerProfileVersion,
+      syncRunId: input.job.syncRunId,
       context: input.job.eventContext,
       beforeRecordObservation: async () => {
         throwIfJobRunCancelled(input.context);
@@ -3993,6 +4080,7 @@ export function createSourceObservationRuntime(
     target: ProviderAdapterIntegrationImportTarget;
     providerProfile: CatalogProviderIntegrationProfile;
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    syncRunId?: string | null;
     context: EventStoreContext;
     onProgress?: (progress: ProviderAdapterImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -4032,7 +4120,8 @@ export function createSourceObservationRuntime(
           payload: toJsonValue(envelope.payload),
           observedAt,
         });
-        const writeObservation = () => recordObservation(observation, input.context);
+        const writeObservation = () =>
+          recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context);
         if (input.runRecordObservation) {
           await input.runRecordObservation(writeObservation);
         } else {
@@ -4134,6 +4223,7 @@ export function createSourceObservationRuntime(
       target: nextTarget,
       providerProfile: input.providerProfile,
       providerProfileVersion: input.providerProfileVersion,
+      syncRunId: input.job.syncRunId,
       context: input.job.eventContext,
       beforeRecordObservation: async () => {
         throwIfJobRunCancelled(input.context);
@@ -4277,6 +4367,7 @@ export function createSourceObservationRuntime(
     target: TcgplayerIntegrationImportTarget;
     providerProfile: CatalogProviderIntegrationProfile;
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    syncRunId?: string | null;
     context: EventStoreContext;
     onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -4318,7 +4409,8 @@ export function createSourceObservationRuntime(
           }),
           observedAt,
         });
-        const writeObservation = () => recordObservation(observation, input.context);
+        const writeObservation = () =>
+          recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context);
         if (input.runRecordObservation) {
           await input.runRecordObservation(writeObservation);
         } else {
@@ -4434,6 +4526,7 @@ export function createSourceObservationRuntime(
 
   return {
     commandHandler,
+    generateCatalogMergeCandidates,
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
@@ -4623,6 +4716,7 @@ export function createSourceObservationRuntime(
     processNextIntegrationJob,
     getIntegrationWorkUnitSummary: (input = {}) => integrationWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
+    listCatalogMergeCandidates: (params) => listCatalogMergeCandidates(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
     getCatalogIntegrationControlPlaneReadiness: async () =>
       buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry, dryRunProofRegistry, rolloutControlPolicy),
@@ -7583,6 +7677,10 @@ function sourceObservationStreamId(observationId: string): string {
   return `catalog.source-observation-${observationId}`;
 }
 
+function catalogMergeCandidateStreamId(candidateId: string): string {
+  return `catalog.merge-candidate-${candidateId}`;
+}
+
 type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
   Readonly<{
     eventContext: EventStoreContext;
@@ -8033,6 +8131,16 @@ function normalizeIntegrationJobScope(
 function normalizeOptionalKey(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function normalizeCandidateGenerationScope(
+  scope: SourceObservationFilterScope,
+  syncRunId: string | null,
+): SourceObservationFilterScope {
+  return {
+    ...scope,
+    syncRunId: syncRunId ?? scope.syncRunId,
+  };
 }
 
 function stableJsonStringify(value: unknown): string {

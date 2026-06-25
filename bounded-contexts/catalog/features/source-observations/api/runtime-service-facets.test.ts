@@ -6,6 +6,7 @@ import {
   createSourceObservationRuntime,
   type BulkReviewJobServices,
   type CatalogIntegrationEngineServices,
+  type CatalogMergeCandidateServices,
   type ControlPlaneTelemetryServices,
   type IntegrationJobServices,
   type ProviderAdapterServices,
@@ -35,6 +36,7 @@ describe("Source Observation service facets", () => {
     const bulkReviewJobs: BulkReviewJobServices = services;
     const integrationJobs: IntegrationJobServices = services;
     const reads: SourceObservationReadServices = services;
+    const mergeCandidates: CatalogMergeCandidateServices = services;
     const telemetry: ControlPlaneTelemetryServices = services;
 
     expect(providerAdapters.providerAdapterRegistry.require("reference-cards").providerKey).toBe("reference-cards");
@@ -49,6 +51,8 @@ describe("Source Observation service facets", () => {
     expect(typeof bulkReviewJobs.processNextBulkReviewJob).toBe("function");
     expect(typeof integrationJobs.processNextIntegrationJob).toBe("function");
     expect(typeof reads.listSourceObservations).toBe("function");
+    expect(typeof reads.listCatalogMergeCandidates).toBe("function");
+    expect(typeof mergeCandidates.generateCatalogMergeCandidates).toBe("function");
     expect(typeof telemetry.recordControlPlaneTelemetry).toBe("function");
   });
 

@@ -25,6 +25,7 @@ export type CatalogMergeCandidateIdentity = JsonObject &
 export type CatalogMergeCandidateObservationMember = JsonObject &
   Readonly<{
     observationId: string;
+    syncRunId: string | null;
     providerKey: string;
     externalKey: string;
     sourceRecordHash: string;
@@ -95,6 +96,7 @@ export type CatalogMergeCandidateFieldProvenance = JsonObject &
 export type CatalogMergeCandidateReviewSnapshot = JsonObject &
   Readonly<{
     identityFingerprint: string;
+    syncRunIds: readonly string[];
     identity: CatalogMergeCandidateIdentity;
     membership: readonly CatalogMergeCandidateObservationMember[];
     matches: CatalogMergeCandidateMatches;
@@ -422,6 +424,7 @@ function requireSnapshot(state: CatalogMergeCandidateState): CatalogMergeCandida
 function normalizeReviewSnapshot(snapshot: CatalogMergeCandidateReviewSnapshot): CatalogMergeCandidateReviewSnapshot {
   const normalized: CatalogMergeCandidateReviewSnapshot = {
     identityFingerprint: requireText(snapshot.identityFingerprint, "Catalog Merge Candidate identity fingerprint"),
+    syncRunIds: normalizeOptionalTextList(snapshot.syncRunIds ?? [], "Catalog sync run ID"),
     identity: normalizeIdentity(snapshot.identity),
     membership: normalizeObservationMembership(snapshot.membership),
     matches: {
@@ -477,6 +480,7 @@ function normalizeObservationMember(
 ): CatalogMergeCandidateObservationMember {
   return {
     observationId: requireText(member.observationId, "Source Observation ID"),
+    syncRunId: member.syncRunId?.trim() || null,
     providerKey: requireText(member.providerKey, "Source Observation provider key").toLowerCase(),
     externalKey: requireText(member.externalKey, "Source Observation external key"),
     sourceRecordHash: requireText(member.sourceRecordHash, "Source Observation source record hash"),
@@ -596,6 +600,15 @@ function normalizeObservationIds(observationIds: readonly string[]): string[] {
 
 function normalizeTextList(values: readonly string[], label: string): string[] {
   const normalized = [...new Set(values.map((value) => requireText(value, label)))];
+  return normalized.sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeOptionalTextList(values: readonly string[], label: string): string[] {
+  const normalized = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  assert(
+    normalized.every((value) => value.toLowerCase() !== "legacy"),
+    `${label} cannot use the retired legacy marker.`,
+  );
   return normalized.sort((left, right) => left.localeCompare(right));
 }
 

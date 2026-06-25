@@ -3,6 +3,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
   BulkReviewJobServices,
+  CatalogMergeCandidateServices,
   CatalogIntegrationEngineServices,
   ControlPlaneTelemetryServices,
   IntegrationJobServices,
@@ -15,6 +16,7 @@ import type {
 import { bulkReviewJobRoutes } from "./bulk-review-job-routes";
 import { controlPlaneTelemetryRoutes } from "./control-plane-telemetry-routes";
 import { integrationJobRoutes } from "./integration-job-routes";
+import { catalogMergeCandidateRoutes } from "./catalog-merge-candidate-routes";
 import { promotionReviewRoutes } from "./promotion-review-routes";
 import { providerOptionRoutes } from "./provider-options-routes";
 import { providerProfileRoutes } from "./provider-profile-routes";
@@ -33,6 +35,7 @@ export type SourceObservationRouteServices = SourceObservationReadServices &
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateServices &
   IntegrationJobServices &
   ControlPlaneTelemetryServices;
 
@@ -47,6 +50,7 @@ export function sourceObservationRoutes(
   app.route("/", promotionReviewRoutes(services));
   app.route("/", bulkReviewJobRoutes(services));
   app.route("/", integrationJobRoutes(services));
+  app.route("/", catalogMergeCandidateRoutes(services));
   app.route("/", controlPlaneTelemetryRoutes(services));
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
