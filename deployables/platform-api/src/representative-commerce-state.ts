@@ -631,10 +631,10 @@ async function readPayoutReadinessPosture(
   return {
     ready: Boolean(
       row?.status === "ready" &&
-        row.has_provider_reference &&
-        row.onboarding_status === "complete" &&
-        row.payout_capability_status === "active" &&
-        row.payout_destination_status === "ready",
+      row.has_provider_reference &&
+      row.onboarding_status === "complete" &&
+      row.payout_capability_status === "active" &&
+      row.payout_destination_status === "ready",
     ),
   };
 }
