@@ -3,18 +3,23 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type {
+  CatalogMergeCandidateConflict,
+  CatalogMergeCandidateConflictResolution,
   CatalogMergeCandidateExternalCatalogItemReference,
   CatalogMergeCandidateExternalProductReference,
   CatalogMergeCandidateFieldProvenance,
+  CatalogMergeCandidateObservationMember,
   CatalogMergeCandidatePromotionIntent,
   CatalogMergeCandidateReviewSnapshot,
   CatalogMergeCandidateStatus,
+  CatalogMergeCandidateWarning,
 } from "../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../read-model/queries";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 
 export type CatalogMergeCandidatePromotionMode = "create" | "refresh" | "link-existing";
+export type CatalogMergeCandidatePromotionApprovalStatus = Extract<CatalogMergeCandidateStatus, "ready" | "promoted">;
 
 export type CatalogMergeCandidatePromotionFieldMapping = Readonly<
   {
@@ -48,6 +53,16 @@ export type CatalogMergeCandidatePromotionAssetPlan = Readonly<{
   productAssetSets?: readonly ProductAssetSet[];
 }>;
 
+export type CatalogMergeCandidatePromotionSourceProvenance = Readonly<{
+  identityFingerprint: string;
+  syncRunIds: readonly string[];
+  membership: readonly CatalogMergeCandidateObservationMember[];
+  fieldProvenance: readonly CatalogMergeCandidateFieldProvenance[];
+  warnings: readonly CatalogMergeCandidateWarning[];
+  conflicts: readonly CatalogMergeCandidateConflict[];
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[];
+}>;
+
 export type CatalogMergeCandidatePromotionCandidate =
   | Readonly<{
       candidateId: string;
@@ -61,6 +76,8 @@ export type CatalogMergeCandidatePromotionPlanDiagnostic = Readonly<{
     | "candidate-not-ready"
     | "candidate-has-blocking-conflicts"
     | "conflicting-external-reference-level"
+    | "duplicate-external-catalog-item-reference"
+    | "duplicate-external-product-reference"
     | "missing-catalog-item-target"
     | "missing-create-catalog-item-id"
     | "missing-field-value"
@@ -75,11 +92,16 @@ export type CatalogMergeCandidatePromotionPlanDiagnostic = Readonly<{
 
 export type PromotableCatalogItemProductChange = Readonly<{
   changeKind: CatalogMergeCandidatePromotionIntent;
+  approvalStatus: CatalogMergeCandidatePromotionApprovalStatus;
+  candidateId: string;
   catalogItemId: CatalogItemId;
   catalogItemFacts: JsonObject;
   fieldChanges: readonly CatalogMergeCandidatePromotionFieldChange[];
+  referenceRecordLinks: readonly CatalogMergeCandidatePromotionReferenceRecordLink[];
+  productMappings: readonly CatalogMergeCandidatePromotionProductMapping[];
   externalCatalogItemReferences: readonly CatalogMergeCandidateExternalCatalogItemReference[];
   externalProductReferences: readonly CatalogMergeCandidateExternalProductReference[];
+  sourceProvenance: CatalogMergeCandidatePromotionSourceProvenance;
   assetPlan: CatalogMergeCandidatePromotionAssetPlan | null;
 }>;
 
@@ -88,6 +110,21 @@ export type CatalogMergeCandidatePromotionFieldChange = Readonly<{
   fieldId: FieldId;
   value: JsonValue;
   provenance: readonly CatalogMergeCandidateFieldProvenance[];
+}>;
+
+export type CatalogMergeCandidatePromotionReferenceRecordLink = Readonly<{
+  fieldPath: string;
+  fieldId: FieldId;
+  referenceRecordId: ReferenceRecordId;
+  provenance: readonly CatalogMergeCandidateFieldProvenance[];
+}>;
+
+export type CatalogMergeCandidatePromotionProductMapping = Readonly<{
+  providerKey: string;
+  externalKey: string;
+  selectedOptions: CatalogMergeCandidateExternalProductReference["selectedOptions"];
+  matchedProductIds: readonly string[];
+  reviewEvidence: JsonObject | null;
 }>;
 
 export type CatalogMergeCandidatePromotionCommandPlan = Readonly<{
@@ -125,6 +162,7 @@ export function planCatalogMergeCandidatePromotionCommands(input: {
   catalog: CatalogMergeCandidatePromotionCatalogMapping;
   createCatalogItemId?: CatalogItemId | null;
   assetPlan?: CatalogMergeCandidatePromotionAssetPlan | null;
+  resolvedConflicts?: readonly CatalogMergeCandidateConflictResolution[];
 }): CatalogMergeCandidatePromotionCommandPlanResult {
   const candidate = normalizeCandidate(input.candidate);
   const diagnostics = candidatePromotionDiagnostics(candidate, input.catalog, input.createCatalogItemId ?? null);
@@ -150,7 +188,23 @@ export function planCatalogMergeCandidatePromotionCommands(input: {
   }
 
   const fieldChanges = fieldChangesForCandidate(candidate.snapshot, input.catalog.fields);
+  const referenceRecordLinks = referenceRecordLinksForCandidate(candidate.snapshot, input.catalog.fields);
+  const productMappings = productMappingsForCandidate(candidate.snapshot);
   const assetPlan = normalizeAssetPlan(input.assetPlan ?? null);
+  const promotableChange: PromotableCatalogItemProductChange = {
+    changeKind: candidate.snapshot.promotionIntent,
+    approvalStatus: promotableApprovalStatus(candidate.status),
+    candidateId: candidate.candidateId,
+    catalogItemId,
+    catalogItemFacts: candidate.snapshot.proposedCatalogItemFacts,
+    fieldChanges,
+    referenceRecordLinks,
+    productMappings,
+    externalCatalogItemReferences: candidate.snapshot.proposedExternalCatalogItemReferences,
+    externalProductReferences: candidate.snapshot.proposedExternalProductReferences,
+    sourceProvenance: sourceProvenanceForCandidate(candidate.snapshot, input.resolvedConflicts ?? []),
+    assetPlan,
+  };
   const commands = catalogItemCommandsForCandidatePromotion({
     mode,
     catalogItemId,
@@ -165,6 +219,7 @@ export function planCatalogMergeCandidatePromotionCommands(input: {
     catalogItemId,
     commands,
     fieldChanges,
+    promotableChange,
   });
 
   return {
@@ -177,15 +232,7 @@ export function planCatalogMergeCandidatePromotionCommands(input: {
       planFingerprint,
       requiresReview: true,
       commands,
-      promotableChange: {
-        changeKind: candidate.snapshot.promotionIntent,
-        catalogItemId,
-        catalogItemFacts: candidate.snapshot.proposedCatalogItemFacts,
-        fieldChanges,
-        externalCatalogItemReferences: candidate.snapshot.proposedExternalCatalogItemReferences,
-        externalProductReferences: candidate.snapshot.proposedExternalProductReferences,
-        assetPlan,
-      },
+      promotableChange,
       review: {
         commandCount: commands.length,
         fieldChangeCount: fieldChanges.length,
@@ -206,11 +253,11 @@ function candidatePromotionDiagnostics(
   const diagnostics: CatalogMergeCandidatePromotionPlanDiagnostic[] = [];
   const snapshot = candidate.snapshot;
 
-  if (candidate.status !== "ready") {
+  if (candidate.status !== "ready" && candidate.status !== "promoted") {
     diagnostics.push({
       code: "candidate-not-ready",
       path: "candidate.status",
-      diagnosticText: `Catalog Merge Candidate '${candidate.candidateId}' is ${candidate.status}; only ready candidates can produce a promotable plan.`,
+      diagnosticText: `Catalog Merge Candidate '${candidate.candidateId}' is ${candidate.status}; only ready or promoted candidates can produce a promotable plan.`,
     });
   }
 
@@ -266,6 +313,32 @@ function candidatePromotionDiagnostics(
       (reference) => `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`,
     ),
   );
+  const duplicateExternalCatalogItemKeys = duplicateKeys(
+    snapshot.proposedExternalCatalogItemReferences.map(
+      (reference) => `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`,
+    ),
+  );
+  for (const referenceKey of duplicateExternalCatalogItemKeys) {
+    diagnostics.push({
+      code: "duplicate-external-catalog-item-reference",
+      path: "candidate.snapshot.proposedExternalCatalogItemReferences",
+      diagnosticText: `External Catalog Item Reference '${referenceKey}' is proposed more than once.`,
+    });
+  }
+
+  const duplicateExternalProductKeys = duplicateKeys(
+    snapshot.proposedExternalProductReferences.map(
+      (reference) => `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`,
+    ),
+  );
+  for (const referenceKey of duplicateExternalProductKeys) {
+    diagnostics.push({
+      code: "duplicate-external-product-reference",
+      path: "candidate.snapshot.proposedExternalProductReferences",
+      diagnosticText: `External Product Reference '${referenceKey}' is proposed more than once.`,
+    });
+  }
+
   for (const reference of snapshot.proposedExternalProductReferences) {
     const referenceKey = `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`;
     if (externalCatalogItemKeys.has(referenceKey)) {
@@ -314,6 +387,28 @@ function candidatePromotionDiagnostics(
   }
 
   return diagnostics;
+}
+
+function sourceProvenanceForCandidate(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
+): CatalogMergeCandidatePromotionSourceProvenance {
+  return {
+    identityFingerprint: snapshot.identityFingerprint,
+    syncRunIds: [...snapshot.syncRunIds],
+    membership: [...snapshot.membership],
+    fieldProvenance: [...snapshot.fieldProvenance],
+    warnings: [...snapshot.warnings],
+    conflicts: [...snapshot.conflicts],
+    resolvedConflicts: [...resolvedConflicts],
+  };
+}
+
+function promotableApprovalStatus(status: CatalogMergeCandidateStatus): CatalogMergeCandidatePromotionApprovalStatus {
+  if (status === "ready" || status === "promoted") {
+    return status;
+  }
+  throw new Error(`Catalog Merge Candidate '${status}' cannot produce a promotable change.`);
 }
 
 function catalogItemCommandsForCandidatePromotion(input: {
@@ -416,6 +511,37 @@ function fieldChangesForCandidate(
   });
 }
 
+function referenceRecordLinksForCandidate(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  mappings: readonly CatalogMergeCandidatePromotionFieldMapping[],
+): readonly CatalogMergeCandidatePromotionReferenceRecordLink[] {
+  return mappings.flatMap((mapping) => {
+    if (mapping.valueKind !== "reference-record" || !mapping.referenceRecordId) {
+      return [];
+    }
+    return [
+      {
+        fieldPath: mapping.fieldPath,
+        fieldId: mapping.fieldId,
+        referenceRecordId: mapping.referenceRecordId,
+        provenance: snapshot.fieldProvenance.filter((entry) => entry.fieldPath === mapping.fieldPath),
+      },
+    ];
+  });
+}
+
+function productMappingsForCandidate(
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+): readonly CatalogMergeCandidatePromotionProductMapping[] {
+  return snapshot.proposedExternalProductReferences.map((reference) => ({
+    providerKey: reference.providerKey,
+    externalKey: reference.externalKey,
+    selectedOptions: reference.selectedOptions,
+    matchedProductIds: [...snapshot.matches.productIds],
+    reviewEvidence: reference.reviewEvidence,
+  }));
+}
+
 function fieldMappingValue(facts: JsonObject, mapping: CatalogMergeCandidatePromotionFieldMapping): JsonValue | null {
   if (mapping.valueKind === "reference-record") {
     return mapping.referenceRecordId ? { referenceId: mapping.referenceRecordId } : null;
@@ -515,6 +641,19 @@ function stringFact(value: JsonValue | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function duplicateKeys(keys: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const key of keys.filter(Boolean)) {
+    if (seen.has(key)) {
+      duplicates.add(key);
+      continue;
+    }
+    seen.add(key);
+  }
+  return [...duplicates].sort();
+}
+
 function localizedText(value: string): LocalizedTextMap {
   return {
     defaultLocale: "en",
@@ -534,6 +673,7 @@ export function catalogMergeCandidatePromotionPlanFingerprint(input: {
   catalogItemId: CatalogItemId;
   commands: readonly CatalogItemCommand[];
   fieldChanges: readonly CatalogMergeCandidatePromotionFieldChange[];
+  promotableChange: PromotableCatalogItemProductChange;
 }): string {
   return `sha256:${createHash("sha256")
     .update(
@@ -543,6 +683,7 @@ export function catalogMergeCandidatePromotionPlanFingerprint(input: {
         catalogItemId: input.catalogItemId,
         commands: input.commands,
         fieldChanges: input.fieldChanges,
+        promotableChange: input.promotableChange,
       }),
     )
     .digest("hex")}`;
