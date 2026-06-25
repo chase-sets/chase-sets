@@ -293,13 +293,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         .getAllByRole("button", { name: /Split: Charizard/ })
         .at(0)
         ?.hasAttribute("disabled"),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       screen
         .getAllByRole("button", { name: /Update: Charizard/ })
         .at(0)
         ?.hasAttribute("disabled"),
-    ).toBe(true);
+    ).toBe(false);
     expect(screen.getAllByRole("button", { name: /Ignore: Charizard/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Defer: Charizard/ }).length).toBeGreaterThan(0);
 
@@ -312,6 +312,34 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(promoteForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
       "Promote from the scope-first Catalog sync workbench.",
     );
+    const splitForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="split-merge-candidate"]',
+    );
+    const updateForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="update-merge-candidate"]',
+    );
+    const splitBody = JSON.parse(
+      splitForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
+    ) as Record<string, unknown>;
+    const updateBody = JSON.parse(
+      updateForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
+    ) as Record<string, unknown>;
+    expect(splitBody).toMatchObject({
+      reason: "Split candidate from the scope-first Catalog sync workbench.",
+      splitCandidateId: "cand_pokemon_base1_004_standard__split__obs_tcgplayer_001",
+    });
+    expect(updateBody).toMatchObject({
+      reason: "Update Product mapping from the scope-first Catalog sync workbench.",
+      snapshot: {
+        identityFingerprint: "sha256:candidate-identity",
+        proposedExternalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:123",
+          },
+        ],
+      },
+    });
 
     fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
 
@@ -324,7 +352,38 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("tcgdex:base1-4").length).toBeGreaterThan(0);
     expect(screen.getAllByText("tcgplayer:sku:123 -> condition:near-mint").length).toBeGreaterThan(0);
     expect(screen.getByText("Proposed facts")).toBeTruthy();
+    expect(screen.getByText("Generated command payloads")).toBeTruthy();
+    expect(screen.getByText(/Update: update-catalog-merge-candidate-product-mapping/)).toBeTruthy();
+    expect(screen.getByText(/Split: split-catalog-merge-candidate-by-source-membership/)).toBeTruthy();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      mergeCandidates: { items: [catalogMergeCandidateListItem({ membership_json: [] })], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(
+      screen.getAllByRole("button", { name: /Split: Charizard/ }).every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(
+      screen.getAllByRole("button", { name: /Update: Charizard/ }).every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'form[data-catalog-primary-workbench-command="update-merge-candidate"] input[name="mergeCandidateCommandBody"]',
+      )?.value,
+    ).toBe("");
   });
 
   it("shows selected-scope import preflight usage evidence before sync", async () => {

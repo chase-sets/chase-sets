@@ -16,6 +16,7 @@ import type {
   CatalogMergeCandidateStatus,
   CatalogMergeCandidateWarning,
   CatalogMergeCandidateConflict,
+  CatalogMergeCandidateObservationMember,
 } from "../domain/catalog-merge-candidate";
 
 export type SourceObservationListRow = Readonly<{
@@ -75,6 +76,7 @@ export type CatalogMergeCandidateListRow = Readonly<{
   conflicts_json: readonly CatalogMergeCandidateConflict[];
   warnings_json: readonly CatalogMergeCandidateWarning[];
   field_provenance_json: readonly CatalogMergeCandidateFieldProvenance[];
+  membership_json: readonly CatalogMergeCandidateObservationMember[];
   promotion_intent: CatalogMergeCandidatePromotionIntent;
   created_at: string;
   updated_at: string;
@@ -199,10 +201,27 @@ export async function listCatalogMergeCandidates(
   const offset = params.offset ?? 0;
   const countSql = `SELECT COUNT(*) as count FROM catalog_merge_candidates c ${where}`;
   const listSql = `SELECT c.*,
-                          COALESCE(m.observation_count, 0)::integer AS observation_count
+                          COALESCE(m.observation_count, 0)::integer AS observation_count,
+                          COALESCE(m.membership_json, '[]'::jsonb) AS membership_json
                    FROM catalog_merge_candidates c
                    LEFT JOIN (
-                     SELECT candidate_id, COUNT(*)::integer AS observation_count
+                     SELECT candidate_id,
+                            COUNT(*)::integer AS observation_count,
+                            jsonb_agg(
+                              jsonb_build_object(
+                                'observationId', observation_id,
+                                'syncRunId', sync_run_id,
+                                'providerKey', provider_key,
+                                'externalKey', external_key,
+                                'sourceRecordHash', source_record_hash,
+                                'sourceProfileKey', source_profile_key,
+                                'sourceProfileVersion', source_profile_version,
+                                'sourceMappingFingerprint', source_mapping_fingerprint,
+                                'observedAt', observed_at,
+                                'addedAt', added_at
+                              )
+                              ORDER BY observation_id ASC
+                            ) AS membership_json
                      FROM catalog_merge_candidate_observations
                      GROUP BY candidate_id
                    ) m ON m.candidate_id = c.candidate_id

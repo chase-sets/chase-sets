@@ -118,6 +118,12 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.description":
     "Review merged candidates first, then inspect Source Observation evidence only when provenance needs a closer look.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.conflicts": "Conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayload":
+    "{action}: {kind} from {sourceCount} source(s), {productReferenceCount} Product reference(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads":
+    "Generated command payloads",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.empty":
+    "No generated split or update payload is available for this row.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.description":
     "Compare source values, provenance, proposed references, Product mapping, and review actions for this candidate.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.fieldProvenance": "Field provenance",

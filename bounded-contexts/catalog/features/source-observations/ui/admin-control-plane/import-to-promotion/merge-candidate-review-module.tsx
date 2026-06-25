@@ -137,7 +137,7 @@ export function CatalogIntegrationMergeCandidateReviewModule({
                   key={actionEntry.key}
                   readModel={readModel}
                   row={row}
-                  actionKey={actionEntry.key}
+                  actionEntry={actionEntry}
                   disabled={actionEntry.state !== "available" && actionEntry.state !== "degraded"}
                 />
               ))}
@@ -276,6 +276,24 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
           items={row.conflicts.messages}
           emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
         />
+        <EvidenceStringList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads")}
+          items={row.actions.flatMap((actionEntry) =>
+            actionEntry.commandPreview
+              ? [
+                  t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayload", {
+                    action: candidateActionLabel(actionEntry.key),
+                    kind: actionEntry.commandPreview.commandKind,
+                    sourceCount: actionEntry.commandPreview.provenance.membership.length,
+                    productReferenceCount: actionEntry.commandPreview.provenance.externalProductReferences.length,
+                  }),
+                ]
+              : [],
+          )}
+          emptyLabel={t(
+            "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.empty",
+          )}
+        />
       </WorkbenchStack>
     </SideSheet>
   );
@@ -284,20 +302,24 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
 function MergeCandidateActionButton({
   readModel,
   row,
-  actionKey,
+  actionEntry,
   disabled,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   row: MergeCandidateRow;
-  actionKey: CatalogPrimaryWorkbenchMergeCandidateActionKey;
+  actionEntry: MergeCandidateRow["actions"][number];
   disabled: boolean;
 }>) {
+  const actionKey = actionEntry.key;
   return (
     <CommandFormButton
       readModel={readModel}
       intent={actionKey}
       candidateId={row.candidateId}
       reason={candidateActionReason(actionKey)}
+      mergeCandidateCommandBody={
+        actionEntry.commandPreview ? JSON.stringify(actionEntry.commandPreview.body) : undefined
+      }
       size="sm"
       tone={actionKey === "promote-merge-candidate" ? "primary" : "secondary"}
       disabled={disabled}
