@@ -723,6 +723,102 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("rebinds replacement Buy Now sessions to an Ordering preview for the fresh session id", async () => {
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering
+      .mockResolvedValueOnce({
+        ...readyBuyNowSupplyPreview(),
+        revision: "stale_deterministic_preview",
+      })
+      .mockResolvedValueOnce({
+        ...readyBuyNowSupplyPreview(),
+        revision: "fresh_replacement_preview",
+      });
+    const createBuyNow = vi.fn(async () => ({
+      sessionId: "chk_replacement" as never,
+      commitPosition: "41",
+      commitEventIds: ["evt_replacement_started"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "41",
+          eventIds: ["evt_replacement_started"],
+        },
+      ],
+    }));
+    const recordFulfillmentPreview = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      session: createSession({ session_id: sessionId }),
+      commitPosition: "42",
+      commitEventIds: ["evt_replacement_preview"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_replacement_preview"],
+        },
+      ],
+    }));
+    const services = createServices({ createBuyNow, recordFulfillmentPreview });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entryAttemptKey: "entry_attempt_1",
+          source: {
+            type: "buy-now",
+            listingId: "lst_1",
+            lockedListingId: "lst_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_replacement",
+      status: "started",
+      commitPosition: "42",
+      commitEventIds: ["evt_replacement_started", "evt_replacement_preview"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_replacement_started", "evt_replacement_preview"],
+        },
+      ],
+    });
+    const stalePreviewSessionId = mockPreviewBuyNowCheckoutSupplyThroughOrdering.mock.calls[0]?.[1].checkoutSessionId;
+    expect(stalePreviewSessionId).toMatch(/^chk_[a-f0-9]{32}$/);
+    expect(createBuyNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fulfillmentPreviewRevision: "stale_deterministic_preview",
+        sessionIdOverride: stalePreviewSessionId,
+      }),
+      expect.any(Object),
+    );
+    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        checkoutSessionId: "chk_replacement",
+      }),
+    );
+    expect(recordFulfillmentPreview).toHaveBeenCalledWith(
+      {
+        sessionId: "chk_replacement",
+        accountId: "acc_buyer",
+        fulfillmentPreviewRevision: "fresh_replacement_preview",
+      },
+      expect.any(Object),
+    );
+  });
+
   it("blocks buy-now session creation until Ordering can fulfill the locked listing", async () => {
     mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue({
       ...readyBuyNowSupplyPreview(),
