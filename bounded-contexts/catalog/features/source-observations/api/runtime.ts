@@ -239,7 +239,10 @@ import type {
   ProviderTransportDiagnostic,
   ProviderUsageEstimate,
 } from "./provider-adapters/provider-adapter";
-import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
+import {
+  listCatalogProviderIntegrationOptionsFromProfiles,
+  type CatalogProviderIntegrationOption,
+} from "./provider-option-query-resolver";
 import type { ProviderOptionAliasRecord } from "./provider-option-aliases";
 import {
   createPgCatalogProviderOptionQueryCacheStore,
@@ -431,21 +434,6 @@ type SourceObservationIntegrationWorkUnitPayload = Readonly<{
   reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
-type TcgplayerIntegrationImportTarget = Readonly<{
-  targetId: string;
-  name: string;
-  productLineId?: number;
-  productLineName?: string;
-  setName?: string;
-  productId?: number;
-}>;
-
-type TcgplayerProductImportProgress = Readonly<{
-  currentName: string | null;
-  completed: number;
-  total: number;
-}>;
-
 type ProviderAdapterIntegrationImportTarget = Readonly<{
   targetId: string;
   name: string;
@@ -453,6 +441,8 @@ type ProviderAdapterIntegrationImportTarget = Readonly<{
   values: Readonly<Record<string, string>>;
   languageCode: string;
 }>;
+
+type ProviderIntegrationImportTargetOptionScope = "expansion" | "set-name";
 
 type ProviderAdapterImportProgress = Readonly<{
   currentName: string | null;
@@ -2827,12 +2817,7 @@ export function createSourceObservationRuntime(
     );
     const providerProfile = providerProfileVersion.profile;
 
-    const targets =
-      providerProfile.providerKey === "tcgplayer"
-        ? await previewTcgplayerIntegrationImportTargets(scope, providerProfileVersion)
-        : providerProfile.providerKey === "tcgdex"
-          ? await previewTcgdexIntegrationImportTargets(scope, providerProfileVersion)
-          : await previewProviderAdapterIntegrationImportTargets(scope, providerProfile, providerProfileVersion);
+    const targets = await previewProviderAdapterIntegrationImportTargets(scope, providerProfileVersion);
 
     return {
       action: "import",
@@ -3554,117 +3539,14 @@ export function createSourceObservationRuntime(
     );
     const providerProfile = providerProfileVersion.profile;
 
-    if (providerProfile.providerKey === "tcgplayer") {
-      return processTcgplayerIntegrationImportJobTurn({
-        job: input.job,
-        scope,
-        providerProfile,
-        providerProfileVersion,
-        claimTtlMs: input.claimTtlMs,
-        context: input.context,
-      });
-    }
-
-    if (providerProfile.providerKey !== "tcgdex") {
-      return processProviderAdapterIntegrationImportJobTurn({
-        job: input.job,
-        scope,
-        providerProfile,
-        providerProfileVersion,
-        claimTtlMs: input.claimTtlMs,
-        context: input.context,
-      });
-    }
-
-    const languageCode = scope.language || "en";
-    const expansions = scope.setId
-      ? [
-          {
-            expansionId: scope.setId,
-            name: scope.setId,
-            seriesId: scope.seriesId || null,
-          },
-        ]
-      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
-          languageCode,
-          seriesId: scope.seriesId || null,
-        });
-    throwIfJobRunCancelled(input.context);
-    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(expansions.length, []);
-    const completedExpansionIds = new Set(
-      previousResult.outcomes
-        .filter((outcome) => outcome.status !== "failed")
-        .map((outcome) => outcome.expansionId)
-        .filter(Boolean),
-    );
-    const nextExpansion = expansions.find((expansion) => !completedExpansionIds.has(expansion.expansionId));
-
-    if (!nextExpansion) {
-      const result = summarizeIntegrationJobOutcomes(expansions.length, previousResult.outcomes);
-      return {
-        complete: true,
-        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
-        result,
-      };
-    }
-
-    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
-      jobId: input.job.jobId,
-      claimOwnerId: input.job.claimOwnerId,
-      claimTtlMs: input.claimTtlMs,
-      signal: input.context.signal,
-      throwIfLeaseLost: input.context.throwIfLeaseLost,
-      cancelledMessage: "Source Observation job run was cancelled.",
-      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
-    });
-    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
-      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
-      completed: (progress) => progress.completed,
-      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
-    });
-    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
-    let lastRecordRenewedAt = 0;
-
-    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name));
-
-    throwIfJobRunCancelled(input.context);
-    const outcome = await importIntegrationExpansion({
-      expansion: nextExpansion,
-      languageCode,
+    return processProviderAdapterIntegrationImportJobTurn({
+      job: input.job,
+      scope,
       providerProfile,
       providerProfileVersion,
-      syncRunId: input.job.syncRunId,
-      context: input.job.eventContext,
-      beforeRecordObservation: async () => {
-        throwIfJobRunCancelled(input.context);
-        const now = Date.now();
-        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
-          await jobContext.renew();
-          lastRecordRenewedAt = Date.now();
-        }
-      },
-      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
-      onProgress: async (setProgress) => {
-        throwIfJobRunCancelled(input.context);
-        await progressCheckpoint.checkpoint(
-          bulkProgress(
-            previousResult.outcomes.length,
-            expansions.length,
-            setProgress.currentName ?? nextExpansion.name,
-            null,
-            "processing",
-          ),
-        );
-      },
+      claimTtlMs: input.claimTtlMs,
+      context: input.context,
     });
-    const result = summarizeIntegrationJobOutcomes(expansions.length, [...previousResult.outcomes, outcome]);
-    const progress = bulkProgress(result.outcomes.length, result.requested, nextExpansion.name, outcome.status);
-
-    return {
-      complete: result.outcomes.length >= result.requested,
-      progress,
-      result,
-    };
   }
 
   async function processIntegrationReapplyJobTurn(input: {
@@ -3775,139 +3657,13 @@ export function createSourceObservationRuntime(
     );
     const providerProfile = providerProfileVersion.profile;
 
-    if (providerProfile.providerKey === "tcgplayer") {
-      return processTcgplayerIntegrationImportJob({
-        scope,
-        providerProfileVersion,
-        context: input.context,
-        onProgress: input.onProgress,
-      });
-    }
-
-    if (providerProfile.providerKey !== "tcgdex") {
-      return processProviderAdapterIntegrationImportJob({
-        scope,
-        providerProfile,
-        providerProfileVersion,
-        context: input.context,
-        onProgress: input.onProgress,
-      });
-    }
-
-    const languageCode = scope.language || "en";
-    const expansions = scope.setId
-      ? [
-          {
-            expansionId: scope.setId,
-            name: scope.setId,
-            seriesId: scope.seriesId || null,
-          },
-        ]
-      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
-          languageCode,
-          seriesId: scope.seriesId || null,
-        });
-    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
-    await input.onProgress?.(bulkProgress(0, expansions.length));
-
-    for (const expansion of expansions) {
-      try {
-        const result = await importTcgdexSetScope({
-          languageCode,
-          setId: expansion.expansionId,
-          seriesId: expansion.seriesId,
-          providerProfileVersion,
-          context: input.context,
-          onProgress: (progress) =>
-            input.onProgress?.(
-              bulkProgress(
-                outcomes.length,
-                expansions.length,
-                progress.currentName ?? expansion.name,
-                null,
-                "processing",
-              ),
-            ),
-        });
-        outcomes.push({
-          providerKey: providerProfile.providerKey,
-          languageCode,
-          expansionId: expansion.expansionId,
-          status: "imported",
-          observed: result.observed,
-          reapplied: 0,
-          reason: null,
-        });
-      } catch (error) {
-        outcomes.push({
-          providerKey: providerProfile.providerKey,
-          languageCode,
-          expansionId: expansion.expansionId,
-          status: "failed",
-          observed: 0,
-          reapplied: 0,
-          reason: error instanceof Error ? error.message : "Import failed.",
-        });
-      } finally {
-        const outcome = outcomes[outcomes.length - 1];
-        await input.onProgress?.(
-          bulkProgress(outcomes.length, expansions.length, expansion.name, outcome?.status ?? null),
-        );
-      }
-    }
-
-    await input.onProgress?.(bulkProgress(expansions.length, expansions.length, null, null, "completed"));
-
-    return summarizeIntegrationJobOutcomes(expansions.length, outcomes);
-  }
-
-  async function importIntegrationExpansion(input: {
-    expansion: Readonly<{ expansionId: string; name: string; seriesId?: string | null }>;
-    languageCode: string;
-    providerProfile: CatalogProviderIntegrationProfile;
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-    syncRunId?: string | null;
-    context: EventStoreContext;
-    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
-    beforeRecordObservation?: () => Promise<void>;
-    runRecordObservation?: DurableSideEffectRunner;
-  }): Promise<SourceObservationIntegrationJobOutcome> {
-    try {
-      const result = await importTcgdexSetScope({
-        languageCode: input.languageCode,
-        setId: input.expansion.expansionId,
-        seriesId: input.expansion.seriesId,
-        providerProfileVersion: input.providerProfileVersion,
-        syncRunId: input.syncRunId,
-        context: input.context,
-        onProgress: input.onProgress,
-        beforeRecordObservation: input.beforeRecordObservation,
-        runRecordObservation: input.runRecordObservation,
-      });
-      return {
-        providerKey: input.providerProfile.providerKey,
-        languageCode: input.languageCode,
-        expansionId: input.expansion.expansionId,
-        status: "imported",
-        observed: result.observed,
-        reapplied: 0,
-        reason: null,
-      };
-    } catch (error) {
-      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
-        throw error;
-      }
-
-      return {
-        providerKey: input.providerProfile.providerKey,
-        languageCode: input.languageCode,
-        expansionId: input.expansion.expansionId,
-        status: "failed",
-        observed: 0,
-        reapplied: 0,
-        reason: error instanceof Error ? error.message : "Import failed.",
-      };
-    }
+    return processProviderAdapterIntegrationImportJob({
+      scope,
+      providerProfile,
+      providerProfileVersion,
+      context: input.context,
+      onProgress: input.onProgress,
+    });
   }
 
   async function processProviderAdapterIntegrationImportJobTurn(input: {
@@ -4043,32 +3799,23 @@ export function createSourceObservationRuntime(
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
   ): Promise<readonly ProviderAdapterIntegrationImportTarget[]> {
     const languageCode = scope.language || "en";
+    const providerProfile = providerProfileVersion.profile;
     const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
-    const setCode = scope.setId || scope.setName || null;
-    if (setCode) {
-      return [
-        {
-          targetId: `set:${setCode}`,
-          name: scope.setName || setCode,
-          scopeKey: "set",
-          values: {
-            setCode,
-            setId: setCode,
-            expansionId: setCode,
-            ...(scope.setName ? { setName: scope.setName } : {}),
-            languageCode,
-          },
-          languageCode,
-        },
-      ];
-    }
-
     const productId = scope.productId || null;
     if (productId) {
-      if (
-        unitKey === SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY ||
-        unitKey === SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
-      ) {
+      if (providerProfile.supportedScopes.includes("product")) {
+        return [
+          {
+            targetId: `product:${productId}`,
+            name: `Product ${productId}`,
+            scopeKey: "product",
+            values: { productId, productName: `Product ${productId}`, languageCode },
+            languageCode,
+          },
+        ];
+      }
+
+      if (providerProfile.normalizedObservationMapping.kind.endsWith("sealed-product")) {
         return [
           {
             targetId: `sealed:${productId}`,
@@ -4091,17 +3838,213 @@ export function createSourceObservationRuntime(
       ];
     }
 
+    const expansionId = scope.setId?.trim() || null;
+    if (expansionId && supportsImportTargetOptionScope(providerProfile, "expansion")) {
+      return [
+        {
+          targetId: expansionId,
+          name: scope.setName || expansionId,
+          scopeKey: "expansion",
+          values: {
+            languageCode,
+            setId: expansionId,
+            expansionId,
+            seriesId: scope.seriesId?.trim() ?? "",
+          },
+          languageCode,
+        },
+      ];
+    }
+
+    if (!expansionId && supportsImportTargetOptionScope(providerProfile, "expansion")) {
+      const options = await listProviderImportTargetOptions({
+        providerProfileVersion,
+        queryScope: "expansion",
+        languageCode,
+        parentValue: scope.seriesId?.trim() || null,
+        unitKey,
+      });
+      return options.map((option) => ({
+        targetId: option.value,
+        name: option.label,
+        scopeKey: "expansion",
+        values: {
+          languageCode,
+          setId: option.value,
+          expansionId: option.value,
+          seriesId: option.parentValue ?? scope.seriesId?.trim() ?? "",
+        },
+        languageCode,
+      }));
+    }
+
+    const scopedSetName = scope.setName?.trim() || scope.setId?.trim() || null;
+    const usesProductLineSetNames = providerProfile.supportedScopes.includes("product-line/category");
+    if (scopedSetName && usesProductLineSetNames && supportsImportTargetOptionScope(providerProfile, "set-name")) {
+      const productLine = await resolveProductLineImportParent(scope, providerProfileVersion, unitKey);
+      return [
+        {
+          targetId: `set:${productLine.productLineId}:${scopedSetName}`,
+          name: scopedSetName,
+          scopeKey: "set-name",
+          values: {
+            productLineId: productLine.productLineId,
+            productLineName: productLine.productLineName,
+            setName: scopedSetName,
+            cleanSetName: scopedSetName,
+            languageCode,
+          },
+          languageCode,
+        },
+      ];
+    }
+
+    if (!scopedSetName && usesProductLineSetNames && supportsImportTargetOptionScope(providerProfile, "set-name")) {
+      const productLine = await resolveProductLineImportParent(scope, providerProfileVersion, unitKey);
+      const options = await listProviderImportTargetOptions({
+        providerProfileVersion,
+        queryScope: "set-name",
+        languageCode,
+        parentValue: productLine.productLineId,
+        unitKey,
+      });
+      return options
+        .filter((option) => option.metadata.active !== false)
+        .map((option) => {
+          const setName =
+            option.metadata.cleanSetName === undefined ? option.value : String(option.metadata.cleanSetName);
+          return {
+            targetId: `set:${productLine.productLineId}:${setName}`,
+            name: option.label || setName,
+            scopeKey: "set-name",
+            values: {
+              productLineId: productLine.productLineId,
+              productLineName: productLine.productLineName,
+              setName,
+              cleanSetName: setName,
+              languageCode,
+            },
+            languageCode,
+          };
+        });
+    }
+
+    const setCode = scope.setId || scope.setName || null;
+    if (setCode) {
+      return [
+        {
+          targetId: `set:${setCode}`,
+          name: scope.setName || setCode,
+          scopeKey: "set",
+          values: {
+            setCode,
+            setId: setCode,
+            expansionId: setCode,
+            ...(scope.setName ? { setName: scope.setName } : {}),
+            languageCode,
+          },
+          languageCode,
+        },
+      ];
+    }
+
     throw new Error(
       `Provider '${providerProfileVersion.providerKey}' integration unit '${unitKey}' import requires a set code or card id.`,
     );
   }
 
+  function supportsImportTargetOptionScope(
+    profile: CatalogProviderIntegrationProfile,
+    queryScope: ProviderIntegrationImportTargetOptionScope,
+  ): boolean {
+    return profile.optionQueries.some((query) => query.scope === queryScope);
+  }
+
+  async function listProviderImportTargetOptions(input: {
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    queryScope: ProviderIntegrationImportTargetOptionScope;
+    languageCode: string;
+    parentValue: string | null;
+    unitKey: string;
+  }): Promise<readonly CatalogProviderIntegrationOption[]> {
+    const query = input.providerProfileVersion.profile.optionQueries.find(
+      (candidate) => candidate.scope === input.queryScope,
+    );
+    if (!query) {
+      throw new Error(
+        `Provider '${input.providerProfileVersion.providerKey}' profile '${input.providerProfileVersion.profileKey}' does not declare a ${input.queryScope} import target query.`,
+      );
+    }
+
+    const adapter = providerAdapterForProfileVersion(input.providerProfileVersion);
+    const result = await adapter.listOptions({
+      unitKey: input.unitKey,
+      optionKind: query.queryKind,
+      parentValues: {
+        languageCode: input.languageCode,
+        parentValue: input.parentValue ?? "",
+        seriesId: input.queryScope === "expansion" ? (input.parentValue ?? "") : "",
+        productLineId: input.queryScope === "set-name" ? (input.parentValue ?? "") : "",
+      },
+    });
+
+    const records = result.items.map((item) => ({
+      value: item.value,
+      label: item.label,
+      parentValue: item.parentValue ?? input.parentValue ?? null,
+      aliases: providerOptionAliasesToJson(item.aliases),
+      ...item.metadata,
+    }));
+
+    return listCatalogProviderIntegrationOptionsFromProfiles({
+      profiles: [input.providerProfileVersion.profile],
+      providerKey: input.providerProfileVersion.providerKey,
+      queryKind: query.queryKind,
+      languageCode: input.languageCode,
+      parentValue: input.parentValue,
+      defaultProviderKey: input.providerProfileVersion.providerKey,
+      transports: {
+        listTcgdexExpansions: async () => records,
+        listTcgplayerSetNames: async () => records,
+      },
+    });
+  }
+
+  async function resolveProductLineImportParent(
+    scope: SourceObservationIntegrationJobScope,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
+    unitKey: string,
+  ): Promise<Readonly<{ productLineId: string; productLineName: string }>> {
+    const productLineId = scope.productLineId?.trim() || scope.seriesId?.trim() || null;
+    if (!productLineId) {
+      throw new Error(
+        `Provider '${providerProfileVersion.providerKey}' set-name import requires productLineId/categoryId or productId.`,
+      );
+    }
+
+    const query = providerProfileVersion.profile.optionQueries.find(
+      (candidate) => candidate.scope === "product-line/category",
+    );
+    if (!query) {
+      return { productLineId, productLineName: productLineId };
+    }
+
+    const adapter = providerAdapterForProfileVersion(providerProfileVersion);
+    const result = await adapter.listOptions({ unitKey, optionKind: query.queryKind });
+    const option = result.items.find((item) => String(item.value).trim() === productLineId);
+    if (!option) {
+      throw new Error(`Provider product line '${productLineId}' was not found.`);
+    }
+
+    const productLineName = option.metadata?.productLineName?.trim() || option.label || productLineId;
+    return { productLineId, productLineName };
+  }
+
   async function previewProviderAdapterIntegrationImportTargets(
     scope: SourceObservationIntegrationJobScope,
-    providerProfile: CatalogProviderIntegrationProfile,
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
   ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
-    const adapter = providerAdapterRegistry.require(providerProfile.providerKey);
+    const adapter = providerAdapterForProfileVersion(providerProfileVersion);
     const targets = await resolveProviderAdapterImportTargets(scope, providerProfileVersion);
     return Promise.all(
       targets.map(async (target) => {
@@ -4114,79 +4057,6 @@ export function createSourceObservationRuntime(
           targetId: target.targetId,
           name: target.name,
           languageCode: target.languageCode,
-          plan,
-        });
-      }),
-    );
-  }
-
-  async function previewTcgdexIntegrationImportTargets(
-    scope: SourceObservationIntegrationJobScope,
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
-  ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
-    const languageCode = scope.language || "en";
-    const expansions = scope.setId
-      ? [
-          {
-            expansionId: scope.setId,
-            name: scope.setId,
-            seriesId: scope.seriesId || null,
-          },
-        ]
-      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
-          languageCode,
-          seriesId: scope.seriesId || null,
-        });
-    const adapter = tcgdexAdapterForProfileVersion(providerAdapterRegistry, providerProfileVersion);
-    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
-
-    return Promise.all(
-      expansions.map(async (expansion) => {
-        const plan = await adapter.planImport({
-          unitKey,
-          scopeKey: "expansion",
-          values: { languageCode, setId: expansion.expansionId, seriesId: expansion.seriesId ?? "" },
-        });
-        return integrationImportPreviewTargetFromPlan({
-          targetId: expansion.expansionId,
-          name: expansion.name,
-          languageCode,
-          plan,
-        });
-      }),
-    );
-  }
-
-  async function previewTcgplayerIntegrationImportTargets(
-    scope: SourceObservationIntegrationJobScope,
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
-  ): Promise<readonly SourceObservationIntegrationImportPreviewTarget[]> {
-    const targets = await resolveTcgplayerImportTargets(scope, providerProfileVersion);
-    const adapter = tcgplayerAdapterForProfileVersion(
-      providerAdapterRegistry,
-      providerProfileVersion,
-      deps.tcgplayerAutomationCatalogClient,
-    );
-    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
-
-    return Promise.all(
-      targets.map(async (target) => {
-        const plan = await adapter.planImport({
-          unitKey,
-          scopeKey: target.productId !== undefined ? "product" : "set-name",
-          values:
-            target.productId !== undefined
-              ? { productId: String(target.productId), productName: target.name }
-              : {
-                  productLineId: target.productLineId === undefined ? "" : String(target.productLineId),
-                  productLineName: target.productLineName ?? "",
-                  setName: target.setName ?? "",
-                },
-        });
-        return integrationImportPreviewTargetFromPlan({
-          targetId: target.targetId,
-          name: target.name,
-          languageCode: "en",
           plan,
         });
       }),
@@ -4206,7 +4076,7 @@ export function createSourceObservationRuntime(
     let providerUsagePlan: ProviderImportPlan | null = null;
     const providerUsageRequestKeys = new Set<string>();
     try {
-      const adapter = providerAdapterRegistry.require(input.providerProfile.providerKey);
+      const adapter = providerAdapterForProfileVersion(input.providerProfileVersion);
       const unitKey = catalogProviderProfileVersionIngestionUnitKey(input.providerProfileVersion);
       const plan = await adapter.planImport({
         unitKey,
@@ -4218,6 +4088,9 @@ export function createSourceObservationRuntime(
       const observedAt = new Date().toISOString();
       const estimatedPayloads = plan.estimatedPayloads ?? 1;
       let observed = 0;
+      const payloadFailures: string[] = [];
+      const recordedObservations: Array<Readonly<{ observation: SourceObservationRecordInput; payload: JsonValue }>> =
+        [];
 
       for await (const envelope of adapter.fetchPayloads(plan, {
         onProgress: (progress) =>
@@ -4231,12 +4104,29 @@ export function createSourceObservationRuntime(
         if (providerRequestKey) {
           providerUsageRequestKeys.add(providerRequestKey);
         }
+        const preparedPayload = prepareProviderAdapterSourceObservationPayload({
+          payload: toJsonValue(envelope.payload),
+          providerProfile: input.providerProfile,
+        });
+        if (preparedPayload.kind === "failure") {
+          payloadFailures.push(preparedPayload.reason);
+          continue;
+        }
         await input.beforeRecordObservation?.();
         const observation = requireCatalogProviderSourceObservation({
           contract,
-          payload: toJsonValue(envelope.payload),
+          payload: preparedPayload.payload,
           observedAt,
         });
+        if (observed === 0 && isPokemonCardSourceObservationNormalized(observation.normalized)) {
+          await ensurePokemonReferenceHierarchy({
+            deps,
+            referenceData,
+            profile: input.providerProfile,
+            normalized: observation.normalized,
+            context: input.context,
+          });
+        }
         const writeObservation = () =>
           recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context);
         if (input.runRecordObservation) {
@@ -4244,6 +4134,10 @@ export function createSourceObservationRuntime(
         } else {
           await writeObservation();
         }
+        recordedObservations.push({
+          observation: { ...observation, syncRunId: input.syncRunId ?? null },
+          payload: preparedPayload.payload,
+        });
         observed += 1;
         await input.onProgress?.({
           currentName: input.target.name,
@@ -4252,14 +4146,26 @@ export function createSourceObservationRuntime(
         });
       }
 
+      await ingestAliasCandidatesForImportedTarget({
+        providerProfile: input.providerProfile,
+        contract,
+        recordedObservations,
+        observedAt,
+      });
+
       return {
         providerKey: input.providerProfile.providerKey,
         languageCode: input.target.languageCode,
         expansionId: input.target.targetId,
-        status: observed > 0 ? "imported" : "skipped",
+        status: payloadFailures.length > 0 ? "failed" : observed > 0 ? "imported" : "skipped",
         observed,
         reapplied: 0,
-        reason: observed > 0 ? null : `No provider payloads found for ${input.target.name}.`,
+        reason:
+          payloadFailures.length > 0
+            ? payloadFailureReason(payloadFailures, observed, input.providerProfile.displayName)
+            : observed > 0
+              ? null
+              : `No provider payloads found for ${input.target.name}.`,
         providerUsageEvidence: providerUsageEvidenceFromImportPlan(plan, providerUsageRequestKeys),
       };
     } catch (error) {
@@ -4282,322 +4188,106 @@ export function createSourceObservationRuntime(
     }
   }
 
-  async function processTcgplayerIntegrationImportJobTurn(input: {
-    job: ClaimedSourceObservationIntegrationJob;
-    scope: SourceObservationIntegrationJobScope;
-    providerProfile: CatalogProviderIntegrationProfile;
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-    claimTtlMs: number;
-    context: SourceObservationJobRunContext;
-  }): Promise<
-    Readonly<{
-      complete: boolean;
-      progress: BulkSourceObservationProgress;
-      result: SourceObservationIntegrationJobResult;
-    }>
-  > {
-    throwIfJobRunCancelled(input.context);
-    const targets = await resolveTcgplayerImportTargets(input.scope, input.providerProfileVersion);
-    throwIfJobRunCancelled(input.context);
-    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
-    const completedTargetIds = new Set(
-      previousResult.outcomes
-        .filter((outcome) => outcome.status !== "failed")
-        .map((outcome) => outcome.expansionId)
-        .filter(Boolean),
-    );
-    const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
+  function providerAdapterForProfileVersion(
+    profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  ): ProviderAdapter<unknown> {
+    if (profileVersion.active) {
+      return providerAdapterRegistry.require(profileVersion.providerKey);
+    }
 
-    if (!nextTarget) {
-      const result = summarizeIntegrationJobOutcomes(targets.length, previousResult.outcomes);
+    if (profileVersion.profile.connector.kind === "tcgdex-json") {
+      return createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion });
+    }
+
+    if (profileVersion.profile.connector.kind === "tcgplayer-automation-client") {
+      return createTcgplayerProviderAdapter({
+        loadProfileVersions: async () => [profileVersion],
+        client: deps.tcgplayerAutomationCatalogClient,
+      });
+    }
+
+    return providerAdapterRegistry.require(profileVersion.providerKey);
+  }
+
+  function prepareProviderAdapterSourceObservationPayload(input: {
+    payload: JsonValue;
+    providerProfile: CatalogProviderIntegrationProfile;
+  }): Readonly<{ kind: "payload"; payload: JsonValue }> | Readonly<{ kind: "failure"; reason: string }> {
+    if (input.providerProfile.connector.kind === "tcgdex-json") {
       return {
-        complete: true,
-        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
-        result,
+        kind: "payload",
+        payload:
+          isJsonRecord(input.payload) && isJsonRecord(input.payload.payload) ? input.payload.payload : input.payload,
       };
     }
 
-    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
-      jobId: input.job.jobId,
-      claimOwnerId: input.job.claimOwnerId,
-      claimTtlMs: input.claimTtlMs,
-      signal: input.context.signal,
-      throwIfLeaseLost: input.context.throwIfLeaseLost,
-      cancelledMessage: "Source Observation job run was cancelled.",
-      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
-    });
-    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
-      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
-      completed: (progress) => progress.completed,
-      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
-    });
-    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
-    let lastRecordRenewedAt = 0;
+    if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
+      return { kind: "payload", payload: input.payload };
+    }
 
-    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, targets.length, nextTarget.name));
+    if (!isJsonRecord(input.payload)) {
+      return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
+    }
 
-    const outcome = await importTcgplayerIntegrationTarget({
-      target: nextTarget,
-      providerProfile: input.providerProfile,
-      providerProfileVersion: input.providerProfileVersion,
-      syncRunId: input.job.syncRunId,
-      context: input.job.eventContext,
-      beforeRecordObservation: async () => {
-        throwIfJobRunCancelled(input.context);
-        const now = Date.now();
-        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
-          await jobContext.renew();
-          lastRecordRenewedAt = Date.now();
-        }
-      },
-      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
-      onProgress: async (targetProgress) => {
-        throwIfJobRunCancelled(input.context);
-        await progressCheckpoint.checkpoint(
-          bulkProgress(
-            previousResult.outcomes.length,
-            targets.length,
-            targetProgress.currentName ?? nextTarget.name,
-            null,
-            "processing",
-          ),
-        );
-      },
-    });
-    const result = summarizeIntegrationJobOutcomes(targets.length, [...previousResult.outcomes, outcome]);
+    if (input.payload.kind === "product-detail-failure") {
+      return {
+        kind: "failure",
+        reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
+      };
+    }
+
+    if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
+      return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
+    }
+
+    const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
+    if (!selectedOptionMapping) {
+      return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
+    }
 
     return {
-      complete: result.outcomes.length >= result.requested,
-      progress: bulkProgress(result.outcomes.length, result.requested, nextTarget.name, outcome.status),
-      result,
+      kind: "payload",
+      payload: buildTcgplayerAutomationSourceObservationPayload({
+        detail: input.payload.detail as TcgplayerAutomationProductDetail,
+        selectedOptionMapping,
+        externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
+      }),
     };
   }
 
-  async function processTcgplayerIntegrationImportJob(input: {
-    scope: SourceObservationIntegrationJobScope;
-    providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
-    context: EventStoreContext;
-    onProgress?: SourceObservationProgressHandler;
-  }): Promise<SourceObservationIntegrationJobResult> {
-    const scope = normalizeIntegrationJobScope(input.scope);
-    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider ?? "tcgplayer" });
-    rolloutControlPolicy.assertAllowed({
-      capability: "provider-transport",
-      providerKey: scope.provider ?? "tcgplayer",
-    });
-    const providerProfileVersion =
-      input.providerProfileVersion ??
-      (await requireCatalogImportProfileVersion(profileVersions, scope.provider, profileSelectorFromScope(scope)));
-    const providerProfile = providerProfileVersion.profile;
-    if (providerProfile.providerKey !== "tcgplayer") {
-      throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
-    }
-    const targets = await resolveTcgplayerImportTargets(scope, providerProfileVersion);
-    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
-    await input.onProgress?.(bulkProgress(0, targets.length));
-
-    for (const target of targets) {
-      const outcome = await importTcgplayerIntegrationTarget({
-        target,
-        providerProfile,
-        providerProfileVersion,
-        context: input.context,
-        onProgress: (targetProgress) =>
-          input.onProgress?.(
-            bulkProgress(
-              outcomes.length,
-              targets.length,
-              targetProgress.currentName ?? target.name,
-              null,
-              "processing",
-            ),
-          ),
-      });
-      outcomes.push(outcome);
-      await input.onProgress?.(bulkProgress(outcomes.length, targets.length, target.name, outcome.status));
-    }
-
-    await input.onProgress?.(bulkProgress(targets.length, targets.length, null, null, "completed"));
-
-    return summarizeIntegrationJobOutcomes(targets.length, outcomes);
+  function payloadFailureReason(failures: readonly string[], observed: number, providerDisplayName: string): string {
+    const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
+    return observed > 0
+      ? `Imported ${observed} ${providerDisplayName} product details before ${failureText}`
+      : failureText;
   }
 
-  async function resolveTcgplayerImportTargets(
-    scope: SourceObservationIntegrationJobScope,
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
-  ): Promise<readonly TcgplayerIntegrationImportTarget[]> {
-    const productId = parsePositiveInteger(scope.productId);
-    if (productId !== null) {
-      return [
-        {
-          targetId: `product:${productId}`,
-          name: `Product ${productId}`,
-          productId,
-        },
-      ];
-    }
-
-    const productLineId = parsePositiveInteger(scope.productLineId ?? scope.seriesId);
-    if (productLineId === null) {
-      throw new Error("TCGplayer import requires productLineId/categoryId or productId.");
-    }
-
-    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
-    const productLines = await listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
-      unitKey,
-    });
-    const productLine = productLines.find((item) => numberRecordValue(item, "productLineId") === productLineId);
-    if (!productLine) {
-      throw new Error(`TCGplayer product line '${productLineId}' was not found.`);
-    }
-    const productLineName = stringRecordValue(productLine, "productLineName") ?? String(productLineId);
-
-    const setName = scope.setName?.trim() || scope.setId?.trim() || undefined;
-    if (setName) {
-      return [
-        {
-          targetId: `set:${productLineId}:${setName}`,
-          name: setName,
-          productLineId,
-          productLineName,
-          setName,
-        },
-      ];
-    }
-
-    const setNames = await listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
-      productLineId,
-      unitKey,
-    });
-    return setNames
-      .filter((setNameOption) => booleanRecordValue(setNameOption, "active") !== false)
-      .map((setNameOption) => ({
-        targetId: `set:${productLineId}:${stringRecordValue(setNameOption, "cleanSetName") ?? ""}`,
-        name: stringRecordValue(setNameOption, "cleanSetName") ?? "",
-        productLineId,
-        productLineName,
-        setName: stringRecordValue(setNameOption, "cleanSetName") ?? "",
-      }));
-  }
-
-  async function importTcgplayerIntegrationTarget(input: {
-    target: TcgplayerIntegrationImportTarget;
+  async function ingestAliasCandidatesForImportedTarget(input: {
     providerProfile: CatalogProviderIntegrationProfile;
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
-    syncRunId?: string | null;
-    context: EventStoreContext;
-    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>;
-    beforeRecordObservation?: () => Promise<void>;
-    runRecordObservation?: DurableSideEffectRunner;
-  }): Promise<SourceObservationIntegrationJobOutcome> {
-    try {
-      const { details, failureReason } = await fetchTcgplayerTargetProductDetails(
-        input.target,
-        input.providerProfileVersion,
-        input.onProgress,
-      );
-      if (details.length === 0) {
-        return {
-          providerKey: input.providerProfile.providerKey,
-          languageCode: "en",
-          expansionId: input.target.targetId,
-          status: failureReason ? "failed" : "skipped",
-          observed: 0,
-          reapplied: 0,
-          reason: failureReason ?? `No TCGplayer products found for ${input.target.name}.`,
-        };
-      }
-
-      let observed = 0;
-      const observedAt = new Date().toISOString();
-      const contract = requireSourceObservationMappingContract(input.providerProfileVersion);
-      const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
-      if (!selectedOptionMapping) {
-        throw new Error("TCGplayer import profile must define selected option mapping.");
-      }
-      for (const detail of details) {
-        await input.beforeRecordObservation?.();
-        const observation = requireCatalogProviderSourceObservation({
-          contract,
-          payload: buildTcgplayerAutomationSourceObservationPayload({
-            detail,
-            selectedOptionMapping,
-            externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
-          }),
-          observedAt,
-        });
-        const writeObservation = () =>
-          recordObservation({ ...observation, syncRunId: input.syncRunId ?? null }, input.context);
-        if (input.runRecordObservation) {
-          await input.runRecordObservation(writeObservation);
-        } else {
-          await writeObservation();
-        }
-        observed += 1;
-      }
-
-      return {
-        providerKey: input.providerProfile.providerKey,
-        languageCode: "en",
-        expansionId: input.target.targetId,
-        status: failureReason ? "failed" : "imported",
-        observed,
-        reapplied: 0,
-        reason: failureReason,
-      };
-    } catch (error) {
-      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
-        throw error;
-      }
-
-      return {
-        providerKey: input.providerProfile.providerKey,
-        languageCode: "en",
-        expansionId: input.target.targetId,
-        status: "failed",
-        observed: 0,
-        reapplied: 0,
-        reason: error instanceof Error ? error.message : "TCGplayer import failed.",
-      };
+    contract: ReturnType<typeof requireSourceObservationMappingContract>;
+    recordedObservations: readonly Readonly<{ observation: SourceObservationRecordInput; payload: JsonValue }>[];
+    observedAt: string;
+  }): Promise<void> {
+    if (!input.providerProfile.capabilities.includes("alias-candidate-extraction")) {
+      return;
     }
-  }
 
-  async function fetchTcgplayerTargetProductDetails(
-    target: TcgplayerIntegrationImportTarget,
-    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
-    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>,
-  ): Promise<
-    Readonly<{
-      details: readonly TcgplayerAutomationProductDetail[];
-      failureReason: string | null;
-    }>
-  > {
-    const adapter = tcgplayerAdapterForProfileVersion(
-      providerAdapterRegistry,
-      providerProfileVersion,
-      deps.tcgplayerAutomationCatalogClient,
-    );
-    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
-    const plan = await adapter.planImport({
-      unitKey,
-      scopeKey: target.productId !== undefined ? "product" : "set-name",
-      values:
-        target.productId !== undefined
-          ? { productId: String(target.productId), productName: target.name }
-          : {
-              productLineId: target.productLineId === undefined ? "" : String(target.productLineId),
-              productLineName: target.productLineName ?? "",
-              setName: target.setName ?? "",
-            },
+    if (input.providerProfile.connector.kind !== "tcgdex-json") {
+      return;
+    }
+
+    await ingestTcgdexAliasCandidates({
+      profile: input.providerProfile,
+      observations: input.recordedObservations.map((recorded) => ({
+        observationId: recorded.observation.observationId,
+        sourceProfileKey: input.contract.profileKey,
+        sourceProfileVersion: input.contract.profileVersion,
+        mappingFingerprint: catalogProviderSourceMappingFingerprint(input.contract),
+        payload: recorded.payload as TcgdexObservationPayload["payload"],
+      })),
+      persist: aliasCandidateSink,
+      observedAt: input.observedAt,
     });
-
-    return collectTcgplayerProviderPayloads(adapter, plan, (progress) =>
-      onProgress?.({
-        currentName: progress.currentLabel ?? target.name,
-        completed: progress.completed,
-        total: progress.total,
-      }),
-    );
   }
 
   async function processIntegrationReapplyJob(input: {
@@ -4741,7 +4431,7 @@ export function createSourceObservationRuntime(
     previewCatalogMergeCandidatePromotionPlan: (input) => planCatalogMergeCandidatePromotionCommands(input),
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
-    importTcgplayerScope: processTcgplayerIntegrationImportJob,
+    importTcgplayerScope: processIntegrationImportJob,
     listTcgdexLanguages: () => {
       rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
       return listTcgdexLanguagesThroughAdapter(providerAdapterRegistry);
@@ -5094,10 +4784,7 @@ async function listProviderIntegrationOptions(
     profileKey: input.profileKey,
     ingestionUnitKey: input.ingestionUnitKey,
   });
-  const tcgplayerOptionUnitKey =
-    selectedVersion?.providerKey === "tcgplayer"
-      ? catalogProviderProfileVersionIngestionUnitKey(selectedVersion)
-      : null;
+  const selectedOptionUnitKey = selectedVersion ? catalogProviderProfileVersionIngestionUnitKey(selectedVersion) : null;
   return listCatalogProviderIntegrationOptionsFromProfiles({
     profiles: (selectedVersion ? [selectedVersion] : activeOptionQueryVersions).map((version) => version.profile),
     providerKey: input.providerKey,
@@ -5113,22 +4800,22 @@ async function listProviderIntegrationOptions(
         listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
       listTcgplayerProductLines: () =>
         listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
-          unitKey: tcgplayerOptionUnitKey,
+          unitKey: selectedOptionUnitKey,
         }),
       listTcgplayerSetNames: ({ productLineId }) =>
         listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
           productLineId,
-          unitKey: tcgplayerOptionUnitKey,
+          unitKey: selectedOptionUnitKey,
         }),
       listTcgplayerProducts: ({ setName }) =>
         listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
           setName,
-          unitKey: tcgplayerOptionUnitKey,
+          unitKey: selectedOptionUnitKey,
         }),
       listTcgplayerSkus: ({ productId }) =>
         listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
           productId,
-          unitKey: tcgplayerOptionUnitKey,
+          unitKey: selectedOptionUnitKey,
         }),
       listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listMtgjsonCards: ({ setCode }) =>
@@ -5220,8 +4907,7 @@ async function queryProviderIntegrationOptions(
     profileKey: input.profileKey,
     ingestionUnitKey: input.ingestionUnitKey,
   });
-  const tcgplayerOptionUnitKey =
-    profileVersion?.providerKey === "tcgplayer" ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : null;
+  const selectedOptionUnitKey = profileVersion ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : null;
   const liveVersions = profileVersion
     ? activeOptionQueryVersions.filter(
         (version) =>
@@ -5272,22 +4958,22 @@ async function queryProviderIntegrationOptions(
               listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
             listTcgplayerProductLines: () =>
               listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
-                unitKey: tcgplayerOptionUnitKey,
+                unitKey: selectedOptionUnitKey,
               }),
             listTcgplayerSetNames: ({ productLineId }) =>
               listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
                 productLineId,
-                unitKey: tcgplayerOptionUnitKey,
+                unitKey: selectedOptionUnitKey,
               }),
             listTcgplayerProducts: ({ setName }) =>
               listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
                 setName,
-                unitKey: tcgplayerOptionUnitKey,
+                unitKey: selectedOptionUnitKey,
               }),
             listTcgplayerSkus: ({ productId }) =>
               listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
                 productId,
-                unitKey: tcgplayerOptionUnitKey,
+                unitKey: selectedOptionUnitKey,
               }),
             listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listMtgjsonCards: ({ setCode }) =>
@@ -5390,9 +5076,7 @@ function profileVersionForProviderOptionQuery(
 function defaultSourceObservationImportProviderKeyFromVersions(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): string {
-  return (
-    versions.find((version) => version.providerKey === "tcgdex")?.providerKey ?? versions[0]?.providerKey ?? "tcgdex"
-  );
+  return versions[0]?.providerKey ?? "catalog";
 }
 
 async function listTcgdexLanguagesThroughAdapter(
@@ -6030,56 +5714,6 @@ async function listTcgplayerSkuOptionRecordsThroughAdapter(
   }));
 }
 
-async function collectTcgplayerProviderPayloads(
-  adapter: ProviderAdapter<TcgplayerProviderPayload>,
-  plan: ProviderImportPlan,
-  onProgress?: (progress: ProviderPayloadFetchProgress) => void | Promise<void>,
-): Promise<
-  Readonly<{
-    details: readonly TcgplayerAutomationProductDetail[];
-    failureReason: string | null;
-  }>
-> {
-  const details: TcgplayerAutomationProductDetail[] = [];
-  const failures: string[] = [];
-
-  for await (const envelope of adapter.fetchPayloads(plan, { onProgress })) {
-    if (envelope.payload.kind === "product-detail") {
-      details.push(envelope.payload.detail);
-    } else {
-      failures.push(envelope.payload.reason);
-    }
-  }
-
-  if (failures.length > 0) {
-    const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
-    return {
-      details,
-      failureReason:
-        details.length > 0 ? `Imported ${details.length} TCGplayer product details before ${failureText}` : failureText,
-    };
-  }
-
-  return { details, failureReason: null };
-}
-
-function tcgplayerAdapterForProfileVersion(
-  providerAdapterRegistry: ProviderAdapterRegistry,
-  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
-  client?: TcgplayerAutomationCatalogClient,
-): ProviderAdapter<TcgplayerProviderPayload> {
-  const registeredAdapter = requireTcgplayerAdapter(providerAdapterRegistry);
-
-  if (profileVersion.active) {
-    return registeredAdapter;
-  }
-
-  return createTcgplayerProviderAdapter({
-    loadProfileVersions: async () => [profileVersion],
-    client,
-  });
-}
-
 function requireTcgplayerAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): ProviderAdapter<TcgplayerProviderPayload> {
@@ -6115,10 +5749,6 @@ function providerOptionAliasesToJson(aliases: readonly ProviderOptionAlias[] | u
 
 function numberRecordValue(record: JsonValue, key: string): number | null {
   return numberFromString(stringRecordValue(record, key));
-}
-
-function booleanRecordValue(record: JsonValue, key: string): boolean | null {
-  return booleanFromString(stringRecordValue(record, key));
 }
 
 function numberFromString(value: string | null | undefined): number | null {
@@ -8388,15 +8018,6 @@ function profileSelectorFromScope(
         ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
       }
     : null;
-}
-
-function parsePositiveInteger(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = Number(value.trim());
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function integrationScopeToObservationScope(scope: SourceObservationIntegrationJobScope): SourceObservationFilterScope {
