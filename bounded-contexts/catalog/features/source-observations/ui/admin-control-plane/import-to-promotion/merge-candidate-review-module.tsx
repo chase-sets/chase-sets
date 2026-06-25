@@ -181,7 +181,10 @@ export function CatalogIntegrationMergeCandidateReviewModule({
       <BadgeCluster
         items={review.filters.map((filter) => ({
           key: filter.key,
-          label: `${filter.label}: ${filter.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected")}`,
+          label: t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.summary", {
+            label: filter.label,
+            value: filter.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          }),
           tone: filter.serverApplied ? "info" : "neutral",
         }))}
       />

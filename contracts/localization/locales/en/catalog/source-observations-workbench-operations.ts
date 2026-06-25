@@ -133,6 +133,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.scope": "Catalog scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.search": "Search",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.status": "Candidate status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.summary": "{label}: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.filter.syncRun": "Sync run",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.candidate": "Candidate",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.key.catalogItem": "Catalog Item",
