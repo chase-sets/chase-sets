@@ -7,6 +7,7 @@ import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-conte
 
 export type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
+  | "start-catalog-sync"
   | "start-provider-import"
   | "retry-import-job"
   | "resume-import-job"

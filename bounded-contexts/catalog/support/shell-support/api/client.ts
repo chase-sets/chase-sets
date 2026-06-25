@@ -1673,6 +1673,44 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async previewCatalogSyncScope<T>(scope: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/catalog-sync-scope/preview`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ scope }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async enqueueCatalogSyncRun<T>(scope: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/catalog-sync-scope/runs`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ scope }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async getCatalogSyncRun<T>(syncRunId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/catalog-sync-scope/runs/${encodeURIComponent(syncRunId)}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async retrySourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
       return sourceObservationIntegrationJobLifecycleCommand<T>({
         baseUrl,

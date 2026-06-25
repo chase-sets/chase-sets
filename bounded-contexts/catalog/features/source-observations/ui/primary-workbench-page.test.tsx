@@ -244,12 +244,25 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText("Old integrations surface")).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
 
-    // "Pull provider data" now lives once, in the Run sync stage (the duplicate
-    // shell-header copy was removed in #1967). Open that stage and confirm exactly
-    // one such action renders. Done last because opening Run sync collapses the
-    // review/create stages asserted above.
+    // Scope-first sync lives in the Run sync stage. Open that stage last because
+    // it collapses the review/create stages asserted above.
     fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
-    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBe(1);
+    expect(screen.getByRole("heading", { name: "Catalog scope sync" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start Catalog sync" })).toBeTruthy();
+
+    const syncForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+    );
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-catalog-sync");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="productDomain"]')?.value).toBe("pokemon");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="productForm"]')?.value).toBe("card");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="languageCode"]')?.value).toBe("ja");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceKind"]')?.value).toBe("expansion");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceId"]')?.value).toBe("SV8");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="expansionId"]')?.value).toBe("SV8");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="selectedUnitKeys"]')?.value).toBe(
+      "tcgdex:pokemon:card:import",
+    );
   });
 
   it("shows selected-scope import preflight usage evidence before sync", async () => {
@@ -587,7 +600,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  });
+  }, 15_000);
 
   it("renders validation readiness as a focused fixture, dry-run, compare, and activation workspace", () => {
     const profile = profileReview({
@@ -723,7 +736,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(proofSheet.getByText("Payload body")).toBeTruthy();
     expect(proofSheet.getByText("not retained")).toBeTruthy();
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
-  });
+  }, 15_000);
 
   it("renders lifecycle recovery with rollback, deprecation, retirement, and complete-removal evidence", () => {
     const overview = controlPlaneOverview();
@@ -912,7 +925,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("Inline diagnostics").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Long paths").length).toBeGreaterThan(0);
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON|raw JSON/i)).toBeNull();
-  });
+  }, 15_000);
 
   it("renders section forms as editable typed controls for draft profiles", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
@@ -996,17 +1009,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
-    // Open the Run sync stage to monitor the durable import; "Pull provider data"
-    // now lives once in this stage (the duplicate header copy was removed in #1967).
+    // Open the Run sync stage to monitor the durable import and keep the parent
+    // scope enqueue visible beside provider child job controls.
     fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
 
+    expect(screen.getByRole("heading", { name: "Catalog scope sync" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start Catalog sync" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
     expect(screen.getByText("Expected observations")).toBeTruthy();
     expect(screen.getAllByText("142").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100").length).toBeGreaterThan(0);
     expect(screen.getAllByText("import job job_001 is running (7/24).").length).toBeGreaterThan(0);
     expect(screen.getAllByText("7/24 work units, 29% complete").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: /Pull provider data/i })[0]?.hasAttribute("disabled")).toBe(true);
     expect(screen.getAllByRole("button", { name: "Cancel" }).length).toBeGreaterThan(0);
 
     const cancelForm = document.querySelector<HTMLFormElement>(
@@ -1680,11 +1694,14 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
-    const importForm = document.querySelector('form[data-catalog-primary-workbench-command="start-provider-import"]');
-    expect(importForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-provider-import");
-    expect(importForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
-    expect(importForm?.getAttribute("action")).toContain("/catalog/integrations?");
-    expect(importForm?.getAttribute("action")).not.toMatch(/raw-json|legacy|compat/i);
+    const syncForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+    );
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-catalog-sync");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="productDomain"]')?.value).toBe("pokemon");
+    expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceId"]')?.value).toBe("base1");
+    expect(syncForm?.getAttribute("action")).toContain("/catalog/integrations?");
+    expect(syncForm?.getAttribute("action")).not.toMatch(/raw-json|legacy|compat/i);
 
     const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
     const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];

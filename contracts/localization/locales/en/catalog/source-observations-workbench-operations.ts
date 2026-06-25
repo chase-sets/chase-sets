@@ -9,6 +9,26 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.title":
     "Primary import-to-promotion path is ready",
   "catalog.features.sourceObservations.ui.primaryWorkbench.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.description":
+    "Select provider participation inside this Catalog scope, preview the fan-out, and start one parent sync run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.description":
+    "Select a Catalog scope that can be planned by active provider units.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.title": "No provider units",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.delegatedChildren":
+    "Child retry, resume, and cancel remain delegated to provider import jobs.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.link": "Link",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.loading":
+    "Loading Catalog sync progress...",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.parentRun": "Parent sync run {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.providerChild": "Provider child",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.status": "Status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.selected": "{value} selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.start": "Start Catalog sync",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.childScope": "Child scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.providerUnit": "Provider unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.readiness": "Readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.table.sync": "Sync",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.title": "Catalog scope sync",
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.context": "Choose context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.provider": "choose provider",
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.scope": "choose scope",

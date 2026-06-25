@@ -501,8 +501,8 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       "pull-provider-data",
       2,
       ["readiness", "import-jobs"],
-      ["start-provider-import"],
-      "Provider import is started through the rebuilt Admin API with idempotent POST semantics.",
+      ["start-catalog-sync", "start-provider-import"],
+      "Catalog scope sync and provider import are started through rebuilt API contracts with idempotent POST semantics.",
     ),
     workflow(
       "monitor-import",
@@ -592,6 +592,7 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       null,
       ["readiness", "governance-controls", "supporting-evidence"],
       [
+        "start-catalog-sync",
         "start-provider-import",
         "preview-promotion",
         "execute-promotion",

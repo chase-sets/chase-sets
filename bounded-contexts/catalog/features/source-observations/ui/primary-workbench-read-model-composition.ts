@@ -52,6 +52,7 @@ import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
 import { sourceScopeWorksetFor } from "./primary-workbench-source-scope-workset";
+import { catalogSyncFor } from "./primary-workbench-catalog-sync";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -61,6 +62,7 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchReadModel["providerScope"];
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
+  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"];
   sourceScopeWorkset: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"];
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
@@ -274,6 +276,13 @@ function buildCatalogPrimaryWorkbenchCore(
     scopes: input.scopes.items,
     sourceOptions,
   });
+  const catalogSync = catalogSyncFor({
+    canManage,
+    generatedAt,
+    readinessBlockers,
+    routeContext,
+    sourceScopeWorkset,
+  });
 
   return {
     core: {
@@ -282,6 +291,7 @@ function buildCatalogPrimaryWorkbenchCore(
         providers: providerScopeProviders(input, providerKey, activeProfile, routeContext),
       },
       sourceOptions,
+      catalogSync,
       sourceScopeWorkset,
       readiness: {
         freshness: controlPlaneFreshness,
@@ -664,6 +674,7 @@ function assembleReadModel(
     routeContext: core.routeContext,
     providerScope: core.providerScope,
     readiness: core.readiness,
+    catalogSync: core.catalogSync,
     sourceScopeWorkset: core.sourceScopeWorkset,
     healthTriage: parts.healthTriage,
     profileAuthoring: parts.profileAuthoring,
@@ -700,22 +711,25 @@ function buildSurfaceActions(
     lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
   }>,
 ): readonly CatalogPrimaryWorkbenchActionReadModel[] {
-  return buildActions({
-    canManage: derived.canManage,
-    providerKey: derived.providerKey,
-    unitKey: derived.unitKey,
-    importScope: derived.importScope,
-    activeProfileReady: Boolean(derived.activeProfile),
-    eligible: core.promotionPreview.outcomeCounts.eligible,
-    reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
-    reviewFreshness: core.sourceObservationReview.freshness,
-    activeJobCount: derived.activeJobCount,
-    blockers: derived.readinessBlockers,
-    activationBlockers: slices.validationReadiness.activationDecision.blockers,
-    cloneProfileBlockers: slices.profileAuthoring.cloneDraft.blockers,
-    lifecycleOperations: slices.lifecycleRecovery.operations,
-    promotionBlockers: core.promotionPreview.blockers,
-  });
+  return [
+    core.catalogSync.action,
+    ...buildActions({
+      canManage: derived.canManage,
+      providerKey: derived.providerKey,
+      unitKey: derived.unitKey,
+      importScope: derived.importScope,
+      activeProfileReady: Boolean(derived.activeProfile),
+      eligible: core.promotionPreview.outcomeCounts.eligible,
+      reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
+      reviewFreshness: core.sourceObservationReview.freshness,
+      activeJobCount: derived.activeJobCount,
+      blockers: derived.readinessBlockers,
+      activationBlockers: slices.validationReadiness.activationDecision.blockers,
+      cloneProfileBlockers: slices.profileAuthoring.cloneDraft.blockers,
+      lifecycleOperations: slices.lifecycleRecovery.operations,
+      promotionBlockers: core.promotionPreview.blockers,
+    }),
+  ];
 }
 
 function inferProviderKey(input: CatalogPrimaryWorkbenchInput): string | null {

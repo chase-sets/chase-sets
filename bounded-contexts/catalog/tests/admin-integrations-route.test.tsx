@@ -3128,6 +3128,54 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("enqueues a scope-first Catalog sync run and carries the parent run id", async () => {
+    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueCatalogSyncRun,
+    });
+
+    const response = await runDailyActionRedirect({
+      _intent: "start-catalog-sync",
+      productDomain: "pokemon",
+      productForm: "single-card",
+      languageCode: "ja",
+      referenceKind: "expansion",
+      referenceId: "SV8",
+      referenceName: "Super Electric Breaker",
+      seriesId: "SV",
+      seriesName: "Scarlet & Violet",
+      expansionId: "SV8",
+      expansionName: "Super Electric Breaker",
+      selectedUnitKeys: "tcgdex:pokemon:single-card:source-observation-import",
+      excludedUnitKeys: "",
+    });
+    const location = redirectLocation(response);
+
+    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
+      scopeVersion: "catalog-sync-scope-v1",
+      productDomain: "pokemon",
+      productForm: "single-card",
+      languageCode: "ja",
+      reference: {
+        kind: "expansion",
+        id: "SV8",
+        name: "Super Electric Breaker",
+        seriesId: "SV",
+        seriesName: "Scarlet & Violet",
+      },
+      providerParticipation: {
+        requiredUnitKeys: [],
+        selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+        excludedUnitKeys: [],
+      },
+    });
+    expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_123");
+    expect(location.searchParams.get("commandStatus")).toBe("success");
+    expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
+    expect(location.searchParams.get("importScope")).toBe("ja:SV:SV8");
+  });
+
   it("queues a TCGdex native language-series-set scope as a concrete expansion import", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_ja_sv8" });
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });

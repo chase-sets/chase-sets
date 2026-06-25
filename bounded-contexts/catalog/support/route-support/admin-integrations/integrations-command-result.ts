@@ -42,9 +42,13 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
 
 export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
   return (
-    result.feedback.status === "success" &&
-    result.feedback.intent === "preview-promotion" &&
-    result.feedback.result === "preview-ready" &&
-    Boolean(result.context.promotionPreviewId)
+    (result.feedback.status === "success" &&
+      result.feedback.intent === "preview-promotion" &&
+      result.feedback.result === "preview-ready" &&
+      Boolean(result.context.promotionPreviewId)) ||
+    (result.feedback.status === "success" &&
+      result.feedback.intent === "start-catalog-sync" &&
+      result.feedback.result === "job-queued" &&
+      Boolean(result.context.jobId))
   );
 }

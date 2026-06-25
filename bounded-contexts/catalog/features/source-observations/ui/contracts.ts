@@ -753,6 +753,141 @@ export interface SourceObservationIntegrationJobScope {
   productId?: string;
 }
 
+export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansion" | "set" | "catalog-item";
+
+export interface CatalogSyncScopeReference {
+  kind: CatalogSyncScopeReferenceKind;
+  id: string;
+  name: string | null;
+  seriesId?: string | null;
+  seriesName?: string | null;
+}
+
+export interface CatalogSyncScope {
+  scopeVersion: "catalog-sync-scope-v1";
+  productDomain: string;
+  productForm: string;
+  languageCode: string;
+  reference: CatalogSyncScopeReference;
+  providerHints?: {
+    providerKey: string;
+    unitKey?: string | null;
+    providerScope?: SourceObservationIntegrationJobScope | null;
+  }[];
+  providerParticipation?: {
+    requiredUnitKeys?: string[];
+    selectedUnitKeys?: string[];
+    excludedUnitKeys?: string[];
+  } | null;
+}
+
+export interface SourceObservationIntegrationJob {
+  jobId: string;
+  syncRunId: string | null;
+  action: SourceObservationIntegrationJobAction;
+  scope: SourceObservationIntegrationJobScope;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
+  status: "queued" | "running" | "completed" | "failed";
+  operatorStatus: SourceObservationIntegrationJobOperatorStatus;
+  consistency: SourceObservationIntegrationJobConsistency;
+  progress: {
+    phase: SourceObservationIntegrationJobPhase;
+    completed: number;
+    total: number;
+    currentName: string | null;
+    status: string | null;
+  };
+  result: SourceObservationIntegrationJobResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface CatalogSyncProviderParticipationPreviewUnit {
+  providerKey: string;
+  unitKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  role: "primary" | "supplementary" | "reference";
+  requirement: "required" | "optional";
+  selected: boolean;
+  eligibility: "eligible" | "blocked";
+  childExecutionScope: SourceObservationIntegrationJobScope | null;
+  estimate: SourceObservationProviderUsageEstimate | null;
+  blockers: {
+    code: string;
+    severity: "info" | "warning" | "error";
+    message: string;
+    providerKey: string;
+    unitKey: string | null;
+  }[];
+}
+
+export interface CatalogSyncProviderParticipationPreview {
+  previewVersion: "catalog-sync-provider-participation-preview-v1";
+  scope: CatalogSyncScope;
+  status: "ready" | "blocked";
+  startAllowed: boolean;
+  units: CatalogSyncProviderParticipationPreviewUnit[];
+  blockers: CatalogSyncProviderParticipationPreviewUnit["blockers"];
+  explanation: string;
+}
+
+export type CatalogSyncRunOperatorStatus = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+
+export interface CatalogSyncRun {
+  syncRunId: string;
+  scope: CatalogSyncScope;
+  status: CatalogSyncRunOperatorStatus;
+  progress: {
+    childJobs: {
+      total: number;
+      queued: number;
+      running: number;
+      completed: number;
+      partial: number;
+      failed: number;
+      cancelled: number;
+      stale: number;
+    };
+    providerTargets: {
+      completed: number;
+      total: number;
+    };
+  };
+  selectedUnits: {
+    providerKey: string;
+    unitKey: string;
+    profileKey: string;
+    profileVersion: string;
+    displayName: string;
+    role: CatalogSyncProviderParticipationPreviewUnit["role"];
+    requirement: CatalogSyncProviderParticipationPreviewUnit["requirement"];
+    childExecutionScope: SourceObservationIntegrationJobScope;
+  }[];
+  childJobs: {
+    providerKey: string;
+    unitKey: string;
+    profileKey: string;
+    profileVersion: string;
+    displayName: string;
+    childExecutionScope: SourceObservationIntegrationJobScope;
+    childJobId: string | null;
+    syncRunLinkState: "attached-to-child-payload" | "reused-active-child-job" | "child-enqueue-failed";
+    errorMessage: string | null;
+    status: string;
+    job: SourceObservationIntegrationJob | null;
+  }[];
+  preview: CatalogSyncProviderParticipationPreview;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SourceObservationProviderUsageEstimate {
   requestStrategy: "bulk-first" | "single-record" | "unknown";
   estimateState: "estimated" | "estimate-unavailable";

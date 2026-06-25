@@ -5,7 +5,11 @@ import type {
 } from "../../../client";
 import { CatalogApiError } from "../../../client";
 import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
-import type { SourceObservationIntegrationJobScope } from "../../../features/source-observations/ui/contracts";
+import type {
+  CatalogSyncScope,
+  CatalogSyncScopeReferenceKind,
+  SourceObservationIntegrationJobScope,
+} from "../../../features/source-observations/ui/contracts";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
@@ -21,6 +25,7 @@ import { stringValue } from "./integrations-form-values";
 export type CatalogPrimaryWorkbenchFormIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
   | "start-provider-import"
+  | "start-catalog-sync"
   | "retry-import-job"
   | "resume-import-job"
   | "cancel-import-job"
@@ -113,6 +118,39 @@ export function integrationScopeFromContext(context: RouteContext): SourceObserv
     expansionId:
       context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
   });
+}
+
+export function catalogSyncScopeFromContext(context: RouteContext, formData: FormData): CatalogSyncScope | null {
+  const scope = scopeContextFromRouteContext(context);
+  const productDomain = stringValue(formData.get("productDomain"));
+  const productForm = stringValue(formData.get("productForm"));
+  const languageCode = stringValue(formData.get("languageCode")) ?? scope.languageCode;
+  const selectedUnitKeys = formData
+    .getAll("selectedUnitKeys")
+    .map((value) => stringValue(value))
+    .filter((value): value is string => Boolean(value));
+  const excludedUnitKeys = formData
+    .getAll("excludedUnitKeys")
+    .map((value) => stringValue(value))
+    .filter((value): value is string => Boolean(value));
+  const reference = catalogSyncReferenceFromContext(context, formData);
+
+  if (!productDomain || !productForm || !languageCode || !reference) {
+    return null;
+  }
+
+  return {
+    scopeVersion: "catalog-sync-scope-v1",
+    productDomain,
+    productForm,
+    languageCode,
+    reference,
+    providerParticipation: {
+      requiredUnitKeys: [],
+      selectedUnitKeys: [...new Set(selectedUnitKeys)],
+      excludedUnitKeys: [...new Set(excludedUnitKeys)],
+    },
+  };
 }
 
 export function promotionScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
@@ -262,6 +300,32 @@ function promotionPreviewScopeToken(context: RouteContext, selectedObservationId
   ]
     .map(tokenSegment)
     .join("_");
+}
+
+function catalogSyncReferenceFromContext(
+  context: RouteContext,
+  formData: FormData,
+): CatalogSyncScope["reference"] | null {
+  const scope = scopeContextFromRouteContext(context);
+  const kind = stringValue(formData.get("referenceKind")) as CatalogSyncScopeReferenceKind | null;
+  const id =
+    stringValue(formData.get("referenceId")) ??
+    scope.expansionId ??
+    scope.expansionName ??
+    scope.seriesId ??
+    scope.productLineId;
+  if (!kind || !id) {
+    return null;
+  }
+
+  return {
+    kind,
+    id,
+    name:
+      stringValue(formData.get("referenceName")) ?? scope.expansionName ?? scope.seriesName ?? scope.productLineName,
+    seriesId: stringValue(formData.get("seriesId")) ?? scope.seriesId,
+    seriesName: stringValue(formData.get("seriesName")) ?? scope.seriesName,
+  };
 }
 
 function tokenSegment(value: string): string {

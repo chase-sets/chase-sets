@@ -198,17 +198,17 @@ test.describe("catalog admin integrations", () => {
     // owning stage and confirm its single canonical action; the run-sync stage is
     // the default landing when there is nothing to review yet.
     await page.getByRole("button", { name: "Run sync" }).first().click();
-    await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+    const catalogSyncCommand = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]');
+    await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
 
     // #1969: an import-context change is now a fetcher-scoped CLIENT navigation,
     // not a full-document GET reload. The provider/unit/scope selects submit on
     // change and revalidate only the affected slices, so the open stage and the
     // mounted page survive. Re-select the provider's current value (a guaranteed,
     // seed-independent context submit) and confirm the "Run sync" stage stays open
-    // — its "Pull provider data" action remains visible — and the URL is unchanged.
+    // — its Catalog sync action remains visible — and the URL is unchanged.
     // A pre-#1969 full reload would re-run the loader and reset to the default
-    // stage, dropping the open "Pull provider data" action. Do NOT wait for
+    // stage, dropping the open Catalog sync action. Do NOT wait for
     // networkidle: the change triggers a streamed/deferred revalidation that may
     // never settle the network; assert the stage button's continued visibility
     // directly.
@@ -217,7 +217,7 @@ test.describe("catalog admin integrations", () => {
       const currentProvider = await providerSelect.first().inputValue();
       await providerSelect.first().selectOption(currentProvider);
       await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
-      await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+      await expect(catalogSyncCommand.getByRole("button", { name: "Start Catalog sync" })).toBeVisible();
     }
 
     // #1974: the selected-record command surface is the canonical BulkActionBar /
