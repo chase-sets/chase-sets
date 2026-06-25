@@ -1510,6 +1510,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
       reappliedCount: number;
       skippedCount: number;
       failedCount: number;
+      redactedFailureReasons: readonly string[];
       replayOrReapplyState:
         | "not-applicable"
         | "reapply-current-active-profile"
@@ -2716,6 +2717,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   );
   assertPrimaryWorkbenchBlockers(value.importJobs?.selectedScope?.readiness.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.jobs.flatMap((job) => job.blockers));
+  assertPrimaryWorkbenchImportJobs(value.importJobs);
   assertPrimaryWorkbenchBlockers(
     value.sourceObservationReview?.rows.flatMap((row) => [
       ...row.promotionReadiness.blockers,
@@ -2793,6 +2795,32 @@ function validatePrimaryWorkbenchScopeContext(scope: CatalogPrimaryWorkbenchScop
       (value !== null && (typeof value !== "string" || value.includes("\n")))
     ) {
       throw new Error("Primary workbench route scope must use clean structured scope fields.");
+    }
+  }
+}
+
+function assertPrimaryWorkbenchImportJobs(value: CatalogPrimaryWorkbenchReadModel["importJobs"] | undefined): void {
+  if (!value) {
+    throw new Error("Primary workbench import jobs contract is required.");
+  }
+  for (const job of value.jobs) {
+    if (!job.result) {
+      continue;
+    }
+    if (!Array.isArray(job.result.redactedFailureReasons)) {
+      throw new Error("Primary workbench import job results must expose redacted failure reasons.");
+    }
+    for (const reason of job.result.redactedFailureReasons) {
+      if (
+        typeof reason !== "string" ||
+        !reason.trim() ||
+        reason.includes("\n") ||
+        /\b(api[-_ ]?key|x-api-key|x-team-id|authorization|bearer|token|secret|password)\s*[=:]\s*(?!\[redacted\])/i.test(
+          reason,
+        )
+      ) {
+        throw new Error("Primary workbench import job failure reasons must stay redaction-safe.");
+      }
     }
   }
 }

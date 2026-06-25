@@ -212,6 +212,7 @@ function jobResultFor(
     reappliedCount: job.result.reapplied,
     skippedCount: job.result.skipped,
     failedCount: job.result.failed,
+    redactedFailureReasons: job.result.redactedFailureReasons ?? [],
     replayOrReapplyState: replayOrReapplyStateFor(job),
   };
 }
