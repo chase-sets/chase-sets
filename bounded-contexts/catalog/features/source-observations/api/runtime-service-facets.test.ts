@@ -53,6 +53,7 @@ describe("Source Observation service facets", () => {
     expect(typeof reads.listSourceObservations).toBe("function");
     expect(typeof reads.listCatalogMergeCandidates).toBe("function");
     expect(typeof mergeCandidates.generateCatalogMergeCandidates).toBe("function");
+    expect(typeof mergeCandidates.previewCatalogMergeCandidatePromotionPlan).toBe("function");
     expect(typeof telemetry.recordControlPlaneTelemetry).toBe("function");
   });
 
