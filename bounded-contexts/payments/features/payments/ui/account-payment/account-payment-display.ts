@@ -7,6 +7,26 @@ export function formatMoney(amount: string) {
   return `$${amount}`;
 }
 
+const paymentTimestampMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function formatPaymentTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const hour = date.getUTCHours();
+  const hour12 = hour % 12 || 12;
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  const period = hour >= 12 ? "PM" : "AM";
+
+  return `${paymentTimestampMonths[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}, ${hour12}:${minute} ${period} UTC`;
+}
+
 export function statusTone(status: string): Tone {
   switch (status) {
     case "captured":
