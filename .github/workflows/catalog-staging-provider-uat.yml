@@ -20,6 +20,7 @@ on:
         options:
           - one-piece-launch
           - lorcana-launch
+          - tcgplayer-pokemon-targeted
           - all-provider-regression
 
 permissions:
