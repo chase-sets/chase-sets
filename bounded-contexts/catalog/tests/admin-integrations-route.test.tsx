@@ -18,6 +18,7 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
+import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
 
 const {
   mockCreateCatalogRequestApiClient,
@@ -4680,7 +4681,11 @@ describe("Catalog integrations route", () => {
   });
 });
 
-function tcgplayerReadinessUnit(unitKey: string, displayNameProduct: string, productDomain: string) {
+function tcgplayerReadinessUnit(
+  unitKey: string,
+  displayNameProduct: string,
+  productDomain: string,
+): CatalogIntegrationControlPlaneUnitReadiness {
   return {
     unitKey,
     providerKey: "tcgplayer",
@@ -4702,7 +4707,7 @@ function tcgplayerReadinessUnit(unitKey: string, displayNameProduct: string, pro
     diagnostics: [],
     latestDiagnosticText: null,
     dryRunEvidence: [],
-  } as const;
+  };
 }
 
 function aliasReviewReadModel() {
