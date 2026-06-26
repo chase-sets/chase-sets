@@ -385,13 +385,37 @@ describe("marketplace account payment route", () => {
     expect(paymentElement.mount).toHaveBeenCalled();
   });
 
+  it("loads versioned Stripe.js for Checkout Sessions", async () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+      buyerEmail: "buyer@example.com",
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector<HTMLScriptElement>('script[data-stripe-js="true"]')?.src).toBe(
+        "https://js.stripe.com/dahlia/stripe.js",
+      ),
+    );
+  });
+
   it("confirms a pending Checkout Session with loaded Checkout actions", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
     };
     const confirm = vi.fn().mockResolvedValue({});
-    const initCheckout = vi.fn((_options: StripeCheckoutOptionsMock) => ({
+    const initCheckoutElementsSdk = vi.fn((_options: StripeCheckoutOptionsMock) => ({
       createPaymentElement: vi.fn(() => paymentElement),
       loadActions: vi.fn().mockResolvedValue({
         type: "success",
@@ -412,7 +436,7 @@ describe("marketplace account payment route", () => {
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({
-      initCheckout,
+      initCheckoutElementsSdk,
       elements: vi.fn(),
       confirmPayment: vi.fn(),
     }));
@@ -436,7 +460,7 @@ describe("marketplace account payment route", () => {
     await waitFor(() => expect(revalidate).toHaveBeenCalled(), {
       timeout: 1000,
     });
-    const initCheckoutOptions = initCheckout.mock.calls[0]?.[0];
+    const initCheckoutOptions = initCheckoutElementsSdk.mock.calls[0]?.[0];
     expect(initCheckoutOptions).toMatchObject({
       clientSecret: "cs_live_123_secret_456",
       elementsOptions: {

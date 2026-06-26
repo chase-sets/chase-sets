@@ -54,6 +54,9 @@ type StripeElements = {
 };
 
 type StripeClient = {
+  initCheckoutElementsSdk?: (
+    options: StripeCheckoutOptions,
+  ) => StripeCheckoutController | Promise<StripeCheckoutController>;
   initCheckout?: (options: StripeCheckoutOptions) => StripeCheckoutController | Promise<StripeCheckoutController>;
   elements(options: StripeElementsOptions): StripeElements;
   confirmPayment(options: {
@@ -102,7 +105,7 @@ function loadStripeFactory(): Promise<StripeFactory> {
 
       const script = document.createElement("script");
       script.async = true;
-      script.src = "https://js.stripe.com/v3/";
+      script.src = "https://js.stripe.com/dahlia/stripe.js";
       script.dataset.stripeJs = "true";
       script.onload = () => {
         if (window.Stripe) {
@@ -191,9 +194,10 @@ export function StripeConfirmationCard({
         const clientSecret = payment.processor_client_secret!;
         const stripeElementsAppearance = createStripeElementsAppearance({ scope: container });
         const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
+        const initCheckoutElements = stripe.initCheckoutElementsSdk ?? stripe.initCheckout;
         const checkout =
-          clientSecret.startsWith("cs_") && stripe.initCheckout
-            ? await stripe.initCheckout({
+          clientSecret.startsWith("cs_") && initCheckoutElements
+            ? await initCheckoutElements({
                 clientSecret,
                 elementsOptions: {
                   appearance: checkoutElementsAppearance,
