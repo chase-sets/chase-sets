@@ -1,10 +1,28 @@
 {
   "contextName": "identity",
   "packageName": "@chase-sets/identity",
-  "ownedNouns": ["user", "account", "membership", "invitation", "api-key", "consent", "shipping-address"],
+  "ownedNouns": [
+    "user",
+    "account",
+    "membership",
+    "invitation",
+    "api-key",
+    "consent",
+    "shipping-address",
+    "user-preference"
+  ],
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
-  "slices": ["accounts", "users", "memberships", "invitations", "api-keys", "consents", "shipping-addresses"],
+  "slices": [
+    "accounts",
+    "users",
+    "memberships",
+    "invitations",
+    "api-keys",
+    "consents",
+    "shipping-addresses",
+    "preferences"
+  ],
   "allowedSupportDirectories": [
     "request-support",
     "route-support",
@@ -1285,6 +1303,11 @@
       "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
       "expectedConsumers": ["Internal identity module composition", "Checkout request-time address selection"]
     },
+    "preferences": {
+      "classification": "slice",
+      "purpose": "Own user presentation preference behavior, read models, and UI contracts for the identity context.",
+      "expectedConsumers": ["Internal identity module composition"]
+    },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
@@ -1305,6 +1328,7 @@
         "consents",
         "invitations",
         "memberships",
+        "preferences",
         "shipping-addresses",
         "users"
       ]
