@@ -106,7 +106,7 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("keeps the Pokemon TCGplayer automation profile available as a test-only unit", () => {
+  it("keeps the Pokemon TCGplayer automation profile available as an active source-observation unit", () => {
     const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
       profileKey: "pokemon-tcg-automation-client",
     })?.profile;
@@ -114,7 +114,7 @@ describe("catalog provider integration profiles", () => {
     expect(profile).toBe(tcgplayerAutomationClientProviderProfile);
     expect(profile).toMatchObject({
       providerKey: "tcgplayer",
-      status: "planned",
+      status: "active",
       normalizedObservationMapping: { kind: "pokemon-card" },
       catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
     });
@@ -773,8 +773,8 @@ describe("catalog provider integration profiles", () => {
     expect(pokemon).toMatchObject({
       providerKey: "tcgplayer",
       profileKey: "pokemon-tcg-automation-client",
-      lifecycle: "test",
-      active: false,
+      lifecycle: "active",
+      active: true,
       ingestionUnitIdentity: {
         unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
         productDomain: "pokemon",
@@ -902,7 +902,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
       ["tcgplayer", "active"],
-      ["tcgplayer", "planned"],
+      ["tcgplayer", "active"],
       ["ygojson", "active"],
       ["ygojson", "active"],
       ["ygoprodeck", "active"],
@@ -936,7 +936,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
-      ["tcgplayer", "2026.06.03", "test"],
+      ["tcgplayer", "2026.06.03", "active"],
       ["ygojson", "2026.06.21", "active"],
       ["ygojson", "2026.06.21", "active"],
       ["ygoprodeck", "2026.06.21", "active"],
@@ -1123,7 +1123,7 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgplayer",
       profileKey: "pokemon-tcg-automation-client",
       profileVersion: "2026.06.03",
-      active: false,
+      active: true,
       sourceContract: {
         repository: "todd-skelton/tcgplayer-automation-app",
         commit: "bf42aa8",
@@ -1134,7 +1134,7 @@ describe("catalog provider integration profiles", () => {
         providerKey: "tcgplayer",
         profileKey: "pokemon-tcg-automation-client",
         profileVersion: "2026.06.03",
-        lifecycle: "test",
+        lifecycle: "active",
         sourceObservation: expect.any(Object),
       }),
     });

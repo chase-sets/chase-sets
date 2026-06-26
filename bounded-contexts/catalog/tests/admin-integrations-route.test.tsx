@@ -510,6 +510,172 @@ describe("Catalog integrations route", () => {
     expect(routeData.requestUrl).toBe("https://admin.example/catalog/integrations?providerKey=tcgplayer");
   });
 
+  it("includes the selected configured TCGplayer Pokemon scope in Catalog sync participation", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const staleLorcastScope = sourceObservationScope({
+      provider_key: "lorcast",
+      product_line_id: undefined,
+      product_line_name: "Disney Lorcana",
+      series_id: undefined,
+      series_name: undefined,
+      expansion_id: undefined,
+      expansion_name: "The First Chapter",
+      observed_observations: 37,
+      changed_observations: 4,
+      promoted_observations: 2,
+    });
+    const pokemonTcgplayerScope = sourceObservationScope({
+      provider_key: "tcgplayer",
+      language_code: "en",
+      product_line_id: "3",
+      product_line_name: "Pokemon",
+      series_id: undefined,
+      series_name: undefined,
+      expansion_id: undefined,
+      expansion_name: "Base Set",
+      observed_observations: 9,
+      changed_observations: 1,
+      promoted_observations: 0,
+    });
+    const tcgplayerProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-tcg-automation-client",
+      profileVersion: "2026.06.03",
+      ingestionUnitKey: pokemonUnit,
+      displayName: "TCGplayer Pokemon Single Cards",
+      active: true,
+      lifecycle: "active",
+      status: "active",
+      profile: {
+        providerKey: "tcgplayer",
+        supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+      },
+      supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [staleLorcastScope, pokemonTcgplayerScope], total: 2, count: 2 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [tcgplayerProfile], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(
+        controlPlaneOverview({
+          readiness: {
+            ...controlPlaneOverview().readiness,
+            units: [
+              {
+                ...controlPlaneOverview().readiness.units[0]!,
+                unitKey: pokemonUnit,
+                providerKey: "tcgplayer",
+                displayName: "TCGplayer Pokemon Single Cards",
+                productDomain: "pokemon",
+                productForm: "single-card",
+                ingestionPurpose: "source-observation-import",
+                profileVersion: "2026.06.03",
+                credentialReadiness: "not-required",
+                credentialReadinessState: "not-required",
+                credentialRequirement: "not-required",
+                credentialDiagnosticCode: null,
+                transportReadiness: "ready",
+                fixtureValidationStatus: "ready",
+                dryRunStatus: "completed",
+              },
+            ],
+          },
+          providerReadiness: {
+            ...controlPlaneOverview().providerReadiness,
+            providers: [
+              {
+                ...controlPlaneOverview().providerReadiness.providers[0]!,
+                providerKey: "tcgplayer",
+                adapterKey: "tcgplayer",
+                unitKeys: [pokemonUnit],
+              },
+            ],
+          },
+          unitActivity: {
+            ...controlPlaneOverview().unitActivity,
+            units: [],
+          },
+        }),
+      ),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        page: { cursor: null, nextCursor: null, limit: 25, hasMore: false },
+        cache: {
+          status: "fresh",
+          source: "cache",
+          cacheKey: "sha256:empty",
+          fetchedAt: "2026-06-26T16:00:00.000Z",
+          expiresAt: "2026-06-26T17:00:00.000Z",
+          staleUntil: null,
+          cacheOnly: true,
+          forceRefresh: false,
+          degraded: false,
+          diagnostics: [],
+        },
+      }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(
+      routeData.readModel.providerScope.providers
+        .find((provider) => provider.providerKey === "tcgplayer")
+        ?.units.map((unit) => unit.unitKey),
+    ).toContain(pokemonUnit);
+    expect(routeData.readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([pokemonUnit]);
+    expect(routeData.readModel.sourceScopeWorkset.units[0]).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: pokemonUnit,
+      state: "changed",
+      counts: {
+        observed: 9,
+        changed: 1,
+        eligible: 10,
+      },
+      commandContext: {
+        providerKey: "tcgplayer",
+        productLineId: "3",
+        productLineName: "Pokemon",
+        expansionName: "Base Set",
+      },
+    });
+    expect(routeData.readModel.catalogSync.preview.units).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        unitKey: pokemonUnit,
+        selected: true,
+        eligibility: "eligible",
+        childExecutionScope: expect.objectContaining({
+          provider: "tcgplayer",
+          ingestionUnitKey: pokemonUnit,
+          language: "en",
+          productLineId: "3",
+          setName: "Base Set",
+        }),
+      }),
+    ]);
+    expect(routeData.readModel.catalogSync.action).toMatchObject({
+      key: "start-catalog-sync",
+      state: "available",
+      blockers: [],
+    });
+    expect(JSON.stringify(routeData.readModel.sourceScopeWorkset)).not.toContain("lorcast");
+    expect(JSON.stringify(routeData.readModel.catalogSync)).not.toContain("The First Chapter");
+  });
+
   it("loads cache-only provider source option pages into the daily read model", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };

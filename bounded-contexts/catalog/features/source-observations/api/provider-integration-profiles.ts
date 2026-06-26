@@ -66,6 +66,7 @@ import {
   tcgplayerMtgSealedProductSourceObservationMappingContract,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerOnePieceSingleCardProviderProductSourceObservationMappingContract,
   tcgplayerOnePieceSealedProductProviderProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
@@ -1257,8 +1258,8 @@ export const tcgdexPokemonTcgProviderProfile = {
 
 export const tcgplayerAutomationClientProviderProfile = {
   providerKey: "tcgplayer",
-  displayName: "TCGplayer",
-  status: "planned",
+  displayName: "TCGplayer Pokemon Single Cards",
+  status: "active",
   capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
   supportedScopes: ["product-line/category", "set-name", "product", "sku"],
   languageOptions: ["en"],
@@ -4556,10 +4557,10 @@ export const catalogProviderIntegrationProfileVersions = [
   {
     providerKey: "tcgplayer",
     profileKey: "pokemon-tcg-automation-client",
-    profileVersion: "2026.06.03",
+    profileVersion: TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
     ingestionUnitIdentity: tcgplayerProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
-    lifecycle: "test",
-    active: false,
+    lifecycle: "active",
+    active: true,
     profile: tcgplayerAutomationClientProviderProfile,
     sourceContract: tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
     fixtures: tcgplayerProviderProductSourceObservationMappingContract.fixtures,

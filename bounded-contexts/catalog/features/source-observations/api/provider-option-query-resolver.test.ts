@@ -25,7 +25,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
 
     expect(options.map((option) => [option.value, option.label, option.queryKind])).toEqual([
       ["tcgdex", "TCGdex", "providers"],
-      ["tcgplayer", "TCGplayer", "providers"],
+      ["tcgplayer", "TCGplayer Pokemon Single Cards", "providers"],
     ]);
   });
 
