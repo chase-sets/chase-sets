@@ -290,6 +290,7 @@ export const sourceContextWakeRegistry = [
       "identity:identity-invitation-projection",
       "identity:identity-membership-projection",
       "identity:identity-shipping-address-projection",
+      "identity:identity-user-preferences-projection",
       "identity:identity-user-projection",
       "marketplace:marketplace-identity-account-projection",
       "ordering:ordering-account-projection",
