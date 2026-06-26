@@ -1065,7 +1065,7 @@ describe("checkout web routes: checkout session action", () => {
     const receipt = await readResolvedFreshWriteToken(location);
     expectCompactPostWriteLocation(
       location,
-      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=",
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1&postWriteToken=",
     );
     expect(receipt?.commitPosition).toBeUndefined();
     expect(receipt?.sources).toEqual([

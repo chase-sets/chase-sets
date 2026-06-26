@@ -412,7 +412,7 @@ function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: strin
 }
 
 function paymentStartRefreshPath(sessionId: string, paymentMethodCategory: string) {
-  return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated`;
+  return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&resumePaymentStart=1`;
 }
 
 function checkoutPreviewRealtimeTopics(
@@ -762,6 +762,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
+    autoResumePaymentStart:
+      searchParams.get("resumePaymentStart") === "1" &&
+      readFreshWriteToken(resolvedRequest) !== null &&
+      !session.payment_id &&
+      session.order_ids.length > 0 &&
+      paymentPreview !== null,
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
   };
 }
@@ -993,6 +999,7 @@ export default function CheckoutSessionRoute() {
       errorMessage={actionData?.error ?? data.previewError ?? null}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
+      autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}
       initialEditSection={actionEditSection ?? data.initialEditSection}
       isSubmitting={navigation.state === "submitting"}
     />
