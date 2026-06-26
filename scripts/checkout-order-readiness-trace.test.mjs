@@ -343,21 +343,37 @@ describe("checkout order-readiness evidence", () => {
             workerId: "worker-b",
           }),
         },
+        {
+          attempt_count: 5,
+          required_position: "75",
+          next_eligible_at: "2026-06-26T11:59:45.000Z",
+          updated_at: "2026-06-26T11:59:55.000Z",
+          last_error: {
+            reason: "projection-run-failed",
+            message: "Inventory item inv_01KXYZ987654321 not found for reservation rsv_01KXYZ987654321.",
+          },
+        },
       ],
       observedAtUtc,
     );
 
     expect(diagnostics).toMatchObject({
-      sampleCount: 2,
-      maxAttemptCount: 4,
-      maxRequiredPosition: "74",
+      sampleCount: 3,
+      maxAttemptCount: 5,
+      maxRequiredPosition: "75",
       reasonCounts: {
         "checkpoint-not-ready": 1,
-        "projection-run-failed": 1,
+        "projection-run-failed": 2,
       },
       messageCategoryCounts: {
+        "message-present": 1,
         "message-redacted-sensitive": 1,
         "statement-timeout": 1,
+      },
+      messageSampleCounts: {
+        "canceling-statement-due-to-statement-timeout": 1,
+        "inventory-item-id-not-found-for-reservation-id": 1,
+        "redacted-sensitive-message": 1,
       },
       workerIdPresentCount: 2,
       checkpointPositionMax: "19",
@@ -367,6 +383,8 @@ describe("checkout order-readiness evidence", () => {
     });
     expect(JSON.stringify(diagnostics)).not.toContain("canceling statement");
     expect(JSON.stringify(diagnostics)).not.toContain("worker-a");
+    expect(JSON.stringify(diagnostics)).not.toContain("inv_01KXYZ987654321");
+    expect(JSON.stringify(diagnostics)).not.toContain("rsv_01KXYZ987654321");
     expect(assertRedactedTraceEvidence({ diagnostics })).toEqual([]);
   });
 
