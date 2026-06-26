@@ -731,6 +731,7 @@ export function summarizeWakeFailureDiagnostics(rows, observedAt) {
     ),
     reasonCounts: countTokens(errors.map((error) => safeDiagnosticToken(error?.reason) ?? "unknown")),
     messageCategoryCounts: countTokens(errors.map((error) => classifyWakeErrorMessage(error?.message))),
+    messageSampleCounts: countTokens(errors.map((error) => safeWakeErrorMessageSample(error?.message))),
     workerIdPresentCount: errors.filter((error) => normalizeString(error?.workerId)).length,
     checkpointPositionMax: maxStringNumber(errors.map((error) => error?.checkpointPosition)),
     requiredPositionFromErrorMax: maxStringNumber(errors.map((error) => error?.requiredPosition)),
@@ -1074,6 +1075,22 @@ function classifyWakeErrorMessage(value) {
   return "message-present";
 }
 
+function safeWakeErrorMessageSample(value) {
+  const text = normalizeString(value);
+  if (!text) {
+    return "none";
+  }
+  if (containsSensitivePattern(text)) {
+    return "redacted-sensitive-message";
+  }
+  return safeDiagnosticToken(
+    text
+      .replace(/\b[A-Za-z][A-Za-z0-9]{1,12}_[A-Za-z0-9_:-]{4,}\b/g, "id")
+      .replace(/\b[0-9a-f]{16,}\b/gi, "hex")
+      .replace(/[.]+/g, " "),
+  );
+}
+
 function containsSensitivePattern(value) {
   for (const pattern of SENSITIVE_PATTERNS) {
     pattern.lastIndex = 0;
@@ -1205,9 +1222,9 @@ function formatWakeRuntimeDiagnostics(traces) {
     summaries.push(
       `${trace.targetContextName}/${trace.projectionName} samples ${diagnostics.sampleCount}; reasons ${formatCounts(
         diagnostics.reasonCounts,
-      )}; messages ${formatCounts(diagnostics.messageCategoryCounts)}; max attempts ${
-        diagnostics.maxAttemptCount ?? "unknown"
-      }`,
+      )}; messages ${formatCounts(diagnostics.messageCategoryCounts)}; message samples ${formatCounts(
+        diagnostics.messageSampleCounts,
+      )}; max attempts ${diagnostics.maxAttemptCount ?? "unknown"}`,
     );
   }
   return summaries.length === 0 ? "none" : summaries.join("; ");
