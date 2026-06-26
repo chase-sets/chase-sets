@@ -38,7 +38,7 @@ Classes: **ratified** (numeric gate enforced today; see Dual-SLO Ratification), 
 | Worker queue age (hot lane) | **alert-gated: hot-lane queue age p95 SLO alert** | `chase_sets_projection_wake_intent_queue_age_ms{priority_lane="hot"}` |
 | Projection execution → checkpoint advance | instrumented + drill-audited | Projection group lag surfaces; reconciliation drill checkpoint gaps |
 | Checkpoint readiness (persistence-to-wake) + waiter registration | instrumented | Wake-status `checkpointSignals` (readiness/waiter counts and ages) |
-| Wake-before-wait enqueue latency | partially instrumented | `chase_sets_projection_freshness_work_signal_errors_total` (error-rate alert); no latency histogram yet — gap |
+| Wake-before-wait enqueue latency | instrumented | `chase_sets_projection_freshness_wake_enqueue_duration_ms` by outcome/lane/route template/context/projection; `chase_sets_projection_freshness_work_signal_errors_total` remains the error-rate alert |
 | API wait completion (route-wait) | **ratified per route**: checkout-session route budget 900 ms inside the 2,500 ms global timeout | Route tuning pinned in code; freshness audits |
 | Durable job SSE wake/replay | fallback-classed | Replay from durable job-event rows; composite waiter with bounded polling fallback ([Work-Signal Composite](./work-signal-composite.md)) |
 | Projection operation SSE wake/replay | fallback-classed | Same composite path; operator-class latency |
@@ -125,7 +125,8 @@ Supporting decisions:
 ## Honest Gaps
 
 - Production-like volume load proof: not done (deferred scope above, with owners/path recorded there). The dual SLOs above are ratified on staging gate evidence plus bounded drills; production-scale distributions may justify revisiting the numbers but do not block the ratified values from gating today.
-- Wake-before-wait enqueue latency and interest-index lookup latency: no histograms; safe over-wake rate: unmeasured.
+- Safe over-wake rate: unmeasured.
+- Wake-before-wait enqueue latency and interest-index lookup latency now have histograms; the remaining open reporting gap is sustained-window automation and release-health comparison, not raw segment emission.
 - Staging wake drill artifacts now include `segmentSlo` summaries for browser-visible canary segments, scoped durable convergence, and metric gaps. Missing checkout-ready observations remain unmeasured rather than zero-latency. Load artifacts that miss per-write readiness must also include `loadReadinessDecision` naming the accepted burst/saturation SLO; server-side notify/relay/store/claim distributions are still joined through Grafana by the drill/canary correlation window rather than embedded in the artifact.
 - Sustained-observation windows (30-day p95 by segment) have no automated reporting; dashboards exist, reporting is manual.
 - Production proof miss root cause is localized to projection execution under polling in the post-deploy window but not split between cold start and capacity without the production telemetry pull named above. The post-deploy readiness gate (delivered, action 2) splits the regimes going forward: a `ready` gate outcome followed by a canary miss is a steady-state capacity signal, not cold start.

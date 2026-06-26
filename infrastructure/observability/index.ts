@@ -128,6 +128,12 @@ const projectionFreshnessPendingLag = lazyHistogram("chase_sets_projection_fresh
   unit: "{global_position}",
 });
 const projectionFreshnessWakeRequestCounter = lazyCounter("chase_sets_projection_freshness_wake_requests_total");
+const projectionFreshnessWakeEnqueueDuration = lazyHistogram(
+  "chase_sets_projection_freshness_wake_enqueue_duration_ms",
+  {
+    unit: "ms",
+  },
+);
 const projectionFreshnessWorkSignalErrorCounter = lazyCounter(
   "chase_sets_projection_freshness_work_signal_errors_total",
 );
@@ -327,6 +333,24 @@ export type ProjectionFreshnessPendingMetric = Readonly<{
 export type ProjectionFreshnessWakeRequestMetric = Readonly<{
   attributes: Attributes;
   wakeRequestCount: number;
+}>;
+
+export type ProjectionFreshnessWakeEnqueueSignal = Readonly<{
+  outcome: "completed" | "failed";
+  priorityLane: string;
+  requestCount: number;
+  enqueuedCount: number;
+  durationMs: number;
+  sourceContextName?: string | null;
+  targetContextName?: string | null;
+  projectionName?: string | null;
+  mountPath?: string | null;
+  routePath?: string | null;
+}>;
+
+export type ProjectionFreshnessWakeEnqueueMetric = Readonly<{
+  attributes: Attributes;
+  durationMs: number;
 }>;
 
 export type ProjectionFreshnessWorkSignalErrorMetric = Readonly<{
@@ -1103,6 +1127,30 @@ export function recordProjectionFreshnessAudit(event: ProjectionFreshnessAuditSi
   for (const workSignalError of records.workSignalErrors) {
     projectionFreshnessWorkSignalErrorCounter.add(1, workSignalError.attributes);
   }
+}
+
+export function projectionFreshnessWakeEnqueueMetricRecord(
+  event: ProjectionFreshnessWakeEnqueueSignal,
+): ProjectionFreshnessWakeEnqueueMetric {
+  return {
+    durationMs: Math.max(0, Math.round(event.durationMs)),
+    attributes: {
+      outcome: boundedMetricLabel(event.outcome),
+      priority_lane: boundedMetricLabel(event.priorityLane),
+      source_context: boundedMetricLabel(event.sourceContextName),
+      target_context: boundedMetricLabel(event.targetContextName),
+      projection: boundedMetricLabel(event.projectionName),
+      mount_path: boundedRouteTemplateLabel(event.mountPath),
+      route_path: boundedRouteTemplateLabel(event.routePath),
+      request_count: Math.max(0, Math.floor(event.requestCount)),
+      enqueued_count: Math.max(0, Math.floor(event.enqueuedCount)),
+    },
+  };
+}
+
+export function recordProjectionFreshnessWakeEnqueue(event: ProjectionFreshnessWakeEnqueueSignal): void {
+  const record = projectionFreshnessWakeEnqueueMetricRecord(event);
+  projectionFreshnessWakeEnqueueDuration.record(record.durationMs, record.attributes);
 }
 
 export function recordProjectionWakeNotificationEmitted(event: ProjectionWakeNotificationEmittedSignal): void {

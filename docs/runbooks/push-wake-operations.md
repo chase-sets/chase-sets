@@ -118,7 +118,7 @@ Symptoms: `work-signals.cleanup.completed` absent or pruned counts pinned at the
 Symptoms: route-level 503/504s or `read-after-write.freshness` timeout outcomes spiking; `chase_sets_projection_freshness_work_signal_errors_total` alert.
 
 1. Follow [Projection Freshness Audit](./projection-freshness-audit.md) to classify by receipt, dependency, and wait mode — that runbook owns the route-side triage, including the Checkout document-route budget rules.
-2. Work-signal errors on the API host mean the wake-before-wait enqueue is failing (control-plane DB reachability from platform-api). The waits themselves still run; you can set `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false` to stop the error noise without changing correctness.
+2. Work-signal errors on the API host mean the wake-before-wait enqueue is failing (control-plane DB reachability from platform-api). Check `chase_sets_projection_freshness_wake_enqueue_duration_ms` on the Projection Wake Pipeline dashboard to separate slow successful enqueues from failed ones by route template, target context, projection, lane, and outcome. The waits themselves still run; you can set `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false` to stop the error noise without changing correctness.
 3. Cross-check Grafana queue-age panels: if hot-lane `api-wait` intents are queued but old, the bottleneck is worker scheduling (class 1), not the API.
 
 ### Durable-job / realtime wake fallback

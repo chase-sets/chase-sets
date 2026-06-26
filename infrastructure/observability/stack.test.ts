@@ -83,6 +83,9 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain(
       "chase_sets_projection_wake_intents_total",
     );
+    expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain(
+      "chase_sets_projection_freshness_wake_enqueue_duration_ms",
+    );
     expect(readStackFile("grafana/dashboards/catalog-integration-control-plane.json")).toContain(
       "Catalog Integration Control Plane",
     );

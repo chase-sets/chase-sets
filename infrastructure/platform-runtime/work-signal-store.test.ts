@@ -777,6 +777,7 @@ describe("work signal store", () => {
 describe("work signal store read-consistency gateway", () => {
   it("enqueues hot-lane api-wait wake intents for each request when enabled", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const wakeEnqueueEvents: unknown[] = [];
     const store = createPostgresWorkSignalStore(
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
@@ -799,7 +800,11 @@ describe("work signal store read-consistency gateway", () => {
         },
       },
       {
-        readConsistencyGateway: {},
+        readConsistencyGateway: {
+          observer: {
+            wakeEnqueueCompleted: (event) => wakeEnqueueEvents.push(event),
+          },
+        },
         now: () => NOW,
       },
     );
@@ -818,6 +823,72 @@ describe("work signal store read-consistency gateway", () => {
       requestedBy: "read-consistency",
       mountPath: "/api/marketplace",
     });
+    expect(wakeEnqueueEvents).toEqual([
+      expect.objectContaining({
+        outcome: "completed",
+        priorityLane: "hot",
+        requestCount: 1,
+        enqueuedCount: 1,
+        sourceContextName: "marketplace",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        mountPath: "/api/marketplace",
+        routePath: null,
+        durationMs: expect.any(Number),
+      }),
+    ]);
+  });
+
+  it("records failed wake-before-wait enqueue latency without leaking the thrown error", async () => {
+    const wakeEnqueueEvents: unknown[] = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async () => {
+          throw new Error("database failed for chk_123");
+        },
+      },
+      {
+        readConsistencyGateway: {
+          observer: {
+            wakeEnqueueCompleted: (event) => wakeEnqueueEvents.push(event),
+          },
+        },
+        now: () => NOW,
+      },
+    );
+
+    await expect(
+      store.readConsistencyGateway?.requestWake?.({
+        requests: [
+          WAKE_REQUEST,
+          {
+            ...WAKE_REQUEST,
+            sourceContextName: "catalog",
+            projectionName: "cart-pages",
+          },
+        ],
+        metadata: {
+          mountPath: "/api/marketplace",
+          routePaths: ["/account/checkout-sessions/:sessionId"],
+        },
+      }),
+    ).rejects.toThrow("database failed");
+
+    expect(wakeEnqueueEvents).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        priorityLane: "hot",
+        requestCount: 2,
+        enqueuedCount: 0,
+        sourceContextName: "multiple",
+        targetContextName: "checkout",
+        projectionName: "multiple",
+        mountPath: "/api/marketplace",
+        routePath: "/account/checkout-sessions/:sessionId",
+        durationMs: expect.any(Number),
+      }),
+    ]);
+    expect(JSON.stringify(wakeEnqueueEvents)).not.toContain("chk_123");
   });
 
   it("omits the read-consistency gateway unless the store factory option enables it", () => {

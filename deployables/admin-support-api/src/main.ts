@@ -29,6 +29,7 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordProjectionFreshnessWakeEnqueue,
 } from "@chase-sets/observability";
 import { buildAdminSupportApiApp, createAdminSupportApiHost } from "./app";
 import { resolveActorFromRequest } from "./auth-request-context";
@@ -76,7 +77,9 @@ const runtime = createAdminSupportApiHost({
 });
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.control, {
-  ...(config.readConsistency.wakeBeforeWaitEnabled ? { readConsistencyGateway: {} } : {}),
+  ...(config.readConsistency.wakeBeforeWaitEnabled
+    ? { readConsistencyGateway: { observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue } } }
+    : {}),
 });
 const app = buildAdminSupportApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,

@@ -12,10 +12,12 @@ import {
   parseOtlpHeaders,
   postWriteConsistencyEventAttributes,
   projectionFreshnessAuditMetricRecords,
+  projectionFreshnessWakeEnqueueMetricRecord,
   projectionInterestIndexLookupMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
   recordPostWriteConsistencyEvent,
+  recordProjectionFreshnessWakeEnqueue,
   recordProjectionInterestIndexLookup,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
@@ -913,6 +915,51 @@ describe("projection freshness observability", () => {
 });
 
 describe("projection wake pipeline observability", () => {
+  it("records wake-before-wait enqueue latency with support-safe labels", () => {
+    const record = projectionFreshnessWakeEnqueueMetricRecord({
+      outcome: "completed",
+      priorityLane: "hot",
+      requestCount: 2,
+      enqueuedCount: 2,
+      durationMs: 12.4,
+      sourceContextName: "checkout",
+      targetContextName: "checkout",
+      projectionName: "checkout.session-projection",
+      mountPath: "/api/marketplace",
+      routePath: "/account/checkout-sessions/chk_01KTMF9TCCPKGA3J3TYMGGXQ2R",
+    });
+
+    expect(record).toEqual({
+      durationMs: 12,
+      attributes: {
+        outcome: "completed",
+        priority_lane: "hot",
+        source_context: "checkout",
+        target_context: "checkout",
+        projection: "checkout.session-projection",
+        mount_path: "/api/marketplace",
+        route_path: "/account/checkout-sessions/:id",
+        request_count: 2,
+        enqueued_count: 2,
+      },
+    });
+    expect(JSON.stringify(record)).not.toContain("chk_01KTMF9TCCPKGA3J3TYMGGXQ2R");
+    expect(() =>
+      recordProjectionFreshnessWakeEnqueue({
+        outcome: "failed",
+        priorityLane: "hot",
+        requestCount: 1,
+        enqueuedCount: 0,
+        durationMs: -1,
+        sourceContextName: null,
+        targetContextName: null,
+        projectionName: null,
+        mountPath: null,
+        routePath: null,
+      }),
+    ).not.toThrow();
+  });
+
   it("records wake notification emissions without throwing", () => {
     expect(() =>
       recordProjectionWakeNotificationEmitted({
