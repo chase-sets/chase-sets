@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { IconName } from "../../icons";
 import { useMediaQuery } from "../../hooks";
+import { ThemePreferenceControl } from "../../theme/theme-toggle";
+import type { ColorMode } from "../../theme/tokens";
 import { AccountMenuDesktopSurface, AccountMenuMobileSurface } from "./account-menu-surfaces";
 
 export interface AccountMenuItem {
@@ -10,13 +12,22 @@ export interface AccountMenuItem {
   icon?: IconName;
 }
 
+export interface AccountMenuPreferences {
+  colorMode: ColorMode;
+  colorModeLabel?: string;
+  darkLabel?: string;
+  lightLabel?: string;
+  onColorModeChange: (mode: ColorMode) => void;
+  systemLabel?: string;
+}
+
 export interface AccountMenuProps {
   accountLabel?: ReactNode;
   accountName: ReactNode;
   className?: string;
   items: AccountMenuItem[];
   menuLabel?: string;
-  preferences?: ReactNode;
+  preferences?: AccountMenuPreferences | ReactNode;
   roleLabel?: ReactNode;
   roleName: ReactNode;
   signOutFormId: string;
@@ -24,6 +35,12 @@ export interface AccountMenuProps {
   userLabel?: ReactNode;
   userName: ReactNode;
   mobileSheetThreshold?: number;
+}
+
+function isAccountMenuPreferences(preferences: AccountMenuProps["preferences"]): preferences is AccountMenuPreferences {
+  return Boolean(
+    preferences && typeof preferences === "object" && "colorMode" in preferences && "onColorModeChange" in preferences,
+  );
 }
 
 export function AccountMenu({
@@ -47,6 +64,18 @@ export function AccountMenu({
   const [open, setOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const useMobileSheet = !isDesktop && items.length > mobileSheetThreshold;
+  const preferencesContent = isAccountMenuPreferences(preferences) ? (
+    <ThemePreferenceControl
+      value={preferences.colorMode}
+      onValueChange={preferences.onColorModeChange}
+      label={preferences.colorModeLabel}
+      lightLabel={preferences.lightLabel}
+      darkLabel={preferences.darkLabel}
+      systemLabel={preferences.systemLabel}
+    />
+  ) : (
+    preferences
+  );
   const surfaceProps = {
     accountLabel,
     accountName,
@@ -56,7 +85,7 @@ export function AccountMenu({
     menuLabel,
     menuRef,
     open,
-    preferences,
+    preferences: preferencesContent,
     roleLabel,
     roleName,
     signOutFormId,

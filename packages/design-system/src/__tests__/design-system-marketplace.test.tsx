@@ -58,7 +58,6 @@ import {
   PaymentRecoveryPanel,
   ProductOptions,
   SearchControlBar,
-  ThemeToggle,
   AccountCredibilityHeader,
   Select,
   Table,
@@ -262,6 +261,8 @@ describe("design system marketplace patterns", () => {
   });
 
   it("opens desktop account menus from native click activation", async () => {
+    const onColorModeChange = vi.fn();
+
     render(
       <div>
         <form id="account-menu-sign-out" action="/sign-out" method="post" />
@@ -273,7 +274,7 @@ describe("design system marketplace patterns", () => {
             { key: "account", label: "Account", href: "/account", icon: "user" },
             { key: "wallet", label: "Wallet", href: "/account/settlement", icon: "wallet" },
           ]}
-          preferences={<ThemeToggle />}
+          preferences={{ colorMode: "system", onColorModeChange }}
           signOutFormId="account-menu-sign-out"
           signOutLabel="Sign Out"
         />
@@ -286,6 +287,9 @@ describe("design system marketplace patterns", () => {
     fireEvent.click(trigger);
 
     expect(await screen.findByRole("group", { name: "Color theme" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+
+    expect(onColorModeChange).toHaveBeenCalledWith("dark");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
@@ -297,6 +301,7 @@ describe("design system marketplace patterns", () => {
     async (_label, isDesktop) => {
       const user = userEvent.setup();
       const previousMatchMedia = window.matchMedia;
+      const onColorModeChange = vi.fn();
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
       const menu = (
         <div>
@@ -312,7 +317,7 @@ describe("design system marketplace patterns", () => {
               { key: "offers", label: "Submitted Offers", href: "/account/offers/submitted", icon: "tag" },
               { key: "reviews", label: "Reviews", href: "/account/reviews", icon: "star" },
             ]}
-            preferences={<ThemeToggle />}
+            preferences={{ colorMode: "system", onColorModeChange }}
             signOutFormId="account-menu-sign-out"
             signOutLabel="Sign Out"
           />
@@ -361,7 +366,11 @@ describe("design system marketplace patterns", () => {
 
         await user.click(trigger);
 
-        expect(await screen.findByRole("group", { name: "Color theme" })).toBeTruthy();
+        const colorTheme = await screen.findByRole("group", { name: "Color theme" });
+        expect(colorTheme).toBeTruthy();
+        await user.click(within(colorTheme).getByRole("radio", { name: "Dark" }));
+
+        expect(onColorModeChange).toHaveBeenCalledWith("dark");
         expect(trigger.getAttribute("aria-expanded")).toBe("true");
       } finally {
         await act(async () => {

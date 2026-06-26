@@ -1,24 +1,37 @@
 import { Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import type { ColorMode } from "./tokens";
 import { cx } from "../utils/cx";
 
-export type ThemePreference = "system" | "light" | "dark";
+export type ThemePreference = ColorMode;
 type ResolvedTheme = "light" | "dark";
 
 const themeStorageKey = "chase-sets-theme";
 
 const options: Array<{
-  value: ThemePreference;
-  label: string;
+  value: ColorMode;
   icon: typeof Monitor;
 }> = [
-  { value: "system", label: "System", icon: Monitor },
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", icon: Monitor },
+  { value: "light", icon: Sun },
+  { value: "dark", icon: Moon },
 ];
 
-export interface ThemeToggleProps {
+export interface ThemePreferenceControlProps {
   className?: string;
+  darkLabel?: string;
+  label?: string;
+  lightLabel?: string;
+  name?: string;
+  onValueChange: (preference: ColorMode) => void;
+  systemLabel?: string;
+  value: ColorMode;
+}
+
+export interface ThemeToggleProps extends Omit<ThemePreferenceControlProps, "onValueChange" | "value"> {
+  defaultValue?: ThemePreference;
+  onValueChange?: (preference: ThemePreference) => void;
+  value?: ThemePreference;
 }
 
 function getSystemTheme(): ResolvedTheme {
@@ -71,16 +84,80 @@ function applyThemePreference(preference: ThemePreference) {
   document.documentElement.style.colorScheme = resolvedTheme;
 }
 
-export function ThemeToggle({ className }: ThemeToggleProps) {
-  const [preference, setPreference] = useState<ThemePreference>("system");
+export function ThemePreferenceControl({
+  className,
+  darkLabel = "Dark",
+  label = "Color theme",
+  lightLabel = "Light",
+  name,
+  onValueChange,
+  systemLabel = "System",
+  value,
+}: ThemePreferenceControlProps) {
+  const generatedName = useId();
+  const labels: Record<ColorMode, string> = {
+    dark: darkLabel,
+    light: lightLabel,
+    system: systemLabel,
+  };
+
+  return (
+    <fieldset
+      className={cx("inline-flex rounded-tokenLg border border-muted bg-surface p-1 shadow-tokenSm", className)}
+      aria-label={label}
+    >
+      <legend className="sr-only">{label}</legend>
+      {options.map((option) => {
+        const Icon = option.icon;
+
+        return (
+          <label key={option.value} className="relative cursor-pointer">
+            <input
+              className="peer sr-only"
+              type="radio"
+              name={name ?? `color-theme-${generatedName}`}
+              value={option.value}
+              data-theme-choice={option.value}
+              checked={value === option.value}
+              onChange={() => onValueChange(option.value)}
+            />
+            <span className="ds-focus inline-flex h-9 items-center gap-1.5 rounded-tokenMd px-2.5 text-xs font-semibold text-secondary transition-colors hover:bg-surface-2 hover:text-foreground peer-checked:bg-accent peer-checked:text-accent-contrast motion-reduce:transition-none">
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {labels[option.value]}
+            </span>
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+export function ThemeToggle({
+  className,
+  defaultValue = "system",
+  onValueChange,
+  value,
+  ...controlProps
+}: ThemeToggleProps) {
+  const controlled = value !== undefined;
+  const [uncontrolledPreference, setUncontrolledPreference] = useState<ThemePreference>(defaultValue);
+  const preference = value ?? uncontrolledPreference;
 
   useEffect(() => {
+    if (controlled) {
+      return;
+    }
+
     const storedPreference = readStoredThemePreference();
-    setPreference(storedPreference);
+    setUncontrolledPreference(storedPreference);
     applyThemePreference(storedPreference);
-  }, []);
+  }, [controlled]);
 
   useEffect(() => {
+    if (controlled) {
+      return undefined;
+    }
+
     applyThemePreference(preference);
 
     if (preference !== "system" || typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -97,41 +174,26 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
 
     mediaQuery.addListener(handleSystemThemeChange);
     return () => mediaQuery.removeListener(handleSystemThemeChange);
-  }, [preference]);
+  }, [controlled, preference]);
 
   function selectThemePreference(nextPreference: ThemePreference) {
+    onValueChange?.(nextPreference);
+
+    if (controlled) {
+      return;
+    }
+
     storeThemePreference(nextPreference);
-    setPreference(nextPreference);
+    setUncontrolledPreference(nextPreference);
     applyThemePreference(nextPreference);
   }
 
   return (
-    <fieldset
-      className={cx("inline-flex rounded-tokenLg border border-muted bg-surface p-1 shadow-tokenSm", className)}
-      aria-label="Color theme"
-    >
-      <legend className="sr-only">Color theme</legend>
-      {options.map((option) => {
-        const Icon = option.icon;
-
-        return (
-          <label key={option.value} className="relative cursor-pointer">
-            <input
-              className="peer sr-only"
-              type="radio"
-              name="color-theme"
-              value={option.value}
-              data-theme-choice={option.value}
-              checked={preference === option.value}
-              onChange={() => selectThemePreference(option.value)}
-            />
-            <span className="ds-focus inline-flex h-9 items-center gap-1.5 rounded-tokenMd px-2.5 text-xs font-semibold text-secondary transition-colors hover:bg-surface-2 hover:text-foreground peer-checked:bg-accent peer-checked:text-accent-contrast">
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-              {option.label}
-            </span>
-          </label>
-        );
-      })}
-    </fieldset>
+    <ThemePreferenceControl
+      {...controlProps}
+      className={className}
+      value={preference}
+      onValueChange={selectThemePreference}
+    />
   );
 }

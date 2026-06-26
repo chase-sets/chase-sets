@@ -75,6 +75,7 @@ import {
 } from "../patterns/app-shells";
 import { Box, SkipLink, Stack, Surface } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
+import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
 
@@ -1700,6 +1701,40 @@ describe("design system components", () => {
     );
 
     expect(screen.getByText("Dark")).toBeTruthy();
+  });
+
+  it("emits controlled theme preference changes without owning persistence", () => {
+    const onValueChange = vi.fn();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    document.documentElement.dataset.themePreference = "system";
+
+    render(<ThemePreferenceControl value="system" onValueChange={onValueChange} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+
+    expect(onValueChange).toHaveBeenCalledWith("dark");
+    expect(setItem).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.themePreference).toBe("system");
+
+    setItem.mockRestore();
+    delete document.documentElement.dataset.themePreference;
+  });
+
+  it("keeps ThemeToggle standalone behavior opt-in when a value is controlled", () => {
+    const onValueChange = vi.fn();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    document.documentElement.dataset.themePreference = "system";
+
+    render(<ThemeToggle value="system" onValueChange={onValueChange} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+
+    expect(onValueChange).toHaveBeenCalledWith("dark");
+    expect(setItem).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.themePreference).toBe("system");
+
+    setItem.mockRestore();
+    delete document.documentElement.dataset.themePreference;
   });
 
   it("renders Wizard with step content", () => {
