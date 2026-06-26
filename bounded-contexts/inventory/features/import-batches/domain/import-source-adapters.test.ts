@@ -25,7 +25,9 @@ describe("inventory import source adapters", () => {
         storageLocationId: "loc_1",
       },
       externalReference: null,
+      selectedOptionCandidates: [{ dimensionKey: "condition", value: "near_mint" }],
     });
+    expect(rows[0]?.rowFingerprint).toContain("condition:nearmint");
   });
 
   it("normalizes TCGplayer seller portal rows to external references", () => {

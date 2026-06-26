@@ -169,12 +169,35 @@ function selectedOptionCandidates(
   profile: InventoryImportSourceProfile,
   row: ImportCsvRow,
 ): readonly InventoryImportSelectedOptionCandidate[] {
-  return profile.selectedOptionInference
-    .map((rule) => ({
-      dimensionKey: rule.dimensionKey,
-      value: valueByHeader(row, rule.headers),
+  const candidates = [
+    ...profile.selectedOptionInference
+      .map((rule) => ({
+        dimensionKey: rule.dimensionKey,
+        value: valueByHeader(row, rule.headers),
+      }))
+      .filter((candidate) => candidate.value.length > 0),
+    ...(profile.nativePassthrough ? nativeSelectedOptionCandidates(row) : []),
+  ];
+  const seen = new Set<string>();
+
+  return candidates.filter((candidate) => {
+    const key = `${normalizeHeader(candidate.dimensionKey)}:${normalizeHeader(candidate.value)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function nativeSelectedOptionCandidates(row: ImportCsvRow): readonly InventoryImportSelectedOptionCandidate[] {
+  return Object.entries(row.values)
+    .filter(([key, value]) => key.trim().toLowerCase().startsWith("option:") && value.trim().length > 0)
+    .map(([key, value]) => ({
+      dimensionKey: key.trim().slice("option:".length).trim(),
+      value: value.trim(),
     }))
-    .filter((candidate) => candidate.value.length > 0);
+    .filter((candidate) => candidate.dimensionKey.length > 0);
 }
 
 function fingerprint(
@@ -182,12 +205,17 @@ function fingerprint(
   rowNumber: number,
   values: Readonly<Record<string, string>>,
   references: readonly InventoryImportExternalReference[],
+  selectedOptions: readonly InventoryImportSelectedOptionCandidate[],
 ) {
   return [
     sourceKey,
     rowNumber,
     references
       .map((reference) => `${reference.providerKey}:${reference.externalKey}:${reference.targetIntent ?? ""}`)
+      .join(","),
+    selectedOptions
+      .map((candidate) => `${normalizeHeader(candidate.dimensionKey)}:${normalizeHeader(candidate.value)}`)
+      .sort()
       .join(","),
     values.catalogItemId ?? "",
     values.storageLocationId ?? "",
@@ -219,6 +247,7 @@ function createCsvImportAdapter(profile: InventoryImportSourceProfile): Inventor
         }
 
         const references = externalReferences(profile, row, values, name);
+        const optionCandidates = selectedOptionCandidates(profile, row);
 
         return {
           rowNumber: row.rowNumber,
@@ -226,8 +255,8 @@ function createCsvImportAdapter(profile: InventoryImportSourceProfile): Inventor
           rawRow: row.values,
           externalReference: references[0] ?? null,
           externalReferences: references,
-          selectedOptionCandidates: selectedOptionCandidates(profile, row),
-          rowFingerprint: fingerprint(profile.sourceKey, row.rowNumber, values, references),
+          selectedOptionCandidates: optionCandidates,
+          rowFingerprint: fingerprint(profile.sourceKey, row.rowNumber, values, references, optionCandidates),
         };
       }),
   };

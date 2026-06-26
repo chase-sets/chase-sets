@@ -7,9 +7,11 @@ Inventory imports use a review-first batch. Rows are validated before they creat
 Use this when the file already contains Chase Sets catalog and storage identifiers.
 
 ```csv
-catalogItemId,storageLocationId,totalQuantity,option:dim_seed_form,option:dim_seed_condition,listingPriceAmount,listingQuantityCap,rowNote
-cat_seed_charizard_base_set,loc_seed_main,2,chc_seed_form_raw,chc_seed_condition_near_mint,125.00,1,Base Set restock
+catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap,rowNote
+cat_seed_charizard_base_set,loc_seed_main,2,Raw,Near Mint,125.00,1,Base Set restock
 ```
+
+Option columns may use Catalog dimension ids or visible dimension labels. Option values may use option ids, codes, or visible labels.
 
 ## TCGplayer CSV
 

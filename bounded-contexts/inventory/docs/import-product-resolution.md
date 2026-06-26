@@ -10,7 +10,7 @@ Manual product selection per row is not the intended workflow. Import adapters s
 2. The small connector parses CSV or fetches provider rows, then the profile-driven adapter normalizes that input into Inventory import rows.
 3. Each row carries source quantity, price, listing draft fields, seller SKU, row evidence, selected option candidates, and ordered external reference candidates.
 4. Inventory validates quantity, storage location, listing draft fields, and product resolution.
-5. If a native Chase Sets row includes `catalogItemId` and selected `option:<dimensionId>` columns, Inventory resolves the Product directly through the Catalog projection.
+5. If a native Chase Sets row includes `catalogItemId` and selected `option:<dimensionId>` or `option:<dimension label>` columns, Inventory resolves the Product directly through the Catalog projection.
 6. If a platform row includes external reference candidates, Inventory follows each candidate's target intent. Product-reference candidates check Catalog Product references; Catalog Item-reference candidates check Catalog Item references; account SKU candidates are retained as evidence for future account mapping and are not treated as global Catalog truth.
 7. Unmapped rows remain rejected for review instead of forcing per-row manual selection.
 8. Committing accepted rows creates or adjusts Inventory Items and may create Marketplace draft Listings through the existing host port.
