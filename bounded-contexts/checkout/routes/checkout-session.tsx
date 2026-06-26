@@ -68,6 +68,7 @@ const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
 const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
+const PAYMENT_START_RETRY_SOURCE_CONTEXT_NAMES = new Set(["checkout", "ordering"]);
 const PAYMENT_ORDER_READINESS_PENDING_CODES = new Set(["order_input_not_ready", "order_not_payment_ready"]);
 
 type GuestCheckoutContact = Readonly<{
@@ -564,7 +565,7 @@ function sourceCommitEventIds(sources: readonly SourceCommitPosition[]) {
 function paymentStartRetryFreshWriteSource(source: unknown): VisibleFreshWriteSource | null {
   const commitPositions =
     visibleFreshWriteSource(source).commitPositions?.filter((position) =>
-      PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES.has(position.sourceContextName),
+      PAYMENT_START_RETRY_SOURCE_CONTEXT_NAMES.has(position.sourceContextName),
     ) ?? [];
   if (commitPositions.length === 0) {
     return null;
