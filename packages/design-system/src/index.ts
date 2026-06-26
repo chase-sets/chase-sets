@@ -19,7 +19,6 @@ export * from "./theme/provider";
 export * from "./theme/stripe-appearance";
 export {
   ThemePreferenceControl,
-  ThemeToggle,
   type ThemePreference,
   type ThemePreferenceControlProps,
 } from "./theme/theme-toggle";
