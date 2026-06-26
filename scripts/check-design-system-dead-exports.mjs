@@ -140,7 +140,6 @@ const canonicalReserveZeroConsumerExports = [
   "Tag",
   "TagInput",
   "ThemeScope",
-  "ThemeToggle",
   "Thumbnail",
   "Timeline",
   "toastManager",

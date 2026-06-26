@@ -22,6 +22,7 @@ export interface AccountMenuProps {
   className?: string;
   items: AccountMenuItem[];
   menuLabel?: string;
+  preferences?: ReactNode;
   roleLabel?: ReactNode;
   roleName: ReactNode;
   signOutFormId: string;
@@ -45,6 +46,7 @@ export function AccountMenu({
   className,
   items,
   menuLabel = "Account menu",
+  preferences,
   roleLabel = "Role",
   roleName,
   signOutFormId,
@@ -126,6 +128,14 @@ export function AccountMenu({
             </Stack>
           </nav>
           <Divider />
+          {preferences ? (
+            <>
+              <Box paddingX={3} paddingY={2}>
+                {preferences}
+              </Box>
+              <Divider />
+            </>
+          ) : null}
           <button type="submit" form={signOutFormId} className={menuItemClassName(false, true)}>
             <Icon name="logOut" size="sm" tone="danger" />
             <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
@@ -165,6 +175,14 @@ export function AccountMenu({
               </MenuPrimitive.LinkItem>
             ))}
             <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
+            {preferences ? (
+              <>
+                <Box paddingX={3} paddingY={2}>
+                  {preferences}
+                </Box>
+                <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
+              </>
+            ) : null}
             <MenuPrimitive.Item
               nativeButton
               render={<button type="submit" form={signOutFormId} />}
