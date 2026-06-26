@@ -2,9 +2,10 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { ZERO_GLOBAL_POSITION, type EventStoreContext, type GlobalPosition } from "@chase-sets/event-core/storage";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
 import {
@@ -38,6 +39,14 @@ type AggregateHoldSnapshot = Readonly<{
   accountId: AccountId;
   itemId: string;
   quantity: number;
+  active: boolean;
+}>;
+
+type AggregateHoldSnapshotRow = Readonly<{
+  hold_id: string;
+  account_id: string;
+  item_id: string;
+  quantity: string | number;
   active: boolean;
 }>;
 
@@ -129,7 +138,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       const stock = item
         ? stockSnapshotFromReadModel(item)
         : await loadAggregateStockSnapshot({
-            eventStore: deps.eventStore,
+            db: deps.db,
             itemRepository,
             itemId: params.itemId,
             accountId: params.accountId,
@@ -193,7 +202,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
 }
 
 async function loadAggregateStockSnapshot(input: {
-  eventStore: InventoryRuntimeDeps["eventStore"];
+  db: PgQueryable;
   itemRepository: InventoryItemRepository;
   itemId: string;
   accountId: AccountId;
@@ -204,7 +213,12 @@ async function loadAggregateStockSnapshot(input: {
     throw new InventoryHoldPlacementError("inventory-item-missing", "Inventory item not found.");
   }
 
-  const holds = await loadAggregateHoldSnapshots(input.eventStore, input.context);
+  const holds = await loadAggregateHoldSnapshots({
+    db: input.db,
+    accountId: input.accountId,
+    itemId: input.itemId,
+    tenantId: input.context.tenantId,
+  });
   const heldQuantity = [...holds.values()]
     .filter((hold) => hold.active && hold.accountId === input.accountId && hold.itemId === input.itemId)
     .reduce((total, hold) => total + hold.quantity, 0);
@@ -228,69 +242,62 @@ function stockSnapshotFromReadModel(item: InventoryHoldableItemRow): InventorySt
   };
 }
 
-async function loadAggregateHoldSnapshots(
-  eventStore: InventoryRuntimeDeps["eventStore"],
-  context: EventStoreContext,
-): Promise<Map<string, AggregateHoldSnapshot>> {
-  const holds = new Map<string, AggregateHoldSnapshot>();
-  let afterGlobalPosition: GlobalPosition = ZERO_GLOBAL_POSITION;
-  const limit = 500;
+async function loadAggregateHoldSnapshots(input: {
+  db: PgQueryable;
+  accountId: AccountId;
+  itemId: string;
+  tenantId: string;
+}): Promise<Map<string, AggregateHoldSnapshot>> {
+  const result = await input.db.query<AggregateHoldSnapshotRow>(
+    `WITH placed_holds AS (
+       SELECT
+         stream_id,
+         payload ->> 'holdId' AS hold_id,
+         payload ->> 'accountId' AS account_id,
+         payload ->> 'itemId' AS item_id,
+         payload ->> 'quantity' AS quantity
+       FROM event_store_events
+       WHERE tenant_id = $1
+         AND stream_context_name = 'inventory'
+         AND stream_category = 'inventory.hold'
+         AND event_type = 'inventory.hold.placed'
+         AND payload ->> 'accountId' = $2
+         AND payload ->> 'itemId' = $3
+         AND jsonb_typeof(payload -> 'quantity') = 'number'
+     )
+     SELECT
+       stream_id,
+       hold_id,
+       account_id,
+       item_id,
+       quantity,
+       released_holds.stream_id IS NULL AS active
+     FROM placed_holds
+     LEFT JOIN event_store_events AS released_holds
+       ON released_holds.stream_id = placed_holds.stream_id
+      AND released_holds.tenant_id = $1
+      AND released_holds.event_type = 'inventory.hold.released'`,
+    [input.tenantId, input.accountId, input.itemId],
+  );
 
-  while (true) {
-    const events = await eventStore.readAll({
-      afterGlobalPosition,
-      tenantId: context.tenantId,
-      eventTypes: ["inventory.hold.placed", "inventory.hold.released"],
-      streamPrefixes: ["inventory.hold-"],
-      limit,
-    });
-    if (events.length === 0) {
-      return holds;
-    }
-
-    for (const event of events) {
-      afterGlobalPosition = event.globalPosition;
-
-      if (event.eventType === "inventory.hold.placed") {
-        const payload = event.payload as {
-          holdId?: unknown;
-          accountId?: unknown;
-          itemId?: unknown;
-          quantity?: unknown;
-        };
-        if (
-          typeof payload.holdId !== "string" ||
-          typeof payload.accountId !== "string" ||
-          typeof payload.itemId !== "string" ||
-          typeof payload.quantity !== "number"
-        ) {
-          continue;
-        }
-
-        holds.set(payload.holdId, {
-          accountId: payload.accountId as AccountId,
-          itemId: payload.itemId,
-          quantity: payload.quantity,
-          active: true,
-        });
-        continue;
+  return new Map(
+    result.rows.flatMap((row) => {
+      const quantity = Number(row.quantity);
+      if (!row.hold_id || !row.account_id || !row.item_id || !Number.isInteger(quantity) || quantity <= 0) {
+        return [];
       }
 
-      if (event.eventType === "inventory.hold.released") {
-        const payload = event.payload as { holdId?: unknown };
-        if (typeof payload.holdId !== "string") {
-          continue;
-        }
-
-        const existing = holds.get(payload.holdId);
-        if (existing) {
-          holds.set(payload.holdId, { ...existing, active: false });
-        }
-      }
-    }
-
-    if (events.length < limit) {
-      return holds;
-    }
-  }
+      return [
+        [
+          row.hold_id,
+          {
+            accountId: row.account_id as AccountId,
+            itemId: row.item_id,
+            quantity,
+            active: row.active,
+          },
+        ] as const,
+      ];
+    }),
+  );
 }

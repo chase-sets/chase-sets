@@ -72,6 +72,7 @@ function createInMemoryEventStore() {
 function createInventoryDb(
   options: Readonly<{
     itemRows?: Record<string, unknown>[];
+    aggregateHoldRows?: Record<string, unknown>[];
   }> = {},
 ) {
   const itemRows = options.itemRows ?? [
@@ -101,6 +102,7 @@ function createInventoryDb(
       updated_at: "2026-06-24T00:00:00.000Z",
     },
   ];
+  const aggregateHoldRows = options.aggregateHoldRows ?? [];
 
   return {
     query: vi.fn(async (sql: string) => {
@@ -108,6 +110,10 @@ function createInventoryDb(
         return {
           rows: itemRows,
         };
+      }
+
+      if (sql.includes("FROM event_store_events")) {
+        return { rows: aggregateHoldRows };
       }
 
       if (sql.includes("FROM inventory_holds")) {
@@ -259,7 +265,7 @@ describe("inventory hold runtime", () => {
     expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
   });
 
-  it("counts aggregate active holds before placing a fallback stock hold", async () => {
+  it("counts targeted aggregate active holds before placing a fallback stock hold", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     await eventStore.appendToStream({
       streamId: "inventory.item-inv_1",
@@ -282,28 +288,22 @@ describe("inventory hold runtime", () => {
       ],
       context,
     });
-    await eventStore.appendToStream({
-      streamId: "inventory.hold-hld_existing",
-      expectedVersion: "no_stream",
-      events: [
+    const db = createInventoryDb({
+      itemRows: [],
+      aggregateHoldRows: [
         {
-          eventType: "inventory.hold.placed",
-          payload: {
-            holdId: "hld_existing",
-            accountId: "acc_seller",
-            itemId: "inv_1",
-            quantity: 1,
-            reason: "Existing commitment",
-            notes: null,
-          },
+          hold_id: "hld_existing",
+          account_id: "acc_seller",
+          item_id: "inv_1",
+          quantity: 1,
+          active: true,
         },
       ],
-      context,
     });
     const services = createInventoryHoldRuntime({
       eventStore,
       checkpointStore: {} as never,
-      db: createInventoryDb({ itemRows: [] }),
+      db,
     });
 
     await expect(
@@ -322,6 +322,12 @@ describe("inventory hold runtime", () => {
       kind: "insufficient-available-quantity",
       name: "InventoryHoldPlacementError",
     } satisfies Partial<InventoryHoldPlacementError>);
-    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(1);
+    const aggregateHoldQuery = String(
+      db.query.mock.calls.find((call) => String(call[0]).includes("FROM event_store_events"))?.[0] ?? "",
+    );
+    expect(aggregateHoldQuery).toContain("stream_category = 'inventory.hold'");
+    expect(aggregateHoldQuery).toContain("payload ->> 'accountId' = $2");
+    expect(aggregateHoldQuery).toContain("payload ->> 'itemId' = $3");
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
   });
 });
