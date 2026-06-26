@@ -33,6 +33,7 @@ export const DEFAULT_WORK_SIGNAL_CLEANUP_INTERVAL_MS = 60_000;
 export type ProjectionWakeSchedulerStore = Pick<
   PostgresWorkSignalStore,
   | "claimNextProjectionWakeIntent"
+  | "renewProjectionWakeIntent"
   | "completeProjectionWakeIntent"
   | "failProjectionWakeIntent"
   | "recordCheckpointReady"
@@ -276,6 +277,55 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     let blockedStreamCount = statusBefore.blockedStreamCount;
     let poisonEventCount = statusBefore.poisonEventCount;
     let runOutcome: Readonly<{ acquired: boolean }>;
+    let wakeClaimActive = true;
+    let wakeClaimRenewalStopped = false;
+    let wakeClaimRenewalInFlight = false;
+    const wakeClaimAbortController = new AbortController();
+    const abortFromParent = () => {
+      wakeClaimActive = false;
+      wakeClaimAbortController.abort();
+    };
+    if (context?.signal?.aborted) {
+      abortFromParent();
+    } else {
+      context?.signal?.addEventListener("abort", abortFromParent, { once: true });
+    }
+    const throwIfWakeClaimLost = () => {
+      if (!wakeClaimActive || wakeClaimAbortController.signal.aborted) {
+        throw new ProjectionWakeIntentClaimLostError(intent.wakeIntentId);
+      }
+    };
+    const renewWakeClaim = async () => {
+      throwIfWakeClaimLost();
+      const renewed = await options.workSignalStore.renewProjectionWakeIntent({
+        wakeIntentId: intent.wakeIntentId,
+        claimOwnerId: requireClaimOwnerId(intent),
+        claimFencingToken: intent.claimFencingToken!,
+        claimTtlMs,
+      });
+      if (!renewed) {
+        wakeClaimActive = false;
+        wakeClaimAbortController.abort();
+        throw new ProjectionWakeIntentClaimLostError(intent.wakeIntentId);
+      }
+    };
+    const wakeClaimRenewIntervalMs = Math.max(1_000, Math.min(leaseRenewIntervalMs, Math.floor(claimTtlMs / 3)));
+    const wakeClaimRenewalTimer = setInterval(() => {
+      if (wakeClaimRenewalStopped || wakeClaimRenewalInFlight) {
+        return;
+      }
+      wakeClaimRenewalInFlight = true;
+      void renewWakeClaim()
+        .catch(() => {
+          wakeClaimActive = false;
+          wakeClaimAbortController.abort();
+        })
+        .finally(() => {
+          wakeClaimRenewalInFlight = false;
+        });
+    }, wakeClaimRenewIntervalMs);
+    wakeClaimRenewalTimer.unref?.();
+
     try {
       runOutcome = await tryRunWithRenewedLease(
         options.controlPlane,
@@ -292,14 +342,16 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
           },
         },
         async (runContext) => {
+          const runAndParentSignal = mergeAbortSignals(runContext.signal, context?.signal);
           const wakeRunContext: ProjectionRunContext = {
             ...runContext,
-            signal: mergeAbortSignals(runContext.signal, context?.signal),
+            signal: mergeAbortSignals(runAndParentSignal, wakeClaimAbortController.signal),
             throwIfLeaseLost: () => {
               runContext.throwIfLeaseLost?.();
               if (context?.signal?.aborted) {
                 throw new Error("Projection wake scheduler pass is stopping.");
               }
+              throwIfWakeClaimLost();
             },
           };
 
@@ -321,6 +373,11 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
         },
       );
     } catch (error) {
+      if (error instanceof ProjectionWakeIntentClaimLostError) {
+        options.observer?.wakeIntentClaimLost?.(event);
+        return "claim-lost";
+      }
+
       if (error instanceof ProjectionGroupRevisionStaleError) {
         // A pending revision rebuild belongs to the polling/operations paths;
         // wake runs must never reset projection state.
@@ -343,6 +400,11 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
         options.observer?.wakeIntentAttemptsExhausted?.(event);
       }
       return "run-failed";
+    } finally {
+      wakeClaimRenewalStopped = true;
+      clearInterval(wakeClaimRenewalTimer);
+      context?.signal?.removeEventListener("abort", abortFromParent);
+      wakeClaimAbortController.abort();
     }
 
     if (!runOutcome.acquired) {
@@ -489,6 +551,13 @@ export function createWorkSignalCleanupRunner(
       };
     },
   };
+}
+
+class ProjectionWakeIntentClaimLostError extends Error {
+  public constructor(wakeIntentId: string) {
+    super(`Projection wake intent '${wakeIntentId}' claim was lost.`);
+    this.name = "ProjectionWakeIntentClaimLostError";
+  }
 }
 
 function createProjectionGroupKey(targetContextName: string, projectionName: string): string {

@@ -183,6 +183,42 @@ describe("work signal store", () => {
     expect(calls[0].values[3]).toEqual(["checkout", "ordering"]);
   });
 
+  it("renews only the live fenced projection wake claim owner", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      { defaultWakeTtlMs: 10_000, now: () => NOW },
+    );
+
+    await expect(
+      store.renewProjectionWakeIntent({
+        wakeIntentId: "projection-wake-1",
+        claimOwnerId: "projection-worker-a",
+        claimFencingToken: 3n,
+        claimTtlMs: 60_000,
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls[0].sql).toContain("claimed_until = $4::timestamptz");
+    expect(calls[0].sql).toContain("expires_at = GREATEST(expires_at, $5::timestamptz)");
+    expect(calls[0].sql).toContain("state = 'claimed'");
+    expect(calls[0].sql).toContain("claim_owner_id = $2");
+    expect(calls[0].sql).toContain("claim_fencing_token = $3::bigint");
+    expect(calls[0].sql).toContain("claimed_until > now()");
+    expect(calls[0].values).toEqual([
+      "projection-wake-1",
+      "projection-worker-a",
+      "3",
+      "2026-06-10T12:01:00.000Z",
+      "2026-06-10T12:01:10.000Z",
+    ]);
+  });
+
   it("completes and retries only the live fenced claim owner", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresWorkSignalStore(

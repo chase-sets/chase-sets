@@ -19,6 +19,7 @@ import type {
   ProjectionWakeIntentCompletionResult,
   ProjectionWakeIntentRecord,
   RecordCheckpointReadyInput,
+  RenewProjectionWakeIntentInput,
 } from "./work-signal-store";
 
 const NOW = new Date("2026-06-10T12:00:05.000Z");
@@ -105,6 +106,84 @@ describe("projection wake scheduler", () => {
 
     expect(result).toMatchObject({ processed: 1 });
     expect(runStatementTimeouts).toEqual([12_345]);
+  });
+
+  it("renews the wake intent claim while a projection drain is still running", async () => {
+    vi.useFakeTimers();
+    let releaseRun!: () => void;
+    const runBlocked = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const projection = checkoutProjection({
+      position: 90n,
+      headPosition: 120n,
+      onRun: () => runBlocked,
+    });
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n })]);
+    const controlPlane = recordingControlPlane();
+
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      claimTtlMs: 3_000,
+      leaseRenewIntervalMs: 10_000,
+      now: () => NOW,
+    });
+
+    const runPromise = runners[0].runOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(store.renewals).toHaveLength(1);
+    expect(store.renewals[0]).toMatchObject({
+      wakeIntentId: "projection-wake-1",
+      claimOwnerId: "worker-a:projection-wake-scheduler.hot.lane-1",
+      claimFencingToken: 7n,
+      claimTtlMs: 3_000,
+    });
+
+    releaseRun();
+    await expect(runPromise).resolves.toMatchObject({ processed: 1 });
+    vi.useRealTimers();
+  });
+
+  it("stops the wake run as claim-lost when claim renewal is fenced out", async () => {
+    vi.useFakeTimers();
+    const projection = checkoutProjection({
+      position: 90n,
+      headPosition: 120n,
+      onRun: async (context) => {
+        await new Promise<void>((resolve) =>
+          context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        context?.throwIfLeaseLost?.();
+      },
+    });
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n })], { renewResult: false });
+    const controlPlane = recordingControlPlane();
+    const lost: ProjectionWakeIntentLifecycleEvent[] = [];
+
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      claimTtlMs: 3_000,
+      observer: { wakeIntentClaimLost: (event) => lost.push(event) },
+      now: () => NOW,
+    });
+
+    const runPromise = runners[0].runOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(runPromise).resolves.toMatchObject({ processed: 0 });
+    expect(store.renewals).toHaveLength(1);
+    expect(store.failures).toHaveLength(0);
+    expect(lost).toHaveLength(1);
+    vi.useRealTimers();
   });
 
   it("drains multiple projection batches inside one claim until the required position is reached", async () => {
@@ -537,6 +616,9 @@ describe("projection wake scheduler", () => {
       claimNextProjectionWakeIntent: async () => {
         throw new Error("work-signal store unavailable");
       },
+      renewProjectionWakeIntent: async () => {
+        throw new Error("not used");
+      },
       completeProjectionWakeIntent: async () => {
         throw new Error("not used");
       },
@@ -628,6 +710,7 @@ describe("projection wake scheduler", () => {
         }
         return hotQueue.shift() ?? null;
       },
+      renewProjectionWakeIntent: async () => true,
       completeProjectionWakeIntent: async () => "completed",
       failProjectionWakeIntent: async () => true,
       recordCheckpointReady: async () => ({}) as never,
@@ -792,16 +875,18 @@ function claimedIntent(
 
 function recordingSchedulerStore(
   intents: readonly ProjectionWakeIntentRecord[],
-  options: { completeResult?: ProjectionWakeIntentCompletionResult } = {},
+  options: { completeResult?: ProjectionWakeIntentCompletionResult; renewResult?: boolean } = {},
 ) {
   const queue = [...intents];
   const claims: ClaimProjectionWakeIntentInput[] = [];
+  const renewals: RenewProjectionWakeIntentInput[] = [];
   const completions: CompleteProjectionWakeIntentInput[] = [];
   const failures: FailProjectionWakeIntentInput[] = [];
   const readiness: RecordCheckpointReadyInput[] = [];
 
   return {
     claims,
+    renewals,
     completions,
     failures,
     readiness,
@@ -809,6 +894,10 @@ function recordingSchedulerStore(
       claimNextProjectionWakeIntent: async (input: ClaimProjectionWakeIntentInput) => {
         claims.push(input);
         return queue.shift() ?? null;
+      },
+      renewProjectionWakeIntent: async (input: RenewProjectionWakeIntentInput) => {
+        renewals.push(input);
+        return options.renewResult ?? true;
       },
       completeProjectionWakeIntent: async (input: CompleteProjectionWakeIntentInput) => {
         completions.push(input);
@@ -891,6 +980,7 @@ function checkoutProjection(
     runError?: Error;
     revisionStale?: boolean;
     onRunContext?: (context: ProjectionRunContext | undefined) => void;
+    onRun?: (context: ProjectionRunContext | undefined) => void | Promise<void>;
   }>,
 ) {
   let position = input.position;
@@ -907,6 +997,7 @@ function checkoutProjection(
     order: 0,
     runOnce: async (context) => {
       input.onRunContext?.(context);
+      await input.onRun?.(context);
       runCount += 1;
       if (input.runError) {
         throw input.runError;
