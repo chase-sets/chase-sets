@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
@@ -52,6 +52,10 @@ describe("marketplace route layout", () => {
     });
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-theme-preference");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("presents a simplified trader navigation tree for signed-in actors", () => {
@@ -153,12 +157,35 @@ describe("marketplace route layout", () => {
 
   it("opens a combined account menu with user context, theme controls, account links, and sign out", async () => {
     const user = userEvent.setup({ document });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/api/identity/preferences") {
+        expect(init?.method ?? request?.method).toBe("PUT");
+        expect(JSON.parse(String(init?.body ?? (request ? await request.clone().text() : "")))).toEqual({
+          colorMode: "dark",
+        });
+        return Response.json({
+          preferences: {
+            colorMode: "dark",
+          },
+        });
+      }
+
+      return Response.json({});
+    });
     const actor = {
       permissions: ["accounts.view", "offers.view", "orders.view", "orders.manage", "payouts.view", "reputation.view"],
     };
+    vi.stubGlobal("fetch", fetch);
     mockUseRouteLoaderData.mockReturnValue({
       actor,
       actorDisplay,
+      colorMode: "system",
+      viewer: {
+        actor,
+        preferences: { colorMode: "system" },
+      },
     });
 
     render(<MarketplaceLayoutRoute />);
@@ -174,8 +201,8 @@ describe("marketplace route layout", () => {
     expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
     expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
     await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
-    expect(document.documentElement.dataset.themePreference).toBe("dark");
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('[data-color-mode="dark"]')).toBeTruthy();
     expect(within(accountMenu).getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { AccountMenu, Form } from "@chase-sets/design-system";
+import { AccountMenu, Form, type AccountMenuPreferences } from "@chase-sets/design-system";
 
 const signOutFormId = "admin-account-menu-sign-out";
 
@@ -19,7 +19,10 @@ function formatActorLabel(value: string | undefined, fallback: string) {
   );
 }
 
-export function AdminAccountMenu({ actor }: Readonly<{ actor: ResolvedActor }>) {
+export function AdminAccountMenu({
+  actor,
+  preferences,
+}: Readonly<{ actor: ResolvedActor; preferences?: AccountMenuPreferences }>) {
   return (
     <>
       <Form id={signOutFormId} action="/access/sign-out" method="post" spacing="none" />
@@ -41,6 +44,7 @@ export function AdminAccountMenu({ actor }: Readonly<{ actor: ResolvedActor }>) 
           },
         ]}
         menuLabel={t("adminWeb.app.adminSectionLayout.account.menu")}
+        preferences={preferences}
         roleLabel={t("adminWeb.app.adminSectionLayout.role")}
         roleName={formatActorLabel(actor.roleKey, t("adminWeb.app.adminSectionLayout.operator"))}
         signOutFormId={signOutFormId}
