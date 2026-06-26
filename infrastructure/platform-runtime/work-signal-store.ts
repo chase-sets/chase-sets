@@ -235,6 +235,11 @@ export type CompleteProjectionWakeIntentInput = Readonly<{
   claimFencingToken: bigint | number | string;
 }>;
 
+export type RenewProjectionWakeIntentInput = CompleteProjectionWakeIntentInput &
+  Readonly<{
+    claimTtlMs: number;
+  }>;
+
 export type FailProjectionWakeIntentInput = CompleteProjectionWakeIntentInput &
   Readonly<{
     retryAfterMs: number;
@@ -302,6 +307,7 @@ export type ProjectionWakeIntentCompletionResult = "completed" | "requeued" | "l
 export type PostgresWorkSignalStore = Readonly<{
   enqueueProjectionWakeIntent(input: EnqueueProjectionWakeIntentInput): Promise<ProjectionWakeIntentRecord>;
   claimNextProjectionWakeIntent(input: ClaimProjectionWakeIntentInput): Promise<ProjectionWakeIntentRecord | null>;
+  renewProjectionWakeIntent(input: RenewProjectionWakeIntentInput): Promise<boolean>;
   completeProjectionWakeIntent(input: CompleteProjectionWakeIntentInput): Promise<ProjectionWakeIntentCompletionResult>;
   failProjectionWakeIntent(input: FailProjectionWakeIntentInput): Promise<boolean>;
   recordCheckpointReady(input: RecordCheckpointReadyInput): Promise<CheckpointReadinessRecord>;
@@ -652,6 +658,35 @@ export function createPostgresWorkSignalStore(
 
       const row = result.rows[0];
       return row ? mapProjectionWakeIntentRow(row) : null;
+    },
+
+    async renewProjectionWakeIntent(input) {
+      const claimedUntil = addMs(now(), Math.max(1, input.claimTtlMs));
+      const claimExpiresAt = addMs(claimedUntil, defaultWakeTtlMs);
+      const result = await query(
+        db,
+        `
+        UPDATE platform_projection_wake_intents
+        SET
+          claimed_until = $4::timestamptz,
+          expires_at = GREATEST(expires_at, $5::timestamptz),
+          updated_at = now()
+        WHERE wake_intent_id = $1
+          AND state = 'claimed'
+          AND claim_owner_id = $2
+          AND claim_fencing_token = $3::bigint
+          AND claimed_until > now()
+        `,
+        [
+          input.wakeIntentId,
+          input.claimOwnerId,
+          toPostgresInteger(input.claimFencingToken),
+          formatTimestamp(claimedUntil),
+          formatTimestamp(claimExpiresAt),
+        ],
+      );
+
+      return (result.rowCount ?? 0) > 0;
     },
 
     async completeProjectionWakeIntent(input) {
