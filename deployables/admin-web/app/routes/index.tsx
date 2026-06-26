@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { Grid, Heading, Stack, Card, EmptyState, LinkButton, Page, PageHeader } from "@chase-sets/design-system";
+import { createIdentityRequestApiClient, resolveIdentityShellViewer } from "@chase-sets/identity/server";
 import { requireSignedInAdminActor } from "../auth.server";
 import { resolveAdminWebSectionNavItems } from "../host";
 import { AdminRootShell } from "../admin-root-shell";
@@ -14,15 +15,19 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect(sections[0].href);
   }
 
-  return { actor, sections };
+  return {
+    actor,
+    sections,
+    viewer: await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor),
+  };
 }
 
 export default function AdminIndexRoute() {
-  const { actor, sections } = useLoaderData<typeof loader>();
+  const { actor, sections, viewer } = useLoaderData<typeof loader>();
 
   if (sections.length === 0) {
     return (
-      <AdminRootShell actor={actor} sections={sections}>
+      <AdminRootShell actor={actor} sections={sections} viewer={viewer}>
         <Page width="content">
           <EmptyState
             icon="lock"
@@ -37,7 +42,7 @@ export default function AdminIndexRoute() {
   }
 
   return (
-    <AdminRootShell actor={actor} sections={sections}>
+    <AdminRootShell actor={actor} sections={sections} viewer={viewer}>
       <Page>
         <PageHeader
           eyebrow={t("adminWeb.app.routes.index.admin")}
