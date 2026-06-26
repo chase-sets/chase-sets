@@ -284,12 +284,18 @@ test.describe("marketplace critical flows", () => {
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     await page.getByRole("button", { name: "Account menu" }).click();
+    const colorTheme = page.getByRole("group", { name: "Color theme" });
+    await expect(colorTheme).toBeVisible();
     const preferencesResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return url.pathname === "/api/identity/preferences" && response.request().method() === "PUT";
     });
-    await page.getByRole("radio", { name: "Dark" }).click();
+    await colorTheme
+      .locator("label")
+      .filter({ hasText: /^Dark$/ })
+      .click();
     expect((await preferencesResponse).status()).toBe(200);
+    await expect(colorTheme.locator('input[data-theme-choice="dark"]')).toBeChecked();
 
     await expect(page.locator('[data-color-mode="dark"]').first()).toBeVisible();
     await waitForPreferences(page, { colorMode: "dark" });
