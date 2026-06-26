@@ -3,6 +3,7 @@ import "@chase-sets/design-system/styles.css";
 import { useEffect, type ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
+  data as routeData,
   isRouteErrorResponse,
   Links,
   Meta,
@@ -17,12 +18,41 @@ import { buildCanonicalUrl, shouldIndexMarketplace } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
 import { requireMarketplaceProofAccess } from "./proof-access.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
-import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
+import {
+  ChaseRoot,
+  Container,
+  LinkButton,
+  MarketplaceEmptyState,
+  Page,
+  Stack,
+  type ColorMode,
+} from "@chase-sets/design-system";
 import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
 import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
-import { createIdentityRequestApiClient, type CurrentActorDisplay } from "@chase-sets/identity/server";
+import {
+  createIdentityRequestApiClient,
+  createUserPreferencesColorModeCookieSeedHeaders,
+  readUserPreferencesColorModeCookie,
+  resolveIdentityShellViewer,
+  type CurrentActorDisplay,
+  type IdentityShellViewer,
+} from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
+type MarketplaceRootTheme = Readonly<{
+  colorMode: ColorMode;
+  cookieSeedColorMode: ColorMode | null;
+  viewer: IdentityShellViewer | null;
+}>;
+type MarketplaceRootLoaderData = Readonly<{
+  actor: MarketplaceRootActor;
+  actorDisplay: CurrentActorDisplay | null;
+  cartCount: number;
+  colorMode: ColorMode;
+  origin: string;
+  shouldIndex: boolean;
+  viewer: IdentityShellViewer | null;
+}>;
 
 export const itemDetailRailAnalyticsBridgeScript = `
 (() => {
@@ -106,24 +136,67 @@ async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRo
   }
 }
 
+async function resolveMarketplaceRootTheme(
+  request: Request,
+  actor: MarketplaceRootActor,
+): Promise<MarketplaceRootTheme> {
+  if (!actor || actor.roleKey === "guest-buyer") {
+    return { colorMode: "system", cookieSeedColorMode: null, viewer: null };
+  }
+
+  const cookieColorMode = readUserPreferencesColorModeCookie(request);
+
+  try {
+    const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
+    const colorMode = viewer.preferences?.colorMode ?? cookieColorMode ?? "system";
+
+    return {
+      colorMode,
+      cookieSeedColorMode: viewer.preferences?.colorMode ?? null,
+      viewer,
+    };
+  } catch {
+    return {
+      colorMode: cookieColorMode ?? "system",
+      cookieSeedColorMode: null,
+      viewer: cookieColorMode
+        ? {
+            actor,
+            preferences: { colorMode: cookieColorMode },
+          }
+        : null,
+    };
+  }
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { registerMarketplacePostWriteConsistencyRecorder } = await import("./observability.server");
   registerMarketplacePostWriteConsistencyRecorder();
 
   const proofAccessActor = await requireMarketplaceProofAccess(request);
   const actor = proofAccessActor ?? (await resolveMarketplaceActor(request));
+  const [actorDisplay, cartCount, rootTheme] = await Promise.all([
+    resolveCurrentActorDisplay(request, actor),
+    resolveCartCount(request, actor),
+    resolveMarketplaceRootTheme(request, actor),
+  ]);
 
-  return {
+  const payload = {
     actor,
-    actorDisplay: await resolveCurrentActorDisplay(request, actor),
-    cartCount: await resolveCartCount(request, actor),
+    actorDisplay,
+    cartCount,
+    colorMode: rootTheme.colorMode,
     origin: new URL(request.url).origin,
     shouldIndex: shouldIndexMarketplace(),
+    viewer: rootTheme.viewer,
   };
+  const cookieHeaders = createUserPreferencesColorModeCookieSeedHeaders(request, rootTheme.cookieSeedColorMode);
+
+  return cookieHeaders ? routeData(payload, { headers: cookieHeaders }) : payload;
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const data = useLoaderData<typeof loader>() as Awaited<ReturnType<typeof loader>> | undefined;
+  const data = useLoaderData<typeof loader>() as MarketplaceRootLoaderData | undefined;
   const location = useLocation();
   const origin = data?.origin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin);
   const shouldIndex = data?.shouldIndex ?? shouldIndexMarketplace();

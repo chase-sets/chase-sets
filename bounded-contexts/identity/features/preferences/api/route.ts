@@ -4,6 +4,7 @@ import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { userPreferencesFor, type UserPreferencesCommand } from "../domain/domain";
+import { appendUserPreferencesColorModeCookie } from "./color-mode-cookie";
 import type { UserPreferencesServices } from "./runtime";
 
 type PreferencesBody = Partial<
@@ -98,12 +99,15 @@ export function userPreferencesRoutes(services: UserPreferencesServices) {
         context,
       });
 
-      return c.json({
+      const preferences = userPreferencesFor(actor.userId as UserId, result.state);
+      const response = c.json({
         id: actor.userId,
         version: result.version,
         status: "updated",
-        preferences: userPreferencesFor(actor.userId as UserId, result.state),
+        preferences,
       });
+      appendUserPreferencesColorModeCookie(response.headers, preferences.colorMode, c.req.raw);
+      return response;
     } catch (error) {
       if (error instanceof IdentityDomainError) {
         return c.json(validationFailed(error), 400);

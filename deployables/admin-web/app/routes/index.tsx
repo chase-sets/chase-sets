@@ -1,11 +1,22 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { data, redirect, useLoaderData } from "react-router";
 import { Grid, Heading, Stack, Card, EmptyState, LinkButton, Page, PageHeader } from "@chase-sets/design-system";
-import { createIdentityRequestApiClient, resolveIdentityShellViewer } from "@chase-sets/identity/server";
+import {
+  createIdentityRequestApiClient,
+  createUserPreferencesColorModeCookieSeedHeaders,
+  resolveIdentityShellViewer,
+  type IdentityShellViewer,
+} from "@chase-sets/identity/server";
 import { requireSignedInAdminActor } from "../auth.server";
 import { resolveAdminWebSectionNavItems } from "../host";
 import { AdminRootShell } from "../admin-root-shell";
+
+type AdminIndexLoaderData = Readonly<{
+  actor: Awaited<ReturnType<typeof requireSignedInAdminActor>>;
+  sections: ReturnType<typeof resolveAdminWebSectionNavItems>;
+  viewer: IdentityShellViewer;
+}>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireSignedInAdminActor(request);
@@ -15,15 +26,19 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect(sections[0].href);
   }
 
-  return {
+  const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
+  const payload = {
     actor,
     sections,
-    viewer: await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor),
+    viewer,
   };
+  const cookieHeaders = createUserPreferencesColorModeCookieSeedHeaders(request, viewer.preferences?.colorMode);
+
+  return cookieHeaders ? data(payload, { headers: cookieHeaders }) : payload;
 }
 
 export default function AdminIndexRoute() {
-  const { actor, sections, viewer } = useLoaderData<typeof loader>();
+  const { actor, sections, viewer } = useLoaderData() as AdminIndexLoaderData;
 
   if (sections.length === 0) {
     return (

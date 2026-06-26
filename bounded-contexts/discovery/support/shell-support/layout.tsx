@@ -1,9 +1,10 @@
 import { t } from "@chase-sets/localization";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { BrandLink, ChaseRoot, MarketplaceShell, type NavigationItem, type ColorMode } from "@chase-sets/design-system";
 
 export function DiscoveryShellLayout({
   activeKey = "search",
+  colorMode = "system",
   topNavItems,
   bottomNavItems,
   onNavSelect,
@@ -11,14 +12,13 @@ export function DiscoveryShellLayout({
   children,
 }: {
   activeKey?: string;
+  colorMode?: ColorMode;
   topNavItems: readonly NavigationItem[];
   bottomNavItems: readonly NavigationItem[];
   onNavSelect?: (key: string) => void;
   actions?: ReactNode;
   children: ReactNode;
 }) {
-  const [colorMode] = useState<ColorMode>("system");
-
   return (
     <ChaseRoot colorMode={colorMode}>
       <MarketplaceShell

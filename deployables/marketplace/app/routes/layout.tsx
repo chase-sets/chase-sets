@@ -1,7 +1,16 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
-import { AccountMenu, Banner, Button, Form, LinkButton, Stack, ThemeToggle } from "@chase-sets/design-system";
+import {
+  AccountMenu,
+  Banner,
+  Button,
+  Form,
+  LinkButton,
+  Stack,
+  ThemeToggle,
+  type ColorMode,
+} from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { NotificationCenterShell } from "@chase-sets/notification-center/web";
@@ -101,6 +110,7 @@ export default function MarketplaceLayoutRoute() {
         actor?: MarketplaceActor;
         actorDisplay?: CurrentActorDisplay | null;
         cartCount?: number;
+        colorMode?: ColorMode;
       }
     | undefined;
   const actor = rootData?.actor ?? null;
@@ -164,6 +174,7 @@ export default function MarketplaceLayoutRoute() {
   return (
     <DiscoveryShellLayout
       activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
+      colorMode={rootData?.colorMode ?? "system"}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       onNavSelect={handleNavSelect}

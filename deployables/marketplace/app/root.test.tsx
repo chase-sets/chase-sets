@@ -37,6 +37,34 @@ function createLoaderArgs(url: string): Parameters<typeof loader>[0] {
   };
 }
 
+type LoaderDataResult<T> = Readonly<{
+  type: string;
+  data: T;
+  init?: ResponseInit | null;
+}>;
+
+function isLoaderDataResult<T>(value: unknown): value is LoaderDataResult<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    (value as { type?: unknown }).type === "DataWithResponseInit" &&
+    "data" in value
+  );
+}
+
+function unwrapLoaderData<T>(value: T | LoaderDataResult<T>): T {
+  return isLoaderDataResult<T>(value) ? value.data : value;
+}
+
+function loaderHeaders(value: unknown) {
+  return isLoaderDataResult<unknown>(value) ? new Headers(value.init?.headers) : new Headers();
+}
+
+function requestPath(input: RequestInfo | URL) {
+  return input instanceof Request ? new URL(input.url).pathname : new URL(String(input)).pathname;
+}
+
 describe("marketplace root layout", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({
@@ -200,8 +228,12 @@ describe("marketplace root layout", () => {
       ),
     );
 
-    const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/sign-in?returnTo=%2F"));
-    const guestExitData = await loader(createLoaderArgs("https://marketplace.chasesets.com/guest-checkout/exit"));
+    const data = unwrapLoaderData(
+      await loader(createLoaderArgs("https://marketplace.chasesets.com/sign-in?returnTo=%2F")),
+    );
+    const guestExitData = unwrapLoaderData(
+      await loader(createLoaderArgs("https://marketplace.chasesets.com/guest-checkout/exit")),
+    );
 
     expect(data.actor).toBeNull();
     expect(data.origin).toBe("https://marketplace.chasesets.com");
@@ -237,12 +269,14 @@ describe("marketplace root layout", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    const data = await loader({
-      ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
-      request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
-        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+    const data = unwrapLoaderData(
+      await loader({
+        ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
+        request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
+          headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+        }),
       }),
-    });
+    );
 
     expect(data.actor?.roleKey).toBe("guest-buyer");
     expect(data.actorDisplay).toBeNull();
@@ -253,6 +287,87 @@ describe("marketplace root layout", () => {
     expect(fetch.mock.calls.map(([input]) => new URL(String(input)).pathname)).not.toContain(
       "/api/marketplace/account/cart",
     );
+  });
+
+  it("resolves signed-in color mode from Identity preferences and refreshes the cookie mirror", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const pathname = requestPath(input);
+      if (pathname === "/api/auth/session") {
+        return Response.json({
+          actor: {
+            userId: "usr_alex",
+            accountId: "acc_card_vault",
+            tenantId: "acc_card_vault",
+            sessionId: "ses_alex",
+            membershipId: "mbr_card_vault_alex",
+            roleKey: "manager",
+            permissions: ["accounts.view"],
+          },
+        });
+      }
+      if (pathname === "/api/identity/current-actor-display") {
+        return Response.json({
+          account: { account_id: "acc_card_vault", display_name: "Card Vault", name: "Card Vault LLC", badges: [] },
+          membership: { membership_id: "mbr_card_vault_alex", role_key: "manager" },
+          user: { user_id: "usr_alex", display_name: "Alex Clerk", primary_email: "alex@example.com" },
+        });
+      }
+      if (pathname === "/api/identity/preferences") {
+        return Response.json({
+          userId: "usr_alex",
+          colorMode: "dark",
+          density: "comfortable",
+          reducedMotion: "user",
+          locale: "en-US",
+          timeZone: "America/Chicago",
+        });
+      }
+      if (pathname === "/api/marketplace/account/cart") {
+        return Response.json({ items: [], total: 0, count: 1 });
+      }
+
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await loader({
+      ...createLoaderArgs("https://marketplace.chasesets.com/account"),
+      request: new Request("https://marketplace.chasesets.com/account", {
+        headers: { cookie: "chase_sets_color_mode=light" },
+      }),
+    });
+    const data = unwrapLoaderData(result);
+
+    expect(data.colorMode).toBe("dark");
+    expect(data.viewer?.preferences?.colorMode).toBe("dark");
+    expect(loaderHeaders(result).get("Set-Cookie")).toContain("chase_sets_color_mode=dark");
+  });
+
+  it("keeps signed-out first paint on system so localStorage fallback can apply after hydration", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const pathname = requestPath(input);
+      if (pathname === "/api/auth/session") {
+        return Response.json({ error: "Authentication required." }, { status: 401 });
+      }
+      if (pathname === "/api/identity/preferences") {
+        throw new Error("Signed-out root loaders should not request Identity preferences.");
+      }
+
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await loader({
+      ...createLoaderArgs("https://marketplace.chasesets.com/search"),
+      request: new Request("https://marketplace.chasesets.com/search", {
+        headers: { cookie: "chase_sets_color_mode=dark" },
+      }),
+    });
+    const data = unwrapLoaderData(result);
+
+    expect(data.actor).toBeNull();
+    expect(data.colorMode).toBe("system");
+    expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
   });
 
   it("does not expose sitemap routes before proof access is authenticated", async () => {

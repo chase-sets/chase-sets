@@ -11,6 +11,7 @@ import {
   initialUserPreferencesState,
   type UserPreferencesState,
 } from "../domain/domain";
+import { USER_PREFERENCES_COLOR_MODE_COOKIE_NAME } from "./color-mode-cookie";
 import { userPreferencesRoutes } from "./route";
 import type { UserPreferencesServices } from "./runtime";
 
@@ -121,12 +122,14 @@ describe("user preferences API route", () => {
         timeZone: "America/Chicago",
       },
     });
+    expect(colorMode.response.headers.get("Set-Cookie")).toContain(`${USER_PREFERENCES_COLOR_MODE_COOKIE_NAME}=dark`);
 
     const density = await requestJson(app, "/preferences", {
       method: "PUT",
       body: JSON.stringify({ density: "compact" }),
     });
     expect(density.response.status).toBe(200);
+    expect(density.response.headers.get("Set-Cookie")).toContain(`${USER_PREFERENCES_COLOR_MODE_COOKIE_NAME}=dark`);
     expect(density.body.preferences).toEqual({
       userId: actor.userId,
       colorMode: "dark",
