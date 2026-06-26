@@ -2,7 +2,7 @@ export { Button, IconButton, LinkButton, ButtonGroup } from "./button";
 export type { ButtonProps, IconButtonProps, LinkButtonProps, ButtonGroupProps } from "./button";
 
 export { AccountMenu } from "./account-menu";
-export type { AccountMenuItem, AccountMenuProps } from "./account-menu";
+export type { AccountMenuItem, AccountMenuPreferences, AccountMenuProps } from "./account-menu";
 
 export { ResponsiveActionMenu } from "./responsive-action-menu";
 export type { ResponsiveActionMenuProps } from "./responsive-action-menu";

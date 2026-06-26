@@ -14,6 +14,7 @@ import {
   NavigationHeader,
   SideNav,
   TopNav,
+  ThemePreferenceControl,
   ThemeToggle,
   SideSheet,
   ActivitySheet,
@@ -62,6 +63,7 @@ describe("design system panels, navigation, and shells", () => {
 
     expect(surface.NavigationHeader).toBe(NavigationHeader);
     expect(surface.Progress).toBeTypeOf("function");
+    expect(surface.ThemePreferenceControl).toBe(ThemePreferenceControl);
     expect(surface.ThemeToggle).toBe(ThemeToggle);
     expect(surface.cn).toBeUndefined();
     expect(surface.UiBadge).toBeUndefined();

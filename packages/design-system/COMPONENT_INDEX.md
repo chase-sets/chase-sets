@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 353
+- Runtime exports indexed: 354
 - Source modules covered: 117
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -315,6 +315,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Text` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Text. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `Textarea` | `packages/design-system/src/components/forms/textarea.tsx` | Purpose not documented; symbol name suggests: Textarea. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
 | `TextInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Text Input. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
+| `ThemePreferenceControl` | `packages/design-system/src/theme/theme-toggle.tsx` | Purpose not documented; symbol name suggests: Theme Preference Control. | `No production consumer yet.` |
 | `ThemeScope` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Theme Scope. | `No production consumer yet.` |
 | `ThemeToggle` | `packages/design-system/src/theme/theme-toggle.tsx` | Purpose not documented; symbol name suggests: Theme Toggle. | `deployables/marketplace/app/routes/layout.tsx` |
 | `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `No production consumer yet.` |
