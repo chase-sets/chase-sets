@@ -709,7 +709,7 @@ async function startCatalogSyncForSelectedProviderUnit(
     .toBeEnabled({ timeout: sourceOptionTimeoutMs })
     .catch(async () => {
       throw new Error(
-        `Catalog sync participation row for ${unitKey} is visible but not selectable: ${await visibleLocatorText(
+        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: the participation row is visible but not selectable. ${await visibleLocatorText(
           participationRow,
         )}`,
       );
@@ -720,7 +720,15 @@ async function startCatalogSyncForSelectedProviderUnit(
   await expect(participationCheckbox).toBeChecked({ timeout: sourceOptionTimeoutMs });
 
   const startButton = commandForm.getByRole("button", { name: "Start Catalog sync" });
-  await expect(startButton).toBeEnabled({ timeout: sourceOptionTimeoutMs });
+  await expect(startButton)
+    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
+    .catch(async () => {
+      throw new Error(
+        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: Start Catalog sync is disabled. ${await visibleLocatorText(
+          commandForm,
+        )}`,
+      );
+    });
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
 
   await startButton.click();
