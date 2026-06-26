@@ -416,6 +416,40 @@ describe("Catalog source-scope workset", () => {
     expect(hiddenValue(form, "expansionName")).toBe("OP16");
   });
 
+  it("does not project stale One Piece set fields into a Scrydex Lorcana command", () => {
+    const unitKey = "scrydex:lorcana:single-card:source-observation-import";
+    const profile = scrydexLorcanaSetNameProfile();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:lorcana:single-card:source-observation-import&importScope=en%3ATFC&languageCode=en&productLineName=One%20Piece%20Card%20Game&expansionName=The%20Time%20Of%20Battle&profileVersion=2026.06.23",
+      scopes: { items: [lorcanaScope("scrydex", { observed_observations: 1 })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: overviewForProfiles([profile], "lorcana"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === unitKey);
+
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "scrydex",
+      unitKey,
+      importScope: null,
+      productLineName: null,
+      expansionName: null,
+    });
+    expect(unit?.actions.import).toMatchObject({
+      state: "disabled",
+      blockers: ["import-scope-required"],
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    expect(hiddenValue(form, "importScope")).toBe("");
+    expect(hiddenValue(form, "productLineName")).toBe("");
+    expect(hiddenValue(form, "expansionName")).toBe("");
+    expect(within(form!).queryByDisplayValue("The Time Of Battle")).toBeNull();
+  });
+
   it("keeps LorcanaJSON compact set scopes promotable after preview redirects", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
@@ -865,7 +899,7 @@ function lorcanaSetScopes(): SourceObservationIntegrationScope[] {
 }
 
 function lorcanaScope(
-  providerKey: "lorcanajson" | "lorcast" | "tcgplayer",
+  providerKey: "lorcanajson" | "lorcast" | "scrydex" | "tcgplayer",
   counts: Partial<SourceObservationIntegrationScope>,
 ): SourceObservationIntegrationScope {
   const providerScope =
@@ -930,6 +964,35 @@ function scrydexOnePieceSetNameProfile(): CatalogProviderProfileVersionReview {
     profileVersion: "2026.06.22",
     ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
     displayName: "Scrydex One Piece Cards",
+    active: true,
+    lifecycle: "active",
+    status: "active",
+    connectorKind: "scrydex-json",
+    profile: { providerKey: "scrydex", supportedScopes: ["set-name", "product/card"] },
+    supportedScopes: ["set-name", "product/card"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
+  });
+}
+
+function scrydexLorcanaSetNameProfile(): CatalogProviderProfileVersionReview {
+  return profileReview({
+    providerKey: "scrydex",
+    profileKey: "scrydex-lorcana-card",
+    profileVersion: "2026.06.23",
+    ingestionUnitKey: "scrydex:lorcana:single-card:source-observation-import",
+    displayName: "Scrydex Lorcana cards",
     active: true,
     lifecycle: "active",
     status: "active",
