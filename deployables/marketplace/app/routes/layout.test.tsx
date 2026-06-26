@@ -184,7 +184,7 @@ describe("marketplace route layout", () => {
       colorMode: "system",
       viewer: {
         actor,
-        preferences: { colorMode: "system" },
+        preferences: { colorMode: "system", reducedMotion: "user" },
       },
     });
 
@@ -309,6 +309,25 @@ describe("marketplace route layout", () => {
     const html = renderToString(<MarketplaceLayoutRoute />);
 
     expect(html).toContain('data-color-mode="dark"');
+  });
+
+  it("honors the Identity reduced-motion preference at the shell root", () => {
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["accounts.view"] },
+      cartCount: 0,
+      colorMode: "dark",
+      viewer: {
+        preferences: {
+          colorMode: "dark",
+          reducedMotion: "always",
+        },
+      },
+    });
+
+    const html = renderToString(<MarketplaceLayoutRoute />);
+
+    expect(html).toContain('data-color-mode="dark"');
+    expect(html).toContain('data-reduced-motion="true"');
   });
 
   it("keeps signed-out guest cart access visible when cart has items", () => {

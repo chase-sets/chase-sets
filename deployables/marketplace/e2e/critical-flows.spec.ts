@@ -127,6 +127,7 @@ async function signInWithConfiguredPassword(
   const body = (await response.json()) as { sessionToken?: string };
   expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
   await addSessionCookie(page, origin, body.sessionToken!);
+  return body.sessionToken!;
 }
 
 async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
@@ -142,6 +143,7 @@ async function registerSyntheticAccount(page: Page, origin: string, account: Ret
   const body = (await response.json()) as { sessionToken?: string };
   expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
   await addSessionCookie(page, origin, body.sessionToken!);
+  return body.sessionToken!;
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -150,11 +152,35 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   const credentials = marketplaceAccountFor(testInfo);
 
   if (credentials.shouldRegister) {
-    await registerSyntheticAccount(page, origin, credentials);
-    return;
+    return {
+      ...credentials,
+      sessionToken: await registerSyntheticAccount(page, origin, credentials),
+    };
   }
 
-  await signInWithConfiguredPassword(page, origin, credentials);
+  return {
+    ...credentials,
+    sessionToken: await signInWithConfiguredPassword(page, origin, credentials),
+  };
+}
+
+async function waitForPreferences(
+  page: Page,
+  expected: Readonly<{
+    colorMode?: string;
+    reducedMotion?: string;
+  }>,
+) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get("/api/identity/preferences");
+        expect(response.status()).toBe(200);
+        return (await response.json()) as { colorMode?: string; reducedMotion?: string };
+      },
+      { timeout: authProjectionTimeoutMs },
+    )
+    .toMatchObject(expected);
 }
 
 test.describe("marketplace critical flows", () => {
@@ -245,6 +271,57 @@ test.describe("marketplace critical flows", () => {
 
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
     await expectAccountRouteReady(page, accountCriticalRoutes[2]);
+  });
+
+  test("signed-in presentation preferences persist across reloads and converge across sessions @marketplace-account", async ({
+    page,
+    browser,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
+    const account = await authenticateAccount(page, testInfo);
+    await expectAccountRouteReady(page, accountCriticalRoutes[0]);
+
+    await page.getByRole("button", { name: "Account menu" }).click();
+    const preferencesResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/identity/preferences" && response.request().method() === "PUT";
+    });
+    await page.getByRole("radio", { name: "Dark" }).click();
+    expect((await preferencesResponse).status()).toBe(200);
+
+    await expect(page.locator('[data-color-mode="dark"]').first()).toBeVisible();
+    await waitForPreferences(page, { colorMode: "dark" });
+
+    const reducedMotionResponse = await page.request.put("/api/identity/preferences", {
+      data: { reducedMotion: "always" },
+    });
+    expect(reducedMotionResponse.status()).toBe(200);
+    await waitForPreferences(page, { colorMode: "dark", reducedMotion: "always" });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator('[data-color-mode="dark"]').first()).toBeVisible();
+    await expect(page.locator('[data-reduced-motion="true"]').first()).toBeVisible();
+
+    const firstPaintResponse = await page.request.get("/account/cart");
+    expect(firstPaintResponse.status()).toBeLessThan(400);
+    const firstPaintHtml = await firstPaintResponse.text();
+    expect(firstPaintHtml).toContain('data-color-mode="dark"');
+    expect(firstPaintHtml).toContain('data-reduced-motion="true"');
+    expect(firstPaintHtml).not.toContain('data-color-mode="light"');
+
+    const origin = new URL(page.url()).origin;
+    const secondContext = await browser.newContext({ baseURL: origin });
+    try {
+      const secondPage = await secondContext.newPage();
+      await signInWithConfiguredPassword(secondPage, origin, account);
+      await expectAccountRouteReady(secondPage, accountCriticalRoutes[0]);
+      await expect(secondPage.locator('[data-color-mode="dark"]').first()).toBeVisible();
+      await expect(secondPage.locator('[data-reduced-motion="true"]').first()).toBeVisible();
+    } finally {
+      await secondContext.close();
+    }
   });
 
   test("signed-in account can reach critical marketplace commerce surfaces @marketplace-seller", async ({

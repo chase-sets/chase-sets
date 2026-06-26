@@ -21,7 +21,7 @@ export function AdminRootShell({
   const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
-    <ChaseRoot colorMode={colorMode}>
+    <ChaseRoot colorMode={colorMode} reducedMotion={viewer?.preferences?.reducedMotion}>
       <AdminShell
         brand={<Text weight="semibold">{t("adminWeb.app.root.brand")}</Text>}
         topNavItems={sections}
