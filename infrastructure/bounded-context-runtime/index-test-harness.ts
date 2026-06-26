@@ -131,7 +131,7 @@ export function getReadAllCalls(pool: object) {
 export function createMockPool(): MockPool {
   const pool = {
     query: async (sql: string, params: readonly unknown[] = []) => {
-      if (sql === "SET LOCAL statement_timeout = $1") {
+      if (sql === "SELECT set_config('statement_timeout', $1, true)") {
         return { rows: [], rowCount: 0 };
       }
 

@@ -4,6 +4,8 @@ import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@
 
 const projectionDbContext = new AsyncLocalStorage<PgQueryable>();
 
+const MAX_STATEMENT_TIMEOUT_MS = 2_147_483_647;
+
 export function createProjectionAwarePool<TPool extends PgTransactionalPool>(pool: TPool): TPool {
   return new Proxy(pool, {
     get(target, property, receiver) {
@@ -31,8 +33,9 @@ export async function withProjectionTransaction<T>(
 ): Promise<T> {
   context?.throwIfLeaseLost?.();
   return withPgTransaction(pool, async (client) => {
-    if (context?.statementTimeoutMs && Number.isFinite(context.statementTimeoutMs) && context.statementTimeoutMs > 0) {
-      await client.query("SET LOCAL statement_timeout = $1", [Math.ceil(context.statementTimeoutMs)]);
+    const statementTimeoutMs = normalizeProjectionStatementTimeoutMs(context?.statementTimeoutMs);
+    if (statementTimeoutMs !== null) {
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${statementTimeoutMs}ms`]);
     }
 
     context?.throwIfLeaseLost?.();
@@ -40,4 +43,12 @@ export async function withProjectionTransaction<T>(
     context?.throwIfLeaseLost?.();
     return result;
   });
+}
+
+function normalizeProjectionStatementTimeoutMs(statementTimeoutMs: number | undefined): number | null {
+  if (statementTimeoutMs === undefined || !Number.isFinite(statementTimeoutMs) || statementTimeoutMs <= 0) {
+    return null;
+  }
+
+  return Math.min(Math.ceil(statementTimeoutMs), MAX_STATEMENT_TIMEOUT_MS);
 }
