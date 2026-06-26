@@ -4,6 +4,7 @@ import { identityApiKeySchemaSql } from "../../features/api-keys/read-model/sche
 import { identityConsentSchemaSql } from "../../features/consents/read-model/schema";
 import { identityInvitationSchemaSql } from "../../features/invitations/read-model/schema";
 import { identityMembershipSchemaSql } from "../../features/memberships/read-model/schema";
+import { identityUserPreferencesSchemaSql } from "../../features/preferences/read-model/schema";
 import { identityShippingAddressSchemaSql } from "../../features/shipping-addresses/read-model/schema";
 import { identityUserSchemaSql } from "../../features/users/read-model/schema";
 import { identityLinkedPlatformAuthorizationSchemaSql } from "../ucp-support/linked-platform-authorizations";
@@ -26,6 +27,7 @@ export const identitySchemaSql = [
   identityInvitationSchemaSql,
   identityApiKeySchemaSql,
   identityConsentSchemaSql,
+  identityUserPreferencesSchemaSql,
   identityLinkedPlatformAuthorizationSchemaSql,
   identityShippingAddressSchemaSql,
   identityApiKeySecretSchemaSql,
