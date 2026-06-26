@@ -95,13 +95,15 @@ export function sourceObservationReviewCompositionFor(input: {
   );
   const duplicateConflictCount = rows.filter((row) => row.duplicateCount > 0).length;
   const promotionReadyRowCount = rows.filter((row) => row.promotionReadiness.state === "eligible").length;
-  const promotionReadyCount = input.reviewUnavailable
-    ? 0
-    : input.reviewObservations
-      ? promotionReadyRowCount
-      : input.eligible;
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedRows = rows.filter((row) => selectedObservationIds.includes(row.observationId));
+  const promotionReadyCount = promotionReadyCountFor({
+    eligible: input.eligible,
+    promotionReadyRowCount,
+    reviewObservations: input.reviewObservations,
+    reviewUnavailable: input.reviewUnavailable,
+    routeContext: input.routeContext,
+  });
 
   return {
     review: {
@@ -143,6 +145,33 @@ export function sourceObservationReviewCompositionFor(input: {
     },
     evidenceByObservationId,
   };
+}
+
+function promotionReadyCountFor(input: {
+  eligible: number;
+  promotionReadyRowCount: number;
+  reviewObservations: ListResponse<SourceObservationListItem> | null;
+  reviewUnavailable: boolean | undefined;
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+}): number {
+  if (input.reviewUnavailable) {
+    return 0;
+  }
+  if (input.routeContext.selectedObservationIds.length > 0) {
+    return input.promotionReadyRowCount;
+  }
+  if (!hasNarrowingReviewFilters(input.routeContext)) {
+    return input.eligible;
+  }
+
+  return input.reviewObservations ? input.promotionReadyRowCount : input.eligible;
+}
+
+function hasNarrowingReviewFilters(routeContext: CatalogPrimaryWorkbenchRouteContext): boolean {
+  const scopeOnlyFilters = new Set(["providerKey", "importScope"]);
+  return Object.entries(routeContext.sourceObservationFilters).some(
+    ([key, value]) => Boolean(value) && !scopeOnlyFilters.has(key),
+  );
 }
 
 // Convenience wrapper for callers that only need the serialized review slice.
