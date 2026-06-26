@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
@@ -989,6 +989,50 @@ describe("checkout session page", () => {
     const inFormPrimary = container.querySelector("button[type='submit'][value='confirm-checkout']:not([form])");
     expect(inFormPrimary).not.toBeNull();
     expect(inFormPrimary?.closest(".hidden.md\\:block")).not.toBeNull();
+  });
+
+  it("auto-resumes payment start once post-order recovery reloads with a fresh Payments quote", async () => {
+    const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
+    document.addEventListener("submit", submitListener);
+
+    try {
+      render(
+        <CheckoutSessionPage
+          session={{
+            ...readySession,
+            order_ids: ["ord_1"],
+            shipping_address_id: "adr_manual",
+            shipping_address: {
+              shippingAddressId: "adr_manual",
+              name: "Jane Smith",
+              company: "",
+              line1: "100 Market Street",
+              line2: "",
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+              phone: "312-555-0199",
+              email: "jane@example.com",
+            },
+          }}
+          fulfillmentPreview={readyFulfillmentPreview}
+          paymentPreview={paymentPreview}
+          autoResumePaymentStart
+        />,
+      );
+
+      await waitFor(() => expect(submitListener).toHaveBeenCalledTimes(1));
+      const submitEvent = submitListener.mock.calls[0]?.[0];
+      expect((submitEvent?.submitter as HTMLButtonElement | null)?.value).toBe("confirm-checkout");
+      const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement | null;
+      expect(form).not.toBeNull();
+      const formData = new FormData(form!);
+      expect(formData.get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_1");
+      expect(formData.get("paymentMethodCategory")).toBe("card");
+    } finally {
+      document.removeEventListener("submit", submitListener);
+    }
   });
 
   it("states the deferral once as the summary total caption", () => {

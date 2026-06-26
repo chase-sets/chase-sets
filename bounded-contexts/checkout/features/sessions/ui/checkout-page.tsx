@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   HiddenInput,
   Form,
@@ -60,6 +60,7 @@ type CheckoutPaymentPreview = Readonly<{
     applied_amount: string;
     external_amount: string;
   }>;
+  can_start_payment?: boolean;
 }>;
 
 const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
@@ -232,6 +233,7 @@ export function CheckoutSessionPage({
   canSavePaymentMethods = false,
   isSignedInBuyer = false,
   initialEditSection = null,
+  autoResumePaymentStart = false,
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
@@ -249,6 +251,7 @@ export function CheckoutSessionPage({
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
   initialEditSection?: CheckoutEditSection | null;
+  autoResumePaymentStart?: boolean;
 }) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -564,6 +567,37 @@ export function CheckoutSessionPage({
   const shouldRefreshBeforeCommit = !isOfferIntent && needsReviewRefresh;
   const commitIntent = shouldRefreshBeforeCommit ? "refresh-checkout-preview" : "confirm-checkout";
   const commitIcon = shouldRefreshBeforeCommit ? "refreshCcw" : "lock";
+  const hasAutoResumedPaymentStartRef = useRef(false);
+  const canAutoResumePaymentStart = Boolean(
+    autoResumePaymentStart &&
+    !hasPayment &&
+    !isOfferIntent &&
+    session.order_ids.length > 0 &&
+    payment?.marketplace_checkout_fee.quote_fingerprint &&
+    payment.can_start_payment !== false &&
+    !needsReviewRefresh,
+  );
+
+  useEffect(() => {
+    if (hasAutoResumedPaymentStartRef.current || isSubmitting || !canAutoResumePaymentStart) {
+      return;
+    }
+
+    const form = document.getElementById("checkout-confirmation-form");
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+
+    const submitter = form.querySelector<HTMLButtonElement>(
+      'button[type="submit"][name="intent"][value="confirm-checkout"]',
+    );
+    if (!submitter) {
+      return;
+    }
+
+    hasAutoResumedPaymentStartRef.current = true;
+    form.requestSubmit(submitter);
+  }, [canAutoResumePaymentStart, isSubmitting]);
 
   const orderSummary = (
     <Stack gap={4}>

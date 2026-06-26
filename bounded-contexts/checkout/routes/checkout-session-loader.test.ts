@@ -522,7 +522,20 @@ describe("checkout web routes: checkout session loader", () => {
     });
 
     const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated"),
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+          {
+            commitPositions: [
+              {
+                sourceContextName: "ordering",
+                maxGlobalPosition: "42",
+                eventIds: ["evt_order_created"],
+              },
+            ],
+          },
+        )}`,
+      ),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
@@ -537,6 +550,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
+    expect(result.autoResumePaymentStart).toBe(true);
   });
 
   it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
