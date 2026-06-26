@@ -6,7 +6,7 @@
 // statuses, positions, and ages. It never calls provider APIs and never dumps
 // payloads or metadata.
 import { createHash } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
@@ -38,6 +38,15 @@ export const REQUIRED_PROJECTION_TRACES = Object.freeze([
     databaseContextName: "payments",
   },
 ]);
+
+export const REQUIRED_WAKE_INTEREST = Object.freeze({
+  sourceContextName: "ordering",
+  eventType: "ordering.order.created",
+  targetContextName: "inventory",
+  projectionName: "inventory-order-reservation-workflow",
+  checkpointKey: "inventory-order-reservation-workflow:ordering:v1",
+  manifestContextName: "inventory",
+});
 
 const REQUIRED_CONTEXT_DATABASES = Object.freeze(["checkout", "ordering", "inventory", "payments"]);
 const REQUIRED_RELAY_SOURCE_CONTEXTS = Object.freeze(["ordering", "inventory"]);
@@ -76,6 +85,7 @@ export function parseCheckoutOrderReadinessTraceArgs(argv, env = process.env) {
     outPath: readOption(argv, "--out") ?? readEnv("TRACE_OUT", env) ?? DEFAULT_OUT_PATH,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
     controlDatabaseUrl: readEnv("PLATFORM_CONTROL_DATABASE_URL", env),
+    workerWakeDisabledProjections: parseProjectionKeyList(readEnv("WORKER_WAKE_DISABLED_PROJECTIONS", env)),
     contextDatabaseUrls: Object.fromEntries(
       REQUIRED_CONTEXT_DATABASES.map((contextName) => [contextName, readEnv(contextDatabaseEnvName(contextName), env)]),
     ),
@@ -145,6 +155,9 @@ export async function runCheckoutOrderReadinessTrace(options, deps) {
   );
   const projectionState = await deps.fetchProjectionState(REQUIRED_PROJECTION_TRACES, observedAt);
   const relayCursors = await deps.fetchRelayCursors(REQUIRED_RELAY_SOURCE_CONTEXTS, observedAt);
+  const wakeInterestDiagnostics = buildWakeInterestDiagnostics({
+    disabledProjectionKeys: options.workerWakeDisabledProjections,
+  });
 
   return buildCheckoutOrderReadinessTraceEvidence({
     checkedAt: options.checkedAt,
@@ -157,6 +170,7 @@ export async function runCheckoutOrderReadinessTrace(options, deps) {
     payments,
     projectionState,
     relayCursors,
+    wakeInterestDiagnostics,
   });
 }
 
@@ -201,6 +215,11 @@ export function buildCheckoutOrderReadinessTraceEvidence(input) {
     payments: sanitizePaymentsFacts(input.payments, { orderCount, paymentInputMissingCount }),
     projectionState: input.projectionState,
     relayCursors: input.relayCursors,
+    wakeInterestDiagnostics:
+      input.wakeInterestDiagnostics ??
+      buildWakeInterestDiagnostics({
+        disabledProjectionKeys: [],
+      }),
     decision,
     redaction: {
       identifiers: "hashed-or-presence-only",
@@ -272,10 +291,29 @@ export function renderTraceStepSummary(evidence) {
     `| Payments by checkout source | count ${evidence.payments.paymentsByCheckoutSource.rowCount}; statuses ${formatCounts(evidence.payments.paymentsByCheckoutSource.statusCounts)} |`,
     `| Projection checkpoints | missing ${evidence.projectionState.missingCheckpointCount}; stale/behind ${evidence.projectionState.staleOrBehindCount}; wake queued/claimed/failed ${formatCounts(evidence.projectionState.wakeStateCounts)} |`,
     `| Relay cursors | missing ${evidence.relayCursors.missingCount}; behind ${evidence.relayCursors.behindCount} |`,
+    `| Wake interest | ordering created to inventory reservation ${formatBool(evidence.wakeInterestDiagnostics.interestPresent)}; disabled by env ${formatBool(evidence.wakeInterestDiagnostics.disabledByWorkerWakeDisabledProjections)} |`,
     "",
     "Sanitized artifact uploaded by this workflow contains only counts, booleans, statuses, positions, and ages.",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+export function buildWakeInterestDiagnostics(input = {}) {
+  const disabledProjectionKeys = parseProjectionKeyList(input.disabledProjectionKeys);
+  const disabledProjectionKey = `${REQUIRED_WAKE_INTEREST.targetContextName}:${REQUIRED_WAKE_INTEREST.projectionName}`;
+  const manifestInterest = input.manifestInterest ?? loadRequiredWakeInterestFromManifest();
+
+  return {
+    sourceContextName: REQUIRED_WAKE_INTEREST.sourceContextName,
+    eventType: REQUIRED_WAKE_INTEREST.eventType,
+    targetContextName: REQUIRED_WAKE_INTEREST.targetContextName,
+    projectionName: REQUIRED_WAKE_INTEREST.projectionName,
+    checkpointKey: REQUIRED_WAKE_INTEREST.checkpointKey,
+    interestPresent: Boolean(manifestInterest?.interestPresent),
+    manifestContextName: REQUIRED_WAKE_INTEREST.manifestContextName,
+    disabledProjectionKey,
+    disabledByWorkerWakeDisabledProjections: disabledProjectionKeys.includes(disabledProjectionKey),
+  };
 }
 
 export function assertReadOnlySql(sql) {
@@ -807,6 +845,46 @@ function clampInteger(value, fallback, minimum, maximum) {
     return fallback;
   }
   return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+function parseProjectionKeyList(value) {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort();
+  }
+  return [
+    ...new Set(
+      String(value ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+function loadRequiredWakeInterestFromManifest() {
+  const manifestPath = fileURLToPath(new URL("../bounded-contexts/inventory/context.json", import.meta.url));
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const subscription = (manifest.eventSubscriptions ?? []).find(
+    (entry) =>
+      entry?.sourceContextName === REQUIRED_WAKE_INTEREST.sourceContextName &&
+      entry?.projectionName === REQUIRED_WAKE_INTEREST.projectionName &&
+      Array.isArray(entry?.eventTypes) &&
+      entry.eventTypes.includes(REQUIRED_WAKE_INTEREST.eventType),
+  );
+  const projectionGroup = (manifest.projectionGroups ?? []).find(
+    (entry) =>
+      entry?.projectionName === REQUIRED_WAKE_INTEREST.projectionName &&
+      Array.isArray(entry?.sourceContextNames) &&
+      entry.sourceContextNames.includes(REQUIRED_WAKE_INTEREST.sourceContextName),
+  );
+  const checkpointKey =
+    subscription?.projectionName && subscription?.sourceContextName && subscription?.subscriptionVersion
+      ? `${subscription.projectionName}:${subscription.sourceContextName}:v${subscription.subscriptionVersion}`
+      : null;
+
+  return {
+    interestPresent: Boolean(subscription && projectionGroup && checkpointKey === REQUIRED_WAKE_INTEREST.checkpointKey),
+  };
 }
 
 function asStringArray(value) {
