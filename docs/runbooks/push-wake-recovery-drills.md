@@ -14,7 +14,7 @@ What the `reconciliation` drill does:
 
 1. Snapshots `GET /api/platform/projections/wake-status` (admin credentials, structural fields only).
 2. Before any synthetic write, waits for wake-runtime readiness when wake-status is available: at least one active wake-capable worker and an active projection-wake relay lease. A post-deploy no-worker window fails explicitly as `wake-runtime-not-ready-before-drill` instead of producing warning-only checkout readiness evidence.
-3. Generates one synthetic guest Buy Now write via the existing [freshness probe](./guest-buy-now-freshness-probe.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus).
+3. Generates bounded synthetic guest Buy Now single-write attempts via the existing [freshness probe](./guest-buy-now-freshness-probe.md) (same no-payment/no-order safety rules; `--skip-canary-write` audits without a stimulus). Reconciliation uses the ratified single-write retry envelope: up to three attempts, passing when any attempt reaches checkout-ready within the SLO and failing when the whole envelope stays temporary or untrusted.
 4. Audits durable positions until convergence or budget exhaustion, per staging-enabled source context. Synthetic Buy Now runs default this checkpoint gate to the route's exact durable dependency, `checkout.session-projection`; dispatch with `--convergence-projection-names all` only when intentionally auditing every active projection checkpoint for the context.
    - event-store head: `MAX(global_position)` of `event_store_events` for the source context;
    - relay high-water cursor: `platform_projection_wake_relay_cursors.last_fanout_position` (control database);
