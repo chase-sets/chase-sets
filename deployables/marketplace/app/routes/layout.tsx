@@ -1,18 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
-import {
-  AccountMenu,
-  Banner,
-  Button,
-  Form,
-  LinkButton,
-  Stack,
-  ThemeToggle,
-  type ColorMode,
-} from "@chase-sets/design-system";
+import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
+import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import { NotificationCenterShell } from "@chase-sets/notification-center/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
@@ -111,8 +103,16 @@ export default function MarketplaceLayoutRoute() {
         actorDisplay?: CurrentActorDisplay | null;
         cartCount?: number;
         colorMode?: ColorMode;
+        viewer?: {
+          preferences?: {
+            colorMode?: ColorMode;
+          } | null;
+        } | null;
       }
     | undefined;
+  const { colorMode, preferences } = useUserPreferencesAccountMenu(
+    rootData?.viewer?.preferences?.colorMode ?? rootData?.colorMode,
+  );
   const actor = rootData?.actor ?? null;
   const isGuestCheckoutActor = actor?.roleKey === "guest-buyer";
   const [cartCount, setCartCount] = useState(rootData?.cartCount ?? 0);
@@ -174,7 +174,7 @@ export default function MarketplaceLayoutRoute() {
   return (
     <DiscoveryShellLayout
       activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
-      colorMode={rootData?.colorMode ?? "system"}
+      colorMode={colorMode}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       onNavSelect={handleNavSelect}
@@ -199,7 +199,7 @@ export default function MarketplaceLayoutRoute() {
                   roleLabel={t("identity.features.accounts.ui.currentActorDisplayCue.role")}
                   roleName={displayRole(rootData.actorDisplay.membership.role_key)}
                   items={accountMenuItems}
-                  preferences={<ThemeToggle />}
+                  preferences={preferences}
                   signOutFormId={signOutFormId}
                   signOutLabel={t("marketplace.app.routes.layout.sign.out")}
                 />

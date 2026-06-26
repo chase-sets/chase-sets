@@ -1,6 +1,8 @@
 import type React from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
@@ -71,6 +73,10 @@ function mobileBottomNavMarkup(html: string) {
 describe("admin web section layouts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it.each([
@@ -156,6 +162,47 @@ describe("admin web section layouts", () => {
     const html = renderToString(<CatalogLayout />);
 
     expect(html).toContain('data-color-mode="dark"');
+  });
+
+  it("persists account menu color mode changes through Identity preferences", async () => {
+    const user = userEvent.setup({ document });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/api/identity/preferences") {
+        expect(init?.method ?? request?.method).toBe("PUT");
+        expect(JSON.parse(String(init?.body ?? (request ? await request.clone().text() : "")))).toEqual({
+          colorMode: "light",
+        });
+        return Response.json({
+          preferences: {
+            colorMode: "light",
+          },
+        });
+      }
+
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetch);
+    mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
+      viewer: {
+        actor: allSectionsActor,
+        preferences: { colorMode: "dark" },
+      },
+    });
+    mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
+
+    render(<CatalogLayout />);
+
+    await user.click(screen.getAllByRole("button", { name: "Account menu" })[0]);
+    const accountMenu = await screen.findByRole("menu", { name: "Account menu" });
+
+    expect((within(accountMenu).getByRole("radio", { name: "Dark" }) as HTMLInputElement).checked).toBe(true);
+    await user.click(within(accountMenu).getByRole("radio", { name: "Light" }));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('[data-color-mode="light"]')).toBeTruthy();
   });
 
   it.each([

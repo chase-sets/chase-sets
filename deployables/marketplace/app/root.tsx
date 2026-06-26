@@ -261,7 +261,7 @@ export function ErrorBoundary() {
         <Links />
       </head>
       <body>
-        <ChaseRoot colorMode="system">
+        <ChaseRoot>
           <main>
             <Page width="narrow">
               <Container width="content">

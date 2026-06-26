@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { IdentityShellViewer } from "@chase-sets/identity/server";
+import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { ReactNode } from "react";
 import { AdminShell, ChaseRoot, Text, type NavigationItem } from "@chase-sets/design-system";
@@ -17,7 +18,7 @@ export function AdminRootShell({
   viewer?: IdentityShellViewer | null;
 }>) {
   const resolvedActor = viewer?.actor ?? actor ?? null;
-  const colorMode = viewer?.preferences?.colorMode ?? "system";
+  const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
     <ChaseRoot colorMode={colorMode}>
@@ -25,7 +26,7 @@ export function AdminRootShell({
         brand={<Text weight="semibold">{t("adminWeb.app.root.brand")}</Text>}
         topNavItems={sections}
         navItems={[]}
-        actions={resolvedActor ? <AdminAccountMenu actor={resolvedActor} /> : undefined}
+        actions={resolvedActor ? <AdminAccountMenu actor={resolvedActor} preferences={preferences} /> : undefined}
       >
         {children}
       </AdminShell>

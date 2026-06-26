@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import * as DesignSystem from "../index";
+import { ThemeToggle } from "../theme/theme-toggle";
 import {
   BottomSheet,
   BottomNav,
@@ -15,7 +16,6 @@ import {
   SideNav,
   TopNav,
   ThemePreferenceControl,
-  ThemeToggle,
   SideSheet,
   ActivitySheet,
   AssistantSheet,
@@ -64,7 +64,7 @@ describe("design system panels, navigation, and shells", () => {
     expect(surface.NavigationHeader).toBe(NavigationHeader);
     expect(surface.Progress).toBeTypeOf("function");
     expect(surface.ThemePreferenceControl).toBe(ThemePreferenceControl);
-    expect(surface.ThemeToggle).toBe(ThemeToggle);
+    expect(surface.ThemeToggle).toBeUndefined();
     expect(surface.cn).toBeUndefined();
     expect(surface.UiBadge).toBeUndefined();
     expect(surface.UiCard).toBeUndefined();

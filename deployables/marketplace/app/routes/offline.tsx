@@ -7,7 +7,7 @@ export function meta() {
 
 export default function MarketplaceOfflineRoute() {
   return (
-    <ChaseRoot colorMode="system">
+    <ChaseRoot>
       <main>
         <Page width="narrow">
           <MarketplaceEmptyState
