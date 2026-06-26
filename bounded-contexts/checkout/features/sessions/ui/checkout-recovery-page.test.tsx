@@ -139,6 +139,26 @@ describe("CheckoutSessionRecoveryPage", () => {
     expect(loaderCalls).toBeGreaterThanOrEqual(3);
   });
 
+  it("revalidates tokenless payment-start resume recovery until checkout becomes pay-ready", async () => {
+    const currentPath =
+      "/checkout/buy/session/chk_resume?paymentMethodCategory=card&review=updated&resumePaymentStart=1";
+    let loaderCalls = 0;
+    renderCheckoutSessionRoute({
+      initialPath: currentPath,
+      loader: () => {
+        loaderCalls += 1;
+        if (loaderCalls < 3) {
+          throw createCheckoutRecoveryResponse(checkoutRecoveryForKind("checkout-preparing", currentPath));
+        }
+        return { sessionId: "chk_resume" };
+      },
+      revalidationOptions: { intervalMs: 20 },
+    });
+
+    expect(await screen.findByText("pay-ready:chk_resume")).toBeTruthy();
+    expect(loaderCalls).toBeGreaterThanOrEqual(3);
+  });
+
   it("degrades to the existing manual recovery when the fresh-write receipt expires", async () => {
     const startMs = Date.now();
     let nowMs = startMs;
@@ -230,6 +250,33 @@ describe("CheckoutSessionRecoveryPage", () => {
       "/checkout/buy/session/chk_compact_budget?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
       "pwt_test000000000002",
     );
+    let loaderCalls = 0;
+    renderCheckoutSessionRoute({
+      initialPath: currentPath,
+      loader: () => {
+        loaderCalls += 1;
+        throw createCheckoutRecoveryResponse(checkoutRecoveryForKind("checkout-preparing", currentPath));
+      },
+      revalidationOptions: { intervalMs: 20, maxRevalidations: 2 },
+    });
+
+    expect(await screen.findByText("Preparing checkout")).toBeTruthy();
+    await waitFor(() => {
+      expect(loaderCalls).toBeGreaterThanOrEqual(3);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toBe("");
+    });
+
+    const settledLoaderCalls = loaderCalls;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(loaderCalls).toBe(settledLoaderCalls);
+    expect(screen.getByText("Refresh checkout")).toBeTruthy();
+  });
+
+  it("stops tokenless payment-start resume recovery after the bounded budget", async () => {
+    const currentPath =
+      "/checkout/buy/session/chk_resume_budget?paymentMethodCategory=card&review=updated&resumePaymentStart=1";
     let loaderCalls = 0;
     renderCheckoutSessionRoute({
       initialPath: currentPath,

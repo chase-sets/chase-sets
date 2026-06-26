@@ -395,7 +395,12 @@ function paymentStatusReadIsPending(error: unknown) {
   return false;
 }
 
-function checkoutRecoveryForPaymentStatusReadError(error: unknown, request: Request, currentPath: string) {
+function checkoutRecoveryForPaymentStatusReadError(
+  error: unknown,
+  request: Request,
+  currentPath: string,
+  hasFreshnessSource = false,
+) {
   if (!paymentStatusReadIsPending(error)) {
     return null;
   }
@@ -403,7 +408,7 @@ function checkoutRecoveryForPaymentStatusReadError(error: unknown, request: Requ
   return checkoutRecoveryForKind(
     "checkout-preparing",
     currentPath,
-    readFreshWriteToken(request) ? "refreshable-catching-up" : "stale-projection",
+    readFreshWriteToken(request) || hasFreshnessSource ? "refreshable-catching-up" : "stale-projection",
   );
 }
 
@@ -577,10 +582,16 @@ function paymentStartRetryFreshWriteSource(source: unknown): VisibleFreshWriteSo
   };
 }
 
-function requestWithOnlyFreshWriteSources(request: Request, sourceContextNames: ReadonlySet<string>) {
+function requestWithOnlyFreshWriteSources(
+  request: Request,
+  sourceContextNames: ReadonlySet<string>,
+  fallbackCommitPositions: readonly SourceCommitPosition[] = [],
+) {
   const receipt = readFreshWriteToken(request);
-  const commitPositions = receipt?.sources.filter((source) => sourceContextNames.has(source.sourceContextName)) ?? [];
-  if (commitPositions.length === 0 || !receipt) {
+  const commitPositions =
+    receipt?.sources.filter((source) => sourceContextNames.has(source.sourceContextName)) ??
+    fallbackCommitPositions.filter((source) => sourceContextNames.has(source.sourceContextName));
+  if (commitPositions.length === 0) {
     return requestWithoutReadAfterWrite(request);
   }
 
@@ -595,7 +606,7 @@ function requestWithOnlyFreshWriteSources(request: Request, sourceContextNames: 
         commitPositions,
       },
     ],
-    receipt.observedAtMs,
+    receipt?.observedAtMs,
   );
   const headers = new Headers(request.headers);
   headers.delete(CHASE_SETS_READ_AFTER_WRITE_HEADER);
@@ -607,8 +618,22 @@ function requestWithOnlyFreshWriteSources(request: Request, sourceContextNames: 
   });
 }
 
-function requestWithPaymentStartFreshness(request: Request) {
-  return requestWithOnlyFreshWriteSources(request, PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES);
+function requestWithPaymentStartFreshness(
+  request: Request,
+  fallbackCommitPositions: readonly SourceCommitPosition[] = [],
+) {
+  return requestWithOnlyFreshWriteSources(
+    request,
+    PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES,
+    fallbackCommitPositions,
+  );
+}
+
+function hasPaymentStartFreshnessSource(
+  request: Request,
+  session: Pick<CheckoutSessionForReviewedPreview, "order_write_commit_positions">,
+) {
+  return readFreshWriteToken(request) !== null || session.order_write_commit_positions.length > 0;
 }
 
 async function loadSavedCheckoutInstruments(
@@ -633,6 +658,7 @@ async function loadPaymentPreview(
   wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
+  orderWriteCommitPositions: readonly SourceCommitPosition[],
 ): Promise<PaymentsCheckoutStatus | null> {
   if (!actor) {
     return null;
@@ -640,7 +666,9 @@ async function loadPaymentPreview(
 
   try {
     if (committedOrderIds.length > 0) {
-      const paymentsApi = createPaymentsRequestApiClient(requestWithPaymentStartFreshness(request));
+      const paymentsApi = createPaymentsRequestApiClient(
+        requestWithPaymentStartFreshness(request, orderWriteCommitPositions),
+      );
       return await paymentsApi.getCheckoutStatus({
         orderIds: committedOrderIds,
         currencyCode: wallet?.currency_code ?? "usd",
@@ -721,6 +749,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
+  const isPaymentStartResume = searchParams.get("resumePaymentStart") === "1";
   const paymentPreview = await loadPaymentPreview(
     resolvedRequest,
     actor,
@@ -728,8 +757,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     wallet,
     selectedPaymentMethodCategory,
     session.order_ids,
+    isPaymentStartResume ? session.order_write_commit_positions : [],
   ).catch((error) => {
-    const recovery = checkoutRecoveryForPaymentStatusReadError(error, resolvedRequest, currentPathWithSearch(request));
+    const recovery = checkoutRecoveryForPaymentStatusReadError(
+      error,
+      resolvedRequest,
+      currentPathWithSearch(request),
+      isPaymentStartResume && session.order_write_commit_positions.length > 0,
+    );
     if (recovery) {
       throw createCheckoutRecoveryResponse(recovery);
     }
@@ -763,8 +798,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
     autoResumePaymentStart:
-      searchParams.get("resumePaymentStart") === "1" &&
-      readFreshWriteToken(resolvedRequest) !== null &&
+      isPaymentStartResume &&
+      hasPaymentStartFreshnessSource(resolvedRequest, session) &&
       !session.payment_id &&
       session.order_ids.length > 0 &&
       paymentPreview !== null,
