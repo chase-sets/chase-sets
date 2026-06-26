@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, useState } from "react";
 import userEvent from "@testing-library/user-event";
+import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import * as designSystem from "../index";
@@ -57,6 +58,7 @@ import {
   PaymentRecoveryPanel,
   ProductOptions,
   SearchControlBar,
+  ThemeToggle,
   AccountCredibilityHeader,
   Select,
   Table,
@@ -258,6 +260,100 @@ describe("design system marketplace patterns", () => {
     expect(screen.getByRole("menuitem", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
     expect(screen.getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe("account-menu-sign-out");
   });
+
+  it.each([
+    ["desktop menu", true],
+    ["mobile sheet", false],
+  ])(
+    "hydrates responsive account menus through the %s before exposing theme preferences",
+    async (_label, isDesktop) => {
+      const user = userEvent.setup();
+      const previousMatchMedia = window.matchMedia;
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      const menu = (
+        <div>
+          <form id="account-menu-sign-out" action="/sign-out" method="post" />
+          <AccountMenu
+            accountName="Card Vault"
+            roleName="Manager"
+            userName="Alex Clerk"
+            items={[
+              { key: "account", label: "Account", href: "/account", icon: "user" },
+              { key: "wallet", label: "Wallet", href: "/account/settlement", icon: "wallet" },
+              { key: "payouts", label: "Payouts", href: "/account/payouts", icon: "wallet" },
+              { key: "offers", label: "Submitted Offers", href: "/account/offers/submitted", icon: "tag" },
+              { key: "reviews", label: "Reviews", href: "/account/reviews", icon: "star" },
+            ]}
+            preferences={<ThemeToggle />}
+            signOutFormId="account-menu-sign-out"
+            signOutLabel="Sign Out"
+          />
+        </div>
+      );
+      const container = document.createElement("div");
+      let root: Root | undefined;
+
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: vi.fn((query: string) => ({
+          matches: query === "(min-width: 768px)" ? isDesktop : false,
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(() => false),
+        })),
+      });
+
+      container.innerHTML = renderToString(menu);
+      document.body.appendChild(container);
+
+      try {
+        await act(async () => {
+          root = hydrateRoot(container, menu);
+        });
+
+        expect(
+          consoleError.mock.calls.some((call) =>
+            call.some((entry) => {
+              const message = String(entry).toLowerCase();
+
+              return message.includes("hydration") || message.includes("react error #418");
+            }),
+          ),
+        ).toBe(false);
+
+        const trigger = within(container).getByRole("button", { name: "Account menu" });
+        await waitFor(() => {
+          expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        });
+
+        await user.click(trigger);
+
+        expect(await screen.findByRole("group", { name: "Color theme" })).toBeTruthy();
+        expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      } finally {
+        await act(async () => {
+          root?.unmount();
+        });
+        container.remove();
+        consoleError.mockRestore();
+
+        if (previousMatchMedia) {
+          Object.defineProperty(window, "matchMedia", {
+            configurable: true,
+            writable: true,
+            value: previousMatchMedia,
+          });
+        } else {
+          Reflect.deleteProperty(window, "matchMedia");
+        }
+      }
+    },
+  );
 
   it("renders marketing visual cards with accessible image context", () => {
     const markup = renderToString(

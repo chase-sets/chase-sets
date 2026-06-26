@@ -22,8 +22,18 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { AccountPaymentOrderView, AccountPaymentPageProps } from "./account-payment-contracts";
-import { formatMoney, paymentStatusCopy, providerEventLabel, statusTone } from "./account-payment-display";
+import {
+  formatMoney,
+  formatPaymentTimestamp,
+  paymentStatusCopy,
+  providerEventLabel,
+  statusTone,
+} from "./account-payment-display";
 import { StripeConfirmationCard } from "./stripe-confirmation-card";
+
+function PaymentTimestamp({ value }: { value: string }) {
+  return <time dateTime={value}>{formatPaymentTimestamp(value)}</time>;
+}
 
 export function AccountPaymentPage({
   payment,
@@ -197,14 +207,14 @@ export function AccountPaymentPage({
                 <Stack gap={1}>
                   <Badge tone="success">{t("payments.routes.marketplace.accountPayment.payment.created")}</Badge>
                   <Text size="sm" tone="secondary">
-                    {new Date(payment.created_at).toLocaleString()}
+                    <PaymentTimestamp value={payment.created_at} />
                   </Text>
                 </Stack>
                 {payment.provider_events.map((event) => (
                   <Stack key={event.provider_event_id} gap={1}>
                     <Badge tone="accent">{providerEventLabel(event.event_kind)}</Badge>
                     <Text size="sm" tone="secondary">
-                      {new Date(event.received_at).toLocaleString()}
+                      <PaymentTimestamp value={event.received_at} />
                     </Text>
                   </Stack>
                 ))}
@@ -219,13 +229,15 @@ export function AccountPaymentPage({
                           : t("payments.routes.marketplace.accountPayment.waiting.for.provider.event")}
                   </Badge>
                   <Text size="sm" tone="secondary">
-                    {payment.captured_at
-                      ? new Date(payment.captured_at).toLocaleString()
-                      : payment.failed_at
-                        ? new Date(payment.failed_at).toLocaleString()
-                        : payment.cancelled_at
-                          ? new Date(payment.cancelled_at).toLocaleString()
-                          : payment.processor_status}
+                    {payment.captured_at ? (
+                      <PaymentTimestamp value={payment.captured_at} />
+                    ) : payment.failed_at ? (
+                      <PaymentTimestamp value={payment.failed_at} />
+                    ) : payment.cancelled_at ? (
+                      <PaymentTimestamp value={payment.cancelled_at} />
+                    ) : (
+                      payment.processor_status
+                    )}
                   </Text>
                 </Stack>
               </Stack>
@@ -267,7 +279,7 @@ export function AccountPaymentPage({
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("payments.routes.marketplace.accountPayment.updated")}
-                      {new Date(payment.updated_at).toLocaleString()}
+                      <PaymentTimestamp value={payment.updated_at} />
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("payments.routes.marketplace.accountPayment.provider.events")}

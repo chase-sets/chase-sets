@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 
@@ -243,6 +245,69 @@ describe("marketplace account payment route", () => {
     expect(screen.getByText("ready-for-fulfillment")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open purchase" })).toBeTruthy();
     expect(screen.queryByText("Confirm payment")).toBeNull();
+  });
+
+  it("hydrates payment timelines without locale-dependent timestamp text", async () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "captured",
+        processor_status: "succeeded",
+        captured_at: "2026-04-01T00:05:00.000Z",
+        provider_events: [
+          {
+            provider_event_id: "evt_1",
+            provider_name: "stripe",
+            event_kind: "payment-captured",
+            provider_object_reference: "pi_123",
+            received_at: "2026-04-01T00:04:00.000Z",
+          },
+        ],
+      }),
+      orders: [
+        buildPurchase({
+          status: "ready-for-fulfillment",
+          ready_for_fulfillment_at: "2026-04-01T00:05:00.000Z",
+        }),
+      ],
+      isGuestCheckoutPayment: false,
+      showSupportDetails: true,
+    });
+    const dateLocaleString = vi
+      .spyOn(Date.prototype, "toLocaleString")
+      .mockImplementation(() => "server locale timestamp");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const route = (
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>
+    );
+    const container = document.createElement("div");
+    let root: Root | undefined;
+
+    container.innerHTML = renderToString(route);
+    dateLocaleString.mockImplementation(() => "client locale timestamp");
+    document.body.appendChild(container);
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, route);
+      });
+
+      expect(dateLocaleString).not.toHaveBeenCalled();
+      expect(screen.getAllByText("Apr 1, 2026, 12:00 AM UTC").length).toBeGreaterThan(0);
+      expect(screen.getByText("Apr 1, 2026, 12:04 AM UTC")).toBeTruthy();
+      expect(screen.getAllByText("Apr 1, 2026, 12:05 AM UTC").length).toBeGreaterThan(0);
+      expect(
+        consoleError.mock.calls.some((call) => call.some((entry) => String(entry).toLowerCase().includes("hydration"))),
+      ).toBe(false);
+    } finally {
+      await act(async () => {
+        root?.unmount();
+      });
+      container.remove();
+      consoleError.mockRestore();
+      dateLocaleString.mockRestore();
+    }
   });
 
   it("renders a retry path when Stripe reports a failed payment", () => {
