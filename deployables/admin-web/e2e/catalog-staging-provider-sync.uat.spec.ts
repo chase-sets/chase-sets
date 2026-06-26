@@ -1306,17 +1306,34 @@ function importJobRowScopeLabel(row: string): string | null {
 }
 
 function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
-  const labels = selectedProviderScopeDisplayLabelCandidates(
-    selectedScope.providerKey,
-    selectedScope.importScope,
-    selectedScope.fields,
-  ).flatMap(scopeLabelPrefixes);
+  const labels = [
+    ...selectedProviderScopeDisplayLabelCandidates(
+      selectedScope.providerKey,
+      selectedScope.importScope,
+      selectedScope.fields,
+    ),
+    ...selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope),
+  ].flatMap(scopeLabelPrefixes);
   return [...new Set(labels.filter(Boolean))];
 }
 
 function scopeLabelPrefixes(label: string): readonly string[] {
   const segments = label.split(" / ").filter(Boolean);
   return Array.from({ length: segments.length }, (_, index) => segments.slice(0, segments.length - index).join(" / "));
+}
+
+function selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope: SelectedProviderScope): readonly string[] {
+  const value = (name: string) => selectedScope.fields.find((field) => field.name === name)?.value;
+  const languageSegments = uniqueTruthy([value("languageCode")]);
+  const seriesSegments = uniqueTruthy([value("seriesName"), value("seriesId")]);
+  const expansionSegments = uniqueTruthy([
+    value("expansionName"),
+    value("expansionId"),
+    value("setName"),
+    value("setCode"),
+    value("setId"),
+  ]);
+  return cartesianScopeLabels([[selectedScope.providerKey], languageSegments, seriesSegments, expansionSegments]);
 }
 
 function normalizeWhitespace(value: string): string {
