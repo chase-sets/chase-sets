@@ -490,6 +490,111 @@ describe("wake runtime preflight", () => {
       final: { ready: true },
     });
   });
+
+  it("requires observed relay lease renewal before treating timestamped preflight as stable", async () => {
+    const stableLease = {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+        renewedAt: "2026-06-26T22:20:19.986Z",
+        expiresAt: "2026-06-26T22:20:49.986Z",
+      },
+    };
+    const snapshots = [
+      readyWakeStatus({ relay: stableLease }),
+      readyWakeStatus({ relay: stableLease }),
+      readyWakeStatus({
+        relay: {
+          available: true,
+          lease: {
+            state: "active",
+            ownerId: "worker-a",
+            renewedAt: "2026-06-26T22:20:29.986Z",
+            expiresAt: "2026-06-26T22:20:59.986Z",
+          },
+        },
+      }),
+    ];
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => snapshots.shift() ?? snapshots.at(-1),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 10_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: true,
+      readyAfterMs: 2_000,
+      sampleCount: 3,
+      readySampleCount: 3,
+      stability: {
+        requiresLeaseProgress: true,
+        observedRelayLeaseRenewal: true,
+        observedRelayLeaseTakeover: false,
+        firstRelayLeaseRenewedAt: "2026-06-26T22:20:19.986Z",
+        finalRelayLeaseRenewedAt: "2026-06-26T22:20:29.986Z",
+      },
+    });
+  });
+
+  it("does not pass preflight when the relay lease stops renewing before expiry", async () => {
+    const staleLease = {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+        renewedAt: "2026-06-26T22:20:19.986Z",
+        expiresAt: "2026-06-26T22:20:49.986Z",
+      },
+    };
+    const snapshots = [
+      readyWakeStatus({ relay: staleLease }),
+      readyWakeStatus({ relay: staleLease }),
+      noWorkerWakeStatus({
+        relay: {
+          available: true,
+          lease: {
+            state: "expired",
+            ownerId: "worker-a",
+            renewedAt: "2026-06-26T22:20:19.986Z",
+            expiresAt: "2026-06-26T22:20:49.986Z",
+          },
+        },
+        schedulers: {
+          available: true,
+          activeWakeCapableWorkerCount: 0,
+          workers: [{ workerId: "worker-a", workerState: "stale", heartbeatAgeMs: 170_000 }],
+        },
+      }),
+    ];
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => snapshots.shift() ?? snapshots.at(-1),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 2_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: false,
+      sampleCount: 3,
+      readySampleCount: 0,
+      final: {
+        ready: false,
+        reasons: [
+          "no-active-wake-capable-workers",
+          "projection-wake-relay-lease-not-active",
+          "projection-wake-relay-owner-heartbeat-not-active",
+        ],
+      },
+    });
+  });
 });
 
 describe("canary write classification", () => {
@@ -1047,6 +1152,23 @@ describe("drill orchestration", () => {
 
     expect(evidence.verdict).toBe("fail");
     expect(evidence.verdictReasons).toContain("durable-positions-did-not-converge-within-budget");
+  });
+
+  it("records runtime loss separately when workers disappear after a healthy reconciliation preflight", async () => {
+    const wakeSnapshots = [readyWakeStatus(), readyWakeStatus(), noWorkerWakeStatus()];
+    const evidence = await runStagingWakeDrill(reconciliationOptions, {
+      ...fakeDeps(),
+      fetchWakeStatus: async () => wakeSnapshots.shift() ?? noWorkerWakeStatus(),
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.convergence.converged).toBe(true);
+    expect(evidence.verdictReasons).toContain("wake-runtime-lost-during-drill");
+    expect(evidence.verdictReasons).not.toContain("durable-positions-did-not-converge-within-budget");
+    expect(evidence.wakeRuntimeAfterDrill).toMatchObject({
+      ready: false,
+      reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+    });
   });
 
   it("fails the drill when the canary write cannot be trusted", async () => {

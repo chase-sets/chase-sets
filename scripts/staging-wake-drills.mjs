@@ -465,6 +465,14 @@ export function renderDrillStepSummary(evidence) {
       }.`,
     );
   }
+  if (evidence.wakeRuntimeAfterDrill) {
+    lines.push(
+      "",
+      `Wake runtime after drill: ${
+        evidence.wakeRuntimeAfterDrill.ready ? "ready" : "not ready"
+      }; reasons ${evidence.wakeRuntimeAfterDrill.reasons.join(", ") || "none"}.`,
+    );
+  }
   if (evidence.segmentSlo) {
     lines.push(
       "",
@@ -522,6 +530,7 @@ export function buildDrillEvidence(input) {
     segmentSlo,
     wakeRuntimePreflight: input.wakeRuntimePreflight ?? null,
     wakeRuntimeAfterLoad: input.wakeRuntimeAfterLoad ?? null,
+    wakeRuntimeAfterDrill: input.wakeRuntimeAfterDrill ?? null,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
@@ -874,6 +883,30 @@ export function evaluateWakeRuntimeReadiness(snapshot) {
   };
 }
 
+function evaluateWakeRuntimeStability(firstReady, currentReady) {
+  const firstRenewedAt = firstReady?.relayLeaseRenewedAt ?? null;
+  const currentRenewedAt = currentReady?.relayLeaseRenewedAt ?? null;
+  const firstOwnerId = firstReady?.relayOwnerId ?? null;
+  const currentOwnerId = currentReady?.relayOwnerId ?? null;
+  const requiresLeaseProgress = Boolean(firstRenewedAt && currentRenewedAt);
+  const observedRelayLeaseRenewal =
+    requiresLeaseProgress &&
+    firstOwnerId === currentOwnerId &&
+    Date.parse(currentRenewedAt) > Date.parse(firstRenewedAt);
+  const observedRelayLeaseTakeover = Boolean(firstOwnerId && currentOwnerId && firstOwnerId !== currentOwnerId);
+
+  return {
+    stable: !requiresLeaseProgress || observedRelayLeaseRenewal || observedRelayLeaseTakeover,
+    requiresLeaseProgress,
+    observedRelayLeaseRenewal,
+    observedRelayLeaseTakeover,
+    firstRelayOwnerId: firstOwnerId,
+    finalRelayOwnerId: currentOwnerId,
+    firstRelayLeaseRenewedAt: firstRenewedAt,
+    finalRelayLeaseRenewedAt: currentRenewedAt,
+  };
+}
+
 function findWakeCapableWorker(schedulers, workerId) {
   if (!workerId || !Array.isArray(schedulers?.workers)) {
     return null;
@@ -900,6 +933,9 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
   let snapshot = initialSnapshot;
   let initial = null;
   let final = null;
+  let firstReady = null;
+  let readySampleCount = 0;
+  let stability = null;
 
   for (;;) {
     if (!snapshot) {
@@ -928,14 +964,25 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
     initial ??= evaluation;
     final = evaluation;
     if (evaluation.ready) {
-      return {
-        attempted: true,
-        ready: true,
-        readyAfterMs: Math.max(0, deps.now() - startedAt),
-        sampleCount,
-        initial,
-        final,
-      };
+      readySampleCount += 1;
+      firstReady ??= evaluation;
+      stability = evaluateWakeRuntimeStability(firstReady, evaluation);
+      if (stability.stable) {
+        return {
+          attempted: true,
+          ready: true,
+          readyAfterMs: Math.max(0, deps.now() - startedAt),
+          sampleCount,
+          readySampleCount,
+          initial,
+          final,
+          stability,
+        };
+      }
+    } else {
+      firstReady = null;
+      readySampleCount = 0;
+      stability = null;
     }
 
     const remainingMs = deadline - deps.now();
@@ -951,9 +998,23 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
     ready: false,
     readyAfterMs: null,
     sampleCount,
+    readySampleCount,
     initial,
     final,
+    stability,
   };
+}
+
+function appendWakeRuntimeLossReason(verdictReasons, wakeStatusAfter) {
+  if (!wakeStatusAfter) {
+    return null;
+  }
+
+  const runtime = evaluateWakeRuntimeReadiness(wakeStatusAfter);
+  if (!runtime.ready) {
+    verdictReasons.push("wake-runtime-lost-during-drill");
+  }
+  return runtime;
 }
 
 export function classifyCanaryWriteResult(result) {
@@ -997,6 +1058,7 @@ export async function runStagingWakeDrill(options, deps) {
   let loadResults = null;
   let loadSummary = null;
   let wakeRuntimeAfterLoad = null;
+  let wakeRuntimeAfterDrill = null;
 
   let wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
   let wakeRuntimePreflight = null;
@@ -1033,6 +1095,7 @@ export async function runStagingWakeDrill(options, deps) {
       convergence: null,
       wakeRuntimePreflight,
       wakeRuntimeAfterLoad,
+      wakeRuntimeAfterDrill,
       wakeStatusBefore: wakeStatusBefore ?? null,
       wakeStatusAfter: wakeStatusAfterRuntimeMiss ?? null,
       verdictReasons,
@@ -1075,6 +1138,7 @@ export async function runStagingWakeDrill(options, deps) {
   }
 
   const wakeStatusAfter = await safeWakeStatus(deps, verdictReasons, "after");
+  wakeRuntimeAfterDrill = appendWakeRuntimeLossReason(verdictReasons, wakeStatusAfter);
 
   return buildDrillEvidence({
     drillKind: options.drillKind,
@@ -1096,6 +1160,7 @@ export async function runStagingWakeDrill(options, deps) {
     convergence,
     wakeRuntimePreflight,
     wakeRuntimeAfterLoad,
+    wakeRuntimeAfterDrill,
     wakeStatusBefore: wakeStatusBefore ?? null,
     wakeStatusAfter: wakeStatusAfter ?? null,
     verdictReasons,
