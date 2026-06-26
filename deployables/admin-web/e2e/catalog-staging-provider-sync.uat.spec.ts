@@ -1142,6 +1142,10 @@ function currentSearchParam(page: Page, name: string): string | null {
   return emptyToNull(new URL(page.url()).searchParams.get(name) ?? "");
 }
 
+function currentRouteImportScope(page: Page): string | null {
+  return currentSearchParam(page, "importScope") ?? currentSearchParam(page, "filter.importScope");
+}
+
 function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
   return /\bimport job \S+ is (?:failed|cancelled|partial)\b/i.test(row);
 }
@@ -1250,7 +1254,9 @@ async function completedImportJobRowLocatorForSelectedUnit(
   timeout: number,
 ): Promise<Locator | null> {
   const deadline = Date.now() + timeout;
-  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope).map(normalizeWhitespace);
+  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope, currentRouteImportScope(page)).map(
+    normalizeWhitespace,
+  );
   while (Date.now() < deadline) {
     const rows = importJobRowsForSelectedUnit(page, unitKey);
     const count = await rows.count();
@@ -1286,7 +1292,9 @@ async function visibleImportJobRowTexts(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<readonly string[]> {
-  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope).map(normalizeWhitespace);
+  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope, currentRouteImportScope(page)).map(
+    normalizeWhitespace,
+  );
   return importJobRowsForSelectedUnit(page, unitKey)
     .allInnerTexts()
     .then((rows) =>
@@ -1305,7 +1313,13 @@ function importJobRowScopeLabel(row: string): string | null {
   return match?.groups?.scope ? normalizeWhitespace(match.groups.scope) : null;
 }
 
-function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProviderScope): readonly string[] {
+function selectedProviderScopeActiveJobScopeLabels(
+  selectedScope: SelectedProviderScope,
+  routeImportScope: string | null = null,
+): readonly string[] {
+  const routeImportScopeLabel = routeImportScope
+    ? scopeDisplayLabelFromImportScope(selectedScope.providerKey, routeImportScope)
+    : null;
   const labels = [
     ...selectedProviderScopeDisplayLabelCandidates(
       selectedScope.providerKey,
@@ -1313,8 +1327,11 @@ function selectedProviderScopeActiveJobScopeLabels(selectedScope: SelectedProvid
       selectedScope.fields,
     ),
     ...selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope),
-  ].flatMap(scopeLabelPrefixes);
-  return [...new Set(labels.filter(Boolean))];
+    routeImportScopeLabel,
+  ]
+    .filter((label): label is string => Boolean(label))
+    .flatMap(scopeLabelPrefixes);
+  return [...new Set(labels)];
 }
 
 function scopeLabelPrefixes(label: string): readonly string[] {
