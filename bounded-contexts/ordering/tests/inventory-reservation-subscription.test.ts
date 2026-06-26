@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
+import contextManifest from "../context.json";
 import { module as orderingModule } from "../index";
 import {
   decideOrderingOrder,
@@ -157,6 +158,24 @@ function createReservationConfirmedEvent(): TransportEvent {
 }
 
 describe("ordering inventory reservation subscription", () => {
+  it("models Inventory reservation outcomes as side effects while order projections own order hold pages", () => {
+    const groups = contextManifest.projectionGroups ?? [];
+    const reservationOutcomes = groups.find(
+      (group) => group.projectionName === "ordering-inventory-reservation-outcomes",
+    );
+    const orderProjection = groups.find((group) => group.projectionName === "ordering-order-projection");
+
+    expect(reservationOutcomes).toMatchObject({
+      sourceContextNames: ["inventory"],
+      ownedTables: [],
+      sideEffectOnly: true,
+      resetStrategy: "replay-only",
+    });
+    expect(orderProjection?.ownedTables).toEqual(
+      expect.arrayContaining(["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"]),
+    );
+  });
+
   it("records pending payment when Inventory confirms the checkout reservation", async () => {
     const commands: OrderingOrderCommand[] = [];
     const commandHandler: OrderingServices["orders"]["commandHandler"] = async (input) => {
