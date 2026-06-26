@@ -694,7 +694,7 @@ async function startCatalogSyncForSelectedProviderUnit(
   await expandWorkflowStage(page, "run-sync");
   const commandForm = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]').first();
   await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  const participationRow = catalogSyncParticipationRowForUnit(commandForm, unitKey);
+  const participationRow = catalogSyncParticipationRowForUnit(page, unitKey);
   await expect(participationRow).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(participationRow.getByText(unitKey, { exact: true })).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(
@@ -728,8 +728,12 @@ async function startCatalogSyncForSelectedProviderUnit(
   return { previousJobRows };
 }
 
-function catalogSyncParticipationRowForUnit(commandForm: Locator, unitKey: string): Locator {
-  return commandForm.getByRole("row").filter({ hasText: unitKey }).first();
+function catalogSyncParticipationRowForUnit(page: Page, unitKey: string): Locator {
+  return page
+    .getByRole("table", { name: "Catalog sync provider participation" })
+    .getByRole("row")
+    .filter({ hasText: unitKey })
+    .first();
 }
 
 async function visibleLocatorText(locator: Locator): Promise<string> {
