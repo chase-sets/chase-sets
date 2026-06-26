@@ -39,6 +39,8 @@ Implemented contexts are the directories that contain both `package.json` and `c
 4. Shared contracts are limited to primitives, typed IDs, and integration-event schemas.
 5. Discovery may project browse-oriented read models from upstream contexts without taking ownership of the underlying transactional truth.
 
+Settings follow the same single-owner rule: behavior-coupled settings stay with the context that owns the behavior, viewer presentation preferences live on the User in Identity, and device ephemera stay client-local. See [Settings Ownership](../docs/architecture/settings-ownership.md).
+
 ## Canonical Ownership
 
 These marketplace nouns are already fixed to a single owner:

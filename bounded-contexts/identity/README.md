@@ -15,6 +15,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Profile
 - Contact Method
 - Shipping Address
+- User Preferences
 - Verification
 - Invitation
 - Consent
@@ -34,10 +35,14 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Payments
 - Shipments
 - Inventory storage locations and Fulfillment ship-from locations
+- Notification delivery settings and channel policy
+- Device-local anonymous visitor presentation fallbacks
 
 ## Ubiquitous Language
 
 Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossary as the canonical style guide for new context glossaries.
+
+User preference ownership and milestone #55 proof expectations are documented in [User Preferences Proof Plan](./docs/user-preferences-proof-plan.md).
 
 ## Core Aggregates and Process Managers
 
@@ -75,7 +80,9 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 ## Boundary Notes
 
 - Identity owns identity-management behavior and admin surfaces.
+- Identity owns viewer presentation preferences that belong to a signed-in User across accounts and devices.
 - Auth owns interactive authentication journeys and the `/api/auth` surface.
+- Notifications owns behavior-coupled notification settings; Identity does not own delivery policy.
 - Identity must not re-expose browser auth pages or auth-specific clients as part of its public web surface.
 
 ## Feature vs Composition
