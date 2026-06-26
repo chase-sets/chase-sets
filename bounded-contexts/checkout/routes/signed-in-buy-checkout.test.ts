@@ -15,7 +15,9 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
+  mockGetAccountPayment,
   mockGetCheckoutSession,
+  mockGetCheckoutStatus,
   MockMarketplaceApiError,
   mockListShippingAddresses,
   mockMergeGuestCartToAccount,
@@ -98,6 +100,7 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as checkoutStartAction } from "./checkout-start";
+import { loader as buyCheckoutConfirmationLoader } from "./buy-checkout-confirmation";
 import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 
 const signedInBuyer = {
@@ -122,6 +125,55 @@ function signedInCartSession() {
       {
         listingId: "lst_1",
         cartLineId: "cart_line_1",
+        catalogItemId: "cat_1",
+        productId: "prd_1",
+        itemTitle: "Acerola's Mischief",
+        itemSubtitle: "Raw / Damaged",
+        selectedOptions: [],
+        productSummary: "Raw - Damaged",
+        quantity: 1,
+      },
+    ],
+    created_at: "2026-04-01T00:00:00.000Z",
+    updated_at: "2026-04-01T00:00:00.000Z",
+  };
+}
+
+function signedInBuyNowCommittedOrderSession(paymentId: string | null = null) {
+  return {
+    session_id: "chk_signed_in",
+    buyer_account_id: "acc_buyer",
+    source_type: "buy-now",
+    payment_id: paymentId,
+    submitted_offer_id: null,
+    shipping_option: "standard",
+    shipping_address: {
+      shippingAddressId: "adr_manual",
+      name: "Jane Smith",
+      company: "",
+      line1: "100 Market Street",
+      line2: "",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: "312-555-0100",
+      email: "jane@example.com",
+    },
+    optimization_goal: "lowest-total",
+    fulfillment_preview_revision: "fulfillment_rev_1",
+    order_ids: ["ord_signed_in_1"],
+    order_write_commit_positions: [
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ],
+    lines: [
+      {
+        listingId: "lst_1",
+        cartLineId: null,
         catalogItemId: "cat_1",
         productId: "prd_1",
         itemTitle: "Acerola's Mischief",
@@ -403,5 +455,190 @@ describe("checkout web routes: signed-in buy checkout", () => {
       },
     });
     expect(JSON.stringify(mockConfirmCheckoutSession.mock.calls)).not.toContain("4242424242424242");
+  });
+
+  it("recovers tokenless signed-in payment-start resume into the account payment handoff", async () => {
+    const committedSession = signedInBuyNowCommittedOrderSession();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ available_balance_amount: "0.00", currency_code: "usd" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    mockListShippingAddresses.mockResolvedValue({ items: [] });
+    mockListSavedCheckoutInstruments.mockResolvedValue({ items: [] });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(
+      new Error("fulfillment preview is unavailable after order commit"),
+    );
+    mockGetCheckoutStatus
+      .mockRejectedValueOnce({
+        status: 400,
+        body: {
+          error: {
+            code: "order_input_not_ready",
+            message: "Order ord_signed_in_1 was not found.",
+          },
+        },
+      })
+      .mockResolvedValue({
+        order_ids: ["ord_signed_in_1"],
+        currency_code: "usd",
+        amount: "26.19",
+        marketplace_checkout_fee: {
+          policy_version: "marketplace-checkout-fee-v1",
+          payment_method_category: "card",
+          order_amount: "26.19",
+          external_basis_amount: "26.19",
+          balance_credit_amount: "0.00",
+          percentage_bps: 290,
+          fixed_amount: "0.30",
+          variable_amount: "0.76",
+          total_amount: "1.06",
+          buyer_total_amount: "27.25",
+          quote_fingerprint: "quote_card_1",
+        },
+        payment_method_quotes: [],
+        wallet_credit: {
+          requested_amount: "0.00",
+          applied_amount: "0.00",
+          external_amount: "26.19",
+        },
+        can_start_payment: true,
+        unavailable_reasons: [],
+        unavailable_reason_details: [],
+      });
+    mockGetAccountPayment.mockResolvedValue({
+      amount: "27.25",
+      status: "pending-confirmation",
+      currency_code: "usd",
+    });
+    mockCreateIdentityRequestApiClient.mockReturnValue({
+      listShippingAddresses: mockListShippingAddresses,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      listSavedCheckoutInstruments: mockListSavedCheckoutInstruments,
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+      getAccountPayment: mockGetAccountPayment,
+    });
+    mockGetCheckoutSession.mockResolvedValue(committedSession);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+
+    const resumeUrl =
+      "http://localhost/checkout/buy/session/chk_signed_in?paymentMethodCategory=card&review=updated&resumePaymentStart=1";
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request(resumeUrl),
+        params: { sessionId: "chk_signed_in" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(202);
+    expect((await recoveryResponse?.json())?.recoveryKind).toBe("refreshable-catching-up");
+
+    const recoveredReview = await checkoutSessionLoader({
+      request: new Request(resumeUrl),
+      params: { sessionId: "chk_signed_in" },
+      context: undefined,
+    } as never);
+    const paymentStatusRequest = mockCreatePaymentsRequestApiClient.mock.calls
+      .map((call) => call[0] as Request)
+      .find((request) => readFreshWriteToken(request)?.sources[0]?.sourceContextName === "ordering");
+
+    expect(readFreshWriteToken(paymentStatusRequest!)?.sources).toEqual([
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ]);
+    expect(recoveredReview).toEqual(
+      expect.objectContaining({
+        autoResumePaymentStart: true,
+        isSignedInBuyer: true,
+        paymentPreview: expect.objectContaining({
+          marketplace_checkout_fee: expect.objectContaining({
+            quote_fingerprint: "quote_card_1",
+          }),
+        }),
+      }),
+    );
+
+    mockConfirmCheckoutSession.mockResolvedValue({
+      payment_id: "pay_signed_in_1",
+      order_ids: ["ord_signed_in_1"],
+      status: "confirmed",
+      ...checkoutCommit("43", "evt_payment_started"),
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+    const confirmForm = new URLSearchParams();
+    confirmForm.set("intent", "confirm-checkout");
+    confirmForm.set("sourceType", "buy-now");
+    confirmForm.set("shippingOption", "standard");
+    confirmForm.set("paymentMethodCategory", "card");
+    confirmForm.set("previewPaymentMethodCategory", "card");
+    confirmForm.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_card_1");
+    confirmForm.set("shippingName", "Jane Smith");
+    confirmForm.set("shippingLine1", "100 Market Street");
+    confirmForm.set("shippingCity", "Chicago");
+    confirmForm.set("shippingState", "IL");
+    confirmForm.set("shippingPostalCode", "60601");
+    confirmForm.set("shippingCountry", "US");
+
+    const confirmResponse = (await checkoutSessionAction({
+      request: new Request(resumeUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: confirmForm.toString(),
+      }),
+      params: { sessionId: "chk_signed_in" },
+      context: undefined,
+    } as never)) as Response;
+    const confirmLocation = confirmResponse.headers.get("Location") ?? "";
+
+    expect(confirmResponse.status).toBe(302);
+    expectCompactPostWriteLocation(confirmLocation, "/checkout/buy/session/chk_signed_in/confirmation?postWriteToken=");
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+
+    mockGetCheckoutSession.mockResolvedValue(signedInBuyNowCommittedOrderSession("pay_signed_in_1"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+
+    const confirmation = await buyCheckoutConfirmationLoader({
+      request: new Request(`http://localhost${confirmLocation}`),
+      params: { sessionId: "chk_signed_in" },
+      context: undefined,
+    } as never);
+
+    expect(confirmation.paymentPath).toContain("/account/payments/pay_signed_in_1?postWriteToken=");
+
+    let paymentRedirect: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/buy/session/chk_signed_in"),
+        params: { sessionId: "chk_signed_in" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      paymentRedirect = error as Response;
+    }
+
+    expect(paymentRedirect?.status).toBe(302);
+    expect(paymentRedirect?.headers.get("Location")).toBe("/account/payments/pay_signed_in_1");
   });
 });

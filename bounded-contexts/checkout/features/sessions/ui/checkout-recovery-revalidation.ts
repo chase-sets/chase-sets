@@ -74,6 +74,10 @@ export function useCheckoutPreparingRevalidation(
       return readCompactPostWriteToken(currentPath) !== null;
     }
 
+    function hasPaymentStartResumeIntent() {
+      return new URL(currentPath, "https://chase-sets.local").searchParams.get("resumePaymentStart") === "1";
+    }
+
     function hasAttemptBudget() {
       return attemptCountRef.current < maxRevalidations;
     }
@@ -101,7 +105,10 @@ export function useCheckoutPreparingRevalidation(
       timeout = null;
       const tokenState = readTokenState();
 
-      if ((tokenState.kind === "valid" || hasCompactPostWriteToken()) && hasAttemptBudget()) {
+      if (
+        (tokenState.kind === "valid" || hasCompactPostWriteToken() || hasPaymentStartResumeIntent()) &&
+        hasAttemptBudget()
+      ) {
         if (navigationStateRef.current === "idle") {
           revalidateCurrentPath();
         }
@@ -124,7 +131,7 @@ export function useCheckoutPreparingRevalidation(
       return;
     }
 
-    if (initialTokenState.kind !== "valid" && !hasCompactPostWriteToken()) {
+    if (initialTokenState.kind !== "valid" && !hasCompactPostWriteToken() && !hasPaymentStartResumeIntent()) {
       setIsAutoRevalidating(false);
       return;
     }

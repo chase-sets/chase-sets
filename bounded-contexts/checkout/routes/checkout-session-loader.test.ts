@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -551,6 +551,224 @@ describe("checkout web routes: checkout session loader", () => {
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
     expect(result.autoResumePaymentStart).toBe(true);
+  });
+
+  it("arms signed-in payment-start resume from stored order freshness after compact recovery token is gone", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: {
+        shippingAddressId: "__manual",
+        name: "Stripe QA Buyer",
+        company: "",
+        line1: "123 Test Market St",
+        line2: "",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: "5125550101",
+        email: "buyer@example.com",
+      },
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: "lowest-total#rev_1",
+      order_ids: ["ord_checkout_1"],
+      order_write_commit_positions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable after order commit"));
+    mockGetCheckoutStatus.mockResolvedValue({
+      order_ids: ["ord_checkout_1"],
+      currency_code: "usd",
+      amount: "37.99",
+      marketplace_checkout_fee: {
+        policy_version: "marketplace-checkout-fee-v1",
+        payment_method_category: "card",
+        order_amount: "37.99",
+        external_basis_amount: "37.99",
+        balance_credit_amount: "0.00",
+        percentage_bps: 290,
+        fixed_amount: "0.30",
+        variable_amount: "1.15",
+        total_amount: "1.45",
+        buyer_total_amount: "39.44",
+        quote_fingerprint: "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
+      },
+      payment_method_quotes: [],
+      wallet_credit: {
+        requested_amount: "0.00",
+        applied_amount: "0.00",
+        external_amount: "37.99",
+      },
+      can_start_payment: true,
+      unavailable_reasons: [],
+      unavailable_reason_details: [],
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+      listSavedCheckoutInstruments: vi.fn(async () => ({ items: [] })),
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+      ),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    const paymentStatusRequest = mockCreatePaymentsRequestApiClient.mock.calls
+      .map((call) => call[0] as Request)
+      .find((request) => readFreshWriteToken(request)?.sources[0]?.sourceContextName === "ordering");
+    expect(readFreshWriteToken(paymentStatusRequest!)?.sources).toEqual([
+      {
+        sourceContextName: "ordering",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_order_created"],
+      },
+    ]);
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
+    );
+    expect(result.autoResumePaymentStart).toBe(true);
+  });
+
+  it("keeps signed-in tokenless payment-start resume in recovery while stored order freshness catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: {
+        shippingAddressId: "__manual",
+        name: "Stripe QA Buyer",
+        company: "",
+        line1: "123 Test Market St",
+        line2: "",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: "5125550101",
+        email: "buyer@example.com",
+      },
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: "lowest-total#rev_1",
+      order_ids: ["ord_checkout_1"],
+      order_write_commit_positions: [
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
+        },
+      ],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable after order commit"));
+    mockGetCheckoutStatus.mockRejectedValue(
+      new MockPaymentsApiError(400, {
+        error: {
+          code: "order_input_not_ready",
+          message: "Order ord_checkout_1 was not found.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+      listSavedCheckoutInstruments: vi.fn(async () => ({ items: [] })),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request(
+          "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+        ),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(202);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      recoveryKind?: string;
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
+    expect(recoveryBody.primaryAction?.href).toBe(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+    );
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
   });
 
   it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
