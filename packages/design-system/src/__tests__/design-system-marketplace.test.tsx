@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot, type Root } from "react-dom/client";
@@ -259,6 +259,34 @@ describe("design system marketplace patterns", () => {
     expect(screen.getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("menuitem", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
     expect(screen.getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe("account-menu-sign-out");
+  });
+
+  it("opens desktop account menus from native click activation", async () => {
+    render(
+      <div>
+        <form id="account-menu-sign-out" action="/sign-out" method="post" />
+        <AccountMenu
+          accountName="Card Vault"
+          roleName="Manager"
+          userName="Alex Clerk"
+          items={[
+            { key: "account", label: "Account", href: "/account", icon: "user" },
+            { key: "wallet", label: "Wallet", href: "/account/settlement", icon: "wallet" },
+          ]}
+          preferences={<ThemeToggle />}
+          signOutFormId="account-menu-sign-out"
+          signOutLabel="Sign Out"
+        />
+      </div>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Account menu" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+
+    expect(await screen.findByRole("group", { name: "Color theme" })).toBeTruthy();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
   it.each([

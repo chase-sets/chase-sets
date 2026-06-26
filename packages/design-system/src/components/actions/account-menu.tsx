@@ -1,13 +1,9 @@
-import { useState, type ReactNode } from "react";
-import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { Badge, BottomSheet } from "../feedback";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Badge } from "../feedback";
 import { Icon, type IconName } from "../../icons";
 import { useMediaQuery } from "../../hooks";
 import { Box, Cluster, Divider, Stack } from "../../primitives/layout";
-import { useChaseMotion, usePortalRoots } from "../../theme/provider";
-import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
-import { resolveOverlayMotion } from "../feedback/motion-overlay";
 
 export interface AccountMenuItem {
   key: string;
@@ -55,17 +51,12 @@ export function AccountMenu({
   userName,
   mobileSheetThreshold = 4,
 }: AccountMenuProps) {
-  const { overlayNode } = usePortalRoots();
-  const motionSettings = useChaseMotion();
+  const menuId = useId();
+  const titleId = useId();
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const useMobileSheet = !isDesktop && items.length > mobileSheetThreshold;
-  const motionProps = resolveOverlayMotion(
-    motionSettings,
-    open,
-    { opacity: 1, y: 0, scale: 1 },
-    { opacity: 0, y: 10, scale: 0.98 },
-  );
   const triggerContent = (
     <>
       <Icon name="user" size="sm" tone="secondary" />
@@ -101,99 +92,169 @@ export function AccountMenu({
     </Box>
   );
 
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+
+      if (!target || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setOpen(false);
+      menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   if (useMobileSheet) {
     return (
-      <BottomSheet
-        open={open}
-        onOpenChange={setOpen}
-        title={menuLabel}
-        height="medium"
-        trigger={
-          <button type="button" aria-label={menuLabel} className={triggerClassName}>
-            {triggerContent}
-          </button>
-        }
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          aria-controls={menuId}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={menuLabel}
+          className={triggerClassName}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {triggerContent}
+        </button>
+        {open ? (
+          <>
+            <button
+              type="button"
+              aria-label="Close account menu"
+              className="fixed inset-0 z-modal cursor-default bg-overlay"
+              onClick={() => setOpen(false)}
+            />
+            <aside
+              id={menuId}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              className="modern-surface fixed inset-x-3 bottom-3 z-modal max-h-[60vh] rounded-tokenXl border border-muted p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-overlay"
+            >
+              <Stack gap={2}>
+                <div className="flex items-start justify-between gap-4">
+                  <h2 id={titleId} className="font-heading text-xl font-semibold text-foreground">
+                    {menuLabel}
+                  </h2>
+                  <button
+                    type="button"
+                    aria-label="Close account menu"
+                    className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-tokenMd text-secondary transition hover:bg-surface-2 hover:text-foreground"
+                    onClick={() => setOpen(false)}
+                  >
+                    <Icon name="close" size="sm" tone="secondary" />
+                  </button>
+                </div>
+                {accountSummary}
+                <Divider />
+                <nav aria-label={menuLabel}>
+                  <Stack gap={1}>
+                    {items.map((item) => (
+                      <a
+                        key={item.key}
+                        href={item.href}
+                        className={menuItemClassName(false)}
+                        onClick={() => setOpen(false)}
+                      >
+                        {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
+                        <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                      </a>
+                    ))}
+                  </Stack>
+                </nav>
+                <Divider />
+                {preferences ? (
+                  <>
+                    <Box paddingX={3} paddingY={2}>
+                      {preferences}
+                    </Box>
+                    <Divider />
+                  </>
+                ) : null}
+                <button type="submit" form={signOutFormId} className={menuItemClassName(false, true)}>
+                  <Icon name="logOut" size="sm" tone="danger" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
+                </button>
+              </Stack>
+            </aside>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={menuLabel}
+        className={triggerClassName}
+        onClick={() => setOpen((current) => !current)}
       >
-        <Stack gap={2}>
+        {triggerContent}
+      </button>
+      {open ? (
+        <div
+          id={menuId}
+          role="menu"
+          aria-label={typeof menuLabel === "string" ? menuLabel : undefined}
+          className="modern-surface absolute right-0 top-[calc(100%+0.5rem)] z-dropdown w-[min(20rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay"
+        >
           {accountSummary}
-          <Divider />
-          <nav aria-label={menuLabel}>
-            <Stack gap={1}>
-              {items.map((item) => (
-                <a key={item.key} href={item.href} className={menuItemClassName(false)} onClick={() => setOpen(false)}>
-                  {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
-                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-                </a>
-              ))}
-            </Stack>
-          </nav>
-          <Divider />
+          <div role="separator" className="my-1 h-px bg-muted" />
+          {items.map((item) => (
+            <a
+              key={item.key}
+              href={item.href}
+              role="menuitem"
+              className={menuItemClassName(false)}
+              onClick={() => setOpen(false)}
+            >
+              {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
+              <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+            </a>
+          ))}
+          <div role="separator" className="my-1 h-px bg-muted" />
           {preferences ? (
             <>
               <Box paddingX={3} paddingY={2}>
                 {preferences}
               </Box>
-              <Divider />
+              <div role="separator" className="my-1 h-px bg-muted" />
             </>
           ) : null}
-          <button type="submit" form={signOutFormId} className={menuItemClassName(false, true)}>
+          <button type="submit" form={signOutFormId} role="menuitem" className={menuItemClassName(false, true)}>
             <Icon name="logOut" size="sm" tone="danger" />
             <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
           </button>
-        </Stack>
-      </BottomSheet>
-    );
-  }
-
-  return (
-    <MenuPrimitive.Root open={open} onOpenChange={setOpen}>
-      <MenuPrimitive.Trigger aria-label={menuLabel} className={triggerClassName}>
-        {triggerContent}
-      </MenuPrimitive.Trigger>
-      <MenuPrimitive.Portal container={overlayNode ?? undefined}>
-        <MenuPrimitive.Positioner sideOffset={8} className="z-dropdown">
-          <MenuPrimitive.Popup
-            render={renderMotionDiv({
-              initial: motionProps.initial,
-              animate: motionProps.animate,
-              transition: motionProps.transition,
-              className:
-                "modern-surface w-[min(20rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay",
-            })}
-          >
-            {accountSummary}
-            <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
-            {items.map((item) => (
-              <MenuPrimitive.LinkItem
-                key={item.key}
-                href={item.href}
-                closeOnClick
-                className={(state) => menuItemClassName(state.highlighted)}
-              >
-                {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
-                <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-              </MenuPrimitive.LinkItem>
-            ))}
-            <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
-            {preferences ? (
-              <>
-                <Box paddingX={3} paddingY={2}>
-                  {preferences}
-                </Box>
-                <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
-              </>
-            ) : null}
-            <MenuPrimitive.Item
-              nativeButton
-              render={<button type="submit" form={signOutFormId} />}
-              className={(state) => menuItemClassName(state.highlighted, true)}
-            >
-              <Icon name="logOut" size="sm" tone="danger" />
-              <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
-            </MenuPrimitive.Item>
-          </MenuPrimitive.Popup>
-        </MenuPrimitive.Positioner>
-      </MenuPrimitive.Portal>
-    </MenuPrimitive.Root>
+        </div>
+      ) : null}
+    </div>
   );
 }
