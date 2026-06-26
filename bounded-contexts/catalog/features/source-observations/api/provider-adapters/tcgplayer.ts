@@ -15,6 +15,7 @@ import {
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
   TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION,
 } from "../tcgplayer-executable-mapping-contract";
 import type {
@@ -361,6 +362,15 @@ export async function runTcgplayerMtgSealedProductSourceObservationImportProofDr
     unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     profileVersion: TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
     detail: tcgplayerMtgSealedProductProofDetail,
+  });
+}
+
+export async function runTcgplayerPokemonSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerProviderProductSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
+    detail: tcgplayerPokemonSingleCardProofDetail,
+    fetchedAt: "2026-06-03T00:00:00.000Z",
   });
 }
 
@@ -756,6 +766,28 @@ const tcgplayerMtgSealedProductProofDetail: TcgplayerAutomationProductDetail = {
   lowestPriceWithShipping: 11.23,
   medianPrice: 12.5,
   listings: 25,
+};
+
+const tcgplayerPokemonSingleCardProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Cards",
+  rarityName: "Common",
+  sealed: false,
+  productName: "Sprigatito",
+  setId: 10001,
+  setCode: "SVI",
+  productId: 493958,
+  setName: "Scarlet & Violet",
+  productLineId: 3,
+  productStatusId: 1,
+  productLineName: "Pokemon",
+  customAttributes: { number: "001/198", releaseDate: "2023-03-31", cardType: ["Pokemon"] },
+  formattedAttributes: {},
+  skus: [{ sku: 15500001, condition: "Near Mint", variant: "Normal", language: "English" }],
+  marketPrice: 0.12,
+  lowestPrice: 0.08,
+  lowestPriceWithShipping: 1.01,
+  medianPrice: 0.19,
+  listings: 42,
 };
 
 const tcgplayerYugiohSingleCardProofDetail: TcgplayerAutomationProductDetail = {

@@ -1897,6 +1897,16 @@ describe("source observation runtime: provider integration jobs", () => {
       credentialDiagnosticCode: "credential-missing",
       transportReadiness: "blocked",
     });
+    expect(unitsByKey["tcgplayer:pokemon:single-card:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
+      credentialReadiness: "blocked",
+      credentialReadinessState: "missing",
+      credentialDiagnosticCode: "credential-missing",
+      transportReadiness: "blocked",
+    });
     expect(unitsByKey["tcgplayer:lorcana:single-card:source-observation-import"]).toMatchObject({
       semanticReadiness: "ready",
       fixtureValidationStatus: "ready",
