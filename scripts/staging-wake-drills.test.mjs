@@ -3,9 +3,11 @@ import {
   DEFAULT_CONVERGENCE_BUDGET_MS,
   DEFAULT_LOAD_CONCURRENCY,
   DEFAULT_LOAD_ITERATIONS,
+  DEFAULT_RECONCILIATION_CANARY_ATTEMPTS,
   DEFAULT_SOURCE_CONTEXTS,
   DRILL_KINDS,
   LOAD_LIMITS,
+  MAX_RECONCILIATION_CANARY_ATTEMPTS,
   MAX_CONVERGENCE_BUDGET_MS,
   STAGING_WAKE_DRILLS_VERSION,
   assertRedactedDrillEvidence,
@@ -20,6 +22,7 @@ import {
   parseStagingWakeDrillArgs,
   pollForConvergence,
   renderDrillStepSummary,
+  runReconciliationCanaryWrites,
   runStagingWakeDrill,
   selectActiveCheckpoints,
   summarizeSegmentSlo,
@@ -116,9 +119,18 @@ describe("staging wake drills argument handling", () => {
     expect(options.convergenceProjectionNames).toEqual(["checkout.session-projection"]);
     expect(options.convergenceBudgetMs).toBe(DEFAULT_CONVERGENCE_BUDGET_MS);
     expect(options.searchQuery).toBe("air balloon");
+    expect(options.canaryAttempts).toBe(DEFAULT_RECONCILIATION_CANARY_ATTEMPTS);
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
     expect(options.controlDatabaseUrl).toBe(baseEnv.PLATFORM_CONTROL_DATABASE_URL);
     expect(validateStagingWakeDrillOptions(options)).toEqual([]);
+  });
+
+  it("caps reconciliation canary attempts to the ratified single-write retry budget", () => {
+    expect(parsedOptions(["reconciliation", "--canary-attempts", "1"]).canaryAttempts).toBe(1);
+    expect(parsedOptions(["reconciliation", "--canary-attempts", "99"]).canaryAttempts).toBe(
+      MAX_RECONCILIATION_CANARY_ATTEMPTS,
+    );
+    expect(parsedOptions(["reconciliation"], { ...baseEnv, GUEST_BUY_NOW_PROBE_ATTEMPTS: "2" }).canaryAttempts).toBe(2);
   });
 
   it("defaults synthetic Buy Now convergence to the session projection and lets operators opt into all checkpoints", () => {
@@ -467,6 +479,45 @@ describe("single-write readiness classification", () => {
   });
 });
 
+describe("reconciliation canary retries", () => {
+  it("retries bounded readiness misses and selects the first promoted write", async () => {
+    const seenIterations = [];
+    const result = await runReconciliationCanaryWrites(
+      { canaryAttempts: 3 },
+      fakeDeps({
+        runCanaryWrite: async (_options, iteration) => {
+          seenIterations.push(iteration);
+          return iteration === "w1"
+            ? {
+                iteration,
+                correlationId: `wake-drill-test-${iteration}`,
+                exitCode: 0,
+                finalState: "temporary",
+                promotionDecision: "warn",
+                failureReason: "checkout-ready-slo-exceeded",
+                readyLatencyMs: null,
+                segments: { writeToCheckoutReadyMs: null },
+              }
+            : {
+                iteration,
+                correlationId: `wake-drill-test-${iteration}`,
+                exitCode: 0,
+                finalState: "pass",
+                promotionDecision: "promote",
+                failureReason: null,
+                readyLatencyMs: 1600,
+                segments: { writeToCheckoutReadyMs: 1600 },
+              };
+        },
+      }),
+    );
+
+    expect(seenIterations).toEqual(["w1", "w2"]);
+    expect(result.maxAttempts).toBe(3);
+    expect(result.selected.correlationId).toBe("wake-drill-test-w2");
+  });
+});
+
 describe("load summary", () => {
   it("aggregates readiness pass rate and latency percentiles", () => {
     const summary = summarizeLoadResults([
@@ -580,6 +631,37 @@ describe("segment SLO summary", () => {
     expect(summary.browser.singleWrite.segmentLatencyMs.documentToReadyMs.samples).toBe(0);
     expect(summary.browser.singleWrite.sloStatus).toBe("miss");
     expect(summary.durableConvergence.convergedAfterMs).toBeNull();
+  });
+
+  it("summarizes reconciliation single-write SLO across retry attempts", () => {
+    const summary = summarizeSegmentSlo({
+      readySloMs: 10_000,
+      canaryWrite: {
+        attempted: true,
+        promotionDecision: "promote",
+        readyLatencyMs: 1600,
+        segments: { writeToCheckoutReadyMs: 1600 },
+      },
+      canaryAttempts: [
+        {
+          attempted: true,
+          promotionDecision: "warn",
+          readyLatencyMs: null,
+          segments: { writeToCheckoutReadyMs: null },
+        },
+        {
+          attempted: true,
+          promotionDecision: "promote",
+          readyLatencyMs: 1600,
+          segments: { writeToCheckoutReadyMs: 1600 },
+        },
+      ],
+    });
+
+    expect(summary.browser.singleWrite.attempted).toBe(2);
+    expect(summary.browser.singleWrite.promoted).toBe(1);
+    expect(summary.browser.singleWrite.readinessPassRate).toBe(0.5);
+    expect(summary.browser.singleWrite.sloStatus).toBe("pass");
   });
 });
 
@@ -744,6 +826,7 @@ describe("drill orchestration", () => {
     sourceContexts: ["checkout"],
     convergenceBudgetMs: 30_000,
     pollIntervalMs: 1_000,
+    readySloMs: 10_000,
     skipCanaryWrite: false,
     baseUrl: "https://marketplace.staging.chasesets.com",
   };
@@ -761,6 +844,9 @@ describe("drill orchestration", () => {
     expect(evidence.verdict).toBe("pass");
     expect(evidence.canaryWrite.attempted).toBe(true);
     expect(evidence.canaryWrite.correlationId).toBe("wake-drill-test-w1");
+    expect(evidence.canaryWrite.attemptCount).toBe(1);
+    expect(evidence.canaryWrite.maxAttempts).toBe(3);
+    expect(evidence.canaryAttempts).toHaveLength(1);
     expect(evidence.convergence.converged).toBe(true);
     expect(snapshots).toHaveLength(3);
     expect(evidence.wakeRuntimePreflight).toMatchObject({
@@ -811,6 +897,62 @@ describe("drill orchestration", () => {
     });
     expect(evidence.canaryWrite.attempted).toBe(true);
     expect(writeCount).toBe(1);
+  });
+
+  it("passes reconciliation when a retry reaches browser-ready inside the single-write attempt budget", async () => {
+    const seenIterations = [];
+    const evidence = await runStagingWakeDrill(reconciliationOptions, {
+      ...fakeDeps(),
+      runCanaryWrite: async (_options, iteration) => {
+        seenIterations.push(iteration);
+        return iteration === "w1"
+          ? {
+              iteration,
+              correlationId: `wake-drill-test-${iteration}`,
+              exitCode: 0,
+              finalState: "temporary",
+              promotionDecision: "warn",
+              failureReason: "checkout-ready-slo-exceeded",
+              readyLatencyMs: null,
+              segments: {
+                writeToRedirectMs: 1800,
+                redirectToDocumentMs: 1,
+                documentToReadyMs: null,
+                writeToCheckoutReadyMs: null,
+              },
+            }
+          : {
+              iteration,
+              correlationId: `wake-drill-test-${iteration}`,
+              exitCode: 0,
+              finalState: "pass",
+              promotionDecision: "promote",
+              failureReason: null,
+              readyLatencyMs: 1500,
+              segments: {
+                writeToRedirectMs: 1100,
+                redirectToDocumentMs: 1,
+                documentToReadyMs: 399,
+                writeToCheckoutReadyMs: 1500,
+              },
+            };
+      },
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(seenIterations).toEqual(["w1", "w2"]);
+    expect(evidence.canaryWrite.correlationId).toBe("wake-drill-test-w2");
+    expect(evidence.canaryWrite.attemptCount).toBe(2);
+    expect(evidence.canaryAttempts.map((attempt) => attempt.correlationId)).toEqual([
+      "wake-drill-test-w1",
+      "wake-drill-test-w2",
+    ]);
+    expect(evidence.segmentSlo.browser.singleWrite).toMatchObject({
+      attempted: 2,
+      promoted: 1,
+      sloStatus: "pass",
+    });
+    expect(evidence.convergence.converged).toBe(true);
   });
 
   it("fails explicitly without writing when the wake runtime never becomes ready", async () => {
@@ -874,27 +1016,33 @@ describe("drill orchestration", () => {
   });
 
   it("fails the reconciliation drill when the canary write remains temporary past the ready SLO", async () => {
+    let writeCount = 0;
     const evidence = await runStagingWakeDrill(reconciliationOptions, {
       ...fakeDeps(),
-      runCanaryWrite: async (_options, iteration) => ({
-        iteration,
-        correlationId: `wake-drill-test-${iteration}`,
-        exitCode: 0,
-        finalState: "temporary",
-        promotionDecision: "warn",
-        failureReason: "checkout-ready-slo-exceeded",
-        readyLatencyMs: null,
-        segments: {
-          writeToRedirectMs: 1800,
-          redirectToDocumentMs: 1,
-          documentToReadyMs: null,
-          writeToCheckoutReadyMs: null,
-        },
-      }),
+      runCanaryWrite: async (_options, iteration) => {
+        writeCount += 1;
+        return {
+          iteration,
+          correlationId: `wake-drill-test-${iteration}`,
+          exitCode: 0,
+          finalState: "temporary",
+          promotionDecision: "warn",
+          failureReason: "checkout-ready-slo-exceeded",
+          readyLatencyMs: null,
+          segments: {
+            writeToRedirectMs: 1800,
+            redirectToDocumentMs: 1,
+            documentToReadyMs: null,
+            writeToCheckoutReadyMs: null,
+          },
+        };
+      },
     });
 
     expect(evidence.verdict).toBe("fail");
     expect(evidence.verdictReasons).toContain("checkout-ready-slo-missed");
+    expect(writeCount).toBe(3);
+    expect(evidence.canaryAttempts).toHaveLength(3);
     expect(evidence.convergence.converged).toBe(true);
   });
 

@@ -10,10 +10,11 @@
 // Drill kinds:
 //   reconciliation  Audit relay source high-water cursors against durable
 //                   event-store positions and projection checkpoints, then
-//                   (optionally) generate one synthetic Buy Now write and
-//                   prove durable convergence within a bounded budget. This
-//                   is the executable missed-notification/missed-fan-out
-//                   detection drill from the #1234 review update.
+//                   (optionally) generate bounded synthetic Buy Now
+//                   single-write attempts and prove durable convergence within
+//                   a bounded budget. This is the executable
+//                   missed-notification/missed-fan-out detection drill from
+//                   the #1234 review update.
 //   load            Bounded synthetic load: N canary iterations at
 //                   concurrency C (hard caps), followed by the same
 //                   reconciliation convergence audit. Bounded staging load
@@ -44,6 +45,8 @@ export const DEFAULT_BUY_NOW_CONVERGENCE_PROJECTION_NAMES = Object.freeze(["chec
 export const DEFAULT_FIXTURE_KEY = "staging-guest-buy-now-fixture";
 export const DEFAULT_LOAD_ITERATIONS = 6;
 export const DEFAULT_LOAD_CONCURRENCY = 2;
+export const DEFAULT_RECONCILIATION_CANARY_ATTEMPTS = 3;
+export const MAX_RECONCILIATION_CANARY_ATTEMPTS = 3;
 export const CANARY_BROWSER_SEGMENTS = Object.freeze([
   "writeToRedirectMs",
   "redirectToDocumentMs",
@@ -131,6 +134,14 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
       10_000,
       1_000,
       60_000,
+    ),
+    canaryAttempts: clampInteger(
+      readOption(optionArgs, "--canary-attempts") ??
+        readEnv("WAKE_DRILL_CANARY_ATTEMPTS", env) ??
+        readEnv("GUEST_BUY_NOW_PROBE_ATTEMPTS", env),
+      DEFAULT_RECONCILIATION_CANARY_ATTEMPTS,
+      1,
+      MAX_RECONCILIATION_CANARY_ATTEMPTS,
     ),
     flow: readOption(optionArgs, "--flow") ?? readEnv("WAKE_DRILL_FLOW", env) ?? "guest",
     iterations: readOption(optionArgs, "--iterations") ?? readEnv("WAKE_DRILL_LOAD_ITERATIONS", env),
@@ -345,7 +356,11 @@ export function summarizeLoadResults(results) {
 
 export function summarizeSegmentSlo(input = {}) {
   const readySloMs = toFiniteNumber(input.readySloMs);
-  const singleWriteResults = input.canaryWrite?.attempted ? [input.canaryWrite] : [];
+  const canaryAttempts = Array.isArray(input.canaryAttempts)
+    ? input.canaryAttempts.filter((result) => result?.attempted)
+    : [];
+  const singleWriteResults =
+    canaryAttempts.length > 0 ? canaryAttempts : input.canaryWrite?.attempted ? [input.canaryWrite] : [];
   const loadResults = Array.isArray(input.loadResults) ? input.loadResults : [];
 
   return {
@@ -434,6 +449,12 @@ export function renderDrillStepSummary(evidence) {
       }/${evidence.loadSummary.readyLatencyMs.p95 ?? "-"}/${evidence.loadSummary.readyLatencyMs.max ?? "-"}`,
     );
   }
+  if (evidence.canaryWrite?.attempted && evidence.canaryWrite?.maxAttempts) {
+    lines.push(
+      "",
+      `Single-write canary: ${evidence.canaryWrite.attemptCount ?? 1}/${evidence.canaryWrite.maxAttempts} attempt(s), decision ${evidence.canaryWrite.promotionDecision ?? "unknown"}.`,
+    );
+  }
   if (evidence.wakeRuntimeAfterLoad?.attempted) {
     lines.push(
       "",
@@ -463,6 +484,7 @@ export function buildDrillEvidence(input) {
   const segmentSlo = summarizeSegmentSlo({
     readySloMs: input.readySloMs,
     canaryWrite: input.canaryWrite ?? null,
+    canaryAttempts: input.canaryAttempts ?? null,
     loadResults: input.loadResults ?? null,
     convergence: input.convergence ?? null,
     convergenceBudgetMs: input.convergenceBudgetMs,
@@ -491,6 +513,7 @@ export function buildDrillEvidence(input) {
     wakeRuntimeReadyPollIntervalMs: input.wakeRuntimeReadyPollIntervalMs ?? null,
     readySloMs: input.readySloMs ?? null,
     canaryWrite: input.canaryWrite ?? { attempted: false },
+    canaryAttempts: input.canaryAttempts ?? [],
     loadPlan: input.loadPlan ?? null,
     loadResults: input.loadResults ?? null,
     loadSummary: input.loadSummary ?? null,
@@ -666,6 +689,9 @@ export async function runCanaryWrite(options, iteration) {
     "--ready-slo-ms",
     String(options.readySloMs),
     "--attempts",
+    // Reconciliation retries are orchestrated by the wake drill so every
+    // attempt has its own correlation id and artifact. Load mode also remains
+    // one canary write per configured iteration, preserving the bounded cap.
     "1",
     "--diagnostic-correlation-id",
     correlationId,
@@ -707,6 +733,60 @@ export async function runCanaryWrite(options, iteration) {
     readyLatencyMs: evidence?.readyLatencyMs ?? null,
     segments: evidence?.segments ?? null,
     evidencePath: canaryOutPath,
+  };
+}
+
+function toCanaryWriteEvidence(result) {
+  if (!result) {
+    return { attempted: false };
+  }
+
+  return {
+    attempted: true,
+    iteration: result.iteration ?? null,
+    correlationId: result.correlationId,
+    exitCode: result.exitCode,
+    finalState: result.finalState,
+    promotionDecision: result.promotionDecision,
+    failureReason: result.failureReason,
+    readyLatencyMs: result.readyLatencyMs,
+    segments: result.segments,
+  };
+}
+
+function retryableCanaryWriteResult(result) {
+  return (
+    result?.failureReason === "checkout-ready-slo-exceeded" ||
+    result?.failureReason === "browser-navigation-timeout" ||
+    result?.failureReason === "platform-temporary-unavailable"
+  );
+}
+
+function selectReconciliationCanaryWrite(results) {
+  return results.find((result) => result.promotionDecision === "promote") ?? results.at(-1) ?? null;
+}
+
+export async function runReconciliationCanaryWrites(options, deps) {
+  const maxAttempts = clampInteger(
+    options.canaryAttempts,
+    DEFAULT_RECONCILIATION_CANARY_ATTEMPTS,
+    1,
+    MAX_RECONCILIATION_CANARY_ATTEMPTS,
+  );
+  const results = [];
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await deps.runCanaryWrite(options, `w${attempt}`);
+    results.push(result);
+    if (result.promotionDecision === "promote" || !retryableCanaryWriteResult(result)) {
+      break;
+    }
+  }
+
+  return {
+    maxAttempts,
+    results,
+    selected: selectReconciliationCanaryWrite(results),
   };
 }
 
@@ -883,6 +963,7 @@ export function classifySingleWriteReadinessResult(result, readySloMs) {
 export async function runStagingWakeDrill(options, deps) {
   const verdictReasons = [];
   let canaryWrite = { attempted: false };
+  let canaryAttempts = [];
   let loadPlan = null;
   let loadResults = null;
   let loadSummary = null;
@@ -916,6 +997,7 @@ export async function runStagingWakeDrill(options, deps) {
       wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
       readySloMs: options.readySloMs,
       canaryWrite,
+      canaryAttempts,
       loadPlan,
       loadResults,
       loadSummary,
@@ -940,16 +1022,13 @@ export async function runStagingWakeDrill(options, deps) {
       verdictReasons.push("wake-runtime-not-ready-after-load");
     }
   } else if (!options.skipCanaryWrite) {
-    const writeResult = await deps.runCanaryWrite(options, "w1");
+    const canaryRun = await runReconciliationCanaryWrites(options, deps);
+    const writeResult = canaryRun.selected;
+    canaryAttempts = canaryRun.results.map(toCanaryWriteEvidence);
     canaryWrite = {
-      attempted: true,
-      correlationId: writeResult.correlationId,
-      exitCode: writeResult.exitCode,
-      finalState: writeResult.finalState,
-      promotionDecision: writeResult.promotionDecision,
-      failureReason: writeResult.failureReason,
-      readyLatencyMs: writeResult.readyLatencyMs,
-      segments: writeResult.segments,
+      ...toCanaryWriteEvidence(writeResult),
+      attemptCount: canaryAttempts.length,
+      maxAttempts: canaryRun.maxAttempts,
     };
     const writeFailure = classifyCanaryWriteResult(writeResult);
     if (writeFailure) {
@@ -981,6 +1060,7 @@ export async function runStagingWakeDrill(options, deps) {
     wakeRuntimeReadyPollIntervalMs: options.wakeRuntimeReadyPollIntervalMs,
     readySloMs: options.readySloMs,
     canaryWrite,
+    canaryAttempts,
     loadPlan,
     loadResults,
     loadSummary,
