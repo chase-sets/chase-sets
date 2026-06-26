@@ -1,0 +1,184 @@
+name: Checkout Order-Readiness Trace
+
+# Read-only, staging-only, redacted trace for checkout payment-start blockers.
+# Does not call payment provider APIs and does not emit payloads, metadata, or
+# customer/provider identifiers to logs, summaries, or artifacts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkout_session_id:
+        description: Checkout session id to trace in staging.
+        required: true
+        type: string
+      observed_at_utc:
+        description: UTC timestamp when the payment-start blocker was observed.
+        required: true
+        type: string
+      window_minutes:
+        description: Observation window in minutes (1-240).
+        required: true
+        default: "30"
+        type: string
+      confirm:
+        description: Type "collect redacted staging order-readiness trace" to confirm staging-only read access.
+        required: true
+        type: string
+      release_ref:
+        description: Ref containing the trace tooling. Defaults to main.
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkout-order-readiness-trace-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Trace
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'collect redacted staging order-readiness trace'
+    steps:
+      - name: Refuse unconfirmed trace
+        run: |
+          echo "Confirmation text did not match exactly; refusing staging trace." >&2
+          exit 1
+
+  staging-order-readiness-trace:
+    name: Staging Order-Readiness Trace
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TRACE_ENVIRONMENT: staging
+      TRACE_CHECKOUT_SESSION_ID: ${{ inputs.checkout_session_id }}
+      TRACE_OBSERVED_AT_UTC: ${{ inputs.observed_at_utc }}
+      TRACE_WINDOW_MINUTES: ${{ inputs.window_minutes }}
+      TRACE_CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_ref="${{ inputs.release_ref }}"
+          git fetch origin "${release_ref}" || true
+          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "${release_ref}^{commit}")"
+          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+          else
+            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "$release_commit" origin/main
+          git checkout --detach "$release_commit"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export staging database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const fs = require("node:fs");
+          const requiredContexts = new Set(["checkout", "ordering", "inventory", "payments", "control"]);
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const cluster = resources.find((resource) =>
+            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
+          );
+          const databases = resources.find((resource) =>
+            resource.type === "digitalocean_database_db" && resource.name === "contexts"
+          );
+          const users = resources.find((resource) =>
+            resource.type === "digitalocean_database_user" && resource.name === "contexts"
+          );
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const databaseByContext = new Map(
+            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const userByContext = new Map(
+            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const lines = [];
+          for (const contextName of [...requiredContexts].sort()) {
+            const database = databaseByContext.get(contextName);
+            const user = userByContext.get(contextName);
+            if (!database?.name || !user?.name || !user?.password) {
+              throw new Error(`Direct staging database state is incomplete for context '${contextName}'.`);
+            }
+
+            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+            const envName = contextName === "control"
+              ? "PLATFORM_CONTROL_DATABASE_URL"
+              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
+            console.log(`::add-mask::${url}`);
+            lines.push(`${envName}=${url}`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Run redacted order-readiness trace
+        run: |
+          set -euo pipefail
+          pnpm run ops checkout:order-readiness-trace -- \
+            --out "artifacts/checkout-order-readiness-trace/staging-checkout-order-readiness-trace.json"
+
+      - name: Upload sanitized trace artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: checkout-order-readiness-trace-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/checkout-order-readiness-trace
+          if-no-files-found: error
+          retention-days: 14
