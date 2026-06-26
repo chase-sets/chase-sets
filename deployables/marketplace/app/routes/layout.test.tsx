@@ -272,6 +272,18 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain("Verified");
   });
 
+  it("applies the root color mode on first paint", () => {
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: null,
+      cartCount: 0,
+      colorMode: "dark",
+    });
+
+    const html = renderToString(<MarketplaceLayoutRoute />);
+
+    expect(html).toContain('data-color-mode="dark"');
+  });
+
   it("keeps signed-out guest cart access visible when cart has items", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: null,

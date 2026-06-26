@@ -1,7 +1,11 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
+import { data, redirect, type LoaderFunctionArgs } from "react-router";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import type { NavigationItem } from "@chase-sets/design-system";
-import { createIdentityRequestApiClient, resolveIdentityShellViewer } from "@chase-sets/identity/server";
+import {
+  createIdentityRequestApiClient,
+  createUserPreferencesColorModeCookieSeedHeaders,
+  resolveIdentityShellViewer,
+} from "@chase-sets/identity/server";
 import { requireAdminSectionActor } from "./auth.server";
 import { resolveAdminWebNavItems, resolveAdminWebRouteFallbackPermission } from "./host";
 
@@ -34,11 +38,14 @@ export function createAdminSectionLoader(config: SectionLoaderConfig) {
     );
 
     const actor = await requireAdminSectionActor(request, config.section, fallbackPermission);
-
-    return {
+    const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
+    const payload = {
       actor,
-      viewer: await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor),
+      viewer,
     };
+    const cookieHeaders = createUserPreferencesColorModeCookieSeedHeaders(request, viewer.preferences?.colorMode);
+
+    return cookieHeaders ? data(payload, { headers: cookieHeaders }) : payload;
   };
 }
 

@@ -16,6 +16,14 @@ export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";
 export { resolveIdentityShellViewer } from "./support/shell-support/viewer";
 export type { IdentityShellViewer, IdentityShellViewerPreferences } from "./support/shell-support/viewer";
+export {
+  USER_PREFERENCES_COLOR_MODE_COOKIE_NAME,
+  appendUserPreferencesColorModeCookie,
+  createUserPreferencesColorModeCookieSeedHeaders,
+  isUserPreferencesColorMode,
+  readUserPreferencesColorModeCookie,
+  serializeUserPreferencesColorModeCookie,
+} from "./features/preferences/api/color-mode-cookie";
 export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export {
   bootstrapPlatformAdminIdentity,
