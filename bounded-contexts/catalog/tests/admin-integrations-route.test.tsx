@@ -428,6 +428,88 @@ describe("Catalog integrations route", () => {
     ).not.toContain("permission-denied");
   });
 
+  it("keeps provider-only TCGplayer importer routes renderable with all configured units selectable", async () => {
+    const profileReviews = {
+      items: [
+        profileReview({
+          providerKey: "tcgplayer",
+          profileKey: "mtg-single-card-product-sku",
+          profileVersion: "2026.06.19",
+          ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+          displayName: "TCGplayer Magic single cards",
+          active: true,
+          lifecycle: "active",
+          status: "active",
+          profile: {
+            providerKey: "tcgplayer",
+            supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+          },
+          supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+        }),
+        profileReview({
+          providerKey: "tcgplayer",
+          profileKey: "yugioh-single-card-product-sku",
+          profileVersion: "2026.06.20",
+          ingestionUnitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+          displayName: "TCGplayer Yu-Gi-Oh single cards",
+          active: false,
+          lifecycle: "test",
+          status: "planned",
+          profile: {
+            providerKey: "tcgplayer",
+            supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+          },
+          supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+        }),
+      ],
+      total: 2,
+      count: 2,
+    };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue({
+        items: [],
+        total: 0,
+        count: 0,
+        page: { cursor: null, nextCursor: null, limit: 25, hasMore: false },
+        cache: {
+          status: "stale",
+          source: "cache",
+          cacheKey: "sha256:empty",
+          fetchedAt: null,
+          expiresAt: null,
+          staleUntil: null,
+          cacheOnly: true,
+          forceRefresh: false,
+          degraded: true,
+          diagnostics: [],
+        },
+      }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgplayer"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const tcgplayer = routeData.readModel.providerScope.providers.find(
+      (provider) => provider.providerKey === "tcgplayer",
+    );
+    expect(tcgplayer?.units.map((unit) => unit.unitKey)).toEqual(
+      expect.arrayContaining([
+        "tcgplayer:mtg:single-card:source-observation-import",
+        "tcgplayer:yugioh:single-card:source-observation-import",
+      ]),
+    );
+    expect(routeData.readModel.routeContext.providerKey).toBe("tcgplayer");
+    expect(routeData.requestUrl).toBe("https://admin.example/catalog/integrations?providerKey=tcgplayer");
+  });
+
   it("loads cache-only provider source option pages into the daily read model", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
