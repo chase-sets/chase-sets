@@ -523,6 +523,58 @@ describe("Catalog source-scope workset", () => {
     expect(readModel.sourceScopeWorkset.units[0]?.counts.eligible).toBe(242);
   });
 
+  it("keeps LorcanaJSON aggregate-backed previews promotable when row review falls back", () => {
+    const unitKey = "lorcanajson:lorcana:single-card:reference-data";
+    const profiles = lorcanaProfiles();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=lorcanajson:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=The%20First%20Chapter&profileVersion=2026.06.23&promotionPreviewId=preview-lorcanajson_lorcanajson_lorcana_single-card_reference-data_en_1_2026.06.23_en_1_all_none_filtered-242-242&filter.importScope=en%3A1&filter.providerKey=lorcanajson&commandStatus=success&commandIntent=preview-promotion&commandResult=preview-ready",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "lorcanajson",
+            language_code: "en",
+            product_line_id: "",
+            product_line_name: "Disney Lorcana",
+            series_id: "",
+            series_name: "",
+            expansion_id: "",
+            expansion_name: "The First Chapter",
+            total_observations: 242,
+            observed_observations: 242,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: {
+        items: profiles,
+        total: profiles.length,
+        count: profiles.length,
+      },
+      controlPlaneOverview: overviewForProfiles(profiles, "lorcana"),
+      readModelFailures: ["source-observation-review"],
+      reviewObservations: null,
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.routeContext.sourceObservationFilters).toMatchObject({
+      providerKey: "lorcanajson",
+      importScope: "en:1",
+    });
+    expect(readModel.sourceObservationReview.pagination.total).toBe(0);
+    expect(readModel.sourceObservationReview.freshness).toBe("unavailable");
+    expect(readModel.sourceObservationReview.promotionReadyCount).toBe(242);
+    expect(readModel.promotionPreview.freshness).toBe("fresh");
+    expect(readModel.promotionPreview.executionSafeguards.staleReasons).toEqual([]);
+    expect(readModel.promotionPreview.commandPlanHash).toContain("requested:242:eligible:242");
+    expect(readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === unitKey)?.counts.eligible).toBe(242);
+  });
+
   it("round-trips Pokemon workset links whose provider labels contain ampersands", () => {
     const profiles = [
       profileReview({

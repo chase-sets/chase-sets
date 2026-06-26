@@ -36,7 +36,10 @@ import {
   sourceOptionKindsForProfile,
   sum,
 } from "./primary-workbench-read-model-support";
-import { importScopeFromScopeContext } from "./primary-workbench-scope-context";
+import {
+  compactExpansionRouteScopeMatchesProviderScope,
+  importScopeFromScopeContext,
+} from "./primary-workbench-scope-context";
 import { profileAuthoringFor } from "./primary-workbench-profile-authoring";
 import { healthTriageFor } from "./primary-workbench-health-triage";
 import { validationReadinessFor } from "./primary-workbench-validation-readiness";
@@ -196,9 +199,12 @@ function buildCatalogPrimaryWorkbenchCore(
   const providerScopeRows = providerKey
     ? input.scopes.items.filter((scope) => scope.provider_key === providerKey)
     : input.scopes.items;
-  const scopeRows = importScope
-    ? providerScopeRows.filter((scope) => importScopeMatchesProviderScope(importScope, scope))
-    : providerScopeRows;
+  const scopeRows = selectedProviderScopeRows({
+    explicitStructuredScope,
+    importScope,
+    providerScopeRows,
+    routeScope,
+  });
   const observed = sum(scopeRows, (scope) => scope.observed_observations);
   const changed = sum(scopeRows, (scope) => scope.changed_observations);
   const promoted = sum(scopeRows, (scope) => scope.promoted_observations);
@@ -842,6 +848,26 @@ function requestHasStructuredImportScopeSelection(requestUrl: string | URL): boo
 function requestHasExplicitLanguageScopeSelection(requestUrl: string | URL): boolean {
   const searchParams = new URL(requestUrl, "https://admin.example").searchParams;
   return Boolean(searchParams.get("language")?.trim() || searchParams.get("languageCode")?.trim());
+}
+
+function selectedProviderScopeRows(input: {
+  explicitStructuredScope: boolean;
+  importScope: string | null;
+  providerScopeRows: readonly SourceObservationIntegrationScope[];
+  routeScope: CatalogPrimaryWorkbenchRouteContext["scope"];
+}): readonly SourceObservationIntegrationScope[] {
+  if (!input.importScope) {
+    return input.providerScopeRows;
+  }
+
+  const compactExpansionImportScope = input.importScope.split(":").filter(Boolean).length === 2;
+  return input.providerScopeRows.filter(
+    (scope) =>
+      importScopeMatchesProviderScope(input.importScope, scope) ||
+      (compactExpansionImportScope && input.explicitStructuredScope && input.routeScope
+        ? compactExpansionRouteScopeMatchesProviderScope(input.routeScope, scope)
+        : false),
+  );
 }
 
 function structuredSelectionImportScope(

@@ -286,6 +286,37 @@ export function scopeContextMatchesProviderScope(
   );
 }
 
+export function compactExpansionRouteScopeMatchesProviderScope(
+  context: CatalogPrimaryWorkbenchScopeContext,
+  scope: SourceObservationIntegrationScope,
+): boolean {
+  const providerKey = context.providerKey ?? scope.provider_key;
+  if (!providerUsesTwoSegmentExpansionScope(providerKey)) {
+    return false;
+  }
+
+  const providerScope = scopeContextFromProviderScope(scope);
+  return (
+    optionalFieldMatches(context.providerKey, scope.provider_key, providerKey) &&
+    optionalFieldMatches(context.languageCode, scope.language_code, providerKey) &&
+    optionalScopePairMatches(
+      [context.productLineId, context.productLineName],
+      [providerScope.productLineId, providerScope.productLineName],
+      providerKey,
+    ) &&
+    optionalScopePairMatches(
+      [context.seriesId, context.seriesName],
+      [providerScope.seriesId, providerScope.seriesName],
+      providerKey,
+    ) &&
+    optionalScopePairMatches(
+      [context.expansionId, context.expansionName],
+      [providerScope.expansionId, providerScope.expansionName],
+      providerKey,
+    )
+  );
+}
+
 export function comparableImportScopeKey(importScope: string | null, providerKey: string | null): string | null {
   const key = importScopeFromScopeContext(scopeContextFromImportScope(importScope, providerKey));
   return comparableScopeValue(key, providerKey);
@@ -440,6 +471,22 @@ function optionalAnyFieldMatches(
     !expected ||
     actualValues.some(
       (actual) => comparableScopeValue(expected, providerKey) === comparableScopeValue(actual, providerKey),
+    )
+  );
+}
+
+function optionalScopePairMatches(
+  expectedValues: readonly (string | null)[],
+  actualValues: readonly (string | null)[],
+  providerKey: string | null,
+): boolean {
+  const expected = expectedValues.filter((value): value is string => Boolean(value));
+  return (
+    expected.length === 0 ||
+    expected.some((value) =>
+      actualValues.some(
+        (actual) => comparableScopeValue(value, providerKey) === comparableScopeValue(actual, providerKey),
+      ),
     )
   );
 }

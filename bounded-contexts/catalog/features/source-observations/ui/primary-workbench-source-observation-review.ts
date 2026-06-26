@@ -154,7 +154,7 @@ function promotionReadyCountFor(input: {
   reviewUnavailable: boolean | undefined;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }): number {
-  if (input.reviewUnavailable) {
+  if (input.reviewUnavailable && !canUseAggregatePromotionReadiness(input.routeContext, input.eligible)) {
     return 0;
   }
   if (input.routeContext.selectedObservationIds.length > 0) {
@@ -165,6 +165,18 @@ function promotionReadyCountFor(input: {
   }
 
   return input.reviewObservations ? input.promotionReadyRowCount : input.eligible;
+}
+
+function canUseAggregatePromotionReadiness(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  eligible: number,
+): boolean {
+  return (
+    eligible > 0 &&
+    Boolean(routeContext.importScope) &&
+    routeContext.selectedObservationIds.length === 0 &&
+    !hasNarrowingReviewFilters(routeContext)
+  );
 }
 
 function hasNarrowingReviewFilters(routeContext: CatalogPrimaryWorkbenchRouteContext): boolean {
@@ -409,7 +421,10 @@ function promotionPreviewStaleReasonsFor(input: {
   }
 
   const staleReasons = new Set<CatalogPrimaryWorkbenchPromotionStaleProtectionKey>();
-  if (input.sourceObservationReview.freshness !== "fresh") {
+  if (
+    input.sourceObservationReview.freshness !== "fresh" &&
+    !canUseAggregatePromotionReadiness(input.routeContext, input.sourceObservationReview.counts.eligible)
+  ) {
     staleReasons.add("observations");
   }
   if (
