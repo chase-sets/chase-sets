@@ -842,7 +842,7 @@ async function promoteFirstEligibleObservationFromReview(
   }
 
   const promotionPreviewId = await expectPromotionPreviewReady(page);
-  await executePromotionFromFreshPreview(page);
+  await executePromotionFromFreshPreview(page, selectedScope);
   const jobId = currentSearchParam(page, "jobId");
 
   return {
@@ -876,7 +876,12 @@ async function promoteSelectedScopeFromSharedImporter(
     );
     return null;
   }
-  await executePromotionFromFreshPreview(page);
+  const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
+    allowOperatorStateFallback: true,
+  });
+  if (!freshPreview) {
+    return null;
+  }
   const jobId = currentSearchParam(page, "jobId");
 
   return {
@@ -921,7 +926,9 @@ async function reapplyPromotedObservationFromSharedImporter(
   });
   if (!reapplied) {
     throw new Error(
-      `Lorcana downstream smoke could not find an eligible Source Observation to promote or a promoted Source Observation to reapply for ${selectedScope.displayLabel}.`,
+      `Lorcana downstream smoke could not find an eligible Source Observation to promote or a promoted Source Observation to reapply for ${
+        selectedScope.displayLabel
+      }. ${await promotionPreviewOperatorStateMessage(page, selectedScope)}`,
     );
   }
 
@@ -1036,9 +1043,80 @@ async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<st
   return waitForSearchParamOrNull(page, "promotionPreviewId", timeout);
 }
 
-async function executePromotionFromFreshPreview(page: Page): Promise<void> {
+async function waitForFreshPromotionPreviewOrOperatorBlocker(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+  timeout: number,
+): Promise<Readonly<{ fresh: boolean; operatorState: string }>> {
+  const deadline = Date.now() + timeout;
+  let operatorState = await promotionPreviewOperatorStateMessage(page, selectedScope);
+
+  while (Date.now() < deadline) {
+    await expandWorkflowStage(page, "create-items");
+    const stageText = await createItemsStageOperatorText(page);
+    if (/\bPreviewed impact is current\b/i.test(stageText)) {
+      return {
+        fresh: true,
+        operatorState: promotionPreviewOperatorState(selectedScope, stageText),
+      };
+    }
+    if (promotionPreviewHasTerminalOperatorBlocker(stageText)) {
+      return {
+        fresh: false,
+        operatorState: promotionPreviewOperatorState(selectedScope, stageText),
+      };
+    }
+
+    operatorState = promotionPreviewOperatorState(selectedScope, stageText);
+    await page.waitForTimeout(1_000);
+  }
+
+  return {
+    fresh: false,
+    operatorState,
+  };
+}
+
+async function promotionPreviewOperatorStateMessage(page: Page, selectedScope: SelectedProviderScope): Promise<string> {
+  await expandWorkflowStage(page, "create-items").catch(() => undefined);
+  return promotionPreviewOperatorState(selectedScope, await createItemsStageOperatorText(page));
+}
+
+function promotionPreviewHasTerminalOperatorBlocker(stageText: string): boolean {
+  return /\bNo promotable observations\b/i.test(stageText) || /\bStale promotion preview\b/i.test(stageText);
+}
+
+async function createItemsStageOperatorText(page: Page): Promise<string> {
+  const trigger = page.locator('[data-catalog-import-workflow-stage="create-items"]').first();
+  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
+  const panel = panelId ? page.locator(`[id="${cssAttrValue(panelId)}"]`).first() : trigger;
+  return panel
+    .innerText({ timeout: 2_000 })
+    .then(normalizeWhitespace)
+    .catch(() => "");
+}
+
+function promotionPreviewOperatorState(selectedScope: SelectedProviderScope, stageText: string): string {
+  return `operator state for ${selectedScope.providerKey} / ${selectedScope.displayLabel}: ${
+    stageText || "Create / update items stage text was not visible"
+  }`;
+}
+
+async function executePromotionFromFreshPreview(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+  input: Readonly<{ allowOperatorStateFallback?: boolean }> = {},
+): Promise<boolean> {
   await expandWorkflowStage(page, "create-items");
-  await expect(page.getByText("Previewed impact is current").first()).toBeVisible({ timeout: syncTimeoutMs });
+  const readiness = await waitForFreshPromotionPreviewOrOperatorBlocker(page, selectedScope, syncTimeoutMs);
+  if (!readiness.fresh) {
+    const message = `Lorcana downstream smoke cannot execute promotion for ${selectedScope.displayLabel}: ${readiness.operatorState}`;
+    if (input.allowOperatorStateFallback) {
+      console.log(`[catalog-staging-provider-uat] ${message} Trying promoted-observation reapply fallback.`);
+      return false;
+    }
+    throw new Error(message);
+  }
 
   const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
   await expect(confirmation).toBeEnabled({ timeout: syncTimeoutMs });
@@ -1054,6 +1132,7 @@ async function executePromotionFromFreshPreview(page: Page): Promise<void> {
   await expect(executeButton).toBeEnabled({ timeout: syncTimeoutMs });
   await executeButton.click();
   await expectCommandQueued(page);
+  return true;
 }
 
 async function openCatalogItemsHandoff(page: Page, providerKey: string): Promise<void> {
