@@ -50,6 +50,8 @@ describe("marketplace route layout", () => {
       pathname: "/search",
       search: "",
     });
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-theme-preference");
   });
 
   it("presents a simplified trader navigation tree for signed-in actors", () => {
@@ -149,7 +151,7 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain('href="/sign-in"');
   });
 
-  it("opens a combined account menu with user context, account links, and sign out", async () => {
+  it("opens a combined account menu with user context, theme controls, account links, and sign out", async () => {
     const user = userEvent.setup({ document });
     const actor = {
       permissions: ["accounts.view", "offers.view", "orders.view", "orders.manage", "payouts.view", "reputation.view"],
@@ -167,6 +169,11 @@ describe("marketplace route layout", () => {
     expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
     expect(screen.getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
+    expect(screen.getByRole("group", { name: "Color theme" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "System" })).toBeTruthy();
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(document.documentElement.dataset.themePreference).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );

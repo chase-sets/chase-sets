@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
-import { AccountMenu, Banner, Button, Form, LinkButton, Stack } from "@chase-sets/design-system";
+import { AccountMenu, Banner, Button, Form, LinkButton, Stack, ThemeToggle } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { NotificationCenterShell } from "@chase-sets/notification-center/web";
@@ -188,6 +188,7 @@ export default function MarketplaceLayoutRoute() {
                   roleLabel={t("identity.features.accounts.ui.currentActorDisplayCue.role")}
                   roleName={displayRole(rootData.actorDisplay.membership.role_key)}
                   items={accountMenuItems}
+                  preferences={<ThemeToggle />}
                   signOutFormId={signOutFormId}
                   signOutLabel={t("marketplace.app.routes.layout.sign.out")}
                 />
