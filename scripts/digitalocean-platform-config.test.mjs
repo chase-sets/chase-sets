@@ -261,6 +261,7 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_wake_bulk_lane_runners", '"1"');
+    expectTerraformAssignment(platformLocals, "worker_wake_statement_timeout_ms", '"30000"');
     expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
     expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
     expectTerraformAssignment(platformLocals, "worker_inventory_import_concurrency", '"1"');
@@ -339,6 +340,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"')).toBe(1);
     expect(terraformStringList(platformLocals, "worker_listener_source_contexts").sort()).toEqual(
       hotRelaySourceContextsFromRegistry(sourceContextWakeRegistry),
     );

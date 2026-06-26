@@ -128,6 +128,7 @@ locals {
   worker_wake_hot_lane_runners      = "1"
   worker_wake_standard_lane_runners = "1"
   worker_wake_bulk_lane_runners     = "1"
+  worker_wake_statement_timeout_ms  = "30000"
 
   # Direct listener URLs for the worker-owned projection wake relay (wave-1
   # source contexts). LISTEN is incompatible with PgBouncer transaction

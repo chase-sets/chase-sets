@@ -286,6 +286,7 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
       claimTtlMs: config.projectionWakeScheduler.claimTtlMs,
       leaseTtlMs: config.leaseTtlMs,
       leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+      statementTimeoutMs: config.projectionWakeScheduler.statementTimeoutMs,
       retryBackoffBaseMs: config.projectionWakeScheduler.retryBackoffBaseMs,
       retryBackoffMaxMs: config.projectionWakeScheduler.retryBackoffMaxMs,
       maxAttempts: config.projectionWakeScheduler.maxAttempts,

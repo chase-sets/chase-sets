@@ -605,6 +605,7 @@ export function createPostgresWorkSignalStore(
       }
 
       const claimedUntil = addMs(now(), Math.max(1, input.claimTtlMs));
+      const claimExpiresAt = addMs(claimedUntil, defaultWakeTtlMs);
       const lanes = input.priorityLanes?.length ? [...input.priorityLanes] : ["hot", "standard", "bulk"];
       const targetContextNames = input.targetContextNames?.length ? [...input.targetContextNames] : null;
       const result = await query<ProjectionWakeIntentRow>(
@@ -640,12 +641,13 @@ export function createPostgresWorkSignalStore(
           claimed_required_cursor = wake.required_cursor,
           claimed_until = $2::timestamptz,
           attempt_count = wake.attempt_count + 1,
+          expires_at = GREATEST(wake.expires_at, $5::timestamptz),
           updated_at = now()
         FROM claimable
         WHERE wake.wake_intent_id = claimable.wake_intent_id
         RETURNING ${prefixColumns("wake", WAKE_INTENT_COLUMNS)}
         `,
-        [input.claimOwnerId, formatTimestamp(claimedUntil), lanes, targetContextNames],
+        [input.claimOwnerId, formatTimestamp(claimedUntil), lanes, targetContextNames, formatTimestamp(claimExpiresAt)],
       );
 
       const row = result.rows[0];
@@ -695,6 +697,7 @@ export function createPostgresWorkSignalStore(
 
     async failProjectionWakeIntent(input) {
       const retryAt = addMs(now(), Math.max(0, input.retryAfterMs));
+      const retryExpiresAt = addMs(retryAt, defaultWakeTtlMs);
       const result = await query(
         db,
         `
@@ -707,6 +710,7 @@ export function createPostgresWorkSignalStore(
           claimed_required_cursor = NULL,
           next_eligible_at = $4::timestamptz,
           last_error = $5::jsonb,
+          expires_at = GREATEST(expires_at, $6::timestamptz),
           updated_at = now()
         WHERE wake_intent_id = $1
           AND state = 'claimed'
@@ -720,6 +724,7 @@ export function createPostgresWorkSignalStore(
           toPostgresInteger(input.claimFencingToken),
           formatTimestamp(retryAt),
           JSON.stringify(redactSensitiveWorkSignalErrorFields(input.error)),
+          formatTimestamp(retryExpiresAt),
         ],
       );
 
@@ -953,6 +958,7 @@ export function createPostgresWorkSignalStore(
           FROM platform_projection_wake_intents
           WHERE state IN ('queued', 'claimed', 'failed')
             AND expires_at <= $1::timestamptz
+            AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)
           ORDER BY expires_at
           LIMIT $2
           FOR UPDATE SKIP LOCKED

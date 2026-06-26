@@ -119,7 +119,7 @@ describe("work signal store", () => {
           };
         },
       },
-      { now: () => NOW },
+      { defaultWakeTtlMs: 10_000, now: () => NOW },
     );
 
     await expect(
@@ -142,9 +142,11 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("claim_fencing_token = COALESCE(wake.claim_fencing_token, 0) + 1");
     expect(calls[0].sql).toContain("claimed_required_position = wake.required_position");
     expect(calls[0].sql).toContain("attempt_count = wake.attempt_count + 1");
+    expect(calls[0].sql).toContain("expires_at = GREATEST(wake.expires_at, $5::timestamptz)");
     expect(calls[0].sql).toContain("($4::text[] IS NULL OR target_context_name = ANY($4::text[]))");
     expect(calls[0].values[2]).toEqual(["hot"]);
     expect(calls[0].values[3]).toBeNull();
+    expect(calls[0].values[4]).toBe("2026-06-10T12:01:10.000Z");
   });
 
   it("claims only hosted target contexts when a target filter is provided", async () => {
@@ -192,7 +194,7 @@ describe("work signal store", () => {
             : { rows: [], rowCount: 1 };
         },
       },
-      { now: () => NOW },
+      { defaultWakeTtlMs: 10_000, now: () => NOW },
     );
 
     await expect(
@@ -221,7 +223,9 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("RETURNING state");
     expect(calls[1].sql).toContain("state = 'failed'");
     expect(calls[1].sql).toContain("next_eligible_at = $4::timestamptz");
+    expect(calls[1].sql).toContain("expires_at = GREATEST(expires_at, $6::timestamptz)");
     expect(calls[1].values[4]).toBe(JSON.stringify({ code: "projection_conflict" }));
+    expect(calls[1].values[5]).toBe("2026-06-10T12:00:10.250Z");
   });
 
   it("rejects sensitive metadata keys on every durable wake-store write path", async () => {
@@ -620,6 +624,7 @@ describe("work signal store", () => {
     });
 
     expect(calls[0].sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(calls[0].sql).toContain("AND (state <> 'claimed' OR claimed_until <= $1::timestamptz)");
     expect(calls[0].values[1]).toBe(25);
     expect(calls[3].sql).toContain("satisfied_at <= $1::timestamptz");
     expect(calls[4].sql).toContain("stale_claim_count");
