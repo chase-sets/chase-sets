@@ -345,6 +345,11 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
     const sourceContextNames = [...new Set(group.sourceContextNames)];
     const ownedTables = [...new Set(group.ownedTables)];
     const projectionRevision = assertProjectionRevision(group.projectionRevision);
+    if (group.sideEffectOnly && ownedTables.length > 0) {
+      throw new Error(
+        `Context '${entry.contextName}' projection group '${group.projectionName}' is side-effect-only and cannot own read-model tables: ${ownedTables.join(", ")}.`,
+      );
+    }
     const revisionState: {
       storedProjectionRevision: number | null;
       updatedAt: string;

@@ -132,14 +132,15 @@
     {
       "projectionName": "ordering-inventory-reservation-outcomes",
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["ordering_order_hold_pages"],
+      "ownedTables": [],
       "requiredDuringBootstrap": false,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "replay-only",
+      "sideEffectOnly": true
     },
     {
       "projectionName": "ordering-order-projection",
       "sourceContextNames": ["ordering"],
-      "ownedTables": ["ordering_order_pages", "ordering_order_line_pages"],
+      "ownedTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },

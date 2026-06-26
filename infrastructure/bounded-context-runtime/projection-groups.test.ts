@@ -118,6 +118,30 @@ describe("bounded context projection groups", () => {
     ).toThrow("owns read-model tables but does not declare resetStrategy");
   });
 
+  it("fails closed when a side-effect projection group declares owned tables", async () => {
+    const targetPool = createMockPool();
+
+    expect(() =>
+      createProjectionGroupRuntime(
+        "ordering",
+        targetPool,
+        [
+          {
+            projectionName: "ordering-inventory-reservation-outcomes",
+            sourceContextNames: ["inventory"],
+            ownedTables: ["ordering_order_hold_pages"],
+            resetStrategy: "replay-only",
+            requiredDuringBootstrap: false,
+            sideEffectOnly: true,
+          },
+        ],
+        [],
+      ),
+    ).toThrow(
+      "Context 'ordering' projection group 'ordering-inventory-reservation-outcomes' is side-effect-only and cannot own read-model tables: ordering_order_hold_pages.",
+    );
+  });
+
   it("only truncates owned read-model tables when the projection declares truncate reset", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
