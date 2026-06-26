@@ -9,7 +9,11 @@ import {
   useRouteError,
 } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendFreshWriteToken, readFreshWriteTokenState } from "@chase-sets/http/responses";
+import {
+  appendCompactPostWriteToken,
+  appendFreshWriteToken,
+  readFreshWriteTokenState,
+} from "@chase-sets/http/responses";
 import { checkoutRecoveryForKind, createCheckoutRecoveryResponse, isCheckoutRecovery } from "../api/checkout-recovery";
 import { ErrorBoundary as CheckoutSessionRouteErrorBoundary } from "../../../routes/checkout-session";
 import { CheckoutSessionRecoveryPage, type CheckoutSessionRecoveryPageProps } from "./checkout-recovery-page";
@@ -113,6 +117,28 @@ describe("CheckoutSessionRecoveryPage", () => {
     expect(loaderCalls).toBe(settledLoaderCalls);
   });
 
+  it("revalidates compact post-write recovery until checkout becomes pay-ready", async () => {
+    const currentPath = appendCompactPostWriteToken(
+      "/checkout/buy/session/chk_compact?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+      "pwt_test000000000001",
+    );
+    let loaderCalls = 0;
+    renderCheckoutSessionRoute({
+      initialPath: currentPath,
+      loader: () => {
+        loaderCalls += 1;
+        if (loaderCalls < 3) {
+          throw createCheckoutRecoveryResponse(checkoutRecoveryForKind("checkout-preparing", currentPath));
+        }
+        return { sessionId: "chk_compact" };
+      },
+      revalidationOptions: { intervalMs: 20 },
+    });
+
+    expect(await screen.findByText("pay-ready:chk_compact")).toBeTruthy();
+    expect(loaderCalls).toBeGreaterThanOrEqual(3);
+  });
+
   it("degrades to the existing manual recovery when the fresh-write receipt expires", async () => {
     const startMs = Date.now();
     let nowMs = startMs;
@@ -196,6 +222,35 @@ describe("CheckoutSessionRecoveryPage", () => {
     expect(
       screen.getByText("We are getting your checkout ready. Refresh this page in a moment to continue."),
     ).toBeTruthy();
+    expect(screen.getByText("Refresh checkout")).toBeTruthy();
+  });
+
+  it("stops compact post-write recovery after the bounded budget", async () => {
+    const currentPath = appendCompactPostWriteToken(
+      "/checkout/buy/session/chk_compact_budget?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+      "pwt_test000000000002",
+    );
+    let loaderCalls = 0;
+    renderCheckoutSessionRoute({
+      initialPath: currentPath,
+      loader: () => {
+        loaderCalls += 1;
+        throw createCheckoutRecoveryResponse(checkoutRecoveryForKind("checkout-preparing", currentPath));
+      },
+      revalidationOptions: { intervalMs: 20, maxRevalidations: 2 },
+    });
+
+    expect(await screen.findByText("Preparing checkout")).toBeTruthy();
+    await waitFor(() => {
+      expect(loaderCalls).toBeGreaterThanOrEqual(3);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toBe("");
+    });
+
+    const settledLoaderCalls = loaderCalls;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(loaderCalls).toBe(settledLoaderCalls);
     expect(screen.getByText("Refresh checkout")).toBeTruthy();
   });
 

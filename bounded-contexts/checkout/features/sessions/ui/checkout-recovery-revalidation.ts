@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useNavigation } from "react-router";
-import { readFreshWriteTokenState } from "@chase-sets/http/responses";
+import { readCompactPostWriteToken, readFreshWriteTokenState } from "@chase-sets/http/responses";
 
 const DEFAULT_REVALIDATE_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_REVALIDATIONS = 15;
@@ -8,7 +8,7 @@ const DEFAULT_MAX_REVALIDATIONS = 15;
 export type CheckoutPreparingRevalidationOptions = Readonly<{
   /** Only the temporary `checkout-preparing` recovery state revalidates automatically. */
   enabled: boolean;
-  /** Current route path plus search, carrying the fresh-write `afterWrite` receipt. */
+  /** Current route path plus search, carrying either an `afterWrite` receipt or compact `postWriteToken`. */
   currentPath: string;
   intervalMs?: number;
   maxRevalidations?: number;
@@ -29,6 +29,8 @@ export type CheckoutPreparingRevalidation = Readonly<{
  * the exact checkout-session projection dependency. The same-location
  * navigation also clears the route error state once the session read
  * succeeds, so the page transitions to pay-ready checkout automatically.
+ * Compact post-write tokens are opaque to the browser; their freshness is
+ * resolved server-side on each replay and still bounded by the attempt cap.
  *
  * Termination is bounded twice: by the receipt age budget and by a hard
  * attempt cap. When the receipt expires, exactly one final revalidation runs
@@ -68,6 +70,10 @@ export function useCheckoutPreparingRevalidation(
       return readFreshWriteTokenState(currentPath, nowMsRef.current?.() ?? Date.now());
     }
 
+    function hasCompactPostWriteToken() {
+      return readCompactPostWriteToken(currentPath) !== null;
+    }
+
     function hasAttemptBudget() {
       return attemptCountRef.current < maxRevalidations;
     }
@@ -95,7 +101,7 @@ export function useCheckoutPreparingRevalidation(
       timeout = null;
       const tokenState = readTokenState();
 
-      if (tokenState.kind === "valid" && hasAttemptBudget()) {
+      if ((tokenState.kind === "valid" || hasCompactPostWriteToken()) && hasAttemptBudget()) {
         if (navigationStateRef.current === "idle") {
           revalidateCurrentPath();
         }
@@ -118,7 +124,12 @@ export function useCheckoutPreparingRevalidation(
       return;
     }
 
-    if (initialTokenState.kind !== "valid" || !hasAttemptBudget()) {
+    if (initialTokenState.kind !== "valid" && !hasCompactPostWriteToken()) {
+      setIsAutoRevalidating(false);
+      return;
+    }
+
+    if (!hasAttemptBudget()) {
       setIsAutoRevalidating(false);
       return;
     }
