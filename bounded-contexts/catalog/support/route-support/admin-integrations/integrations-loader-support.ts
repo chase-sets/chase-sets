@@ -16,6 +16,7 @@ import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
+  SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOptionResponse,
 } from "../../../features/source-observations/ui/contracts";
 import {
@@ -322,12 +323,57 @@ async function selectedImportPreview(
   }
 
   try {
-    return await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(
-      integrationScopeFromContext(context),
-    );
+    const expectedScope = integrationScopeFromContext(context);
+    const preview =
+      await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope);
+
+    return importPreviewMatchesSelectedScope(preview, expectedScope) ? preview : null;
   } catch {
     return null;
   }
+}
+
+function importPreviewMatchesSelectedScope(
+  preview: SourceObservationIntegrationImportPreview,
+  expectedScope: SourceObservationIntegrationJobScope,
+): boolean {
+  return (
+    scopeFieldMatches(preview.providerKey, expectedScope.provider) &&
+    scopeFieldMatches(preview.scope.provider, expectedScope.provider) &&
+    scopeFieldMatches(preview.scope.ingestionUnitKey, expectedScope.ingestionUnitKey) &&
+    scopeFieldMatches(preview.scope.language, expectedScope.language) &&
+    scopeFieldMatches(preview.scope.productLineId, expectedScope.productLineId) &&
+    scopeFieldMatches(preview.scope.seriesId, expectedScope.seriesId) &&
+    scopeAnyFieldMatches([preview.scope.setId, preview.scope.setName], [expectedScope.setId, expectedScope.setName]) &&
+    scopeFieldMatches(preview.scope.productId, expectedScope.productId)
+  );
+}
+
+function scopeFieldMatches(actual: string | null | undefined, expected: string | null | undefined): boolean {
+  const expectedValue = normalizedScopeValue(expected);
+  if (!expectedValue) {
+    return true;
+  }
+
+  return normalizedScopeValue(actual) === expectedValue;
+}
+
+function scopeAnyFieldMatches(
+  actuals: readonly (string | null | undefined)[],
+  expecteds: readonly (string | null | undefined)[],
+): boolean {
+  const expectedValues = expecteds.map(normalizedScopeValue).filter((value): value is string => Boolean(value));
+  if (expectedValues.length === 0) {
+    return true;
+  }
+  const actualValues = new Set(actuals.map(normalizedScopeValue).filter((value): value is string => Boolean(value)));
+
+  return expectedValues.some((expected) => actualValues.has(expected));
+}
+
+function normalizedScopeValue(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 async function selectedCatalogSyncRun(

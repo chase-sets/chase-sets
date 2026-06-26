@@ -821,6 +821,43 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("drops stale import preview evidence when a structured set-name selection changes", async () => {
+    const unitKey = "scrydex:one-piece:sealed-product:source-observation-import";
+    const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
+    const previewSourceObservationIntegrationImport = vi.fn().mockResolvedValue(scrydexOnePieceImportPreview(unitKey));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewSourceObservationIntegrationImport,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&importScope=en%3AOP16&expansionName=OP09&profileVersion=2026.06.22`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.importScope).toBe("en:OP09");
+    expect(routeData.readModel.routeContext.sourceObservationFilters).toEqual({
+      providerKey: "scrydex",
+      importScope: "en:OP09",
+    });
+    expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
+      provider: "scrydex",
+      ingestionUnitKey: unitKey,
+      language: "en",
+      setName: "OP09",
+    });
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+  });
+
   it("drops stale legacy Pokemon scope before TCGplayer Yu-Gi-Oh product-line refresh", async () => {
     const profileReviews = {
       items: [
