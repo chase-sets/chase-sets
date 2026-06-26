@@ -14,6 +14,8 @@ import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";
+export { resolveIdentityShellViewer } from "./support/shell-support/viewer";
+export type { IdentityShellViewer, IdentityShellViewerPreferences } from "./support/shell-support/viewer";
 export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export {
   bootstrapPlatformAdminIdentity,

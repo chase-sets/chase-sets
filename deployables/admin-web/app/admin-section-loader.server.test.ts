@@ -1,7 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockRequireAdminSectionActor } = vi.hoisted(() => ({
+const {
+  mockCreateIdentityRequestApiClient,
+  mockIdentityApi,
+  mockRequireAdminSectionActor,
+  mockResolveIdentityShellViewer,
+} = vi.hoisted(() => ({
+  mockCreateIdentityRequestApiClient: vi.fn(),
+  mockIdentityApi: { getUserPreferences: vi.fn() },
   mockRequireAdminSectionActor: vi.fn(),
+  mockResolveIdentityShellViewer: vi.fn(),
+}));
+
+vi.mock("@chase-sets/identity/server", () => ({
+  createIdentityRequestApiClient: mockCreateIdentityRequestApiClient,
+  resolveIdentityShellViewer: mockResolveIdentityShellViewer,
 }));
 
 vi.mock("./auth.server", () => ({
@@ -14,6 +27,8 @@ describe("admin section loader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireAdminSectionActor.mockResolvedValue({ permissions: [] });
+    mockCreateIdentityRequestApiClient.mockReturnValue(mockIdentityApi);
+    mockResolveIdentityShellViewer.mockResolvedValue({ actor: null, preferences: null });
   });
 
   it.each([
@@ -39,6 +54,25 @@ describe("admin section loader", () => {
       expect(mockRequireAdminSectionActor).toHaveBeenCalledWith(request, section, expectedPermission);
     },
   );
+
+  it("folds the resolved actor and Identity preferences into the shell viewer read model", async () => {
+    const actor = { permissions: ["catalog.view"], userId: "usr_admin" };
+    const viewer = { actor, preferences: { colorMode: "dark" } };
+    mockRequireAdminSectionActor.mockResolvedValue(actor);
+    mockResolveIdentityShellViewer.mockResolvedValue(viewer);
+    const loader = createAdminSectionLoader({ section: "catalog", fallbackPermission: "catalog.view" });
+    const request = new Request("https://admin.test/catalog");
+
+    await expect(
+      loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/catalog" }),
+    ).resolves.toEqual({
+      actor,
+      viewer,
+    });
+
+    expect(mockCreateIdentityRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockResolveIdentityShellViewer).toHaveBeenCalledWith(mockIdentityApi, actor);
+  });
 
   it("challenges section home routes for sign-in before resolving the actor-visible default", async () => {
     const loader = createAdminSectionHomeLoader({ section: "support", fallbackPermission: "support.manage" });

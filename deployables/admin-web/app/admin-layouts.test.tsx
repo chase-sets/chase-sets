@@ -143,6 +143,21 @@ describe("admin web section layouts", () => {
     expect(html).toContain("Reference Data");
   });
 
+  it("applies the shell viewer color mode preference", () => {
+    mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
+      viewer: {
+        actor: allSectionsActor,
+        preferences: { colorMode: "dark" },
+      },
+    });
+    mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
+
+    const html = renderToString(<CatalogLayout />);
+
+    expect(html).toContain('data-color-mode="dark"');
+  });
+
   it.each([
     [AccessLayout, "/access/accounts", "Accounts"],
     [CatalogLayout, "/catalog/dimensions", "Dimensions"],
@@ -217,6 +232,21 @@ describe("admin web root hub", () => {
     expect(html).toContain('aria-label="Account menu"');
     expect(html).toContain("No admin sections available");
     expect(html).toContain("does not have permission to view any admin sections");
+  });
+
+  it("applies the shell viewer color mode preference to the root hub", () => {
+    mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
+      sections: [{ key: "catalog", label: "Catalog", href: "/catalog" }],
+      viewer: {
+        actor: allSectionsActor,
+        preferences: { colorMode: "dark" },
+      },
+    });
+
+    const html = renderToString(<AdminIndex />);
+
+    expect(html).toContain('data-color-mode="dark"');
   });
 
   it("renders the offline fallback inside the admin shell", () => {
