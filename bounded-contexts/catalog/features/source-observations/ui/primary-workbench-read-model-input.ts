@@ -15,6 +15,7 @@ export type CatalogPrimaryWorkbenchReadModelFailure =
   | "control-plane-overview"
   | "integration-scopes"
   | "merge-candidate-review"
+  | "provider-profiles"
   | "source-observation-review";
 
 export type CatalogPrimaryWorkbenchInput = Readonly<{
