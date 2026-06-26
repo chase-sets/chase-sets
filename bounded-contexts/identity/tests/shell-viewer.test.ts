@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolveIdentityShellViewer, type IdentityShellViewerPreferencesApi } from "../support/shell-support/viewer";
 
@@ -14,18 +14,20 @@ const actor = {
 
 describe("identity shell viewer", () => {
   it("folds signed-in resolved preferences into the shell viewer read model", async () => {
+    let readCount = 0;
     const api = {
-      getUserPreferences: vi.fn(
-        async <T>() =>
-          ({
-            userId: actor.userId,
-            colorMode: "dark",
-            density: "compact",
-            reducedMotion: "user",
-            locale: "en-US",
-            timeZone: "America/Chicago",
-          }) as T,
-      ),
+      async getUserPreferences<T>() {
+        readCount += 1;
+
+        return {
+          userId: actor.userId,
+          colorMode: "dark",
+          density: "compact",
+          reducedMotion: "user",
+          locale: "en-US",
+          timeZone: "America/Chicago",
+        } as T;
+      },
     } satisfies IdentityShellViewerPreferencesApi;
 
     await expect(resolveIdentityShellViewer(api, actor)).resolves.toEqual({
@@ -34,20 +36,22 @@ describe("identity shell viewer", () => {
         colorMode: "dark",
       },
     });
-    expect(api.getUserPreferences).toHaveBeenCalledOnce();
+    expect(readCount).toBe(1);
   });
 
   it("returns no preferences for unauthenticated shell viewers", async () => {
+    let readCount = 0;
     const api = {
-      getUserPreferences: vi.fn(async <T>() => {
+      async getUserPreferences<T>() {
+        readCount += 1;
         throw new Error("Preferences should not be read without an actor.");
-      }),
+      },
     } satisfies IdentityShellViewerPreferencesApi;
 
     await expect(resolveIdentityShellViewer(api, null)).resolves.toEqual({
       actor: null,
       preferences: null,
     });
-    expect(api.getUserPreferences).not.toHaveBeenCalled();
+    expect(readCount).toBe(0);
   });
 });

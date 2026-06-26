@@ -1,5 +1,5 @@
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import type { UserPreferences } from "../../features/preferences/domain/domain";
+import type { UserPreferences } from "../../features/preferences/api/contracts";
 
 export type IdentityShellViewerPreferences = Pick<UserPreferences, "colorMode">;
 
