@@ -692,7 +692,9 @@ async function startCatalogSyncForSelectedProviderUnit(
   selectedScope: SelectedProviderScope,
 ): Promise<CatalogSyncAttempt> {
   await expandWorkflowStage(page, "run-sync");
-  const participationRow = catalogSyncParticipationRowForUnit(page, unitKey);
+  const commandForm = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]').first();
+  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  const participationRow = catalogSyncParticipationRowForUnit(commandForm, unitKey);
   await expect(participationRow).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(participationRow.getByText(unitKey, { exact: true })).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expect(
@@ -709,8 +711,6 @@ async function startCatalogSyncForSelectedProviderUnit(
   }
   await expect(participationCheckbox).toBeChecked({ timeout: sourceOptionTimeoutMs });
 
-  const commandForm = page.locator('form[data-catalog-primary-workbench-command="start-catalog-sync"]').first();
-  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
   const startButton = commandForm.getByRole("button", { name: "Start Catalog sync" });
   await expect(startButton).toBeEnabled({ timeout: sourceOptionTimeoutMs });
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
@@ -720,10 +720,10 @@ async function startCatalogSyncForSelectedProviderUnit(
   return { previousJobRows };
 }
 
-function catalogSyncParticipationRowForUnit(page: Page, unitKey: string): Locator {
-  return page
+function catalogSyncParticipationRowForUnit(commandForm: Locator, unitKey: string): Locator {
+  return commandForm
     .getByRole("row")
-    .filter({ has: page.getByText(unitKey, { exact: true }) })
+    .filter({ has: commandForm.getByText(unitKey, { exact: true }) })
     .first();
 }
 
