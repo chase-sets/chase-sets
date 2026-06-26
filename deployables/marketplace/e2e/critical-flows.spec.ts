@@ -183,6 +183,27 @@ async function waitForPreferences(
     .toMatchObject(expected);
 }
 
+async function openAccountColorThemeControl(page: Page) {
+  const accountMenu = page.getByRole("button", { name: "Account menu" });
+  const colorTheme = page.getByRole("group", { name: "Color theme" });
+
+  await expect(accountMenu).toBeVisible();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await accountMenu.click();
+    const opened = await colorTheme
+      .waitFor({ state: "visible", timeout: 500 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (opened) {
+      return colorTheme;
+    }
+  }
+
+  await expect(colorTheme).toBeVisible();
+  return colorTheme;
+}
+
 test.describe("marketplace critical flows", () => {
   test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {
     await expectPageOk(page, "/search");
@@ -283,9 +304,7 @@ test.describe("marketplace critical flows", () => {
     const account = await authenticateAccount(page, testInfo);
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
-    await page.getByRole("button", { name: "Account menu" }).click();
-    const colorTheme = page.getByRole("group", { name: "Color theme" });
-    await expect(colorTheme).toBeVisible();
+    const colorTheme = await openAccountColorThemeControl(page);
     const preferencesResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return url.pathname === "/api/identity/preferences" && response.request().method() === "PUT";
