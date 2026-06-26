@@ -70,6 +70,7 @@ If a journey cannot be validated because the underlying runtime capability does 
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md)
+- [Catalog Scope Sync And Merge Candidate Handoff](./catalog-scope-sync-merge-candidate-handoff.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)

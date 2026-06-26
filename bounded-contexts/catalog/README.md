@@ -26,6 +26,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 Catalog-owned provider scope planning is documented in [Catalog Sync Scope Planning](./docs/catalog-sync-scope-planning.md).
+Scope-first merge-candidate handoff guidance is documented in [Catalog Scope Sync And Merge Candidate Handoff](./docs/catalog-scope-sync-merge-candidate-handoff.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
 Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
