@@ -39,6 +39,8 @@ describe("Catalog Merge Candidate promotion planner", () => {
 
     expect(result.plan.promotableChange).toMatchObject({
       changeKind: "create-catalog-item",
+      approvalStatus: "ready",
+      candidateId: "cand_charizard",
       catalogItemId: "cat_charizard",
       externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:100054" }],
       externalProductReferences: [
@@ -48,6 +50,31 @@ describe("Catalog Merge Candidate promotion planner", () => {
           selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
         },
       ],
+      referenceRecordLinks: [
+        {
+          fieldPath: "catalogItem.expansionName",
+          fieldId: "field_expansion",
+          referenceRecordId: "ref_expansion_pal",
+        },
+      ],
+      productMappings: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:900054",
+          selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
+          matchedProductIds: [],
+          reviewEvidence: { variantName: "Holofoil" },
+        },
+      ],
+    });
+    expect(result.plan.promotableChange.sourceProvenance).toMatchObject({
+      identityFingerprint: "sha256:abc123",
+      syncRunIds: ["job_sync_1"],
+      membership: [expect.objectContaining({ observationId: "obs_tcgdex_054" })],
+      fieldProvenance: expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.name" })]),
+      warnings: [],
+      conflicts: [],
+      resolvedConflicts: [],
     });
     expect(result.plan.promotableChange.fieldChanges).toContainEqual(
       expect.objectContaining({
@@ -75,18 +102,36 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
-  it("plans update/reapply against the matched Catalog Item without creating a duplicate", () => {
+  it("plans approved update/reapply against the matched Catalog Item without creating a duplicate", () => {
     const snapshot = candidateSnapshot({
       matches: { catalogItemId: "cat_existing", productIds: ["prod_existing_holofoil"] },
       promotionIntent: "update-catalog-item",
     });
     const first = planCatalogMergeCandidatePromotionCommands({
-      candidate: { candidateId: "cand_charizard", status: "ready", snapshot },
+      candidate: { candidateId: "cand_charizard", status: "promoted", snapshot },
       catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "finish-provider-choice",
+          fieldPath: "catalogItem.finish",
+          chosenValue: "Holofoil",
+          reason: "TCGplayer SKU carried the sellable finish.",
+          observationIds: ["obs_tcgdex_054"],
+        },
+      ],
     });
     const reapplied = planCatalogMergeCandidatePromotionCommands({
-      candidate: { candidateId: "cand_charizard", status: "ready", snapshot },
+      candidate: { candidateId: "cand_charizard", status: "promoted", snapshot },
       catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "finish-provider-choice",
+          fieldPath: "catalogItem.finish",
+          chosenValue: "Holofoil",
+          reason: "TCGplayer SKU carried the sellable finish.",
+          observationIds: ["obs_tcgdex_054"],
+        },
+      ],
     });
 
     expect(first.status).toBe("planned");
@@ -99,8 +144,22 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(first.plan.mode).toBe("refresh");
     expect(first.plan.commands.map((command) => command.type)).not.toContain("CreateCatalogItem");
     expect(first.plan.commands[0]).toMatchObject({ type: "ReviseCatalogItemMetadata" });
+    expect(first.plan.promotableChange.approvalStatus).toBe("promoted");
+    expect(first.plan.promotableChange.productMappings).toEqual([
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:900054",
+        selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
+        matchedProductIds: ["prod_existing_holofoil"],
+        reviewEvidence: { variantName: "Holofoil" },
+      },
+    ]);
+    expect(first.plan.promotableChange.sourceProvenance.resolvedConflicts).toEqual([
+      expect.objectContaining({ conflictCode: "finish-provider-choice" }),
+    ]);
     expect(reapplied.plan.planFingerprint).toBe(first.plan.planFingerprint);
     expect(reapplied.plan.commands).toEqual(first.plan.commands);
+    expect(reapplied.plan.promotableChange).toEqual(first.plan.promotableChange);
   });
 
   it("blocks candidates with ambiguity or unresolved Product reference selection", () => {
@@ -168,6 +227,45 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(result).toMatchObject({
       status: "blocked",
       diagnostics: [expect.objectContaining({ code: "conflicting-external-reference-level" })],
+    });
+  });
+
+  it("blocks ambiguous duplicate external references before command planning", () => {
+    const result = planCatalogMergeCandidatePromotionCommands({
+      candidate: {
+        candidateId: "cand_duplicate_refs",
+        status: "ready",
+        snapshot: candidateSnapshot({
+          proposedExternalCatalogItemReferences: [
+            { providerKey: "tcgplayer", externalKey: "product:100054" },
+            { providerKey: "TCGPLAYER", externalKey: "product:100054" },
+          ],
+          proposedExternalProductReferences: [
+            {
+              providerKey: "tcgplayer",
+              externalKey: "sku:900054",
+              selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_holofoil" }],
+              reviewEvidence: null,
+            },
+            {
+              providerKey: "TCGPLAYER",
+              externalKey: "sku:900054",
+              selectedOptions: [{ dimensionId: "dim_finish", optionId: "opt_reverse_holofoil" }],
+              reviewEvidence: null,
+            },
+          ],
+        }),
+      },
+      createCatalogItemId: "cat_duplicate_refs" as CatalogItemId,
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "duplicate-external-catalog-item-reference" }),
+        expect.objectContaining({ code: "duplicate-external-product-reference" }),
+      ]),
     });
   });
 
