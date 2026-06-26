@@ -781,4 +781,50 @@ describe("checkout sell list routes", () => {
       }),
     );
   });
+
+  it("returns a stored merge receipt when anonymous Sell List merge is idempotent", async () => {
+    const services = createServices();
+    vi.mocked(services.mergeSellListIntoAccount).mockResolvedValue({
+      mergedLineCount: 1,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_sell_list_merged"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_sell_list_merged"],
+          },
+        ],
+      },
+    });
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list/merge-to-account", {
+        method: "POST",
+        headers: {
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      mergedLineCount: 1,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "77",
+        commitEventIds: ["evt_checkout_sell_list_merged"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "77",
+            eventIds: ["evt_checkout_sell_list_merged"],
+          },
+        ],
+      },
+    });
+  });
 });

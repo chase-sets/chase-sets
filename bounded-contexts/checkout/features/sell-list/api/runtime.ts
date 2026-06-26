@@ -100,6 +100,25 @@ function buildConfirmationRow(
   };
 }
 
+function commandReceiptFromStoredEvent(
+  storedEvent: Readonly<{ globalPosition: string; eventId: string }> | null | undefined,
+): CommandReceiptMetadata | null {
+  return storedEvent
+    ? {
+        mode: "eventual",
+        commitPosition: storedEvent.globalPosition,
+        commitEventIds: [storedEvent.eventId],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: storedEvent.globalPosition,
+            eventIds: [storedEvent.eventId],
+          },
+        ],
+      }
+    : null;
+}
+
 export type AddCheckoutSellListLineInput = Readonly<{
   sellerAccountId: AccountId;
   lineType: "selected-offer" | "product";
@@ -184,7 +203,7 @@ export type CheckoutSellListServices = Readonly<{
       targetAccountId: AccountId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ mergedLineCount: number }>;
+  ) => Promise<{ mergedLineCount: number; commandReceipt?: CommandReceiptMetadata | null }>;
   createReadinessSnapshot: (
     params: Readonly<{
       sellerAccountId: string;
@@ -321,20 +340,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           event.payload !== null &&
           (event.payload as { lineId?: unknown }).lineId === existingLine.lineId,
       );
-      const commandReceipt: CommandReceiptMetadata | null = storedEvent
-        ? {
-            mode: "eventual",
-            commitPosition: storedEvent.globalPosition,
-            commitEventIds: [storedEvent.eventId],
-            commitPositions: [
-              {
-                sourceContextName: "checkout",
-                maxGlobalPosition: storedEvent.globalPosition,
-                eventIds: [storedEvent.eventId],
-              },
-            ],
-          }
-        : null;
+      const commandReceipt = commandReceiptFromStoredEvent(storedEvent);
 
       return {
         lineId: existingLine.lineId,
@@ -468,9 +474,8 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listAggregateSellListLines(params.sourceOwnerId);
-      const existingTargetLineIds = new Set(
-        (await listAggregateSellListLines(params.targetAccountId)).map((line) => line.lineId),
-      );
+      let targetAggregate = await repository.load(sellListStreamId(params.targetAccountId));
+      const existingTargetLineIds = new Set(targetAggregate.state.lines.map((line) => line.lineId));
       for (const line of sourceLines) {
         if (existingTargetLineIds.has(line.lineId)) {
           continue;
@@ -505,6 +510,21 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
             throw error;
           }
         }
+        existingTargetLineIds.add(line.lineId);
+      }
+
+      let commandReceipt: CommandReceiptMetadata | null = null;
+      if (sourceLines.length > 0) {
+        targetAggregate = await repository.load(sellListStreamId(params.targetAccountId));
+        const sourceLineIds = new Set(sourceLines.map((line) => line.lineId));
+        const storedEvent = targetAggregate.storedEvents.find(
+          (event) =>
+            event.eventType === "checkout.sell-list.line-added" &&
+            typeof event.payload === "object" &&
+            event.payload !== null &&
+            sourceLineIds.has((event.payload as { lineId?: unknown }).lineId as SellListLineId),
+        );
+        commandReceipt = commandReceiptFromStoredEvent(storedEvent);
       }
 
       if (sourceLines.length > 0) {
@@ -526,7 +546,10 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         }
       }
 
-      return { mergedLineCount: sourceLines.length };
+      return {
+        mergedLineCount: sourceLines.length,
+        ...(commandReceipt ? { commandReceipt } : {}),
+      };
     },
     createReadinessSnapshot: async (params) => {
       const lines = await listSellListLines(deps.db, params.sellerAccountId);
