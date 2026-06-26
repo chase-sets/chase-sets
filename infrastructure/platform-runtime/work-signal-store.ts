@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 import type { ReadConsistencyWakeRequest, ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -282,8 +283,26 @@ export type CleanupExpiredWorkSignalsInput = Readonly<{
 const DEFAULT_READ_CONSISTENCY_WAITER_TTL_SLACK_MS = 5_000;
 const READ_CONSISTENCY_WORK_SIGNAL_REQUESTED_BY = "read-consistency";
 
+export type WorkSignalReadConsistencyWakeEnqueueEvent = Readonly<{
+  outcome: "completed" | "failed";
+  priorityLane: WorkSignalPriorityLane;
+  requestCount: number;
+  enqueuedCount: number;
+  durationMs: number;
+  sourceContextName: string | null;
+  targetContextName: string | null;
+  projectionName: string | null;
+  mountPath: string | null;
+  routePath: string | null;
+}>;
+
+export type WorkSignalReadConsistencyGatewayObserver = Readonly<{
+  wakeEnqueueCompleted?: (event: WorkSignalReadConsistencyWakeEnqueueEvent) => void;
+}>;
+
 export type WorkSignalReadConsistencyGatewayOptions = Readonly<{
   priorityLane?: WorkSignalPriorityLane;
+  observer?: WorkSignalReadConsistencyGatewayObserver;
   /**
    * Waiter rows currently have no API-side consumer (the read-consistency
    * middleware polls durable checkpoints). Registration stays off by default
@@ -1217,19 +1236,39 @@ function createWorkSignalReadConsistencyGateway(
 
   return {
     requestWake: async (input) => {
+      const startedAt = performance.now();
       let enqueuedCount = 0;
-      for (const request of input.requests) {
-        await workSignalStore.enqueueProjectionWakeIntent({
-          ...wakeRequestTarget(request),
-          requiredPosition: request.requiredPosition,
-          priorityLane,
-          origin: "api-wait",
-          metadata: wakeRequestMetadata(input.metadata),
-        });
-        enqueuedCount += 1;
-      }
+      let outcome: WorkSignalReadConsistencyWakeEnqueueEvent["outcome"] = "completed";
+      try {
+        for (const request of input.requests) {
+          await workSignalStore.enqueueProjectionWakeIntent({
+            ...wakeRequestTarget(request),
+            requiredPosition: request.requiredPosition,
+            priorityLane,
+            origin: "api-wait",
+            metadata: wakeRequestMetadata(input.metadata),
+          });
+          enqueuedCount += 1;
+        }
 
-      return enqueuedCount;
+        return enqueuedCount;
+      } catch (error) {
+        outcome = "failed";
+        throw error;
+      } finally {
+        notifyReadConsistencyWakeEnqueueCompleted(options.observer, {
+          outcome,
+          priorityLane,
+          requestCount: input.requests.length,
+          enqueuedCount,
+          durationMs: performance.now() - startedAt,
+          sourceContextName: singleLowCardinalityLabel(input.requests.map((request) => request.sourceContextName)),
+          targetContextName: singleLowCardinalityLabel(input.requests.map((request) => request.targetContextName)),
+          projectionName: singleLowCardinalityLabel(input.requests.map((request) => request.projectionName)),
+          mountPath: metadataString(input.metadata, "mountPath"),
+          routePath: singleLowCardinalityLabel(metadataStringArray(input.metadata, "routePaths")),
+        });
+      }
     },
     ...(options.registerWaiters
       ? {
@@ -1270,6 +1309,40 @@ function wakeRequestMetadata(metadata: Readonly<Record<string, unknown>> | undef
     requestedBy: READ_CONSISTENCY_WORK_SIGNAL_REQUESTED_BY,
     ...metadata,
   };
+}
+
+function notifyReadConsistencyWakeEnqueueCompleted(
+  observer: WorkSignalReadConsistencyGatewayObserver | undefined,
+  event: WorkSignalReadConsistencyWakeEnqueueEvent,
+): void {
+  try {
+    observer?.wakeEnqueueCompleted?.(event);
+  } catch {
+    // Observability must never disrupt freshness waits.
+  }
+}
+
+function singleLowCardinalityLabel(values: readonly (string | null | undefined)[]): string | null {
+  const uniqueValues = [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])].sort(
+    (left, right) => left.localeCompare(right),
+  );
+  if (uniqueValues.length === 0) {
+    return null;
+  }
+  return uniqueValues.length === 1 ? uniqueValues[0] : "multiple";
+}
+
+function metadataString(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function metadataStringArray(metadata: Readonly<Record<string, unknown>> | undefined, key: string): readonly string[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
 }
 
 function createProjectionWakeIntentCoalescingKey(input: {

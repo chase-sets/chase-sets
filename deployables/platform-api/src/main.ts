@@ -51,6 +51,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordCheckoutObservabilityEvent,
+  recordProjectionFreshnessWakeEnqueue,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
   recordRealtimeConnectionClosed,
@@ -398,7 +399,9 @@ configureDefaultDurableJobStreamLimiter(
 );
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.control, {
-  ...(config.readConsistency?.wakeBeforeWaitEnabled ? { readConsistencyGateway: {} } : {}),
+  ...(config.readConsistency?.wakeBeforeWaitEnabled
+    ? { readConsistencyGateway: { observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue } } }
+    : {}),
 });
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,

@@ -371,7 +371,6 @@ export function summarizeSegmentSlo(input = {}) {
     },
     durableConvergence: summarizeDurableConvergence(input.convergence ?? null, input.convergenceBudgetMs),
     metricGaps: [
-      "wake-before-wait enqueue latency histogram is not emitted yet",
       "server-side notify/relay/store/claim segment distributions remain dashboard-joined by correlation window",
     ],
   };
