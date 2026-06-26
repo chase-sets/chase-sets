@@ -31,6 +31,11 @@ export type DailyCommandIntent =
   | "execute-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
+  | "promote-merge-candidate"
+  | "split-merge-candidate"
+  | "update-merge-candidate"
+  | "ignore-merge-candidate"
+  | "defer-merge-candidate"
   | "start-reapply"
   | "start-replay";
 
@@ -44,6 +49,11 @@ const DAILY_COMMAND_INTENTS = new Set<string>([
   "execute-promotion",
   "reject-source-observations",
   "defer-source-observations",
+  "promote-merge-candidate",
+  "split-merge-candidate",
+  "update-merge-candidate",
+  "ignore-merge-candidate",
+  "defer-merge-candidate",
   "start-reapply",
   "start-replay",
 ] satisfies DailyCommandIntent[]);
@@ -197,6 +207,40 @@ export async function handleDailyCommand(input: {
         ...context,
         selectedObservationIds: [],
         jobId: stringValue(job.jobId) ?? context.jobId,
+        promotionPreviewId: null,
+      });
+    }
+    case "promote-merge-candidate":
+    case "ignore-merge-candidate":
+    case "defer-merge-candidate": {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const reason = String(formData.get("reason") ?? "").trim();
+      if (!candidateId) {
+        return dailyResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+      }
+      if (!reason) {
+        return dailyResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
+      }
+
+      if (intent === "promote-merge-candidate") {
+        await api.promoteCatalogMergeCandidate(candidateId, { reason });
+      } else if (intent === "ignore-merge-candidate") {
+        await api.ignoreCatalogMergeCandidate(candidateId, { reason });
+      } else {
+        await api.deferCatalogMergeCandidate(candidateId, { reason });
+      }
+
+      return dailyResult(intent, "success", "job-queued", {
+        ...context,
+        selectedObservationIds,
+        promotionPreviewId: null,
+      });
+    }
+    case "split-merge-candidate":
+    case "update-merge-candidate": {
+      return dailyResult(intent, "error", "command-failed", {
+        ...context,
+        selectedObservationIds,
         promotionPreviewId: null,
       });
     }

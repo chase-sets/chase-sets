@@ -16,6 +16,11 @@ export type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   | "execute-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
+  | "promote-merge-candidate"
+  | "split-merge-candidate"
+  | "update-merge-candidate"
+  | "ignore-merge-candidate"
+  | "defer-merge-candidate"
   | "rollback-provider-profile"
   | "deprecate-provider-profile"
   | "retire-provider-profile"
@@ -27,6 +32,7 @@ type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  candidateId?: string;
   reason?: string;
   disabled?: boolean;
 };
@@ -35,6 +41,7 @@ export function CommandFormButton({
   readModel,
   intent,
   selectedObservationIds,
+  candidateId,
   reason,
   disabled = false,
   children,
@@ -47,7 +54,12 @@ export function CommandFormButton({
       action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
       data-catalog-primary-workbench-command={intent}
     >
-      <CommandHiddenInputs readModel={readModel} intent={intent} selectedObservationIds={selectedObservationIds} />
+      <CommandHiddenInputs
+        readModel={readModel}
+        intent={intent}
+        selectedObservationIds={selectedObservationIds}
+        candidateId={candidateId}
+      />
       {reason ? <HiddenInput name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
         {children}
@@ -60,11 +72,13 @@ export function CommandHiddenInputs({
   readModel,
   intent,
   selectedObservationIds,
+  candidateId,
   jobId,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  candidateId?: string;
   jobId?: string | null;
 }) {
   const context = readModel.routeContext;
@@ -87,6 +101,7 @@ export function CommandHiddenInputs({
       <HiddenInput name="expansionId" value={scope?.expansionId ?? ""} />
       <HiddenInput name="expansionName" value={scope?.expansionName ?? ""} />
       <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
+      <HiddenInput name="candidateId" value={candidateId ?? ""} />
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>

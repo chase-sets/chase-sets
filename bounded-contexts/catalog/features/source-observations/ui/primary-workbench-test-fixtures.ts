@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type {
   CatalogIntegrationControlPlaneOverview,
+  CatalogMergeCandidateListItem,
   CatalogIntegrationRecentJobSummary,
   CatalogProviderProfileAuthoringModel,
   CatalogProviderSourceOptionKind,
@@ -496,6 +497,76 @@ export function sourceObservationListItem(
     promotion_profile_version: null,
     promotion_plan_fingerprint: null,
     updated_at: "2026-06-09T01:01:00.000Z",
+    ...overrides,
+  };
+}
+
+export function catalogMergeCandidateListItem(
+  overrides: Partial<CatalogMergeCandidateListItem> = {},
+): CatalogMergeCandidateListItem {
+  return {
+    candidate_id: "cand_pokemon_base1_004_standard",
+    identity_fingerprint: "sha256:candidate-identity",
+    sync_run_ids_json: ["sync_001"],
+    status: "ready",
+    status_reason: null,
+    identity_json: {
+      tcg: "pokemon",
+      productLineName: "Pokemon",
+      setName: "Base Set",
+      printedProductName: "Charizard",
+      collectorNumber: "4",
+      languageCode: "en",
+      productForm: "card",
+      variantKey: "standard",
+      barcode: null,
+    },
+    matched_catalog_item_id: null,
+    matched_product_ids_json: [],
+    proposed_catalog_item_facts_json: {
+      name: "Charizard",
+      cardNumber: "4",
+      rarity: "Rare Holo",
+      setName: "Base Set",
+    },
+    proposed_external_catalog_item_references_json: [{ providerKey: "tcgdex", externalKey: "base1-4" }],
+    proposed_external_product_references_json: [
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:123",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
+        reviewEvidence: { source: "tcgplayer-sku" },
+      },
+    ],
+    conflicts_json: [],
+    warnings_json: [],
+    field_provenance_json: [
+      {
+        fieldPath: "name",
+        value: "Charizard",
+        observationId: "obs_001",
+        providerKey: "tcgdex",
+        sourceProfileKey: "tcgdex-pokemon-card",
+        sourceProfileVersion: "2026.06.04",
+        confidence: "exact",
+        evidence: { path: "card.name" },
+      },
+      {
+        fieldPath: "cardNumber",
+        value: "4",
+        observationId: "obs_tcgplayer_001",
+        providerKey: "tcgplayer",
+        sourceProfileKey: "tcgplayer-pokemon-card",
+        sourceProfileVersion: "2026.06.04",
+        confidence: "high",
+        evidence: { path: "product.number" },
+      },
+    ],
+    promotion_intent: "create-catalog-item",
+    created_at: "2026-06-09T01:02:00.000Z",
+    updated_at: "2026-06-09T01:03:00.000Z",
+    stale_at: null,
+    observation_count: 2,
     ...overrides,
   };
 }

@@ -14,6 +14,7 @@ import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../..
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogIntegrationControlPlaneOverview,
+  CatalogMergeCandidateListItem,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationJobScope,
@@ -162,6 +163,7 @@ async function finalizeSurfaceLoad(input: {
     Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
   > | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
+  mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
@@ -177,6 +179,7 @@ async function finalizeSurfaceLoad(input: {
     lifecycleImpacts: input.lifecycleImpacts ?? null,
     readModelFailures: input.readModelFailures ?? input.baseline.readModelFailures,
     reviewObservations: input.reviewObservations ?? null,
+    mergeCandidates: input.mergeCandidates ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
     canManageCatalog: input.baseline.canManageCatalog,
@@ -214,9 +217,17 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
         null,
       )
     : ({ value: null, failed: false } as const);
+  const mergeCandidateQuery = buildDailyMergeCandidateQuery(normalizedRouteContext);
+  const mergeCandidateResult = await catalogApiResult(
+    () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
+    null,
+  );
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
     readModelFailures.push("source-observation-review");
+  }
+  if (mergeCandidateResult.failed) {
+    readModelFailures.push("merge-candidate-review");
   }
 
   const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
@@ -225,6 +236,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     surface: "daily",
     baseline,
     reviewObservations: reviewObservationResult.value,
+    mergeCandidates: mergeCandidateResult.value,
     reviewPagination,
     readModelFailures,
   });
@@ -268,6 +280,7 @@ function normalizedDailyRouteContext(
     lifecycleImpacts: null,
     readModelFailures: baseline.readModelFailures,
     reviewObservations: null,
+    mergeCandidates: null,
     reviewPagination: dailyReviewPaginationFor(routeContext),
     sourceOptionPages: null,
     canManageCatalog: baseline.canManageCatalog,
@@ -412,6 +425,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   > | null;
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   reviewObservations: ListResponse<SourceObservationListItem> | null;
+  mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   canManageCatalog: boolean;
@@ -459,6 +473,7 @@ function surfaceReadModelInput(
     controlPlaneOverview: failures.has("control-plane-overview") ? null : input.baseline.controlPlaneOverview,
     readModelFailures,
     reviewObservations: failures.has("source-observation-review") ? null : input.reviewObservations,
+    mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     canManageCatalog: input.canManageCatalog,
@@ -479,6 +494,9 @@ function optionalProjectionFallbackKeys(
   const keys: CatalogPrimaryWorkbenchReadModelFailure[] = [];
   if (input.reviewObservations && !failures.has("source-observation-review")) {
     keys.push("source-observation-review");
+  }
+  if (input.mergeCandidates && !failures.has("merge-candidate-review")) {
+    keys.push("merge-candidate-review");
   }
   if (input.baseline.controlPlaneOverview && !failures.has("control-plane-overview")) {
     keys.push("control-plane-overview");
@@ -532,6 +550,39 @@ function dailyReviewPaginationFor(
   const offset = Math.floor(requestedOffset / limit) * limit;
 
   return { limit, offset };
+}
+
+function buildDailyMergeCandidateQuery(routeContext: CatalogPrimaryWorkbenchRouteContext): string {
+  const params = new URLSearchParams();
+  params.set("limit", String(dailyReviewPageSize));
+  params.set("offset", "0");
+  if (routeContext.jobId) {
+    params.set("syncRunId", routeContext.jobId);
+  }
+  const status = candidateStatusFromReviewStatus(routeContext.sourceObservationFilters.status);
+  if (status) {
+    params.set("status", status);
+  }
+  const search = routeContext.sourceObservationFilters.search?.trim();
+  if (search) {
+    params.set("search", search);
+  }
+
+  return params.toString();
+}
+
+function candidateStatusFromReviewStatus(status: string | undefined): string | null {
+  switch (status) {
+    case "ready":
+    case "has-conflicts":
+    case "stale":
+    case "deferred":
+    case "rejected":
+    case "promoted":
+      return status;
+    default:
+      return null;
+  }
 }
 
 // Fetch the #1908 alias-review read model for the selected provider/profile scope

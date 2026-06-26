@@ -259,25 +259,57 @@ test.describe("catalog admin integrations", () => {
       await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).toBeNull();
     }
 
-    // #1971: the review list ships slim rows; a row's deep evidence (full normalized
-    // facts, duplicate/conflict/audit lists, and the provenance KeyValueList) is
-    // lazy-loaded via a useFetcher to the per-observation evidence endpoint only when
-    // the row's evidence SideSheet opens. Open the first row's "Evidence" sheet (IF the
-    // seed holds a review row) and prove the deep content arrives AFTER open with an
-    // explicit visibility wait — never networkidle, which can race the fetcher. Assert
-    // the sheet's lazily-loaded provenance ("Source URL") and a deep evidence section
-    // ("Normalized facts") become visible, and that no raw provider JSON leaks. This is
-    // data-dependent, so it is guarded on an "Evidence" trigger actually rendering.
-    const evidenceTrigger = page.getByRole("button", { name: "Evidence" });
-    if (await evidenceTrigger.count()) {
-      await evidenceTrigger.first().click();
-      // The lazily-fetched evidence detail populates the KeyValueList and the deep
-      // evidence sections; wait for that fetched content explicitly (it is not present
-      // at sheet-open time, only after the fetcher resolves).
-      await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
+    // #2600: the review stage is candidate-first. Open a merged candidate's evidence
+    // sheet (IF the seed has candidate rows) and prove operators see source comparison,
+    // field provenance, and proposed reference/Product mapping without any raw JSON
+    // entry path. Source Observation evidence remains available as a supporting
+    // disclosure below and is asserted separately when rows exist.
+    const mergeCandidateReviewHeading = page.getByRole("heading", { name: "Merged candidate review" });
+    if (await mergeCandidateReviewHeading.count()) {
+      await expect(mergeCandidateReviewHeading.first()).toBeVisible({ timeout: 30_000 });
+      const candidateEvidenceTrigger = page
+        .getByRole("table", { name: "Merged candidate review" })
+        .getByRole("button", { name: "Evidence" });
+      if (await candidateEvidenceTrigger.count()) {
+        await candidateEvidenceTrigger.first().click();
+        await expect(page.getByText("Source comparison").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText("Field provenance").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText("Proposed references and Product mapping").first()).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+        await page.keyboard.press("Escape");
+      }
+    }
+
+    const supportingSourceObservationEvidence = page.getByRole("button", { name: "Source Observation evidence" });
+    if (await supportingSourceObservationEvidence.count()) {
+      const sourceObservationEvidenceTriggerState = await supportingSourceObservationEvidence
+        .first()
+        .getAttribute("aria-expanded");
+      if (sourceObservationEvidenceTriggerState !== "true") {
+        await supportingSourceObservationEvidence.first().click();
+      }
+      await expect(page.getByRole("heading", { name: "Source Observation review" }).first()).toBeVisible({
+        timeout: 30_000,
+      });
+
+      // #1971: Source Observation rows still ship slim rows; a row's deep evidence
+      // is lazy-loaded via the per-observation evidence endpoint only when the
+      // supporting row's sheet opens. This path is data-dependent, so it is guarded
+      // on a Source Observation table row actually rendering.
+      const sourceObservationEvidenceTrigger = page
+        .getByRole("table", { name: "Source Observation review" })
+        .getByRole("button", { name: "Evidence" });
+      if (await sourceObservationEvidenceTrigger.count()) {
+        await sourceObservationEvidenceTrigger.first().click();
+        await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+        await page.keyboard.press("Escape");
+      }
+    } else {
       await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
-      await page.keyboard.press("Escape");
     }
 
     await page.getByRole("button", { name: "Create / update items" }).first().click();

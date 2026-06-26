@@ -1220,6 +1220,102 @@ describe("Catalog primary workbench admin contracts", () => {
           },
         ],
       },
+      mergeCandidateReview: {
+        freshness: "fresh",
+        counts: {
+          total: 1,
+          ready: 1,
+          conflict: 0,
+          stale: 0,
+          deferred: 0,
+          terminal: 0,
+          blocked: 0,
+        },
+        filters: [
+          {
+            key: "scope",
+            label: "Catalog scope",
+            value: "Pokemon / Base Set",
+            serverApplied: false,
+          },
+        ],
+        pagination: {
+          mode: "offset",
+          limit: 25,
+          offset: 0,
+          total: 1,
+        },
+        rows: [
+          {
+            candidateId: "cand_pokemon_base1_004_standard",
+            identityFingerprint: "sha256:candidate-identity",
+            identityLabel: "Charizard / Base Set / #4 / en / standard",
+            sourceCount: 2,
+            sources: [
+              {
+                providerKey: "tcgdex",
+                observationId: "obs_001",
+                externalKey: null,
+                sourceProfileVersion: "2026.06.04",
+              },
+            ],
+            status: "ready",
+            statusReason: null,
+            conflicts: {
+              blocking: 0,
+              warnings: 0,
+              messages: [],
+            },
+            promoteReadiness: {
+              state: "ready",
+              blockers: [],
+            },
+            proposedMapping: {
+              promotionIntent: "create-catalog-item",
+              catalogItemId: null,
+              productIds: [],
+              externalCatalogItemReferences: ["tcgdex:base1-4"],
+              externalProductReferences: ["tcgplayer:sku:123 -> condition:near-mint"],
+            },
+            sourceComparison: [
+              {
+                fieldPath: "name",
+                value: "Charizard",
+                providerKey: "tcgdex",
+                observationId: "obs_001",
+                confidence: "exact",
+              },
+            ],
+            fieldProvenance: [
+              {
+                fieldPath: "name",
+                providerKey: "tcgdex",
+                sourceProfileVersion: "2026.06.04",
+                confidence: "exact",
+                evidenceSummary: "card.name",
+              },
+            ],
+            proposedFacts: [{ key: "name", value: "Charizard" }],
+            actions: [
+              { key: "promote-merge-candidate", state: "available", blockers: [], reasonRequired: true },
+              {
+                key: "split-merge-candidate",
+                state: "blocked",
+                blockers: ["unsupported-command"],
+                reasonRequired: true,
+              },
+              {
+                key: "update-merge-candidate",
+                state: "blocked",
+                blockers: ["unsupported-command"],
+                reasonRequired: true,
+              },
+              { key: "ignore-merge-candidate", state: "available", blockers: [], reasonRequired: true },
+              { key: "defer-merge-candidate", state: "available", blockers: [], reasonRequired: true },
+            ],
+          },
+        ],
+      },
       conflictResolution: conflictResolutionFixture(),
       promotionPreview: {
         previewId: "preview_001",

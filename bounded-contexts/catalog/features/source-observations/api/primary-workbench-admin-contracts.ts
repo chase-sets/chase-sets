@@ -331,6 +331,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   auditEvidence: CatalogPrimaryWorkbenchAuditEvidenceReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
+  mergeCandidateReview: CatalogPrimaryWorkbenchMergeCandidateReviewReadModel;
   conflictResolution: CatalogPrimaryWorkbenchConflictResolutionReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
   promotionResult: CatalogPrimaryWorkbenchPromotionResultReadModel | null;
@@ -1658,6 +1659,96 @@ export type CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData = Readonly
   detail: CatalogPrimaryWorkbenchSourceObservationEvidenceDetail | null;
 }>;
 
+export type CatalogPrimaryWorkbenchMergeCandidateActionKey = Extract<
+  CatalogPrimaryWorkbenchCommandKey,
+  | "promote-merge-candidate"
+  | "split-merge-candidate"
+  | "update-merge-candidate"
+  | "ignore-merge-candidate"
+  | "defer-merge-candidate"
+>;
+
+export type CatalogPrimaryWorkbenchMergeCandidateReviewReadModel = Readonly<{
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  counts: Readonly<{
+    total: number;
+    ready: number;
+    conflict: number;
+    stale: number;
+    deferred: number;
+    terminal: number;
+    blocked: number;
+  }>;
+  filters: readonly Readonly<{
+    key: "scope" | "status" | "search" | "syncRun";
+    label: string;
+    value: string | null;
+    serverApplied: boolean;
+  }>[];
+  pagination: Readonly<{
+    mode: CatalogAdminControlPlanePaginationMode;
+    limit: number;
+    offset: number;
+    total: number;
+  }>;
+  rows: readonly CatalogPrimaryWorkbenchMergeCandidateReviewRow[];
+}>;
+
+export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
+  candidateId: string;
+  identityFingerprint: string;
+  identityLabel: string;
+  sourceCount: number;
+  sources: readonly Readonly<{
+    providerKey: string;
+    observationId: string | null;
+    externalKey: string | null;
+    sourceProfileVersion: string | null;
+  }>[];
+  status: "ready" | "has-conflicts" | "stale" | "deferred" | "rejected" | "promoted";
+  statusReason: string | null;
+  conflicts: Readonly<{
+    blocking: number;
+    warnings: number;
+    messages: readonly string[];
+  }>;
+  promoteReadiness: Readonly<{
+    state: "ready" | "blocked" | "stale" | "deferred" | "terminal";
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  }>;
+  proposedMapping: Readonly<{
+    promotionIntent: "create-catalog-item" | "update-catalog-item" | "link-existing-catalog-item";
+    catalogItemId: string | null;
+    productIds: readonly string[];
+    externalCatalogItemReferences: readonly string[];
+    externalProductReferences: readonly string[];
+  }>;
+  sourceComparison: readonly Readonly<{
+    fieldPath: string;
+    value: string;
+    providerKey: string;
+    observationId: string;
+    confidence: "exact" | "high" | "candidate" | "manual";
+  }>[];
+  fieldProvenance: readonly Readonly<{
+    fieldPath: string;
+    providerKey: string;
+    sourceProfileVersion: string;
+    confidence: "exact" | "high" | "candidate" | "manual";
+    evidenceSummary: string;
+  }>[];
+  proposedFacts: readonly Readonly<{
+    key: string;
+    value: string;
+  }>[];
+  actions: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchMergeCandidateActionKey;
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    reasonRequired: boolean;
+  }>[];
+}>;
+
 export type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";
 
 export type CatalogPrimaryWorkbenchConflictResolutionState = "blocks-promotion" | "requires-review" | "auto-resolved";
@@ -2725,6 +2816,12 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
     ]),
   );
   assertPrimaryWorkbenchBlockers(
+    value.mergeCandidateReview?.rows.flatMap((row) => [
+      ...row.promoteReadiness.blockers,
+      ...row.actions.flatMap((actionEntry) => actionEntry.blockers),
+    ]),
+  );
+  assertPrimaryWorkbenchBlockers(
     value.conflictResolution?.rows.flatMap((row) => [...row.blockers, ...row.overrideAction.blockers]),
   );
   assertPrimaryWorkbenchBlockers(value.governanceControls?.controls.flatMap((control) => control.blockers));
@@ -2734,6 +2831,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
   assertPrimaryWorkbenchSourceOptions(value.sourceOptions);
   assertPrimaryWorkbenchSourceScopeWorkset(value.sourceScopeWorkset);
+  assertPrimaryWorkbenchMergeCandidateReview(value.mergeCandidateReview);
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
   assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
@@ -3313,6 +3411,55 @@ function assertPrimaryWorkbenchPromotionPreview(
   }
   if (value.profileWorkflows.replay.profileSemantics !== "original-source-profile-version") {
     throw new Error("Primary workbench replay must use original source profile version semantics.");
+  }
+}
+
+function assertPrimaryWorkbenchMergeCandidateReview(
+  value: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench merge candidate review contract is required.");
+  }
+  if (!["fresh", "partial", "stale", "unavailable"].includes(value.freshness)) {
+    throw new Error("Primary workbench merge candidate review freshness must be explicit.");
+  }
+  for (const countKey of ["total", "ready", "conflict", "stale", "deferred", "terminal", "blocked"] as const) {
+    if (typeof value.counts[countKey] !== "number") {
+      throw new Error(`Primary workbench merge candidate count '${countKey}' is required.`);
+    }
+  }
+  for (const row of value.rows) {
+    if (!row.candidateId || !row.identityFingerprint || !row.identityLabel) {
+      throw new Error("Primary workbench merge candidate rows must expose identity.");
+    }
+    if (row.sourceCount < 1 || row.sources.length < 1) {
+      throw new Error("Primary workbench merge candidate rows must expose contributing sources.");
+    }
+    if (row.promoteReadiness.state === "ready" && row.promoteReadiness.blockers.length > 0) {
+      throw new Error("Primary workbench ready merge candidates cannot carry promotion blockers.");
+    }
+    if (!row.proposedMapping.promotionIntent) {
+      throw new Error("Primary workbench merge candidate detail must expose proposed Catalog mapping.");
+    }
+    if (row.fieldProvenance.length === 0 || row.sourceComparison.length === 0) {
+      throw new Error("Primary workbench merge candidate detail must expose source comparison and field provenance.");
+    }
+    const actions = new Set(row.actions.map((actionEntry) => actionEntry.key));
+    for (const actionKey of [
+      "promote-merge-candidate",
+      "split-merge-candidate",
+      "update-merge-candidate",
+      "ignore-merge-candidate",
+      "defer-merge-candidate",
+    ] as const) {
+      if (!actions.has(actionKey)) {
+        throw new Error(`Primary workbench merge candidate rows must expose '${actionKey}'.`);
+      }
+    }
+    for (const actionEntry of row.actions) {
+      assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
+      assertPrimaryWorkbenchBlockers(actionEntry.blockers);
+    }
   }
 }
 

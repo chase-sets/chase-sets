@@ -53,6 +53,7 @@ import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
 import { sourceScopeWorksetFor } from "./primary-workbench-source-scope-workset";
 import { catalogSyncFor } from "./primary-workbench-catalog-sync";
+import { mergeCandidateReviewFor } from "./primary-workbench-merge-candidate-review";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -67,6 +68,7 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  mergeCandidateReview: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"];
   // Deep-evidence index keyed by observationId. NOT serialized into the read model
   // — it stays in-process to feed the conflict-resolution and audit-evidence
   // composers (which read full fact/duplicate/conflict/audit evidence) without
@@ -213,6 +215,7 @@ function buildCatalogPrimaryWorkbenchCore(
   const canManage = input.canManageCatalog;
   const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
   const reviewUnavailable = input.readModelFailures?.includes("source-observation-review") ?? false;
+  const mergeCandidateReviewUnavailable = input.readModelFailures?.includes("merge-candidate-review") ?? false;
   const controlPlaneFreshness = input.readModelFailures?.includes("control-plane-overview")
     ? "unavailable"
     : input.controlPlaneOverview
@@ -242,6 +245,13 @@ function buildCatalogPrimaryWorkbenchCore(
     routeContext,
     sourceObservationReview,
     reviewEvidenceByObservationId,
+  });
+  const mergeCandidateReview = mergeCandidateReviewFor({
+    canManage,
+    generatedAt,
+    mergeCandidates: input.mergeCandidates ?? null,
+    mergeCandidateReviewUnavailable,
+    routeContext,
   });
   const securityPrivacy = {
     redactionApplied: true,
@@ -320,6 +330,7 @@ function buildCatalogPrimaryWorkbenchCore(
         jobs: importJobRows,
       },
       sourceObservationReview,
+      mergeCandidateReview,
       reviewEvidenceByObservationId,
       promotionPreview,
       securityPrivacy,
@@ -684,6 +695,7 @@ function assembleReadModel(
     auditEvidence: parts.auditEvidence,
     importJobs: core.importJobs,
     sourceObservationReview: core.sourceObservationReview,
+    mergeCandidateReview: core.mergeCandidateReview,
     conflictResolution: parts.conflictResolution,
     promotionPreview: core.promotionPreview,
     promotionResult: null,
