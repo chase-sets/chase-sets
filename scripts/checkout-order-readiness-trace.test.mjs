@@ -5,6 +5,7 @@ import {
   REQUIRED_CONFIRM_TEXT,
   assertReadOnlySql,
   assertRedactedTraceEvidence,
+  buildWakeInterestDiagnostics,
   buildCheckoutOrderReadinessTraceEvidence,
   classifyStalledLeg,
   contextDatabaseEnvName,
@@ -138,10 +139,12 @@ describe("checkout order-readiness trace arguments", () => {
       TRACE_OBSERVED_AT_UTC: observedAtUtc,
       TRACE_WINDOW_MINUTES: "9999",
       TRACE_CONFIRM: REQUIRED_CONFIRM_TEXT,
+      WORKER_WAKE_DISABLED_PROJECTIONS: "inventory:inventory-order-reservation-workflow",
     });
 
     expect(options.checkoutSessionId).toBe("chk_123");
     expect(options.windowMinutes).toBe(240);
+    expect(options.workerWakeDisabledProjections).toEqual(["inventory:inventory-order-reservation-workflow"]);
     expect(options.contextDatabaseUrls.checkout).toBe(baseEnv.DATABASE_URL_CHECKOUT);
     expect(validateCheckoutOrderReadinessTraceOptions(options)).toEqual([]);
   });
@@ -247,6 +250,15 @@ describe("checkout order-readiness evidence", () => {
       eventIdCount: 2,
       maxGlobalPosition: "41",
     });
+    expect(evidence.wakeInterestDiagnostics).toMatchObject({
+      sourceContextName: "ordering",
+      eventType: "ordering.order.created",
+      targetContextName: "inventory",
+      projectionName: "inventory-order-reservation-workflow",
+      checkpointKey: "inventory-order-reservation-workflow:ordering:v1",
+      interestPresent: true,
+      disabledByWorkerWakeDisabledProjections: false,
+    });
     expect(evidence.decision.stalledLeg).toBe("checkout-retry-handoff-bug");
     expect(assertRedactedTraceEvidence(evidence)).toEqual([]);
     expect(JSON.stringify(evidence)).not.toContain("chk_test_123");
@@ -273,7 +285,31 @@ describe("checkout order-readiness evidence", () => {
     expect(evidence.decision.stalledLeg).toBe("payments-projection-wake-blockage");
     expect(evidence.payments.orderInputs.missingOrderInputCount).toBe(1);
     expect(summary).toContain("Payments projection/wake blockage");
+    expect(summary).toContain("Wake interest");
     expect(assertRedactedTraceEvidence({ summary })).toEqual([]);
+  });
+
+  it("reports whether the Ordering to Inventory wake interest is disabled by worker env", () => {
+    expect(
+      buildWakeInterestDiagnostics({
+        disabledProjectionKeys: ["inventory:inventory-order-reservation-workflow"],
+        manifestInterest: { interestPresent: true },
+      }),
+    ).toMatchObject({
+      interestPresent: true,
+      disabledProjectionKey: "inventory:inventory-order-reservation-workflow",
+      disabledByWorkerWakeDisabledProjections: true,
+    });
+
+    expect(
+      buildWakeInterestDiagnostics({
+        disabledProjectionKeys: [],
+        manifestInterest: { interestPresent: false },
+      }),
+    ).toMatchObject({
+      interestPresent: false,
+      disabledByWorkerWakeDisabledProjections: false,
+    });
   });
 
   it("fails closed when evidence contains common sensitive values", () => {
