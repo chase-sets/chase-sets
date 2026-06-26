@@ -104,6 +104,25 @@ Examples:
 - memberships table
 - MembershipCreated event
 
+### User Preferences
+
+**User Preferences** are durable User-owned presentation choices that should follow a signed-in user across accounts and devices.
+
+Examples:
+
+- color mode
+- density
+- reduced motion
+- locale
+- time zone
+
+Notes:
+
+- User Preferences belong to the User, not an Account.
+- Viewer presentation preferences live in Identity because they describe the signed-in user's cross-device presentation choices.
+- Behavior-coupled settings stay with the context that owns the behavior, such as Notifications-owned delivery settings.
+- Device ephemera and anonymous visitor fallbacks stay client-local and are not Identity facts.
+
 ## Permission Model
 
 ### Role
