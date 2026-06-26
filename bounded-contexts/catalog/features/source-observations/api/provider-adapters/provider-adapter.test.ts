@@ -705,23 +705,25 @@ describe("ProviderAdapterRegistry", () => {
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     });
 
-    await expect(adapter.listIntegrationUnits()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        displayName: "TCGplayer Magic Single Cards",
-        productForm: "single-card",
-      }),
-      expect.objectContaining({
-        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        displayName: "TCGplayer Magic Sealed Products",
-        productForm: "sealed-product",
-      }),
-      expect.objectContaining({
-        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        displayName: "TCGplayer Pokemon Single Cards",
-        productForm: "single-card",
-      }),
-    ]));
+    await expect(adapter.listIntegrationUnits()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          displayName: "TCGplayer Magic Single Cards",
+          productForm: "single-card",
+        }),
+        expect.objectContaining({
+          unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          displayName: "TCGplayer Magic Sealed Products",
+          productForm: "sealed-product",
+        }),
+        expect.objectContaining({
+          unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          displayName: "TCGplayer Pokemon Single Cards",
+          productForm: "single-card",
+        }),
+      ]),
+    );
     await expect(adapter.listIntegrationUnits()).resolves.toHaveLength(3);
     await expect(
       adapter.listOptions({
