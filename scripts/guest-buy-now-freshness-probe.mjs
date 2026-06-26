@@ -398,6 +398,10 @@ function normalizeWakeRuntimeReadiness(value) {
     activeWakeCapableWorkerCount: normalizeNonNegativeInteger(value.activeWakeCapableWorkerCount),
     relayLeaseState: normalizeString(value.relayLeaseState),
     relayOwnerId: normalizeString(value.relayOwnerId),
+    relayLeaseRenewedAt: normalizeString(value.relayLeaseRenewedAt),
+    relayLeaseExpiresAt: normalizeString(value.relayLeaseExpiresAt),
+    relayOwnerWorkerState: normalizeString(value.relayOwnerWorkerState),
+    relayOwnerHeartbeatAgeMs: normalizeOptionalNonNegativeInteger(value.relayOwnerHeartbeatAgeMs),
     reasons: Array.isArray(value.reasons) ? value.reasons.map((reason) => normalizeString(reason)).filter(Boolean) : [],
   };
 }
@@ -612,6 +616,8 @@ export function evaluateWakeRuntimeReadiness(snapshot) {
   const relay = snapshot?.relay ?? null;
   const activeWakeCapableWorkerCount = normalizeNonNegativeInteger(schedulers?.activeWakeCapableWorkerCount);
   const relayLeaseState = normalizeString(relay?.lease?.state);
+  const relayOwnerId = normalizeString(relay?.lease?.ownerId);
+  const relayOwnerWorker = findWakeCapableWorker(schedulers, relayOwnerId);
 
   if (!schedulers || schedulers.available === false) {
     reasons.push("wake-scheduler-status-unavailable");
@@ -623,14 +629,41 @@ export function evaluateWakeRuntimeReadiness(snapshot) {
     reasons.push("wake-relay-status-unavailable");
   } else if (relayLeaseState !== "active") {
     reasons.push("projection-wake-relay-lease-not-active");
+    if (Array.isArray(schedulers?.workers) && relayOwnerId) {
+      if (!relayOwnerWorker) {
+        reasons.push("projection-wake-relay-owner-heartbeat-missing");
+      } else if (relayOwnerWorker.workerState === "active") {
+        reasons.push("projection-wake-relay-owner-not-renewing-lease");
+      } else {
+        reasons.push("projection-wake-relay-owner-heartbeat-not-active");
+      }
+    }
   }
 
   return {
     ready: reasons.length === 0,
     activeWakeCapableWorkerCount,
     relayLeaseState,
-    relayOwnerId: normalizeString(relay?.lease?.ownerId),
+    relayOwnerId,
+    relayLeaseRenewedAt: normalizeString(relay?.lease?.renewedAt),
+    relayLeaseExpiresAt: normalizeString(relay?.lease?.expiresAt),
+    relayOwnerWorkerState: relayOwnerWorker?.workerState ?? null,
+    relayOwnerHeartbeatAgeMs: relayOwnerWorker?.heartbeatAgeMs ?? null,
     reasons,
+  };
+}
+
+function findWakeCapableWorker(schedulers, workerId) {
+  if (!workerId || !Array.isArray(schedulers?.workers)) {
+    return null;
+  }
+  const worker = schedulers.workers.find((candidate) => candidate?.workerId === workerId);
+  if (!worker) {
+    return null;
+  }
+  return {
+    workerState: normalizeString(worker.workerState) ?? "unknown",
+    heartbeatAgeMs: normalizeOptionalNonNegativeInteger(worker.heartbeatAgeMs),
   };
 }
 

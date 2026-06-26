@@ -69,7 +69,7 @@ The script writes one evidence file per flow (`artifacts/release-health/guest-bu
 - diagnostic correlation id (the join key for server-side segment metrics);
 - final state, promotion decision, failure reason, attempt count, per-attempt summaries;
 - readiness SLO budget and write-to-checkout-ready latency;
-- `wakeRuntimePreflight`, when the probe has admin wake-status access: initial/final worker count, relay lease state/owner, readiness reasons, sample count, and time to ready;
+- `wakeRuntimePreflight`, when the probe has admin wake-status access: initial/final worker count, relay lease state/owner, relay lease renewal/expiry timestamps, the relay owner's matching worker heartbeat state when present, readiness reasons, sample count, and time to ready;
 - browser-measured segments: write→redirect, redirect→document, document→ready, write→ready;
 - redacted browser runtime failure stage/message when navigation or load timeouts prevent a normal observation;
 - `segmentReferences` naming the #1228 server-side segments (commit-to-notify, notify-to-relay, relay-to-control-plane-store, control-plane-claim-to-worker, checkpoint-readiness, route-wait) and where to join them;
@@ -121,7 +121,7 @@ A public production guest browser probe remains not feasible: it would create pe
 ## Failure Triage
 
 1. Inspect the probe evidence final state, failure reason, attempt summaries, and segments.
-2. If `wake-runtime-not-ready-before-probe`, inspect `wakeRuntimePreflight.final.reasons` and the wake-status endpoint. `no-active-wake-capable-workers` points at worker deployment/lease hygiene; `projection-wake-relay-lease-not-active` points at relay takeover or startup lag. Rerun after the runtime is active before treating checkout readiness as the root cause.
+2. If `wake-runtime-not-ready-before-probe`, inspect `wakeRuntimePreflight.final.reasons` and the wake-status endpoint. `no-active-wake-capable-workers` points at worker deployment/lease hygiene; `projection-wake-relay-lease-not-active` points at relay takeover or startup lag; `projection-wake-relay-owner-not-renewing-lease` means the relay owner was still heartbeating while the lease was expired; `projection-wake-relay-owner-heartbeat-not-active` means the relay owner's heartbeat had already gone stale or expired. Rerun after the runtime is active before treating checkout readiness as the root cause.
 3. If `missing-after-write`, `missing-guest-cookie`, or `missing-session-cookie`, check Checkout guest/account start and document redirect behavior.
 4. If `permanent-checkout-session-not-found`, check API freshness middleware, `checkout.session-projection`, worker lag, and the Checkout temporary recovery path. This is the original incident class; treat as P1 and block promotion.
 5. If `checkout-ready-slo-exceeded`, first verify `wakeRuntimePreflight.ready === true` when present. Then localize the slow segment: browser segments in the evidence first, then the [Push-Wake Operations](./push-wake-operations.md) latency stage map joined by correlation id. Repeated staging occurrences require a `checkout.session-projection` lag and worker capacity review before promotion.
