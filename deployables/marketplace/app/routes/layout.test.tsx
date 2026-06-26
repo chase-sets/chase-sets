@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -165,16 +165,18 @@ describe("marketplace route layout", () => {
 
     await user.click(screen.getByRole("button", { name: "Account menu" }));
 
-    expect(await screen.findByText("Alex Clerk")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
-    expect(screen.getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
-    expect(screen.getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
-    expect(screen.getByRole("group", { name: "Color theme" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "System" })).toBeTruthy();
-    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    const accountMenu = await screen.findByRole("dialog", { name: "Account menu" });
+
+    expect(within(accountMenu).getByText("Alex Clerk")).toBeTruthy();
+    expect(within(accountMenu).getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(within(accountMenu).getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
+    expect(within(accountMenu).getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
+    expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
+    expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
+    await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
     expect(document.documentElement.dataset.themePreference).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
+    expect(within(accountMenu).getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );
     const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
