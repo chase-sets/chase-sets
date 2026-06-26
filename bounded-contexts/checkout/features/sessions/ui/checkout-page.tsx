@@ -570,12 +570,12 @@ export function CheckoutSessionPage({
   const hasAutoResumedPaymentStartRef = useRef(false);
   const canAutoResumePaymentStart = Boolean(
     autoResumePaymentStart &&
-      !hasPayment &&
-      !isOfferIntent &&
-      session.order_ids.length > 0 &&
-      payment?.marketplace_checkout_fee.quote_fingerprint &&
-      payment.can_start_payment !== false &&
-      !needsReviewRefresh,
+    !hasPayment &&
+    !isOfferIntent &&
+    session.order_ids.length > 0 &&
+    payment?.marketplace_checkout_fee.quote_fingerprint &&
+    payment.can_start_payment !== false &&
+    !needsReviewRefresh,
   );
 
   useEffect(() => {

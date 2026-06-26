@@ -1001,9 +1001,9 @@ describe("checkout session page", () => {
           session={{
             ...readySession,
             order_ids: ["ord_1"],
-            shipping_address_id: "__manual",
+            shipping_address_id: "adr_manual",
             shipping_address: {
-              shippingAddressId: "__manual",
+              shippingAddressId: "adr_manual",
               name: "Jane Smith",
               company: "",
               line1: "100 Market Street",
