@@ -74,6 +74,7 @@ const envNames = [
   "WORKER_WAKE_HOT_LANE_RUNNER_COUNT",
   "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT",
   "WORKER_WAKE_BULK_LANE_RUNNER_COUNT",
+  "WORKER_WAKE_STATEMENT_TIMEOUT_MS",
   "WORKER_WAKE_DISABLED_PROJECTIONS",
   "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
   "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
@@ -473,9 +474,17 @@ describe("platform worker config", () => {
       hotLaneRunnerCount: 1,
       standardLaneRunnerCount: 1,
       bulkLaneRunnerCount: 1,
+      statementTimeoutMs: 30_000,
     });
     expect(config.projectionWakeRelay.enabled).toBe(true);
     expect(config.projectionWakeDisabledProjections).toEqual([]);
+  });
+
+  it("loads the wake scheduler statement timeout", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_STATEMENT_TIMEOUT_MS = "45000";
+
+    expect(loadConfig().projectionWakeScheduler.statementTimeoutMs).toBe(45_000);
   });
 
   it("disables a single wake priority lane with a zero runner count", () => {

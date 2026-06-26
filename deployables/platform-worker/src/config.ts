@@ -90,6 +90,7 @@ export type PlatformWorkerProjectionWakeSchedulerConfig = Readonly<{
   bulkLaneRunnerCount: number;
   maxClaimsPerRun: number;
   claimTtlMs: number;
+  statementTimeoutMs: number;
   retryBackoffBaseMs: number;
   retryBackoffMaxMs: number;
   maxAttempts: number;
@@ -329,6 +330,7 @@ export function loadConfig(): PlatformWorkerConfig {
       bulkLaneRunnerCount: getNonNegativeNumberEnv("WORKER_WAKE_BULK_LANE_RUNNER_COUNT", 1),
       maxClaimsPerRun: getPositiveNumberEnv("WORKER_WAKE_MAX_CLAIMS_PER_RUN", 10),
       claimTtlMs: getPositiveNumberEnv("WORKER_WAKE_CLAIM_TTL_MS", 120_000),
+      statementTimeoutMs: getPositiveNumberEnv("WORKER_WAKE_STATEMENT_TIMEOUT_MS", 30_000),
       retryBackoffBaseMs: getPositiveNumberEnv("WORKER_WAKE_RETRY_BACKOFF_BASE_MS", 1_000),
       retryBackoffMaxMs: getPositiveNumberEnv("WORKER_WAKE_RETRY_BACKOFF_MAX_MS", 60_000),
       maxAttempts: getPositiveNumberEnv("WORKER_WAKE_MAX_ATTEMPTS", 10),

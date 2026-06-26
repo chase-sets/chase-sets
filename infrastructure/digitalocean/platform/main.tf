@@ -1228,6 +1228,11 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
         env {
+          key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"
+          value = local.worker_wake_statement_timeout_ms
+          scope = "RUN_TIME"
+        }
+        env {
           key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
           value = local.worker_projection_wake_relay_enabled
           scope = "RUN_TIME"

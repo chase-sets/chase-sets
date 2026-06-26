@@ -95,6 +95,7 @@ export type ProjectionWakeSchedulerOptions = Readonly<{
   claimTtlMs?: number;
   leaseTtlMs?: number;
   leaseRenewIntervalMs?: number;
+  statementTimeoutMs?: number;
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
   deferredRetryMs?: number;
@@ -139,6 +140,8 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
   const claimTtlMs = Math.max(1_000, Math.floor(options.claimTtlMs ?? DEFAULT_PROJECTION_WAKE_CLAIM_TTL_MS));
   const leaseTtlMs = Math.max(1_000, Math.floor(options.leaseTtlMs ?? 30_000));
   const leaseRenewIntervalMs = Math.max(250, Math.floor(options.leaseRenewIntervalMs ?? 10_000));
+  const statementTimeoutMs =
+    options.statementTimeoutMs === undefined ? undefined : Math.max(1, Math.floor(options.statementTimeoutMs));
   const retryBackoffBaseMs = Math.max(
     0,
     Math.floor(options.retryBackoffBaseMs ?? DEFAULT_PROJECTION_WAKE_RETRY_BACKOFF_BASE_MS),
@@ -281,6 +284,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
           ownerId: requireClaimOwnerId(intent),
           ttlMs: leaseTtlMs,
           renewIntervalMs: leaseRenewIntervalMs,
+          statementTimeoutMs,
           metadata: {
             wakeIntentId: intent.wakeIntentId,
             wakeOrigin: intent.origin,

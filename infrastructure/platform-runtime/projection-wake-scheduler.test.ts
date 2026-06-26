@@ -82,6 +82,31 @@ describe("projection wake scheduler", () => {
     });
   });
 
+  it("passes statement timeouts into wake projection runs", async () => {
+    const runStatementTimeouts: Array<number | undefined> = [];
+    const projection = checkoutProjection({
+      position: 90n,
+      headPosition: 120n,
+      onRunContext: (context) => runStatementTimeouts.push(context?.statementTimeoutMs),
+    });
+    const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n, priorityLane: "hot" })]);
+    const controlPlane = recordingControlPlane();
+
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      statementTimeoutMs: 12_345,
+      now: () => NOW,
+    });
+    const result = await runners[0].runOnce();
+
+    expect(result).toMatchObject({ processed: 1 });
+    expect(runStatementTimeouts).toEqual([12_345]);
+  });
+
   it("drains multiple projection batches inside one claim until the required position is reached", async () => {
     const projection = checkoutProjection({ position: 90n, headPosition: 120n, stepPerRun: 5n });
     const store = recordingSchedulerStore([claimedIntent({ requiredPosition: 102n })]);
@@ -865,6 +890,7 @@ function checkoutProjection(
     blockedStreamCount?: number;
     runError?: Error;
     revisionStale?: boolean;
+    onRunContext?: (context: ProjectionRunContext | undefined) => void;
   }>,
 ) {
   let position = input.position;
@@ -879,7 +905,8 @@ function checkoutProjection(
     subscriptionVersion: 1,
     checkpointKey: "checkout-session-pages:checkout:v1",
     order: 0,
-    runOnce: async () => {
+    runOnce: async (context) => {
+      input.onRunContext?.(context);
       runCount += 1;
       if (input.runError) {
         throw input.runError;
