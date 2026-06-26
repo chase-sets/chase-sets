@@ -181,6 +181,8 @@ export const identityEnglishTranslations = {
   "identity.features.memberships.ui.role.manager": "Manager",
   "identity.features.memberships.ui.role.owner": "Owner",
   "identity.features.memberships.ui.role.viewer": "Viewer",
+  "identity.features.preferences.api.route.authentication.required": "Authentication required.",
+  "identity.features.preferences.api.route.forbidden": "Forbidden.",
   "identity.features.users.api.route.forbidden": "Forbidden.",
   "identity.features.users.api.route.user.not.found": "User not found.",
   "identity.features.users.readModel.schema.create.table.if.not.exists.identity":

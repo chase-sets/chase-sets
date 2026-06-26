@@ -914,6 +914,22 @@
       }
     },
     {
+      "id": "identity.user-preferences-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/identity/features/preferences/api/route.ts:PUT /"],
+      "visibleDestination": {
+        "description": "User Preferences API writes return the authenticated User id, aggregate version, update status, and resolved preferences directly from the command result, so shell callers can render the committed setting without waiting on the preferences projection."
+      },
+      "proof": {
+        "authoritativeResponse": "userPreferencesRoutes returns services.commandHandler result.version plus userPreferencesFor(actor.userId, result.state) after SetUserPreferences.",
+        "tests": [
+          "bounded-contexts/identity/features/preferences/api/route.test.ts proves preference updates return committed version/status/preferences and reject invalid or cross-user writes."
+        ]
+      }
+    },
+    {
       "id": "identity.internal-auth-api-command-snapshots",
       "owner": "identity",
       "risk": "critical",

@@ -156,6 +156,12 @@ export function createIdentityApiClient({
     async getCurrentActorDisplay<T>(): Promise<T> {
       return parseJsonResponse<T>(await client["current-actor-display"].$get({ header: headers }));
     },
+    async getUserPreferences<T>(): Promise<T> {
+      return parseJsonResponse<T>(await client.preferences.$get({ header: headers }));
+    },
+    async updateUserPreferences<T>(body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client.preferences.$put({ json: body, header: headers }));
+    },
     async listUsers<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client.users.$get({
