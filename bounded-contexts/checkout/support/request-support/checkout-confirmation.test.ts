@@ -92,6 +92,39 @@ describe("checkout confirmation request support", () => {
     });
   });
 
+  it("retries existing-order payment creation when freshness metadata is missing and order input is still pending", async () => {
+    mockCreateAccountPayment
+      .mockRejectedValueOnce(
+        paymentsApiError(
+          400,
+          "order_not_payment_ready",
+          "Order ord_1 is not eligible for payment in status pending-reservation.",
+        ),
+      )
+      .mockResolvedValue({ payment_id: "pay_retry_without_source" });
+    const request = new Request("https://checkout.test/account/checkout-sessions/chk_1/confirm");
+
+    const payment = await createCheckoutPaymentThroughPayments(
+      request,
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+      null,
+      undefined,
+      { maxAttempts: 2, delayMs: 0 },
+    );
+
+    expect(payment).toEqual({ payment_id: "pay_retry_without_source" });
+    expect(mockCreatePaymentsRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockCreateAccountPayment).toHaveBeenCalledTimes(2);
+  });
+
   it("fresh-reads Payments checkout status before payment creation after same-request order creation", async () => {
     mockGetCheckoutStatus.mockResolvedValue({ orderIds: ["ord_1"] });
     mockCreateAccountPayment.mockResolvedValue({ payment_id: "pay_fresh" });

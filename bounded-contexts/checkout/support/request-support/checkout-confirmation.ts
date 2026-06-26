@@ -167,13 +167,14 @@ export async function createCheckoutPaymentThroughPayments(
   const hasSameRequestOrderWrite = hasPaymentsFreshReadAfterWriteSource(orderCreationWriteResult);
   const needsOrderInputFreshRead =
     hasSameRequestOrderWrite || readFreshWriteToken(request) !== null || forwardedFreshReadHeaders !== undefined;
+  const shouldRetryPendingOrderReadiness = orderIds.length > 0;
   const paymentsApi = hasSameRequestOrderWrite
     ? createPaymentsRequestApiClient(request, { afterWriteSource: orderCreationWriteResult })
     : forwardedFreshReadHeaders
       ? createPaymentsRequestApiClient(request, { headers: forwardedFreshReadHeaders })
       : createPaymentsRequestApiClient(request);
 
-  const maxAttempts = needsOrderInputFreshRead ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
+  const maxAttempts = shouldRetryPendingOrderReadiness ? normalizeRetryAttemptCount(readinessRetry?.maxAttempts) : 1;
   const delayMs = normalizeRetryDelayMs(readinessRetry?.delayMs);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
