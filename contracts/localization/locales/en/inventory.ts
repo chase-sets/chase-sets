@@ -142,7 +142,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.committed": "Committed",
   "inventory.features.importBatches.ui.importBatchPage.commit.accepted.rows": "Commit accepted rows",
   "inventory.features.importBatches.ui.importBatchPage.csv.description":
-    "Required columns are catalogItemId, storageLocationId, and totalQuantity. Use option:<dimensionId> columns for product options.",
+    "Required columns are catalogItemId, storageLocationId, and totalQuantity. Use option:<dimension id or label> columns for product options.",
   "inventory.features.importBatches.ui.importBatchPage.csv.file": "CSV file",
   "inventory.features.importBatches.ui.importBatchPage.csv.placeholder":
     "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingQuantityCap,rowNote",

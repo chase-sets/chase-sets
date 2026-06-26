@@ -364,6 +364,23 @@ function optionMatchKeys(option: InventoryProductOption): Set<string> {
   );
 }
 
+function dimensionMatchKeys(dimension: InventoryProductDimension): Set<string> {
+  return new Set(
+    [dimension.dimensionId, dimension.dimensionName]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map(normalizeChoiceText),
+  );
+}
+
+function findSchemaDimension(schema: InventoryProductSchema, dimensionKey: string): InventoryProductDimension | null {
+  const normalized = normalizeChoiceText(dimensionKey);
+  if (!normalized) {
+    return null;
+  }
+
+  return schema.dimensions.find((dimension) => dimensionMatchKeys(dimension).has(normalized)) ?? null;
+}
+
 function resolveOptionId(options: readonly InventoryProductOption[], value: string | null | undefined): string | null {
   const normalized = value ? normalizeChoiceText(value) : "";
   if (!normalized) {
@@ -386,16 +403,37 @@ function rowValueForKey(record: Readonly<Record<string, string>>, keys: readonly
 }
 
 function optionCandidateValue(dimension: InventoryProductDimension, row: NormalizedInventoryImportRow): string | null {
-  const profileCandidate = row.selectedOptionCandidates.find(
-    (candidate) => normalizeChoiceText(candidate.dimensionKey) === normalizeChoiceText(dimension.dimensionId),
+  const dimensionKeys = dimensionMatchKeys(dimension);
+  const profileCandidate = row.selectedOptionCandidates.find((candidate) =>
+    dimensionKeys.has(normalizeChoiceText(candidate.dimensionKey)),
   );
   if (profileCandidate?.value.trim()) {
     return profileCandidate.value;
   }
 
-  const keys = [`option:${dimension.dimensionId}`, dimension.dimensionId, dimension.dimensionName];
+  const keys = [
+    `option:${dimension.dimensionId}`,
+    `option:${dimension.dimensionName}`,
+    dimension.dimensionId,
+    dimension.dimensionName,
+  ];
 
   return rowValueForKey(row.values, keys) ?? rowValueForKey(row.rawRow, keys);
+}
+
+function canonicalizeSelectedOptionEntry(
+  schema: InventoryProductSchema,
+  entry: InventorySelectedOptionEntry,
+): InventorySelectedOptionEntry {
+  const dimension = findSchemaDimension(schema, entry.dimensionId);
+  if (!dimension) {
+    return entry;
+  }
+
+  return {
+    dimensionId: dimension.dimensionId,
+    optionId: resolveOptionId(dimension.allowedOptions, entry.optionId) ?? entry.optionId,
+  };
 }
 
 function normalizeSelectedOptionsForSchema(
@@ -407,24 +445,23 @@ function normalizeSelectedOptionsForSchema(
     return [...selection];
   }
 
-  const byDimension = new Map(selection.map((entry) => [entry.dimensionId, entry.optionId]));
+  const selectedOptions = selection.map((entry) => canonicalizeSelectedOptionEntry(schema, entry));
+  const selectedDimensionIds = new Set(selectedOptions.map((entry) => entry.dimensionId));
+  const inferredOptions: InventorySelectedOptionEntry[] = [];
 
   for (const dimension of schema.dimensions) {
-    const currentOptionId = byDimension.get(dimension.dimensionId);
-    const resolvedCurrent = resolveOptionId(dimension.allowedOptions, currentOptionId);
-    if (resolvedCurrent) {
-      byDimension.set(dimension.dimensionId, resolvedCurrent);
+    if (selectedDimensionIds.has(dimension.dimensionId)) {
       continue;
     }
 
     const candidateValue = optionCandidateValue(dimension, row);
     const inferredOptionId = resolveOptionId(dimension.allowedOptions, candidateValue);
     if (inferredOptionId) {
-      byDimension.set(dimension.dimensionId, inferredOptionId);
+      inferredOptions.push({ dimensionId: dimension.dimensionId, optionId: inferredOptionId });
     }
   }
 
-  return [...byDimension.entries()].map(([dimensionId, optionId]) => ({ dimensionId, optionId }));
+  return [...selectedOptions, ...inferredOptions];
 }
 
 function itemIdForRow(rowId: string): InventoryItemId {

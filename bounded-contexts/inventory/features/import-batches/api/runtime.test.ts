@@ -84,6 +84,35 @@ const productSchema = {
   ],
 } satisfies InventoryProductSchema;
 
+const formConditionProductSchema = {
+  canonicalDimensionOrder: [
+    { dimensionId: "dim_form", dimensionName: "Form" },
+    { dimensionId: "dim_condition", dimensionName: "Condition" },
+  ],
+  dimensions: [
+    {
+      dimensionId: "dim_form",
+      dimensionName: "Form",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [
+        { optionId: "opt_raw", code: "raw", label: "Raw" },
+        { optionId: "opt_graded", code: "graded", label: "Graded" },
+      ],
+    },
+    {
+      dimensionId: "dim_condition",
+      dimensionName: "Condition",
+      required: true,
+      appliesWhen: [{ dimensionId: "dim_form", optionIds: ["opt_raw"] }],
+      allowedOptions: [
+        { optionId: "opt_near_mint", code: "near-mint", label: "Near Mint" },
+        { optionId: "opt_damaged", code: "damaged", label: "Damaged" },
+      ],
+    },
+  ],
+} satisfies InventoryProductSchema;
+
 class ImportBatchDb implements PgQueryable {
   public readonly batches = new Map<string, StoredBatch>();
   public rows: StoredRow[] = [];
@@ -283,7 +312,7 @@ function catalogServices(): InventoryCatalogItemServices {
         subtitle: null,
         blueprint_id: null,
         status: itemId === "cat_inactive" ? "draft" : "active",
-        product_schema: productSchema,
+        product_schema: itemId === "cat_form_condition" ? formConditionProductSchema : productSchema,
         updated_at: now,
       };
     },
@@ -429,6 +458,52 @@ describe("inventory import batch runtime", () => {
         "listingQuantityCap is required when listingPriceAmount is set.",
       ]),
     );
+  });
+
+  it("accepts native option columns that use visible dimension and option labels", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap",
+          "cat_form_condition,loc_active,1,Raw,Damaged,5.55,1",
+          "cat_form_condition,loc_active,2,Raw,Near Mint,6.66,1",
+          "cat_unknown,loc_active,3,Raw,Near Mint,7.77,1",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      total_count: 3,
+      accepted_count: 2,
+      rejected_count: 1,
+    });
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      product_id: "cat_form_condition::dim_form:opt_raw|dim_condition:opt_damaged",
+      selected_options: [
+        { dimensionId: "dim_form", optionId: "opt_raw" },
+        { dimensionId: "dim_condition", optionId: "opt_damaged" },
+      ],
+      listing_price_amount: "5.55",
+      listing_quantity_cap: 1,
+    });
+    expect(batch.rows[1]).toMatchObject({
+      status: "accepted",
+      product_id: "cat_form_condition::dim_form:opt_raw|dim_condition:opt_near_mint",
+      selected_options: [
+        { dimensionId: "dim_form", optionId: "opt_raw" },
+        { dimensionId: "dim_condition", optionId: "opt_near_mint" },
+      ],
+      listing_price_amount: "6.66",
+      listing_quantity_cap: 1,
+    });
+    expect(batch.rows[2]).toMatchObject({
+      status: "rejected",
+      validation_errors: ["Catalog item was not found."],
+    });
   });
 
   it("keeps rejected-only validation batches reviewable", async () => {
