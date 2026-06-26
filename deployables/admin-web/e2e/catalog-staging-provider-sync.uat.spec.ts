@@ -860,31 +860,7 @@ async function expectImportPreflight(
   selectedScope: SelectedProviderScope,
   expectation: ImportPreflightExpectation,
 ): Promise<void> {
-  const panel = page
-    .locator(`[data-catalog-import-preview="ready"][data-catalog-import-preview-unit="${cssAttrValue(unitKey)}"]`)
-    .filter({ visible: true })
-    .first();
-  const deadline = Date.now() + sourceOptionTimeoutMs;
-  // Deferred review data can move the operator stepper back to Review Changes
-  // after a scope change; reopen Run Sync the way an operator would.
-  while (Date.now() < deadline) {
-    await expandWorkflowStage(page, "run-sync");
-    if (await panel.isVisible().catch(() => false)) {
-      break;
-    }
-    await page.waitForTimeout(1_000);
-  }
-
-  await expandWorkflowStage(page, "run-sync");
-  await expect(panel).toBeVisible({ timeout: pageReadyTimeoutMs });
-  if (selectedScope.importScope) {
-    const scopeCandidates = importPreflightScopeCandidates(selectedScope.importScope);
-    const observedScope = await waitForImportPreflightScope(panel, scopeCandidates);
-    expect(
-      scopeCandidates,
-      `Import preflight scope ${observedScope ?? "none"} should match the selected or canonicalized scope.`,
-    ).toContain(observedScope);
-  }
+  const panel = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope);
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
       timeout: sourceOptionTimeoutMs,
@@ -907,17 +883,78 @@ function cssAttrValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-async function waitForImportPreflightScope(panel: Locator, scopeCandidates: readonly string[]): Promise<string | null> {
+async function waitForSelectedImportPreflightPanel(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+): Promise<Locator> {
+  const panels = importPreflightPanelsForSelectedScope(page, unitKey, selectedScope.providerKey);
+  const scopeCandidates = selectedScope.importScope ? importPreflightScopeCandidates(selectedScope.importScope) : [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
-  let observedScope: string | null = null;
+  let observedScopes: readonly string[] = [];
+
+  // Deferred review data can move the operator stepper back to Review Changes
+  // after a scope change; reopen Run Sync the way an operator would.
   while (Date.now() < deadline) {
-    observedScope = await panel.getAttribute("data-catalog-import-preview-scope");
-    if (observedScope && scopeCandidates.includes(observedScope)) {
-      return observedScope;
+    await expandWorkflowStage(page, "run-sync");
+    const panel = await firstVisibleImportPreflightPanelMatchingScope(panels, scopeCandidates);
+    if (panel) {
+      return panel;
     }
-    await panel.page().waitForTimeout(500);
+    observedScopes = await visibleImportPreflightPanelScopes(panels);
+    await page.waitForTimeout(1_000);
   }
-  return observedScope;
+
+  throw new Error(
+    `Import preflight for ${unitKey} and ${selectedScope.displayLabel} did not settle on ${
+      scopeCandidates.join(", ") || "any selected scope"
+    }. Observed visible preview scopes: ${observedScopes.join(", ") || "none"}.`,
+  );
+}
+
+function importPreflightPanelsForSelectedScope(page: Page, unitKey: string, providerKey: string): Locator {
+  return page
+    .locator(
+      `[data-catalog-import-preview="ready"][data-catalog-import-preview-provider="${cssAttrValue(
+        providerKey,
+      )}"][data-catalog-import-preview-unit="${cssAttrValue(unitKey)}"]`,
+    )
+    .filter({ visible: true });
+}
+
+async function firstVisibleImportPreflightPanelMatchingScope(
+  panels: Locator,
+  scopeCandidates: readonly string[],
+): Promise<Locator | null> {
+  const count = await panels.count();
+  for (let index = 0; index < count; index += 1) {
+    const panel = panels.nth(index);
+    if (!(await panel.isVisible().catch(() => false))) {
+      continue;
+    }
+    if (scopeCandidates.length === 0) {
+      return panel;
+    }
+    const observedScope = await panel.getAttribute("data-catalog-import-preview-scope");
+    if (observedScope && scopeCandidates.includes(observedScope)) {
+      return panel;
+    }
+  }
+
+  return null;
+}
+
+async function visibleImportPreflightPanelScopes(panels: Locator): Promise<readonly string[]> {
+  const scopes: string[] = [];
+  const count = await panels.count();
+  for (let index = 0; index < count; index += 1) {
+    const panel = panels.nth(index);
+    if (await panel.isVisible().catch(() => false)) {
+      scopes.push((await panel.getAttribute("data-catalog-import-preview-scope")) ?? "none");
+    }
+  }
+
+  return [...new Set(scopes)];
 }
 
 function importPreflightScopeCandidates(importScope: string): readonly string[] {
