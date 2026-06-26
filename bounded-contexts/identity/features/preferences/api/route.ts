@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
@@ -20,7 +21,7 @@ function authenticationRequired() {
   return {
     error: {
       code: "authentication_required",
-      message: "Authentication required.",
+      message: t("identity.features.preferences.api.route.authentication.required"),
     },
   };
 }
@@ -29,7 +30,7 @@ function forbidden() {
   return {
     error: {
       code: "authorization_forbidden",
-      message: "Forbidden.",
+      message: t("identity.features.preferences.api.route.forbidden"),
     },
   };
 }
