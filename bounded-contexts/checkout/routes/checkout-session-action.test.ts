@@ -1070,6 +1070,11 @@ describe("checkout web routes: checkout session action", () => {
     expect(receipt?.commitPosition).toBeUndefined();
     expect(receipt?.sources).toEqual([
       {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "77",
+        eventIds: ["evt_checkout_orders_created"],
+      },
+      {
         sourceContextName: "ordering",
         maxGlobalPosition: "42",
         eventIds: ["evt_order_created"],
