@@ -705,7 +705,15 @@ async function startCatalogSyncForSelectedProviderUnit(
   });
 
   const participationCheckbox = participationRow.getByRole("checkbox").first();
-  await expect(participationCheckbox).toBeEnabled({ timeout: sourceOptionTimeoutMs });
+  await expect(participationCheckbox)
+    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
+    .catch(async () => {
+      throw new Error(
+        `Catalog sync participation row for ${unitKey} is visible but not selectable: ${await visibleLocatorText(
+          participationRow,
+        )}`,
+      );
+    });
   if (!(await participationCheckbox.isChecked().catch(() => false))) {
     await participationCheckbox.check();
   }
@@ -721,10 +729,14 @@ async function startCatalogSyncForSelectedProviderUnit(
 }
 
 function catalogSyncParticipationRowForUnit(commandForm: Locator, unitKey: string): Locator {
-  return commandForm
-    .getByRole("row")
-    .filter({ has: commandForm.getByText(unitKey, { exact: true }) })
-    .first();
+  return commandForm.getByRole("row").filter({ hasText: unitKey }).first();
+}
+
+async function visibleLocatorText(locator: Locator): Promise<string> {
+  return locator
+    .innerText({ timeout: 2_000 })
+    .then(normalizeWhitespace)
+    .catch(() => "row text unavailable");
 }
 
 async function expectCatalogSyncCommandAcceptedOrRunVisible(page: Page): Promise<void> {
