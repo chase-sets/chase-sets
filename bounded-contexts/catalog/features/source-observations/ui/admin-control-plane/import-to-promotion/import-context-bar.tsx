@@ -146,6 +146,14 @@ const importContextSubmitOptions = {
   replace: true,
   preventScrollReset: true,
 } as const;
+const staleImportContextHiddenFieldNames = new Set([
+  "importScope",
+  "selectedObservationIds",
+  "reviewOffset",
+  "reviewLimit",
+  "jobId",
+  "promotionPreviewId",
+]);
 
 function ProviderImportContextForm({
   readModel,
@@ -280,6 +288,7 @@ function submitImportContextFilter(
   if (options.clearSourceOptionIntent) {
     clearSourceOptionRefreshIntent(form);
   }
+  clearStaleImportContextHiddenState(form);
 
   const disabledFields: Array<HTMLInputElement | HTMLSelectElement> = [];
   for (const fieldName of dependentFieldNames) {
@@ -306,6 +315,17 @@ function clearSourceOptionRefreshIntent(form: HTMLFormElement): void {
   for (const fieldName of [CATALOG_SOURCE_OPTION_ACTION_PARAM, CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM]) {
     const field = form.elements.namedItem(fieldName);
     if (field instanceof HTMLInputElement) {
+      field.remove();
+    }
+  }
+}
+
+function clearStaleImportContextHiddenState(form: HTMLFormElement): void {
+  for (const field of Array.from(form.elements)) {
+    if (!(field instanceof HTMLInputElement) || field.type !== "hidden") {
+      continue;
+    }
+    if (staleImportContextHiddenFieldNames.has(field.name) || field.name.startsWith("filter.")) {
       field.remove();
     }
   }
@@ -410,6 +430,7 @@ function submitSourceScopeFilter(
   }
 
   hydrateParentScopeFields(form, event.currentTarget.value, parentFields, currentOptions);
+  clearStaleImportContextHiddenState(form);
 
   for (const fieldName of dependentFieldNames) {
     const field = form.elements.namedItem(fieldName);

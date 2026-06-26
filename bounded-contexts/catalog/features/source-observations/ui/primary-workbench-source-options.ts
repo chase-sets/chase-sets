@@ -98,7 +98,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
   const pageSnapshots = new Map(input.sourceOptionPages?.map((page) => [sourceOptionRequestKey(page.request), page]));
   const optionKinds = requests.map((request) => sourceOptionKindReadModel(request, sourceOptionProfile));
   const pages = requests.map((request) =>
-    sourceOptionPageReadModel(request, pageSnapshots.get(sourceOptionRequestKey(request))),
+    sourceOptionPageReadModel(request, pageSnapshots.get(sourceOptionRequestKey(request)), input.scopes),
   );
   const summary = sourceOptionSummary(pages);
   const refreshBlockers = sourceOptionRefreshBlockers(
@@ -692,6 +692,7 @@ function requiredParentDiagnosticText(parentScope: string, displayName: string):
 function sourceOptionPageReadModel(
   request: CatalogPrimaryWorkbenchSourceOptionRequest,
   snapshot: CatalogPrimaryWorkbenchSourceOptionPageSnapshot | undefined,
+  scopes: readonly SourceObservationIntegrationScope[],
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number] {
   const missingRequiredParent = request.parentRequired && request.parentScope !== null && !request.selectedParentValue;
   if (missingRequiredParent) {
@@ -722,28 +723,38 @@ function sourceOptionPageReadModel(
       hasMore: false,
     };
     const blockers = sourceOptionBlockersForState(state, cache.degraded);
-    const items = sourceOptionItemsReadModel(request, response.items, page.limit);
+    const responseItems = sourceOptionItemsReadModel(request, response.items, page.limit);
+    const fallbackItems =
+      responseItems.length === 0 && (state === "unavailable" || cache.degraded)
+        ? sourceOptionItemsFromScopes(request, scopes)
+        : [];
+    const items = fallbackItems.length > 0 ? fallbackItems : responseItems;
+    const effectiveState = fallbackItems.length > 0 && state === "unavailable" ? "stale" : state;
+    const effectiveBlockers = fallbackItems.length > 0 ? ["provider-transport-stale-cache" as const] : blockers;
 
     return {
       queryKind: request.queryKind,
       displayName: request.displayName,
       scope: request.scope,
-      state,
-      actionState: actionStateForBlockers(blockers, "available"),
-      blockers,
-      degraded: cache.degraded,
+      state: effectiveState,
+      actionState: actionStateForBlockers(effectiveBlockers, "available"),
+      blockers: effectiveBlockers,
+      degraded: cache.degraded || fallbackItems.length > 0,
       request: requestReadModel(request),
       page: {
         cursor: page.cursor ?? null,
         nextCursor: page.nextCursor ?? null,
         limit: page.limit,
         hasMore: page.hasMore,
-        total: response.total,
+        total: fallbackItems.length > 0 ? fallbackItems.length : response.total,
         count: items.length,
       },
       cache: {
         ...cache,
-        cacheKey: cache.cacheKey ?? null,
+        status: fallbackItems.length > 0 && cache.status === "unavailable" ? "stale" : cache.status,
+        source: fallbackItems.length > 0 && cache.source === "none" ? "cache" : cache.source,
+        cacheKey: cache.cacheKey ?? (fallbackItems.length > 0 ? sourceOptionScopeFallbackCacheKey(request) : null),
+        degraded: cache.degraded || fallbackItems.length > 0,
       },
       items,
       queryHref: request.queryHref,
@@ -754,6 +765,13 @@ function sourceOptionPageReadModel(
 
   if (snapshot?.error) {
     const state = snapshot.error.rolloutBlocked ? "rollout-blocked" : "unavailable";
+    const fallbackItems = state === "unavailable" ? sourceOptionItemsFromScopes(request, scopes) : [];
+    if (fallbackItems.length > 0) {
+      return sourceOptionScopeFallbackPage(request, fallbackItems, {
+        code: snapshot.error.code,
+        message: snapshot.error.message,
+      });
+    }
     return emptySourceOptionPage(request, {
       state,
       blockers: [snapshot.error.rolloutBlocked ? "rollout-disabled" : "read-model-unavailable"],
@@ -809,6 +827,164 @@ function emptySourceOptionPage(
     refreshHref: request.refreshHref,
     nextPageHref: null,
   };
+}
+
+function sourceOptionScopeFallbackPage(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  items: SourceObservationIntegrationOptionResponse["items"],
+  diagnostic: Readonly<{ code: string; message: string }>,
+): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number] {
+  return {
+    queryKind: request.queryKind,
+    displayName: request.displayName,
+    scope: request.scope,
+    state: "stale",
+    actionState: actionStateForBlockers(["provider-transport-stale-cache"], "available"),
+    blockers: ["provider-transport-stale-cache"],
+    degraded: true,
+    request: requestReadModel(request),
+    page: {
+      cursor: request.cursor,
+      nextCursor: null,
+      limit: request.limit,
+      hasMore: false,
+      total: items.length,
+      count: items.length,
+    },
+    cache: {
+      ...unavailableCache(diagnostic.code, diagnostic.message, "warning"),
+      status: "stale",
+      source: "cache",
+      cacheKey: sourceOptionScopeFallbackCacheKey(request),
+    },
+    items,
+    queryHref: request.queryHref,
+    refreshHref: request.refreshHref,
+    nextPageHref: null,
+  };
+}
+
+function sourceOptionItemsFromScopes(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  scopes: readonly SourceObservationIntegrationScope[],
+): SourceObservationIntegrationOptionResponse["items"] {
+  if (request.scope !== "expansion" && request.scope !== "set-name") {
+    return [];
+  }
+
+  const items = scopes
+    .filter((scope) => scope.provider_key === request.providerKey)
+    .map((scope) => sourceOptionItemFromScope(request, scope))
+    .filter((item): item is SourceObservationIntegrationOptionResponse["items"][number] => item !== null);
+  const seen = new Set<string>();
+  const unique: SourceObservationIntegrationOptionResponse["items"] = [];
+  for (const item of items) {
+    const key = `${item.parentValue ?? ""}:${item.value}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(item);
+    if (unique.length >= request.limit) {
+      return unique;
+    }
+  }
+
+  return unique;
+}
+
+function sourceOptionScopeFallbackCacheKey(request: CatalogPrimaryWorkbenchSourceOptionRequest): string {
+  return [
+    "scope-fallback",
+    request.providerKey,
+    request.ingestionUnitKey ?? "unit",
+    request.queryKind,
+    request.parentValue ?? "root",
+  ].join(":");
+}
+
+function sourceOptionItemFromScope(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  scope: SourceObservationIntegrationScope,
+): SourceObservationIntegrationOptionResponse["items"][number] | null {
+  const option = scopeFallbackOptionValue(request, scope);
+  if (!option) {
+    return null;
+  }
+
+  return {
+    providerKey: request.providerKey,
+    queryKind: request.queryKind,
+    value: option.value,
+    label: sourceOptionDisplayLabel({
+      queryKind: request.queryKind,
+      scope: request.scope,
+      value: option.value,
+      label: option.label,
+    }),
+    description: null,
+    parentValue: scopeFallbackParentValue(request, scope),
+    imageUrl: null,
+    aliases: [],
+    metadata: sourceOptionDisplayMetadata(),
+  };
+}
+
+function scopeFallbackOptionValue(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  scope: SourceObservationIntegrationScope,
+): Readonly<{ value: string; label: string }> | null {
+  switch (request.scope) {
+    case "language":
+      return scopeValue(scope.language_code, scope.language_code);
+    case "product-line/category":
+      return scopeValue(
+        scope.product_line_id || scope.product_line_name,
+        scope.product_line_name || scope.product_line_id,
+      );
+    case "series":
+      return scopeValue(scope.series_id || scope.series_name, scope.series_name || scope.series_id);
+    case "expansion":
+      return scopeValue(scope.expansion_id || scope.expansion_name, scope.expansion_name || scope.expansion_id);
+    case "set-name":
+      return scopeValue(scope.expansion_id || scope.expansion_name, scope.expansion_name || scope.expansion_id);
+    default:
+      return null;
+  }
+}
+
+function scopeFallbackParentValue(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  scope: SourceObservationIntegrationScope,
+): string | null {
+  switch (request.parentScope) {
+    case "language":
+      return scope.language_code || null;
+    case "product-line/category":
+      return scope.product_line_id || scope.product_line_name || null;
+    case "series":
+      return scope.series_id || scope.series_name || null;
+    case "expansion":
+    case "set-name":
+      return scope.expansion_name || scope.expansion_id || null;
+    default:
+      return null;
+  }
+}
+
+function scopeValue(
+  value: string | null | undefined,
+  label: string | null | undefined,
+): Readonly<{
+  value: string;
+  label: string;
+}> | null {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return { value: normalizedValue, label: label?.trim() || normalizedValue };
 }
 
 function sourceOptionItemsReadModel(

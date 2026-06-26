@@ -463,6 +463,36 @@ function latestSubmittedFormData(): FormData {
   return submitted!;
 }
 
+function appendHiddenField(form: HTMLFormElement, name: string, value: string): void {
+  const field = document.createElement("input");
+  field.type = "hidden";
+  field.name = name;
+  field.value = value;
+  form.appendChild(field);
+}
+
+function appendStaleImportContextHiddenState(form: HTMLFormElement): void {
+  appendHiddenField(form, "importScope", "en:OP09");
+  appendHiddenField(form, "filter.importScope", "en:OP09");
+  appendHiddenField(form, "filter.providerKey", "scrydex");
+  appendHiddenField(form, "filter.status", "changed");
+  appendHiddenField(form, "selectedObservationIds", "obs_old");
+  appendHiddenField(form, "jobId", "job_old");
+  appendHiddenField(form, "reviewOffset", "25");
+  appendHiddenField(form, "reviewLimit", "50");
+  appendHiddenField(form, "promotionPreviewId", "preview_old");
+}
+
+function expectSubmittedWithoutStaleImportContextState(submitted: FormData): void {
+  expect(submitted.has("importScope")).toBe(false);
+  expect([...submitted.keys()].some((key) => key.startsWith("filter."))).toBe(false);
+  expect(submitted.has("selectedObservationIds")).toBe(false);
+  expect(submitted.has("jobId")).toBe(false);
+  expect(submitted.has("reviewOffset")).toBe(false);
+  expect(submitted.has("reviewLimit")).toBe(false);
+  expect(submitted.has("promotionPreviewId")).toBe(false);
+}
+
 describe("CatalogWorkbenchShell single per-surface return affordance", () => {
   afterEach(() => {
     cleanup();
@@ -541,6 +571,7 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
     staleQueryKind.name = "sourceOptionQueryKind";
     staleQueryKind.value = "expansions";
     form!.appendChild(staleQueryKind);
+    appendStaleImportContextHiddenState(form!);
 
     fireEvent.change(provider, { target: { value: "scrydex" } });
 
@@ -559,6 +590,7 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
     expect(submitted.has("profileVersion")).toBe(false);
     expect(submitted.has("sourceOptionAction")).toBe(false);
     expect(submitted.has("sourceOptionQueryKind")).toBe(false);
+    expectSubmittedWithoutStaleImportContextState(submitted);
     expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
     expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
     // The context change submits as a client GET navigation (no full reload), not
@@ -965,6 +997,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     staleQueryKind.name = "sourceOptionQueryKind";
     staleQueryKind.value = "languages";
     form!.appendChild(staleQueryKind);
+    appendStaleImportContextHiddenState(form!);
 
     fireEvent.change(language, { target: { value: "ja" } });
 
@@ -973,6 +1006,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect((action as HTMLInputElement).type).toBe("hidden");
     expect((action as HTMLInputElement).value).toBe("force-refresh-all");
     expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+    expectSubmittedWithoutStaleImportContextState(latestSubmittedFormData());
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });
