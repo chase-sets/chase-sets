@@ -36,6 +36,10 @@ export const SUBCOMMANDS = {
     script: "google-shopping-launch-readiness-evidence.mjs",
     description: "Google Shopping launch readiness gate evidence.",
   },
+  "checkout:order-readiness-trace": {
+    script: "checkout-order-readiness-trace.mjs",
+    description: "Redacted staging checkout order-readiness trace for payment-start blockers.",
+  },
   "guest-buy-now:freshness-probe": {
     script: "guest-buy-now-freshness-probe.mjs",
     description: "Guest buy-now freshness probe against a deployed environment.",
