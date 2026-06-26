@@ -767,6 +767,9 @@ function inferUnitKey(
   if (overviewUnits.length === 1) {
     return overviewUnits[0]?.unitKey ?? null;
   }
+  if (overviewUnits.length > 1) {
+    return null;
+  }
   if (!providerKey) {
     return null;
   }
@@ -1698,7 +1701,7 @@ function providerReadinessHasImportUnit(
   return units.some(
     (unit) =>
       unit.providerKey === provider.providerKey &&
-      unit.ingestionPurpose === "import" &&
+      (unit.ingestionPurpose === "import" || unit.ingestionPurpose === "source-observation-import") &&
       (provider.unitKeys.length === 0 || provider.unitKeys.includes(unit.unitKey)),
   );
 }

@@ -1953,6 +1953,79 @@ describe("Catalog integrations route", () => {
     expect(deferredSourceOptions.refresh.refreshAllHref).toBeNull();
   });
 
+  it("keeps provider-only TCGplayer units selectable when profile reviews are temporarily unavailable", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      readiness: {
+        ...baseOverview.readiness,
+        units: [
+          tcgplayerReadinessUnit(pokemonUnit, "Pokemon", "pokemon"),
+          tcgplayerReadinessUnit(mtgUnit, "Magic", "mtg"),
+          tcgplayerReadinessUnit(yugiohUnit, "Yu-Gi-Oh", "yugioh"),
+        ],
+      },
+      unitActivity: {
+        ...baseOverview.unitActivity,
+        units: [
+          { unitKey: pokemonUnit, recentJobs: [] },
+          { unitKey: mtgUnit, recentJobs: [] },
+          { unitKey: yugiohUnit, recentJobs: [] },
+        ],
+      },
+      providerReadiness: {
+        ...baseOverview.providerReadiness,
+        providers: [
+          {
+            ...baseOverview.providerReadiness.providers[0]!,
+            providerKey: "tcgplayer",
+            adapterKey: "tcgplayer",
+            unitKeys: [pokemonUnit, mtgUnit, yugiohUnit],
+          },
+        ],
+      },
+    });
+    const listSourceObservationProviderProfiles = vi.fn().mockRejectedValue(new Error("profile review API failed"));
+    const listSourceObservationIntegrationOptions = vi.fn().mockRejectedValue(new Error("ambiguous option query"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles,
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(overview),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgplayer"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(listSourceObservationProviderProfiles).toHaveBeenCalledOnce();
+    expect(routeData.readModel.routeContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: null,
+      importScope: null,
+    });
+    expect(
+      routeData.readModel.providerScope.providers
+        .find((provider) => provider.providerKey === "tcgplayer")
+        ?.units.map((unit) => unit.unitKey),
+    ).toEqual([mtgUnit, pokemonUnit, yugiohUnit]);
+    expect(routeData.readModel.sourceScopeWorkset.units.map((unit) => unit.unitKey)).toEqual([
+      mtgUnit,
+      pokemonUnit,
+      yugiohUnit,
+    ]);
+
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
+    expect(deferredSourceOptions.pages).toEqual([]);
+  });
+
   it("keeps the provider-only TCGplayer importer shell renderable when optional read projections fail", async () => {
     const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
@@ -4606,6 +4679,31 @@ describe("Catalog integrations route", () => {
     expect(result.feedback.result).toBe("reason-required");
   });
 });
+
+function tcgplayerReadinessUnit(unitKey: string, displayNameProduct: string, productDomain: string) {
+  return {
+    unitKey,
+    providerKey: "tcgplayer",
+    displayName: `TCGplayer ${displayNameProduct} Single Cards`,
+    productDomain,
+    productForm: "single-card",
+    ingestionPurpose: "source-observation-import",
+    profileVersion: "2026.06.20",
+    semanticReadiness: "ready",
+    credentialReadiness: "ready",
+    credentialReadinessState: "configured",
+    credentialRequirement: "required",
+    credentialDiagnosticCode: null,
+    transportReadiness: "ready",
+    fixtureValidationStatus: "ready",
+    dryRunStatus: "completed",
+    observationFacts: 0,
+    diagnosticCounts: { info: 0, warning: 0, error: 0 },
+    diagnostics: [],
+    latestDiagnosticText: null,
+    dryRunEvidence: [],
+  } as const;
+}
 
 function aliasReviewReadModel() {
   return {

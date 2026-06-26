@@ -94,7 +94,7 @@ async function loadIntegrationsBaseline(
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }> {
   const api = createCatalogRequestApiClient(request);
-  const [routeDataResult, profileReviews, controlPlaneOverviewResult, actor] = await Promise.all([
+  const [routeDataResult, profileReviewsResult, controlPlaneOverviewResult, actor] = await Promise.all([
     catalogApiResult(
       () =>
         loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
@@ -102,7 +102,10 @@ async function loadIntegrationsBaseline(
         ),
       emptyListRouteData<SourceObservationIntegrationScope>(request),
     ),
-    api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
+    catalogApiResult(
+      () => api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
+      emptyListResponse<CatalogProviderProfileVersionReview>(),
+    ),
     catalogApiResult(
       () => api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
       null,
@@ -116,12 +119,15 @@ async function loadIntegrationsBaseline(
   if (controlPlaneOverviewResult.failed) {
     readModelFailures.push("control-plane-overview");
   }
+  if (profileReviewsResult.failed) {
+    readModelFailures.push("provider-profiles");
+  }
 
   return {
     api,
     baseline: {
       routeData: routeDataResult.value,
-      profileReviews,
+      profileReviews: profileReviewsResult.value,
       controlPlaneOverview: controlPlaneOverviewResult.value,
       readModelFailures,
       canManageCatalog: actor?.permissions.includes("catalog.manage") ?? false,
