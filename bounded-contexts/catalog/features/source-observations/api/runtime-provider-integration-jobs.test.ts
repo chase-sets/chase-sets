@@ -32,6 +32,7 @@ describe("source observation runtime: provider integration jobs", () => {
       harness.deps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions({ profileKey: "mtg-single-card-product-sku" }),
     );
 
     const job = await services.enqueueIntegrationJob({
@@ -51,6 +52,7 @@ describe("source observation runtime: provider integration jobs", () => {
       harness.deps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions({ profileKey: "mtg-single-card-product-sku" }),
     );
 
     await expect(
@@ -536,6 +538,15 @@ describe("source observation runtime: provider integration jobs", () => {
         providerKey: "tcgplayer",
         value: "tcgplayer",
         label: "TCGplayer Magic Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer Pokemon Single Cards",
         metadata: expect.objectContaining({
           status: "active",
           connectorKind: "tcgplayer-automation-client",
@@ -1111,7 +1122,7 @@ describe("source observation runtime: provider integration jobs", () => {
         expect.objectContaining({
           status: "failed",
           observed: 1,
-          reason: "Imported 1 TCGplayer product details before Product 610002 unavailable.",
+          reason: "Imported 1 TCGplayer Pokemon Single Cards product details before Product 610002 unavailable.",
         }),
       ],
     });

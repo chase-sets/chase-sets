@@ -157,25 +157,25 @@ describe("Catalog provider profile section domain", () => {
     expect(sections.ingestionUnitIdentity.validation.status).toBe("valid");
   });
 
-  it("exposes activation readiness inputs and lifecycle policy decisions", () => {
-    const testVersion = catalogProviderIntegrationProfileVersions.find(
+  it("exposes activation readiness inputs and active lifecycle policy decisions", () => {
+    const activeVersion = catalogProviderIntegrationProfileVersions.find(
       (version) => version.providerKey === "tcgplayer" && version.profileKey === "pokemon-tcg-automation-client",
     )!;
     const readiness = evaluateCatalogProviderProfileActivationReadiness(
-      catalogProviderProfileActivationReadinessInput(testVersion),
+      catalogProviderProfileActivationReadinessInput(activeVersion),
     );
     const policy = evaluateCatalogProviderProfileLifecyclePolicy({
-      lifecycle: testVersion.lifecycle,
-      active: testVersion.active,
+      lifecycle: activeVersion.lifecycle,
+      active: activeVersion.active,
       referenceCount: 0,
       activationReadiness: readiness,
     });
 
-    expect(canEditCatalogProviderIngestionUnitProfile(testVersion.lifecycle)).toBe(true);
-    expect(readiness.status).toBe("ready");
-    expect(policy.activation.allowed).toBe(true);
-    expect(policy.deprecation.allowed).toBe(false);
-    expect(policy.retirement.allowed).toBe(true);
+    expect(canEditCatalogProviderIngestionUnitProfile(activeVersion.lifecycle)).toBe(false);
+    expect(readiness.status).toBe("blocked");
+    expect(policy.activation.allowed).toBe(false);
+    expect(policy.deprecation.allowed).toBe(true);
+    expect(policy.retirement.allowed).toBe(false);
   });
 
   it("blocks invalid activation and retirement states with focused diagnostics", () => {
