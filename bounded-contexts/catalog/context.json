@@ -755,6 +755,10 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
         "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
         "api-route:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Hc26f6a0ca5dc#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Hc7106b228f36#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.ts:POST Hb5bc18e0ff34#1",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /bulk-promote/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/impact",
         "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/preview",
@@ -771,11 +775,12 @@
       ],
       "visibleDestination": {
         "routeId": "integrations",
-        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run, candidate generation, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
+        "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Route tests cover Catalog sync scope preview/run, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
+          "bounded-contexts/catalog/features/source-observations/api/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",

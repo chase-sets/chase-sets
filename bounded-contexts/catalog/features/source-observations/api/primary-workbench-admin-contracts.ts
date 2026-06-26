@@ -1,4 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogMergeCandidateReviewCommandPreview } from "./catalog-merge-candidate-review-command-payloads";
 import type {
   CatalogAdminControlPlaneFreshnessState,
   CatalogAdminControlPlanePaginationMode,
@@ -1746,6 +1747,7 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     state: CatalogPrimaryWorkbenchActionState;
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
     reasonRequired: boolean;
+    commandPreview: CatalogMergeCandidateReviewCommandPreview | null;
   }>[];
 }>;
 
@@ -3459,6 +3461,13 @@ function assertPrimaryWorkbenchMergeCandidateReview(
     for (const actionEntry of row.actions) {
       assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
       assertPrimaryWorkbenchBlockers(actionEntry.blockers);
+      if (
+        (actionEntry.key === "split-merge-candidate" || actionEntry.key === "update-merge-candidate") &&
+        (actionEntry.state === "available" || actionEntry.state === "degraded") &&
+        !actionEntry.commandPreview
+      ) {
+        throw new Error("Primary workbench split/update merge candidate actions require typed command previews.");
+      }
     }
   }
 }

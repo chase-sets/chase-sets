@@ -6,6 +6,7 @@ import type {
   CatalogMergeCandidateExternalProductReference,
   CatalogMergeCandidateFieldProvenance,
   CatalogMergeCandidateIdentity,
+  CatalogMergeCandidateObservationMember,
   CatalogMergeCandidatePromotionIntent,
   CatalogMergeCandidateStatus,
   CatalogMergeCandidateWarning,
@@ -76,6 +77,7 @@ export interface CatalogMergeCandidateListItem {
   conflicts_json: CatalogMergeCandidateConflict[];
   warnings_json: CatalogMergeCandidateWarning[];
   field_provenance_json: CatalogMergeCandidateFieldProvenance[];
+  membership_json: CatalogMergeCandidateObservationMember[];
   promotion_intent: CatalogMergeCandidatePromotionIntent;
   created_at: string;
   updated_at: string;

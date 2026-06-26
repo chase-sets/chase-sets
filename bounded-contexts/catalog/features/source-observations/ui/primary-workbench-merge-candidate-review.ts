@@ -9,6 +9,10 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
+import {
+  previewCatalogMergeCandidateReviewCommand,
+  type CatalogMergeCandidateReviewCommandBlocker,
+} from "../api/catalog-merge-candidate-review-command-payloads";
 import type { CatalogMergeCandidateListItem } from "./contracts";
 import { actionStateForBlockers } from "./primary-workbench-read-model-support";
 import { scopeDisplayLabel } from "./primary-workbench-scope-context";
@@ -179,25 +183,53 @@ function mergeCandidateActionsFor(
     candidate.status === "promoted" || candidate.status === "rejected"
       ? ["no-promotion-eligible-observations"]
       : manageBlockers;
-  const splitUpdateBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] =
-    candidate.status === "stale" ? ["source-projection-stale"] : ["unsupported-command"];
+  const splitPreview = previewCatalogMergeCandidateReviewCommand(candidate, "split-merge-candidate");
+  const updatePreview = previewCatalogMergeCandidateReviewCommand(candidate, "update-merge-candidate");
+  const splitBlockers =
+    splitPreview.status === "available"
+      ? manageBlockers
+      : [...manageBlockers, ...commandPreviewBlockers(splitPreview.blockers)];
+  const updateBlockers =
+    updatePreview.status === "available"
+      ? manageBlockers
+      : [...manageBlockers, ...commandPreviewBlockers(updatePreview.blockers)];
 
   return [
-    action("promote-merge-candidate", actionStateForBlockers(promotionBlockers, manageState), promotionBlockers, true),
+    action(
+      "promote-merge-candidate",
+      actionStateForBlockers(promotionBlockers, manageState),
+      promotionBlockers,
+      true,
+      null,
+    ),
     action(
       "split-merge-candidate",
-      actionStateForBlockers(splitUpdateBlockers, manageState),
-      splitUpdateBlockers,
+      actionStateForBlockers(splitBlockers, manageState),
+      splitBlockers,
       true,
+      splitPreview.preview,
     ),
     action(
       "update-merge-candidate",
-      actionStateForBlockers(splitUpdateBlockers, manageState),
-      splitUpdateBlockers,
+      actionStateForBlockers(updateBlockers, manageState),
+      updateBlockers,
       true,
+      updatePreview.preview,
     ),
-    action("ignore-merge-candidate", actionStateForBlockers(terminalBlockers, manageState), terminalBlockers, true),
-    action("defer-merge-candidate", actionStateForBlockers(terminalBlockers, manageState), terminalBlockers, true),
+    action(
+      "ignore-merge-candidate",
+      actionStateForBlockers(terminalBlockers, manageState),
+      terminalBlockers,
+      true,
+      null,
+    ),
+    action(
+      "defer-merge-candidate",
+      actionStateForBlockers(terminalBlockers, manageState),
+      terminalBlockers,
+      true,
+      null,
+    ),
   ];
 }
 
@@ -206,8 +238,21 @@ function action(
   state: CatalogPrimaryWorkbenchActionState,
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
   reasonRequired: boolean,
+  commandPreview: CatalogPrimaryWorkbenchMergeCandidateReviewRow["actions"][number]["commandPreview"],
 ): CatalogPrimaryWorkbenchMergeCandidateReviewRow["actions"][number] {
-  return { key, state, blockers, reasonRequired };
+  return { key, state, blockers, reasonRequired, commandPreview };
+}
+
+function commandPreviewBlockers(
+  blockers: readonly CatalogMergeCandidateReviewCommandBlocker[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  if (blockers.includes("candidate-stale")) {
+    return ["source-projection-stale"];
+  }
+  if (blockers.includes("candidate-terminal")) {
+    return ["no-promotion-eligible-observations"];
+  }
+  return ["unsupported-command"];
 }
 
 function promoteReadinessStateFor(

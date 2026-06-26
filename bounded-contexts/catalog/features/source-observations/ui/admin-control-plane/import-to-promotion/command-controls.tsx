@@ -34,6 +34,7 @@ type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   selectedObservationIds?: readonly string[];
   candidateId?: string;
   reason?: string;
+  mergeCandidateCommandBody?: string;
   disabled?: boolean;
 };
 
@@ -43,6 +44,7 @@ export function CommandFormButton({
   selectedObservationIds,
   candidateId,
   reason,
+  mergeCandidateCommandBody,
   disabled = false,
   children,
   ...buttonProps
@@ -59,6 +61,7 @@ export function CommandFormButton({
         intent={intent}
         selectedObservationIds={selectedObservationIds}
         candidateId={candidateId}
+        mergeCandidateCommandBody={mergeCandidateCommandBody}
       />
       {reason ? <HiddenInput name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
@@ -74,12 +77,14 @@ export function CommandHiddenInputs({
   selectedObservationIds,
   candidateId,
   jobId,
+  mergeCandidateCommandBody,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
   candidateId?: string;
   jobId?: string | null;
+  mergeCandidateCommandBody?: string;
 }) {
   const context = readModel.routeContext;
   const scope = context.scope;
@@ -102,6 +107,7 @@ export function CommandHiddenInputs({
       <HiddenInput name="expansionName" value={scope?.expansionName ?? ""} />
       <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
       <HiddenInput name="candidateId" value={candidateId ?? ""} />
+      <HiddenInput name="mergeCandidateCommandBody" value={mergeCandidateCommandBody ?? ""} />
       <HiddenInput name="jobId" value={jobIdValue} />
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>

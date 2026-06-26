@@ -238,7 +238,23 @@ export async function handleDailyCommand(input: {
     }
     case "split-merge-candidate":
     case "update-merge-candidate": {
-      return dailyResult(intent, "error", "command-failed", {
+      const candidateId = String(formData.get("candidateId") ?? "").trim();
+      const body = mergeCandidateCommandBody(formData);
+      if (!candidateId || !body) {
+        return dailyResult(intent, "error", "command-failed", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
+
+      if (intent === "split-merge-candidate") {
+        await api.splitCatalogMergeCandidate(candidateId, body);
+      } else {
+        await api.updateCatalogMergeCandidate(candidateId, body);
+      }
+
+      return dailyResult(intent, "success", "job-queued", {
         ...context,
         selectedObservationIds,
         promotionPreviewId: null,
@@ -267,6 +283,20 @@ export async function handleDailyCommand(input: {
 
 function hasSelectedImportScope(context: RouteContext): boolean {
   return Boolean(context.providerKey && context.unitKey && context.importScope);
+}
+
+function mergeCandidateCommandBody(formData: FormData): Record<string, unknown> | null {
+  const value = String(formData.get("mergeCandidateCommandBody") ?? "").trim();
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Every daily result names the import-to-promotion section, so the daily surface
