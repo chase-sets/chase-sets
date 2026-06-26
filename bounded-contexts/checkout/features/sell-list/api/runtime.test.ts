@@ -685,7 +685,21 @@ describe("sell list checkout runtime readiness boundary", () => {
         },
         context,
       ),
-    ).resolves.toEqual({ mergedLineCount: 1 });
+    ).resolves.toEqual({
+      mergedLineCount: 1,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "2",
+        commitEventIds: ["evt_2"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "2",
+            eventIds: ["evt_2"],
+          },
+        ],
+      },
+    });
 
     expect(allEvents.map((event) => ({ streamId: event.streamId, eventType: event.eventType }))).toEqual([
       {
@@ -702,6 +716,55 @@ describe("sell list checkout runtime readiness boundary", () => {
       lineId: "sll_guest_product",
       productId: "cat_2::form:raw",
     });
+  });
+
+  it("returns the stored target receipt when an anonymous selected-offer merge is replayed", async () => {
+    const anonymousSelectedOfferLine: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      seller_account_id: "anon_sell_1",
+    };
+    const targetSelectedOfferLine: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      seller_account_id: "acc_seller",
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSellListRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createDb([]) as never,
+    });
+    await seedSellListAggregate(services, [anonymousSelectedOfferLine, targetSelectedOfferLine], allEvents);
+
+    await expect(
+      services.mergeSellListIntoAccount(
+        {
+          sourceOwnerId: "anon_sell_1",
+          targetAccountId: "acc_seller" as never,
+        },
+        context,
+      ),
+    ).resolves.toEqual({
+      mergedLineCount: 1,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: "2",
+        commitEventIds: ["evt_2"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "2",
+            eventIds: ["evt_2"],
+          },
+        ],
+      },
+    });
+
+    expect(allEvents.map((event) => ({ streamId: event.streamId, eventType: event.eventType }))).toEqual([
+      {
+        streamId: "checkout.sell-list-anon_sell_1",
+        eventType: "checkout.sell-list.line-removed",
+      },
+    ]);
   });
 
   it("treats removing an already-absent aggregate line as a projected-row repair", async () => {
