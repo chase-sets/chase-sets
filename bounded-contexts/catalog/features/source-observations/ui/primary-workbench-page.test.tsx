@@ -486,6 +486,95 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("id, name, number, expansion")).toBeTruthy();
   });
 
+  it("suppresses stale import preflight evidence from a previous selected scope", async () => {
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:sealed-product:source-observation-import&languageCode=en&expansionName=OP09&profileVersion=2026.06.22";
+    const profile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "one-piece-sealed-product-source-observation",
+      ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+      displayName: "Scrydex One Piece sealed products",
+      profileVersion: "2026.06.22",
+      active: true,
+      lifecycle: "active",
+      profile: {
+        providerKey: "scrydex",
+        supportedScopes: ["set-name", "product/sealed"],
+      },
+      supportedScopes: ["set-name", "product/sealed"],
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "scrydex",
+            language_code: "en",
+            product_line_id: "",
+            series_id: "",
+            expansion_id: "",
+            expansion_name: "OP09",
+            total_observations: 0,
+            observed_observations: 0,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const { container } = render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={readModel}
+        deferredImportPreview={Promise.resolve({
+          action: "import",
+          providerKey: "scrydex",
+          scope: {
+            provider: "scrydex",
+            ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
+            language: "en",
+            setName: "OP16",
+          },
+          profileSnapshot: null,
+          targetCount: 1,
+          targets: [
+            {
+              targetId: "set:OP16",
+              name: "OP16",
+              languageCode: "en",
+              scopeKey: "sealed-products",
+              planKey: "scrydex:one-piece:expansion:op16:sealed",
+              estimatedPayloads: null,
+              transportSteps: ["Fetch Scrydex One Piece sealed products"],
+              usageEstimate: {
+                requestStrategy: "bulk-first",
+                estimateState: "estimate-unavailable",
+                estimatedRequestCount: null,
+                estimateReason: "Provider estimate is unavailable.",
+                pageSize: 250,
+                selectedFields: ["id", "name", "expansion"],
+                perRecordFallbackReason: null,
+                usageCheckState: "not-configured",
+                creditDiagnostic: null,
+                degradedDiagnostic: null,
+              },
+            },
+          ],
+        })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText("Import preflight")).toBeNull());
+    expect(container.querySelector('[data-catalog-import-preview="ready"]')).toBeNull();
+  });
+
   it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

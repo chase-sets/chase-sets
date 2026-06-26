@@ -361,6 +361,7 @@ export function CatalogIntegrationImportJobsModule({
             <DeferredImportPreviewEvidence
               deferredImportPreview={deferredImportPreview}
               previewKey={importPreviewRouteKey(readModel.routeContext)}
+              routeContext={readModel.routeContext}
             />
           </WorkbenchGridSpan>
         </WorkbenchGrid>
@@ -409,9 +410,11 @@ function pendingImportJobDiscoveryKey(
 function DeferredImportPreviewEvidence({
   deferredImportPreview,
   previewKey,
+  routeContext,
 }: Readonly<{
   deferredImportPreview: Promise<SourceObservationIntegrationImportPreview | null> | null;
   previewKey: string;
+  routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"];
 }>) {
   if (!deferredImportPreview) {
     return null;
@@ -428,7 +431,11 @@ function DeferredImportPreviewEvidence({
       }
     >
       <Await key={previewKey} resolve={deferredImportPreview}>
-        {(preview) => (preview ? <ImportPreviewEvidence preview={preview} /> : null)}
+        {(preview) =>
+          preview && importPreviewMatchesRouteContext(preview, routeContext) ? (
+            <ImportPreviewEvidence preview={preview} />
+          ) : null
+        }
       </Await>
     </Suspense>
   );
@@ -601,6 +608,51 @@ function importPreviewScopeKey(scope: SourceObservationIntegrationImportPreview[
   ]
     .filter(Boolean)
     .join(":");
+}
+
+function importPreviewMatchesRouteContext(
+  preview: SourceObservationIntegrationImportPreview,
+  routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"],
+): boolean {
+  return (
+    scopeFieldMatches(preview.providerKey, routeContext.providerKey) &&
+    scopeFieldMatches(preview.scope.provider, routeContext.providerKey) &&
+    scopeFieldMatches(preview.scope.ingestionUnitKey, routeContext.unitKey) &&
+    scopeFieldMatches(preview.scope.language, routeContext.scope?.languageCode) &&
+    scopeFieldMatches(preview.scope.productLineId, routeContext.scope?.productLineId) &&
+    scopeFieldMatches(preview.scope.seriesId, routeContext.scope?.seriesId) &&
+    scopeAnyFieldMatches(
+      [preview.scope.setId, preview.scope.setName],
+      [routeContext.scope?.expansionId, routeContext.scope?.expansionName],
+    )
+  );
+}
+
+function scopeFieldMatches(actual: string | null | undefined, expected: string | null | undefined): boolean {
+  const expectedValue = normalizedScopeValue(expected);
+  if (!expectedValue) {
+    return true;
+  }
+
+  return normalizedScopeValue(actual) === expectedValue;
+}
+
+function scopeAnyFieldMatches(
+  actuals: readonly (string | null | undefined)[],
+  expecteds: readonly (string | null | undefined)[],
+): boolean {
+  const expectedValues = expecteds.map(normalizedScopeValue).filter((value): value is string => Boolean(value));
+  if (expectedValues.length === 0) {
+    return true;
+  }
+  const actualValues = new Set(actuals.map(normalizedScopeValue).filter((value): value is string => Boolean(value)));
+
+  return expectedValues.some((expected) => actualValues.has(expected));
+}
+
+function normalizedScopeValue(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 type ImportPreviewUsageSummary = Readonly<{

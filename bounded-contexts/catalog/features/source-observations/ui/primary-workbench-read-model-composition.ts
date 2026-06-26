@@ -1571,10 +1571,7 @@ function providerScopeProviders(
             providerReadiness.unitKeys.includes(unit.unitKey)),
       ) ?? []
     ).filter((unit) => unit.ingestionPurpose !== "source-observation-proof");
-    const visibleProfiles = uniqueProfilesByUnit([
-      ...providerProfiles.filter((candidate) => candidate.active),
-      ...(profile ? [profile] : []),
-    ]);
+    const visibleProfiles = uniqueProfilesByUnit([...providerProfiles, ...(profile ? [profile] : [])]);
     const unitsByKey = new Map<
       string,
       CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"][number]["units"][number]
