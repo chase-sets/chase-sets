@@ -84,6 +84,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "identity-user-preferences-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_user_preferences"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "identity-shipping-address-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["identity_shipping_addresses"],
