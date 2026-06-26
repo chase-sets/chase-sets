@@ -4,14 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
 import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to-promotion/source-scope-workset-module";
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
-import {
-  controlPlaneOverview,
-  profileReview,
-  sourceObservationListItem,
-  sourceObservationScope,
-} from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
-import type { SourceObservationLorcanaCardPrintNormalized } from "../domain/domain";
 
 describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
@@ -513,49 +507,7 @@ describe("Catalog source-scope workset", () => {
         ],
         "lorcana",
       ),
-      reviewObservations: {
-        items: [
-          sourceObservationListItem({
-            observation_id: "lorcanajson_card_en_1-041",
-            provider_key: "lorcanajson",
-            external_key: "card:1-041",
-            source_profile_key: "lorcana-card-reference-data",
-            source_profile_version: "2026.06.23",
-            status: "observed",
-            normalized: {
-              kind: "lorcana-card-print",
-              tcg: "lorcana",
-              languageCode: "en",
-              name: "Elsa - Snow Queen",
-              cardNumber: "41",
-              setId: "1",
-              setCode: "1",
-              setName: "The First Chapter",
-              expansionName: "The First Chapter",
-              rarity: "Super Rare",
-              cardType: "Storyborn Hero Queen",
-              inkColor: "Amethyst",
-              releaseDate: "2023-08-18",
-              releaseYear: 2023,
-              productLineName: "Disney Lorcana",
-              imageUrls: [],
-              mergeIdentity: {
-                tcg: "lorcana",
-                productLineName: "Disney Lorcana",
-                setName: "The First Chapter",
-                printedProductName: "Elsa - Snow Queen",
-                collectorNumber: "41",
-                languageCode: "en",
-                productForm: "single-card",
-              },
-              externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005010" }],
-              externalProductReferences: [],
-            } satisfies SourceObservationLorcanaCardPrintNormalized,
-          }),
-        ],
-        total: 242,
-        count: 1,
-      },
+      reviewObservations: { items: [], total: 0, count: 0 },
       reviewPagination: { limit: 25, offset: 0 },
       canManageCatalog: true,
     });
@@ -564,10 +516,10 @@ describe("Catalog source-scope workset", () => {
       observed: 242,
       eligible: 242,
     });
-    expect(readModel.sourceObservationReview.pagination.total).toBe(242);
-    expect(readModel.sourceObservationReview.rows[0]?.promotionReadiness.state).toBe("eligible");
+    expect(readModel.sourceObservationReview.pagination.total).toBe(0);
     expect(readModel.promotionPreview.freshness).toBe("fresh");
-    expect(readModel.promotionPreview.outcomeCounts.eligible).toBe(1);
+    expect(readModel.promotionPreview.outcomeCounts.eligible).toBe(242);
+    expect(readModel.promotionPreview.commandPlanHash).toContain("requested:242:eligible:242");
     expect(readModel.sourceScopeWorkset.units[0]?.counts.eligible).toBe(242);
   });
 
