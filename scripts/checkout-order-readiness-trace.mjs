@@ -274,6 +274,7 @@ export function classifyStalledLeg(input) {
 }
 
 export function renderTraceStepSummary(evidence) {
+  const wakeFailureSummary = formatWakeFailureDiagnostics(evidence.projectionState.traces);
   const lines = [
     "## Checkout Order-Readiness Trace",
     "",
@@ -290,6 +291,7 @@ export function renderTraceStepSummary(evidence) {
     `| Payments inputs | statuses ${formatCounts(evidence.payments.orderInputs.statusCounts)}; stale ${formatBool(evidence.payments.orderInputs.staleRelativeToPendingPayment)} |`,
     `| Payments by checkout source | count ${evidence.payments.paymentsByCheckoutSource.rowCount}; statuses ${formatCounts(evidence.payments.paymentsByCheckoutSource.statusCounts)} |`,
     `| Projection checkpoints | missing ${evidence.projectionState.missingCheckpointCount}; stale/behind ${evidence.projectionState.staleOrBehindCount}; wake queued/claimed/failed ${formatCounts(evidence.projectionState.wakeStateCounts)} |`,
+    `| Wake failure diagnostics | ${wakeFailureSummary} |`,
     `| Relay cursors | missing ${evidence.relayCursors.missingCount}; behind ${evidence.relayCursors.behindCount} |`,
     `| Wake interest | ordering created to inventory reservation ${formatBool(evidence.wakeInterestDiagnostics.interestPresent)}; disabled by env ${formatBool(evidence.wakeInterestDiagnostics.disabledByWorkerWakeDisabledProjections)} |`,
     "",
@@ -609,6 +611,22 @@ async function fetchProjectionState(query, projectionTraces, observedAt) {
        ORDER BY state`,
       [trace.sourceContextName, trace.targetContextName, trace.projectionName],
     );
+    const failedWakeDiagnostics = await query(
+      "control",
+      `SELECT attempt_count,
+              required_position::text AS required_position,
+              next_eligible_at,
+              updated_at,
+              last_error
+       FROM platform_projection_wake_intents
+       WHERE source_context_name = $1
+         AND target_context_name = $2
+         AND projection_name = $3
+         AND state = 'failed'
+       ORDER BY updated_at DESC
+       LIMIT 5`,
+      [trace.sourceContextName, trace.targetContextName, trace.projectionName],
+    );
     const readiness = await query(
       "control",
       `SELECT COUNT(*)::integer AS count,
@@ -656,6 +674,7 @@ async function fetchProjectionState(query, projectionTraces, observedAt) {
           wake.rows.map((row) => row.newest_updated_at),
           observedAt,
         ),
+        failedDiagnostics: summarizeWakeFailureDiagnostics(failedWakeDiagnostics.rows, observedAt),
       },
       checkpointReadiness: {
         rowCount: toFiniteNumber(readiness.rows[0]?.count) ?? 0,
@@ -673,6 +692,31 @@ async function fetchProjectionState(query, projectionTraces, observedAt) {
         trace.checkpoint.updatedAgeMsAtObservedAt !== null && trace.checkpoint.updatedAgeMsAtObservedAt > 120_000,
     ).length,
     wakeStateCounts,
+  };
+}
+
+export function summarizeWakeFailureDiagnostics(rows, observedAt) {
+  const samples = Array.isArray(rows) ? rows : [];
+  const errors = samples.map((row) => readJsonRecord(row?.last_error));
+  return {
+    sampleCount: samples.length,
+    maxAttemptCount: maxFiniteNumber(samples.map((row) => row?.attempt_count)),
+    maxRequiredPosition: maxStringNumber(samples.map((row) => row?.required_position)),
+    oldestNextEligibleAgeMsAtObservedAt: maxAgeMs(
+      samples.map((row) => row?.next_eligible_at),
+      observedAt,
+    ),
+    newestUpdatedAgeMsAtObservedAt: minAgeMs(
+      samples.map((row) => row?.updated_at),
+      observedAt,
+    ),
+    reasonCounts: countTokens(errors.map((error) => safeDiagnosticToken(error?.reason) ?? "unknown")),
+    messageCategoryCounts: countTokens(errors.map((error) => classifyWakeErrorMessage(error?.message))),
+    workerIdPresentCount: errors.filter((error) => normalizeString(error?.workerId)).length,
+    checkpointPositionMax: maxStringNumber(errors.map((error) => error?.checkpointPosition)),
+    requiredPositionFromErrorMax: maxStringNumber(errors.map((error) => error?.requiredPosition)),
+    blockedStreamCountMax: maxFiniteNumber(errors.map((error) => error?.blockedStreamCount)),
+    poisonEventCountMax: maxFiniteNumber(errors.map((error) => error?.poisonEventCount)),
   };
 }
 
@@ -904,6 +948,96 @@ function countBy(rows, propertyName) {
   return counts;
 }
 
+function countTokens(values) {
+  const counts = {};
+  for (const value of values ?? []) {
+    const token = safeDiagnosticToken(value) ?? "unknown";
+    counts[token] = (counts[token] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function readJsonRecord(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function safeDiagnosticToken(value) {
+  const text = normalizeString(value);
+  if (!text) {
+    return null;
+  }
+  if (containsSensitivePattern(text)) {
+    return "redacted-sensitive-token";
+  }
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return normalized || "unknown";
+}
+
+function classifyWakeErrorMessage(value) {
+  const text = normalizeString(value);
+  if (!text) {
+    return "none";
+  }
+  if (containsSensitivePattern(text)) {
+    return "message-redacted-sensitive";
+  }
+
+  const lower = text.toLowerCase();
+  if (lower.includes("statement timeout") || lower.includes("canceling statement due to statement timeout")) {
+    return "statement-timeout";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "timeout";
+  }
+  if (lower.includes("deadlock")) {
+    return "deadlock";
+  }
+  if (lower.includes("duplicate key") || lower.includes("unique constraint") || lower.includes("violates")) {
+    return "constraint-violation";
+  }
+  if (lower.includes("does not exist") || lower.includes("undefined_table") || lower.includes("undefined column")) {
+    return "schema-missing";
+  }
+  if (lower.includes("permission denied")) {
+    return "permission-denied";
+  }
+  if (lower.includes("connection") || lower.includes("econnreset") || lower.includes("etimedout")) {
+    return "connection-failure";
+  }
+  if (lower.includes("lease") || lower.includes("claim")) {
+    return "lease-or-claim";
+  }
+  if (lower.includes("abort")) {
+    return "aborted";
+  }
+  return "message-present";
+}
+
+function containsSensitivePattern(value) {
+  for (const pattern of SENSITIVE_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function ageMs(value, observedAt) {
   const timestamp = Date.parse(String(value ?? ""));
   const observed = observedAt instanceof Date ? observedAt.getTime() : Date.parse(String(observedAt ?? ""));
@@ -940,6 +1074,11 @@ function toFiniteNumber(value) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function maxFiniteNumber(values) {
+  const numbers = values.map(toFiniteNumber).filter((value) => value !== null);
+  return numbers.length === 0 ? null : Math.max(...numbers);
 }
 
 function maxStringNumber(values) {
@@ -985,6 +1124,24 @@ function formatBool(value) {
 function formatCounts(counts) {
   const entries = Object.entries(counts ?? {}).sort(([left], [right]) => left.localeCompare(right));
   return entries.length === 0 ? "none" : entries.map(([name, value]) => `${name}:${value}`).join(", ");
+}
+
+function formatWakeFailureDiagnostics(traces) {
+  const summaries = [];
+  for (const trace of traces ?? []) {
+    const diagnostics = trace?.wake?.failedDiagnostics;
+    if (!diagnostics || diagnostics.sampleCount === 0) {
+      continue;
+    }
+    summaries.push(
+      `${trace.targetContextName}/${trace.projectionName} samples ${diagnostics.sampleCount}; reasons ${formatCounts(
+        diagnostics.reasonCounts,
+      )}; messages ${formatCounts(diagnostics.messageCategoryCounts)}; max attempts ${
+        diagnostics.maxAttemptCount ?? "unknown"
+      }`,
+    );
+  }
+  return summaries.length === 0 ? "none" : summaries.join("; ");
 }
 
 function normalizeDatabaseUrl(databaseUrl) {

@@ -12,6 +12,7 @@ import {
   parseCheckoutOrderReadinessTraceArgs,
   renderTraceStepSummary,
   runCheckoutOrderReadinessTrace,
+  summarizeWakeFailureDiagnostics,
   validateCheckoutOrderReadinessTraceOptions,
 } from "./checkout-order-readiness-trace.mjs";
 
@@ -310,6 +311,62 @@ describe("checkout order-readiness evidence", () => {
       interestPresent: false,
       disabledByWorkerWakeDisabledProjections: false,
     });
+  });
+
+  it("summarizes failed wake diagnostics without exposing raw errors", () => {
+    const diagnostics = summarizeWakeFailureDiagnostics(
+      [
+        {
+          attempt_count: 3,
+          required_position: "73",
+          next_eligible_at: "2026-06-26T11:59:30.000Z",
+          updated_at: "2026-06-26T11:59:45.000Z",
+          last_error: {
+            reason: "projection-run-failed",
+            message: "canceling statement due to statement timeout",
+            workerId: "worker-a",
+            checkpointPosition: "19",
+            requiredPosition: "73",
+            blockedStreamCount: 2,
+            poisonEventCount: 1,
+          },
+        },
+        {
+          attempt_count: 4,
+          required_position: "74",
+          next_eligible_at: "2026-06-26T11:59:40.000Z",
+          updated_at: "2026-06-26T11:59:50.000Z",
+          last_error: JSON.stringify({
+            reason: "checkpoint-not-ready",
+            message: "postgresql://u:p@host/db should never leave staging",
+            workerId: "worker-b",
+          }),
+        },
+      ],
+      observedAtUtc,
+    );
+
+    expect(diagnostics).toMatchObject({
+      sampleCount: 2,
+      maxAttemptCount: 4,
+      maxRequiredPosition: "74",
+      reasonCounts: {
+        "checkpoint-not-ready": 1,
+        "projection-run-failed": 1,
+      },
+      messageCategoryCounts: {
+        "message-redacted-sensitive": 1,
+        "statement-timeout": 1,
+      },
+      workerIdPresentCount: 2,
+      checkpointPositionMax: "19",
+      requiredPositionFromErrorMax: "73",
+      blockedStreamCountMax: 2,
+      poisonEventCountMax: 1,
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("canceling statement");
+    expect(JSON.stringify(diagnostics)).not.toContain("worker-a");
+    expect(assertRedactedTraceEvidence({ diagnostics })).toEqual([]);
   });
 
   it("fails closed when evidence contains common sensitive values", () => {
