@@ -456,7 +456,7 @@ function sourceScopeMatchesCandidateProductDomain(
     return true;
   }
 
-  return selectedDomain === candidateDomain;
+  return productDomainsMatch(selectedDomain, candidateDomain);
 }
 
 function productDomainFromScope(scope: CatalogPrimaryWorkbenchScopeContext): string | null {
@@ -495,7 +495,7 @@ function productDomainFromProductLineName(productLineName: string | null): strin
     return "yugioh";
   }
 
-  return null;
+  return normalized;
 }
 
 function productDomainFromProductLineId(productLineId: string | null): string | null {
@@ -510,6 +510,10 @@ function productDomainFromProductLineId(productLineId: string | null): string | 
 function normalizeProductDomain(value: string | null | undefined): string | null {
   const normalized = value?.toLowerCase().replace(/[^a-z0-9]+/g, "") ?? "";
   return normalized || null;
+}
+
+function productDomainsMatch(left: string, right: string): boolean {
+  return left === right || left.includes(right) || right.includes(left);
 }
 
 function scopedValue(selected: string | null, provider: string | null, preferProviderScope: boolean): string | null {

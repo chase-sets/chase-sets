@@ -19,6 +19,11 @@ type SelectChoice = Readonly<{
   }>;
 }>;
 
+type SelectedScopeChoice = Readonly<{
+  label: string | RegExp;
+  values: readonly string[];
+}>;
+
 type ScopeSelection = Readonly<{
   label: string | RegExp;
   choice: SelectChoice;
@@ -506,18 +511,71 @@ async function selectProviderScope(page: Page, journey: ProviderSyncJourney): Pr
   await selectOption(unit, { values: [journey.unitKey] }, () => recoverImporterFromAdminError(page));
   await expect(unit).toHaveValue(journey.unitKey, { timeout: pageReadyTimeoutMs });
 
+  const selectedChoices: SelectedScopeChoice[] = [];
   for (const selection of journey.scope) {
     const sourceScope = page.getByRole("group", { name: "Source scope" });
     await expect(sourceScope).toBeVisible({ timeout: sourceOptionTimeoutMs });
     const scopeSelect = sourceScope.getByRole("combobox", { name: selection.label });
     await selectOption(scopeSelect, selection.choice, () => recoverSourceOptionSelection(page, selection.label));
     await expect(scopeSelect).not.toHaveValue("", { timeout: sourceOptionTimeoutMs });
+    selectedChoices.push({
+      label: selection.label,
+      values: await selectedScopeChoiceValues(scopeSelect, selection.choice),
+    });
   }
 
   await contextBar.getByRole("button", { name: "Select source scope" }).click();
-  const commandForm = sourceScopeSyncForms(page, journey.unitKey).first();
-  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  return selectedProviderScopeFromCommandForm(commandForm);
+  return waitForSelectedProviderScope(page, journey, selectedChoices);
+}
+
+async function waitForSelectedProviderScope(
+  page: Page,
+  journey: ProviderSyncJourney,
+  selectedChoices: readonly SelectedScopeChoice[],
+): Promise<SelectedProviderScope> {
+  const commandForms = sourceScopeSyncForms(page, journey.unitKey);
+  await expect(commandForms.first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
+
+  const deadline = Date.now() + sourceOptionTimeoutMs;
+  let lastScope: SelectedProviderScope | null = null;
+  while (Date.now() < deadline) {
+    const count = await commandForms.count();
+    for (let index = 0; index < count; index += 1) {
+      const commandForm = commandForms.nth(index);
+      if (!(await commandForm.isVisible().catch(() => false))) {
+        continue;
+      }
+      const selectedScope = await selectedProviderScopeFromCommandForm(commandForm).catch(() => null);
+      if (!selectedScope) {
+        continue;
+      }
+      lastScope = selectedScope;
+      if (
+        selectedProviderScopeMatchesJourneySelection(selectedScope, selectedChoices) &&
+        selectedProviderScopeMatchesUnitDomain(selectedScope, journey.unitKey)
+      ) {
+        return selectedScope;
+      }
+    }
+
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Selected source scope command form for ${journey.unitKey} did not settle on ${journey.name}. Last observed scope: ${
+      lastScope?.displayLabel ?? "none"
+    }.`,
+  );
+}
+
+async function selectedScopeChoiceValues(scopeSelect: Locator, choice: SelectChoice): Promise<readonly string[]> {
+  const selectedValue = await scopeSelect.inputValue();
+  const selectedText = await scopeSelect
+    .locator("option:checked")
+    .innerText()
+    .then(normalizeWhitespace)
+    .catch(() => "");
+  return uniqueTruthy([selectedValue, selectedText, ...(choice.labels ?? []), ...(choice.values ?? [])]);
 }
 
 async function expandImportContextBar(contextBar: Locator): Promise<void> {
@@ -1307,6 +1365,82 @@ async function selectedProviderScopeFieldsFromCommandForm(
     })),
   );
   return fields.filter((field) => field.value.length > 0);
+}
+
+function selectedProviderScopeMatchesJourneySelection(
+  selectedScope: SelectedProviderScope,
+  selectedChoices: readonly SelectedScopeChoice[],
+): boolean {
+  const scopeValues = selectedProviderScopeComparableValues(selectedScope);
+  return selectedChoices.every((choice) =>
+    choice.values.some((value) => scopeValues.has(comparableProviderScopeValue(value))),
+  );
+}
+
+function selectedProviderScopeComparableValues(selectedScope: SelectedProviderScope): ReadonlySet<string> {
+  const values = new Set<string>();
+  for (const segment of selectedScope.importScope?.split(":") ?? []) {
+    addComparableProviderScopeValue(values, segment);
+  }
+  for (const field of selectedScope.fields) {
+    addComparableProviderScopeValue(values, field.value);
+  }
+  return values;
+}
+
+function addComparableProviderScopeValue(values: Set<string>, value: string): void {
+  const comparable = comparableProviderScopeValue(value);
+  if (comparable) {
+    values.add(comparable);
+  }
+}
+
+function selectedProviderScopeMatchesUnitDomain(selectedScope: SelectedProviderScope, unitKey: string): boolean {
+  const unitDomain = normalizedProductDomain(unitKey.split(":")[1] ?? "");
+  if (!unitDomain) {
+    return true;
+  }
+
+  const productLineDomains = selectedScope.fields
+    .filter((field) => field.name === "productLineName" || field.name === "productLineId")
+    .map((field) => productDomainFromProviderScopeValue(field.value))
+    .filter((domain): domain is string => Boolean(domain));
+  if (productLineDomains.length === 0) {
+    return true;
+  }
+
+  return productLineDomains.some((domain) => productDomainsMatch(domain, unitDomain));
+}
+
+function productDomainFromProviderScopeValue(value: string): string | null {
+  const normalized = normalizedProductDomain(value);
+  if (!normalized || /^\d+$/.test(normalized)) {
+    return null;
+  }
+  if (normalized.includes("pokemon")) {
+    return "pokemon";
+  }
+  if (normalized.includes("magic") || normalized.includes("mtg")) {
+    return "mtg";
+  }
+  if (normalized.includes("yugioh")) {
+    return "yugioh";
+  }
+
+  return normalized;
+}
+
+function normalizedProductDomain(value: string): string | null {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalized || null;
+}
+
+function productDomainsMatch(left: string, right: string): boolean {
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+function comparableProviderScopeValue(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 async function optionalHiddenInputValue(form: Locator, name: string): Promise<string> {
