@@ -568,6 +568,10 @@ describe("guest Buy Now freshness probe", () => {
       activeWakeCapableWorkerCount: 2,
       relayLeaseState: "active",
       relayOwnerId: "worker-1",
+      relayLeaseRenewedAt: null,
+      relayLeaseExpiresAt: null,
+      relayOwnerWorkerState: null,
+      relayOwnerHeartbeatAgeMs: null,
       reasons: [],
     });
     expect(evaluateWakeRuntimeReadiness(unreadyWakeStatusSnapshot)).toMatchObject({
@@ -575,6 +579,58 @@ describe("guest Buy Now freshness probe", () => {
       activeWakeCapableWorkerCount: 0,
       relayLeaseState: "standby",
       reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+    });
+  });
+
+  it("adds expired relay owner heartbeat evidence to wake runtime readiness", () => {
+    expect(
+      evaluateWakeRuntimeReadiness({
+        schedulers: {
+          available: true,
+          activeWakeCapableWorkerCount: 1,
+          workers: [{ workerId: "worker-1", workerState: "active", heartbeatAgeMs: 41_165 }],
+        },
+        relay: {
+          available: true,
+          lease: {
+            state: "expired",
+            ownerId: "worker-1",
+            renewedAt: "2026-06-26T21:49:22.494Z",
+            expiresAt: "2026-06-26T21:49:52.494Z",
+          },
+        },
+      }),
+    ).toMatchObject({
+      ready: false,
+      relayOwnerId: "worker-1",
+      relayLeaseRenewedAt: "2026-06-26T21:49:22.494Z",
+      relayLeaseExpiresAt: "2026-06-26T21:49:52.494Z",
+      relayOwnerWorkerState: "active",
+      relayOwnerHeartbeatAgeMs: 41_165,
+      reasons: ["projection-wake-relay-lease-not-active", "projection-wake-relay-owner-not-renewing-lease"],
+    });
+
+    expect(
+      evaluateWakeRuntimeReadiness({
+        schedulers: {
+          available: true,
+          activeWakeCapableWorkerCount: 0,
+          workers: [{ workerId: "worker-1", workerState: "expired", heartbeatAgeMs: 166_000 }],
+        },
+        relay: {
+          available: true,
+          lease: { state: "expired", ownerId: "worker-1" },
+        },
+      }),
+    ).toMatchObject({
+      ready: false,
+      relayOwnerWorkerState: "expired",
+      relayOwnerHeartbeatAgeMs: 166_000,
+      reasons: [
+        "no-active-wake-capable-workers",
+        "projection-wake-relay-lease-not-active",
+        "projection-wake-relay-owner-heartbeat-not-active",
+      ],
     });
   });
 

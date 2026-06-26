@@ -94,7 +94,7 @@ function readyWakeStatus(overrides = {}) {
   };
 }
 
-function noWorkerWakeStatus() {
+function noWorkerWakeStatus(overrides = {}) {
   return readyWakeStatus({
     relay: {
       available: true,
@@ -107,6 +107,7 @@ function noWorkerWakeStatus() {
       available: true,
       activeWakeCapableWorkerCount: 0,
     },
+    ...overrides,
   });
 }
 
@@ -414,6 +415,58 @@ describe("wake runtime preflight", () => {
       activeWakeCapableWorkerCount: 1,
       relayLeaseState: "active",
       reasons: [],
+    });
+  });
+
+  it("routes expired relay leases through the lease owner's worker heartbeat", () => {
+    expect(
+      evaluateWakeRuntimeReadiness(
+        readyWakeStatus({
+          relay: {
+            available: true,
+            lease: {
+              state: "expired",
+              ownerId: "worker-a",
+              renewedAt: "2026-06-26T21:49:22.494Z",
+              expiresAt: "2026-06-26T21:49:52.494Z",
+            },
+          },
+          schedulers: {
+            available: true,
+            activeWakeCapableWorkerCount: 1,
+            workers: [{ workerId: "worker-a", workerState: "active", heartbeatAgeMs: 41_165 }],
+          },
+        }),
+      ),
+    ).toMatchObject({
+      ready: false,
+      relayOwnerId: "worker-a",
+      relayLeaseRenewedAt: "2026-06-26T21:49:22.494Z",
+      relayLeaseExpiresAt: "2026-06-26T21:49:52.494Z",
+      relayOwnerWorkerState: "active",
+      relayOwnerHeartbeatAgeMs: 41_165,
+      reasons: ["projection-wake-relay-lease-not-active", "projection-wake-relay-owner-not-renewing-lease"],
+    });
+
+    expect(
+      evaluateWakeRuntimeReadiness(
+        noWorkerWakeStatus({
+          schedulers: {
+            available: true,
+            activeWakeCapableWorkerCount: 0,
+            workers: [{ workerId: "worker-old", workerState: "expired", heartbeatAgeMs: 166_000 }],
+          },
+        }),
+      ),
+    ).toMatchObject({
+      ready: false,
+      relayOwnerWorkerState: "expired",
+      relayOwnerHeartbeatAgeMs: 166_000,
+      reasons: [
+        "no-active-wake-capable-workers",
+        "projection-wake-relay-lease-not-active",
+        "projection-wake-relay-owner-heartbeat-not-active",
+      ],
     });
   });
 
