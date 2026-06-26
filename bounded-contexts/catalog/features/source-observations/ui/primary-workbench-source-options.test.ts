@@ -262,6 +262,87 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("recovers provider scope options when a source option page is unavailable", () => {
+    const setOptionKind = {
+      queryKind: "sets",
+      queryKeySynonyms: ["set"],
+      displayName: "Set",
+      scope: "set-name",
+      parentScope: null,
+      parentRequired: false,
+      parentValueKind: null,
+      parentDiagnosticText: null,
+    } satisfies CatalogProviderSourceOptionKind;
+    const profile = profileReview({
+      providerKey: "ygojson",
+      profileKey: "yugioh-set-reference-data",
+      profileVersion: "2026.06.21",
+      ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+      displayName: "YGOJSON Yu-Gi-Oh Set Reference Data",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["set-name"],
+      sourceOptionKinds: [setOptionKind],
+    });
+    const ygojsonScope = sourceObservationScope({
+      provider_key: "ygojson",
+      language_code: "en",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "",
+      series_name: "",
+      expansion_id: "11111111-1111-4111-8111-111111111111",
+      expansion_name: "25th Anniversary Ultimate Kaiba Set",
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:set:reference-data&profileVersion=2026.06.21";
+    const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [ygojsonScope],
+      profiles: [profile],
+      cacheOnly: true,
+    })[0]!;
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [ygojsonScope], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: [
+        {
+          request,
+          error: {
+            status: 504,
+            code: "provider-source-option-timeout",
+            message: "YGOJSON option query timed out.",
+            rolloutBlocked: false,
+          },
+        },
+      ],
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceOptions.pages).toEqual([
+      expect.objectContaining({
+        queryKind: "sets",
+        state: "stale",
+        degraded: true,
+        items: [
+          expect.objectContaining({
+            value: "11111111-1111-4111-8111-111111111111",
+            label: "25th Anniversary Ultimate Kaiba Set",
+          }),
+        ],
+      }),
+    ]);
+    expect(readModel.sourceOptions.summary).toMatchObject({
+      availableOptions: 1,
+      stalePages: 1,
+      degradedPages: 1,
+      unavailablePages: 0,
+    });
+  });
+
   it("caps source option page items and strips provider metadata from the route read model", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
