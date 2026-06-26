@@ -12,6 +12,7 @@ import {
   parseCheckoutOrderReadinessTraceArgs,
   renderTraceStepSummary,
   runCheckoutOrderReadinessTrace,
+  summarizeWakeClaimDiagnostics,
   summarizeWakeFailureDiagnostics,
   validateCheckoutOrderReadinessTraceOptions,
 } from "./checkout-order-readiness-trace.mjs";
@@ -366,6 +367,44 @@ describe("checkout order-readiness evidence", () => {
     });
     expect(JSON.stringify(diagnostics)).not.toContain("canceling statement");
     expect(JSON.stringify(diagnostics)).not.toContain("worker-a");
+    expect(assertRedactedTraceEvidence({ diagnostics })).toEqual([]);
+  });
+
+  it("summarizes claimed wake diagnostics without exposing owners", () => {
+    const diagnostics = summarizeWakeClaimDiagnostics(
+      [
+        {
+          attempt_count: 5,
+          required_position: "73",
+          claimed_required_position: "73",
+          claimed_until: "2026-06-26T12:00:30.000Z",
+          stale_at_observed_at: false,
+          next_eligible_at: "2026-06-26T11:59:00.000Z",
+          updated_at: "2026-06-26T11:59:45.000Z",
+        },
+        {
+          attempt_count: 6,
+          required_position: "74",
+          claimed_required_position: "74",
+          claimed_until: "2026-06-26T11:59:50.000Z",
+          stale_at_observed_at: true,
+          next_eligible_at: "2026-06-26T11:58:00.000Z",
+          updated_at: "2026-06-26T11:59:50.000Z",
+        },
+      ],
+      observedAtUtc,
+    );
+
+    expect(diagnostics).toMatchObject({
+      sampleCount: 2,
+      maxAttemptCount: 6,
+      maxRequiredPosition: "74",
+      maxClaimedRequiredPosition: "74",
+      staleAtObservedCount: 1,
+      soonestClaimExpiresInMsAtObservedAt: 0,
+      oldestNextEligibleAgeMsAtObservedAt: 120_000,
+      newestUpdatedAgeMsAtObservedAt: 10_000,
+    });
     expect(assertRedactedTraceEvidence({ diagnostics })).toEqual([]);
   });
 

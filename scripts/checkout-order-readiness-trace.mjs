@@ -274,7 +274,7 @@ export function classifyStalledLeg(input) {
 }
 
 export function renderTraceStepSummary(evidence) {
-  const wakeFailureSummary = formatWakeFailureDiagnostics(evidence.projectionState.traces);
+  const wakeRuntimeSummary = formatWakeRuntimeDiagnostics(evidence.projectionState.traces);
   const lines = [
     "## Checkout Order-Readiness Trace",
     "",
@@ -291,7 +291,7 @@ export function renderTraceStepSummary(evidence) {
     `| Payments inputs | statuses ${formatCounts(evidence.payments.orderInputs.statusCounts)}; stale ${formatBool(evidence.payments.orderInputs.staleRelativeToPendingPayment)} |`,
     `| Payments by checkout source | count ${evidence.payments.paymentsByCheckoutSource.rowCount}; statuses ${formatCounts(evidence.payments.paymentsByCheckoutSource.statusCounts)} |`,
     `| Projection checkpoints | missing ${evidence.projectionState.missingCheckpointCount}; stale/behind ${evidence.projectionState.staleOrBehindCount}; wake queued/claimed/failed ${formatCounts(evidence.projectionState.wakeStateCounts)} |`,
-    `| Wake failure diagnostics | ${wakeFailureSummary} |`,
+    `| Wake runtime diagnostics | ${wakeRuntimeSummary} |`,
     `| Relay cursors | missing ${evidence.relayCursors.missingCount}; behind ${evidence.relayCursors.behindCount} |`,
     `| Wake interest | ordering created to inventory reservation ${formatBool(evidence.wakeInterestDiagnostics.interestPresent)}; disabled by env ${formatBool(evidence.wakeInterestDiagnostics.disabledByWorkerWakeDisabledProjections)} |`,
     "",
@@ -627,6 +627,24 @@ async function fetchProjectionState(query, projectionTraces, observedAt) {
        LIMIT 5`,
       [trace.sourceContextName, trace.targetContextName, trace.projectionName],
     );
+    const claimedWakeDiagnostics = await query(
+      "control",
+      `SELECT attempt_count,
+              required_position::text AS required_position,
+              claimed_required_position::text AS claimed_required_position,
+              claimed_until,
+              claimed_until <= $4::timestamptz AS stale_at_observed_at,
+              next_eligible_at,
+              updated_at
+       FROM platform_projection_wake_intents
+       WHERE source_context_name = $1
+         AND target_context_name = $2
+         AND projection_name = $3
+         AND state = 'claimed'
+       ORDER BY updated_at DESC
+       LIMIT 5`,
+      [trace.sourceContextName, trace.targetContextName, trace.projectionName, observedAt.toISOString()],
+    );
     const readiness = await query(
       "control",
       `SELECT COUNT(*)::integer AS count,
@@ -675,6 +693,7 @@ async function fetchProjectionState(query, projectionTraces, observedAt) {
           observedAt,
         ),
         failedDiagnostics: summarizeWakeFailureDiagnostics(failedWakeDiagnostics.rows, observedAt),
+        claimDiagnostics: summarizeWakeClaimDiagnostics(claimedWakeDiagnostics.rows, observedAt),
       },
       checkpointReadiness: {
         rowCount: toFiniteNumber(readiness.rows[0]?.count) ?? 0,
@@ -717,6 +736,33 @@ export function summarizeWakeFailureDiagnostics(rows, observedAt) {
     requiredPositionFromErrorMax: maxStringNumber(errors.map((error) => error?.requiredPosition)),
     blockedStreamCountMax: maxFiniteNumber(errors.map((error) => error?.blockedStreamCount)),
     poisonEventCountMax: maxFiniteNumber(errors.map((error) => error?.poisonEventCount)),
+  };
+}
+
+export function summarizeWakeClaimDiagnostics(rows, observedAt) {
+  const samples = Array.isArray(rows) ? rows : [];
+  return {
+    sampleCount: samples.length,
+    maxAttemptCount: maxFiniteNumber(samples.map((row) => row?.attempt_count)),
+    maxRequiredPosition: maxStringNumber(samples.map((row) => row?.required_position)),
+    maxClaimedRequiredPosition: maxStringNumber(samples.map((row) => row?.claimed_required_position)),
+    staleAtObservedCount: samples.filter((row) => Boolean(row?.stale_at_observed_at)).length,
+    oldestClaimedUntilAgeMsAtObservedAt: maxAgeMs(
+      samples.map((row) => row?.claimed_until),
+      observedAt,
+    ),
+    soonestClaimExpiresInMsAtObservedAt: minFutureMs(
+      samples.map((row) => row?.claimed_until),
+      observedAt,
+    ),
+    oldestNextEligibleAgeMsAtObservedAt: maxAgeMs(
+      samples.map((row) => row?.next_eligible_at),
+      observedAt,
+    ),
+    newestUpdatedAgeMsAtObservedAt: minAgeMs(
+      samples.map((row) => row?.updated_at),
+      observedAt,
+    ),
   };
 }
 
@@ -1057,6 +1103,18 @@ function minAgeMs(values, observedAt) {
   return ages.length === 0 ? null : Math.min(...ages);
 }
 
+function minFutureMs(values, observedAt) {
+  const observed = observedAt instanceof Date ? observedAt.getTime() : Date.parse(String(observedAt ?? ""));
+  if (!Number.isFinite(observed)) {
+    return null;
+  }
+  const deltas = values
+    .map((value) => Date.parse(String(value ?? "")))
+    .filter((timestamp) => Number.isFinite(timestamp))
+    .map((timestamp) => Math.max(0, Math.round(timestamp - observed)));
+  return deltas.length === 0 ? null : Math.min(...deltas);
+}
+
 function maxDate(values) {
   const dates = values
     .map((value) => {
@@ -1126,11 +1184,22 @@ function formatCounts(counts) {
   return entries.length === 0 ? "none" : entries.map(([name, value]) => `${name}:${value}`).join(", ");
 }
 
-function formatWakeFailureDiagnostics(traces) {
+function formatWakeRuntimeDiagnostics(traces) {
   const summaries = [];
   for (const trace of traces ?? []) {
     const diagnostics = trace?.wake?.failedDiagnostics;
+    const claimDiagnostics = trace?.wake?.claimDiagnostics;
     if (!diagnostics || diagnostics.sampleCount === 0) {
+      if (!claimDiagnostics || claimDiagnostics.sampleCount === 0) {
+        continue;
+      }
+      summaries.push(
+        `${trace.targetContextName}/${trace.projectionName} claimed samples ${
+          claimDiagnostics.sampleCount
+        }; stale claims ${claimDiagnostics.staleAtObservedCount}; max attempts ${
+          claimDiagnostics.maxAttemptCount ?? "unknown"
+        }; claim expires in ${claimDiagnostics.soonestClaimExpiresInMsAtObservedAt ?? "unknown"}ms`,
+      );
       continue;
     }
     summaries.push(
