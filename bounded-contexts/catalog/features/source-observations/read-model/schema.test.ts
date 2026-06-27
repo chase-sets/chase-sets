@@ -65,7 +65,21 @@ describe("catalogSourceObservationSchemaSql", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb",
     );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS matched_product_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS proposed_external_product_references_json jsonb NOT NULL DEFAULT '[]'::jsonb",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS promotion_intent text NOT NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN identity_fingerprint DROP DEFAULT");
+    expect(catalogSourceObservationSchemaSql).toContain("catalog_merge_candidates_promotion_intent_check");
     expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS sync_run_id text NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS provider_key text NOT NULL");
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN source_mapping_fingerprint DROP DEFAULT");
   });
 
   it("evolves provider option query cache profile columns before lookup indexing", () => {

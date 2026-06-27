@@ -72,7 +72,11 @@
     {
       "projectionName": "catalog-source-observation-projection",
       "sourceContextNames": ["catalog"],
-      "ownedTables": ["catalog_source_observations"],
+      "ownedTables": [
+        "catalog_source_observations",
+        "catalog_merge_candidates",
+        "catalog_merge_candidate_observations"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
