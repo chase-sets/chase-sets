@@ -103,6 +103,7 @@ export async function previewCatalogSyncProviderParticipation(input: {
   const selectedUnitKeys = new Set(scope.providerParticipation?.selectedUnitKeys ?? []);
   const excludedUnitKeys = new Set(scope.providerParticipation?.excludedUnitKeys ?? []);
   const requiredUnitKeys = new Set(scope.providerParticipation?.requiredUnitKeys ?? []);
+  const restrictToExplicitParticipation = selectedUnitKeys.size > 0 || requiredUnitKeys.size > 0;
   const activeCandidates = input.providerProfileVersions.filter((version) =>
     version.profile.capabilities.includes("source-observation-import"),
   );
@@ -114,6 +115,9 @@ export async function previewCatalogSyncProviderParticipation(input: {
       }
       if (requiredUnitKeys.has(unitKey) || selectedUnitKeys.has(unitKey)) {
         return true;
+      }
+      if (restrictToExplicitParticipation) {
+        return false;
       }
       return unitMatchesCatalogSyncScope(version, unitKey, scope);
     });
