@@ -6,6 +6,7 @@ import {
   findMcpTool,
   flattenMcpResources,
   getMcpCapabilityAvailability,
+  getMcpToolConfirmationExpectedValue,
   mcpServiceCatalog,
   type McpActor,
   type McpResourceDescriptor,
@@ -153,6 +154,8 @@ function redactArguments(args: Readonly<Record<string, unknown>>, sensitiveInput
 }
 
 function toToolListItem(tool: McpToolDescriptor) {
+  const confirmationExpectedValue = getMcpToolConfirmationExpectedValue(tool);
+
   return {
     name: tool.name,
     title: tool.title,
@@ -165,6 +168,8 @@ function toToolListItem(tool: McpToolDescriptor) {
       requiredPermissions: tool.permissionBoundary.requiredPermissions,
       accountScoped: tool.permissionBoundary.accountScoped,
       confirmationRequired: tool.guardrails.confirmation.required,
+      confirmationMatchInputField: tool.guardrails.confirmation.matchInputField ?? null,
+      confirmationExpectedValue,
       idempotencyKey: tool.guardrails.idempotencyKey,
       dryRunSupported: tool.guardrails.dryRunSupported,
       auditEventName: tool.audit.eventName,
@@ -221,7 +226,7 @@ async function callTool(
       text: args.confirmationText,
     },
   );
-  const authorization = authorizeMcpToolInvocation(tool, toMcpActor(actor), confirmation);
+  const authorization = authorizeMcpToolInvocation(tool, toMcpActor(actor), confirmation, args);
 
   if (!authorization.allowed) {
     await audit(options.audit, {

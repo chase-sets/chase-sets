@@ -458,11 +458,11 @@ describe("platform api app wiring", () => {
           quantityMode: "add",
           csvText: "title,quantity\nCharizard,1",
           idempotencyKey: "idem_create_batch",
-          confirmationText: "Create inventory import batch.",
+          confirmationText: "Create Inventory Import Batch.",
         },
         confirmation: {
           confirmed: true,
-          text: "Create inventory import batch.",
+          text: "Create Inventory Import Batch.",
         },
       },
       {
@@ -479,11 +479,11 @@ describe("platform api app wiring", () => {
           batchId: "batch_1",
           reason: "Commit reviewed rows.",
           idempotencyKey: "idem_commit_batch",
-          confirmationText: "Commit inventory import batch.",
+          confirmationText: "Commit Inventory Import Batch.",
         },
         confirmation: {
           confirmed: true,
-          text: "Commit inventory import batch.",
+          text: "Commit Inventory Import Batch.",
         },
       },
     ];
