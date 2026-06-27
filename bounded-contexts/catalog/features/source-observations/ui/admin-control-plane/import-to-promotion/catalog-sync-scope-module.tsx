@@ -163,6 +163,17 @@ export function CatalogSyncScopeModule({
           columns={columns}
           caption="Catalog sync provider participation"
           getRowId={(unit) => unit.unitKey ?? unit.providerKey}
+          getRowProps={(unit) => ({
+            "data-catalog-sync-participation-row": "true",
+            "data-catalog-sync-participation-provider": unit.providerKey,
+            "data-catalog-sync-participation-unit": unit.unitKey ?? "",
+            "data-catalog-sync-participation-eligibility": unit.eligibility,
+            "data-catalog-sync-participation-child-scope": unit.childExecutionScope
+              ? Object.entries(unit.childExecutionScope)
+                  .map(([key, value]) => `${key}:${value}`)
+                  .join("|")
+              : "",
+          })}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.title")}
           emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.empty.description")}

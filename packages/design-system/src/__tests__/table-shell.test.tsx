@@ -56,6 +56,23 @@ describe("TableShell scaffolding", () => {
     expect(caption?.textContent).toBe("Catalog profile versions");
     expect(caption?.className).toBe("sr-only");
   });
+
+  it("applies data row props to desktop rows and compact cards", () => {
+    const { container } = render(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        getRowId={(row) => row.name}
+        getRowProps={(row) => ({
+          "data-testid": `catalog-row-${row.name}`,
+          "data-catalog-row-name": row.name,
+        })}
+      />,
+    );
+
+    expect(container.querySelector('tr[data-catalog-row-name="Alpha"]')).toBeTruthy();
+    expect(container.querySelector('[role="listitem"][data-catalog-row-name="Alpha"]')).toBeTruthy();
+  });
 });
 
 describe("DataTable density", () => {

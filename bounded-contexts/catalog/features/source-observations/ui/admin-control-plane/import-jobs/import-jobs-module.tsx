@@ -377,6 +377,16 @@ export function CatalogIntegrationImportJobsModule({
         columns={jobColumns}
         caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs")}
         getRowId={(job) => job.jobId}
+        getRowProps={(job) => ({
+          "data-catalog-import-job-row": "true",
+          "data-catalog-import-job-id": job.jobId,
+          "data-catalog-import-job-provider": job.providerKey,
+          "data-catalog-import-job-unit": job.unitKey ?? "",
+          "data-catalog-import-job-scope": job.importScope ?? "",
+          "data-catalog-import-job-state": job.state,
+          "data-catalog-import-job-operator-status": job.operatorStatus,
+          "data-catalog-import-job-scope-route": job.scopeMatchesRoute ? "current" : "overlapping",
+        })}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")}
