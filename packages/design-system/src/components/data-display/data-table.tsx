@@ -281,9 +281,12 @@ export function DataTable<T>({
                       <span>Select</span>
                     </label>
                   ) : null}
-                  <dl className="space-y-3">
+                  <dl>
                     {columns.map((column) => (
-                      <div key={column.key} className="flex items-start justify-between gap-4">
+                      <div
+                        key={column.key}
+                        className="flex items-start justify-between gap-4 py-1.5 first:pt-0 last:pb-0"
+                      >
                         <dt className="text-xs font-semibold uppercase tracking-wide text-secondary">
                           {column.mobileLabel ?? column.header}
                         </dt>
