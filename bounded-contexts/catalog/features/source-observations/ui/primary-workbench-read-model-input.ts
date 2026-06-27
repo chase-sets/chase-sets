@@ -9,6 +9,7 @@ import type {
   SourceObservationIntegrationScope,
   SourceObservationListItem,
 } from "./contracts";
+import type { CatalogSyncProviderParticipationPreview } from "../api/catalog-sync-scope-planner";
 import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-workbench-source-options";
 
 export type CatalogPrimaryWorkbenchReadModelFailure =
@@ -28,6 +29,7 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   lifecycleImpacts?: Partial<
     Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
   > | null;
+  catalogSyncPreview?: CatalogSyncProviderParticipationPreview | null;
   sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;

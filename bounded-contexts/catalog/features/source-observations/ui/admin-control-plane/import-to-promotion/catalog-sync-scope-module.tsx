@@ -75,7 +75,10 @@ export function CatalogSyncScopeModule({
           <WorkbenchDataCell
             title={unit.displayName}
             description={unit.unitKey ?? "No active unit"}
-            detail={unit.profileVersion ? `Profile ${unit.profileVersion}` : "No active profile"}
+            detail={
+              unit.blockers[0]?.message ??
+              (unit.profileVersion ? `Profile ${unit.profileVersion}` : "No active profile")
+            }
           />
         ),
       },
