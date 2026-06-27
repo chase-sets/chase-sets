@@ -5,6 +5,8 @@ import { cx } from "../../utils/cx";
 import { EmptyState } from "../feedback";
 import { TableCell, TableHeadCell, TableRow, TableShell } from "./table-shell";
 
+export type DataTableRowAttributes = Readonly<Record<`data-${string}`, string | number | undefined>>;
+
 export interface DataColumn<T> {
   key: string;
   header: ReactNode;
@@ -20,6 +22,7 @@ export interface DataTableProps<T> extends Omit<HTMLAttributes<HTMLDivElement>, 
   caption?: ReactNode;
   mobileMode?: "stack" | "scroll";
   getRowId?: (row: T, index: number) => string;
+  getRowProps?: (row: T, index: number) => DataTableRowAttributes;
   emptyTitle?: ReactNode;
   emptyDescription?: ReactNode;
   sortKey?: string;
@@ -41,6 +44,7 @@ export function DataTable<T>({
   caption,
   mobileMode = "stack",
   getRowId,
+  getRowProps,
   emptyTitle = "Nothing to review",
   emptyDescription = "Adjust filters or add new records to populate this view.",
   sortKey,
@@ -191,9 +195,10 @@ export function DataTable<T>({
           : rows.map((row, index) => {
               const rowId = getRowId ? getRowId(row, index) : String(index);
               const isSelected = selectable && selectedKeys.has(rowId);
+              const rowProps = getRowProps ? getRowProps(row, index) : undefined;
 
               return (
-                <TableRow key={rowId} surface="inset" selected={isSelected}>
+                <TableRow key={rowId} surface="inset" selected={isSelected} {...rowProps}>
                   {selectable ? (
                     <TableCell control density={density}>
                       <input
@@ -243,11 +248,13 @@ export function DataTable<T>({
             const rowId = getRowId ? getRowId(row, rowIndex) : String(rowIndex);
             const canSelect = isRowSelectable ? isRowSelectable(row, rowIndex) : true;
             const isSelected = selectable && selectedKeys.has(rowId);
+            const rowProps = getRowProps ? getRowProps(row, rowIndex) : undefined;
 
             return (
               <div
                 key={rowId}
                 role="listitem"
+                {...rowProps}
                 className={cx(
                   "inset-surface rounded-tokenMd border p-4",
                   isSelected ? "border-accent bg-surface-2" : "border-muted",

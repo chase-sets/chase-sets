@@ -1316,7 +1316,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    const { container } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     // Open the Run sync stage to monitor the durable import and keep the parent
     // scope enqueue visible beside provider child job controls.
@@ -1331,6 +1331,16 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("import job job_001 is running (7/24).").length).toBeGreaterThan(0);
     expect(screen.getAllByText("7/24 work units, 29% complete").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Cancel" }).length).toBeGreaterThan(0);
+    expect(
+      container.querySelectorAll(
+        '[data-catalog-import-job-row="true"][data-catalog-import-job-unit="tcgdex:pokemon:card:import"][data-catalog-import-job-scope="en:3:base:base1"][data-catalog-import-job-state="running"][data-catalog-import-job-operator-status="running"]',
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      container.querySelectorAll(
+        '[data-catalog-sync-participation-row="true"][data-catalog-sync-participation-unit="tcgdex:pokemon:card:import"]',
+      ).length,
+    ).toBeGreaterThan(0);
 
     const cancelForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="cancel-import-job"]',

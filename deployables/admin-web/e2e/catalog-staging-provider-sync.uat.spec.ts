@@ -132,12 +132,10 @@ const mtgjsonMtgSetChoice: SelectChoice = {
 const lorcanaSetChoice: SelectChoice = {
   labels: ["The First Chapter"],
   values: ["TFC", "1"],
-  fallbackToFirstAvailableOption: { valuePattern: /^[A-Z0-9]+$/i },
 };
 
 const tcgplayerLorcanaSetChoice: SelectChoice = {
   labels: ["The First Chapter"],
-  fallbackToFirstAvailableOption: {},
 };
 
 const tcgplayerLorcanaProductLineChoice: SelectChoice = {
@@ -738,9 +736,10 @@ async function startCatalogSyncForSelectedProviderUnit(
 
 function catalogSyncParticipationRowForUnit(page: Page, unitKey: string): Locator {
   return page
-    .getByRole("table", { name: "Catalog sync provider participation" })
-    .getByRole("row")
-    .filter({ hasText: unitKey })
+    .locator(
+      `[data-catalog-sync-participation-row="true"][data-catalog-sync-participation-unit="${cssAttrValue(unitKey)}"]`,
+    )
+    .filter({ visible: true })
     .first();
 }
 
@@ -1516,7 +1515,7 @@ function currentRouteImportScope(page: Page): string | null {
 }
 
 function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
-  return /\bimport job \S+ is (?:failed|cancelled|partial)\b/i.test(row);
+  return /\bimport job \S+ is (?:failed|cancelled|partial|stale)\b/i.test(row);
 }
 
 function importJobRowReachedCompletedTerminal(row: string): boolean {
@@ -1623,22 +1622,16 @@ async function completedImportJobRowLocatorForSelectedUnit(
   timeout: number,
 ): Promise<Locator | null> {
   const deadline = Date.now() + timeout;
-  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope, currentRouteImportScope(page)).map(
-    normalizeWhitespace,
-  );
   while (Date.now() < deadline) {
     const rows = importJobRowsForSelectedUnit(page, unitKey);
     const count = await rows.count();
+    const scopeCandidates = selectedProviderScopeActiveJobImportScopes(selectedScope, currentRouteImportScope(page));
     for (let index = 0; index < count; index += 1) {
       const row = rows.nth(index);
-      const text = await row
-        .innerText()
-        .then(normalizeWhitespace)
-        .catch(() => "");
       if (
-        text &&
-        importJobRowReachedCompletedTerminal(text) &&
-        importJobRowTextMatchesSelectedScope(text, scopeLabels)
+        (await row.isVisible().catch(() => false)) &&
+        (await importJobRowAttribute(row, "data-catalog-import-job-operator-status")) === "completed" &&
+        (await importJobRowMatchesSelectedScope(row, scopeCandidates))
       ) {
         return row;
       }
@@ -1650,10 +1643,7 @@ async function completedImportJobRowLocatorForSelectedUnit(
 }
 
 function importJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
-  return page
-    .getByRole("row")
-    .filter({ has: page.getByText(`Unit: ${unitKey}`, { exact: true }) })
-    .filter({ has: page.getByText(/^(Current scope|Overlapping scope)$/) });
+  return page.locator(`[data-catalog-import-job-row="true"][data-catalog-import-job-unit="${cssAttrValue(unitKey)}"]`);
 }
 
 async function visibleImportJobRowTexts(
@@ -1661,56 +1651,69 @@ async function visibleImportJobRowTexts(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<readonly string[]> {
-  const scopeLabels = selectedProviderScopeActiveJobScopeLabels(selectedScope, currentRouteImportScope(page)).map(
-    normalizeWhitespace,
-  );
-  return importJobRowsForSelectedUnit(page, unitKey)
-    .allInnerTexts()
-    .then((rows) =>
-      rows.map(normalizeWhitespace).filter((row) => row && importJobRowTextMatchesSelectedScope(row, scopeLabels)),
-    )
-    .catch(() => []);
+  const rows = importJobRowsForSelectedUnit(page, unitKey);
+  const scopeCandidates = selectedProviderScopeActiveJobImportScopes(selectedScope, currentRouteImportScope(page));
+  const count = await rows.count().catch(() => 0);
+  const visibleRows: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    if (!(await row.isVisible().catch(() => false))) {
+      continue;
+    }
+    if (!(await importJobRowMatchesSelectedScope(row, scopeCandidates))) {
+      continue;
+    }
+    visibleRows.push(await importJobRowStableSummary(row));
+  }
+
+  return [...new Set(visibleRows)];
 }
 
-function importJobRowTextMatchesSelectedScope(row: string, scopeLabels: readonly string[]): boolean {
-  const rowScope = importJobRowScopeLabel(row);
-  return Boolean(rowScope && scopeLabels.includes(rowScope));
+async function importJobRowMatchesSelectedScope(row: Locator, scopeCandidates: readonly string[]): Promise<boolean> {
+  const rowScope = await importJobRowAttribute(row, "data-catalog-import-job-scope");
+  return Boolean(rowScope && scopeCandidates.includes(comparableImportScope(rowScope)));
 }
 
-function importJobRowScopeLabel(row: string): string | null {
-  const match = row.match(/\bScope:\s+(?<scope>.+?)(?=\s+(?:Queued|Running|Completed|Failed|Cancelled)\b|$)/i);
-  return match?.groups?.scope ? normalizeWhitespace(match.groups.scope) : null;
+async function importJobRowStableSummary(row: Locator): Promise<string> {
+  const jobId = (await importJobRowAttribute(row, "data-catalog-import-job-id")) || "unknown";
+  const provider = (await importJobRowAttribute(row, "data-catalog-import-job-provider")) || "unknown";
+  const unit = (await importJobRowAttribute(row, "data-catalog-import-job-unit")) || "unknown";
+  const scope = (await importJobRowAttribute(row, "data-catalog-import-job-scope")) || "none";
+  const state = (await importJobRowAttribute(row, "data-catalog-import-job-state")) || "unknown";
+  const operatorStatus =
+    (await importJobRowAttribute(row, "data-catalog-import-job-operator-status")) || state || "unknown";
+  const route = (await importJobRowAttribute(row, "data-catalog-import-job-scope-route")) || "unknown";
+  return `import job ${jobId} is ${operatorStatus} (state=${state}; provider=${provider}; unit=${unit}; scope=${scope}; route=${route})`;
 }
 
-function selectedProviderScopeActiveJobScopeLabels(
+async function importJobRowAttribute(row: Locator, name: string): Promise<string | null> {
+  return emptyToNull((await row.getAttribute(name).catch(() => null)) ?? "");
+}
+
+function selectedProviderScopeActiveJobImportScopes(
   selectedScope: SelectedProviderScope,
   routeImportScope: string | null = null,
 ): readonly string[] {
-  const routeImportScopeLabel = routeImportScope
-    ? scopeDisplayLabelFromImportScope(selectedScope.providerKey, routeImportScope)
-    : null;
-  const labels = [
-    ...selectedProviderScopeDisplayLabelCandidates(
-      selectedScope.providerKey,
-      selectedScope.importScope,
-      selectedScope.fields,
-    ),
-    ...selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope),
-    routeImportScopeLabel,
+  const candidates = [
+    selectedScope.importScope,
+    routeImportScope,
+    ...selectedProviderScopeCompactJobImportScopeCandidates(selectedScope),
   ]
-    .filter((label): label is string => Boolean(label))
-    .flatMap(scopeLabelPrefixes);
-  return [...new Set(labels)];
+    .filter((scope): scope is string => Boolean(scope))
+    .flatMap(importScopePrefixes)
+    .map(comparableImportScope);
+  return [...new Set(candidates)];
 }
 
-function scopeLabelPrefixes(label: string): readonly string[] {
-  const segments = label.split(" / ").filter(Boolean);
-  return Array.from({ length: segments.length }, (_, index) => segments.slice(0, segments.length - index).join(" / "));
+function importScopePrefixes(importScope: string): readonly string[] {
+  const segments = importScope.split(":").filter(Boolean);
+  return Array.from({ length: segments.length }, (_, index) => segments.slice(0, segments.length - index).join(":"));
 }
 
-function selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope: SelectedProviderScope): readonly string[] {
+function selectedProviderScopeCompactJobImportScopeCandidates(selectedScope: SelectedProviderScope): readonly string[] {
   const value = (name: string) => selectedScope.fields.find((field) => field.name === name)?.value;
   const languageSegments = uniqueTruthy([value("languageCode")]);
+  const productLineSegments = uniqueTruthy([value("productLineId"), value("productLineName")]);
   const seriesSegments = uniqueTruthy([value("seriesName"), value("seriesId")]);
   const expansionSegments = uniqueTruthy([
     value("expansionName"),
@@ -1719,7 +1722,25 @@ function selectedProviderScopeCompactJobScopeLabelCandidates(selectedScope: Sele
     value("setCode"),
     value("setId"),
   ]);
-  return cartesianScopeLabels([[selectedScope.providerKey], languageSegments, seriesSegments, expansionSegments]);
+  return cartesianImportScopes([languageSegments, productLineSegments, seriesSegments, expansionSegments]);
+}
+
+function comparableImportScope(value: string): string {
+  return value
+    .split(":")
+    .map((segment) => comparableProviderScopeValue(segment))
+    .filter(Boolean)
+    .join(":");
+}
+
+function cartesianImportScopes(segmentGroups: readonly (readonly string[])[]): readonly string[] {
+  return segmentGroups.reduce<readonly string[]>(
+    (scopes, segments) => {
+      const availableSegments = segments.length > 0 ? segments : [""];
+      return scopes.flatMap((scope) => availableSegments.map((segment) => [scope, segment].filter(Boolean).join(":")));
+    },
+    [""],
+  );
 }
 
 function normalizeWhitespace(value: string): string {
