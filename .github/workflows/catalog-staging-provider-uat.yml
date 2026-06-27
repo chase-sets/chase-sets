@@ -42,6 +42,7 @@ jobs:
       PLAYWRIGHT_SKIP_WEB_SERVER: "true"
       CATALOG_STAGING_PROVIDER_UAT: "true"
       CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ inputs.journey_scope }}
+      CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
       CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
@@ -76,7 +77,7 @@ jobs:
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
 
       - name: Upload Playwright artifacts
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: catalog-staging-provider-uat-${{ github.run_id }}-${{ github.run_attempt }}
