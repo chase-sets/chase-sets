@@ -391,7 +391,8 @@ function filterTcgplayerSetProducts(
   return products.filter(
     (product) =>
       (productLineId === null || product.productLineId === productLineId) &&
-      productSummaryMatchesUnit(product, constraints),
+      productLineMatchesUnit(product, constraints) &&
+      productSummaryFormCanMatchUnit(product, constraints),
   );
 }
 
@@ -1042,6 +1043,18 @@ function productDetailMatchesUnit(
   return productLineMatchesUnit(detail, constraints) && productFormMatchesUnit(detail, constraints);
 }
 
+function productSummaryFormCanMatchUnit(
+  product: Pick<TcgplayerAutomationProductSearchProduct, "sealed" | "productTypeName">,
+  constraints: TcgplayerUnitConstraints,
+): boolean {
+  const normalizedProductType = normalizeProviderValue(product.productTypeName);
+  if (constraints.productForm === "single-card") {
+    return !product.sealed && !productTypeLooksSealed(normalizedProductType);
+  }
+
+  return product.sealed || productTypeLooksSealed(normalizedProductType);
+}
+
 function productFormMatchesUnit(
   product: Pick<TcgplayerAutomationProductSearchProduct, "sealed" | "productTypeName">,
   constraints: TcgplayerUnitConstraints,
@@ -1051,8 +1064,11 @@ function productFormMatchesUnit(
     return !product.sealed && normalizedProductType.includes("card");
   }
 
+  return product.sealed || productTypeLooksSealed(normalizedProductType);
+}
+
+function productTypeLooksSealed(normalizedProductType: string): boolean {
   return (
-    product.sealed ||
     normalizedProductType.includes("sealed") ||
     normalizedProductType.includes("booster") ||
     normalizedProductType.includes("bundle") ||

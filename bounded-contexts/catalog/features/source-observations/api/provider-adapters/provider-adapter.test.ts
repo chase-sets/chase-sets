@@ -564,7 +564,7 @@ describe("ProviderAdapterRegistry", () => {
       productName: "Charizard",
       productLineId: 3,
       productLineName: "Pokemon",
-      productTypeName: "Cards",
+      productTypeName: "Products",
       setId: 604,
       setName: "Base Set",
       sealed: false,
@@ -580,6 +580,7 @@ describe("ProviderAdapterRegistry", () => {
     const pokemonBaseSetDetail = {
       ...tcgplayerAutomationResponseFixtures.productDetail,
       ...pokemonBaseSetProduct,
+      productTypeName: "Cards",
       setCode: "BS",
       skus: [{ sku: 700610101, condition: "Near Mint", variant: "Holofoil", language: "English" }],
       listings: 42,

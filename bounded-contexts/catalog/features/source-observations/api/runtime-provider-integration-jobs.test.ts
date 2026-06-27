@@ -1355,6 +1355,49 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.appendedSourceEvents).toHaveLength(2);
   });
 
+  it("generates merge candidates from successful catalog-sync child imports without waiting for projection catch-up", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness();
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      syncRunId: "job_sync_tcgplayer",
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions(),
+    );
+
+    await expect(
+      services.processNextIntegrationJob({
+        claimOwnerId: "worker-1",
+        claimTtlMs: 120_000,
+      }),
+    ).resolves.toBe(1);
+
+    expect(harness.job.status).toBe("completed");
+    expect(
+      harness.appendedSourceEvents.filter((event) => event.eventType === "catalog.source-observation.recorded"),
+    ).toHaveLength(2);
+    const candidateEvents = harness.appendedSourceEvents.filter(
+      (event) => event.eventType === "catalog.merge-candidate.created",
+    );
+    expect(candidateEvents.length).toBeGreaterThan(0);
+    expect(candidateEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            snapshot: expect.objectContaining({
+              syncRunIds: ["job_sync_tcgplayer"],
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it.each([
     {
       profileKey: "mtg-card-reference-data",
