@@ -225,20 +225,14 @@ export function createTcgplayerProviderAdapter(
       }
       assertProductLineMatchesUnit(profileVersion, productLineName);
 
-      const products = await client.listAllProducts({
-        size: 24,
-        filters: {
-          term: {
-            productLineName: [productLineName],
-            setName: [setName],
-          },
-        },
-        sort: {
-          field: "product-sorting-name",
-          order: "asc",
-        },
+      const productLineId = positiveIntegerValue(plan.scope.values.productLineId ?? plan.scope.values.categoryId);
+      const scopedProducts = await listTcgplayerSetProducts({
+        client,
+        constraints,
+        productLineId,
+        productLineName,
+        setName,
       });
-      const scopedProducts = products.filter((product) => productSummaryMatchesUnit(product, constraints));
       let completed = 0;
       await fetchOptions?.onProgress?.({
         phase: "fetching",
@@ -347,6 +341,58 @@ export function createTcgplayerProviderAdapter(
       );
     },
   };
+}
+
+async function listTcgplayerSetProducts(input: {
+  client: TcgplayerAutomationCatalogClient;
+  constraints: TcgplayerUnitConstraints;
+  productLineId: number | null;
+  productLineName: string;
+  setName: string;
+}): Promise<readonly TcgplayerAutomationProductSearchProduct[]> {
+  const products = await listTcgplayerSetProductsByTerms(input, true);
+  const scopedProducts = filterTcgplayerSetProducts(products, input.constraints, input.productLineId);
+  if (scopedProducts.length > 0 || input.productLineId === null) {
+    return scopedProducts;
+  }
+
+  const fallbackProducts = await listTcgplayerSetProductsByTerms(input, false);
+  return filterTcgplayerSetProducts(fallbackProducts, input.constraints, input.productLineId);
+}
+
+async function listTcgplayerSetProductsByTerms(
+  input: {
+    client: TcgplayerAutomationCatalogClient;
+    productLineName: string;
+    setName: string;
+  },
+  includeProductLineName: boolean,
+): Promise<readonly TcgplayerAutomationProductSearchProduct[]> {
+  return input.client.listAllProducts({
+    size: 24,
+    filters: {
+      term: {
+        ...(includeProductLineName ? { productLineName: [input.productLineName] } : {}),
+        setName: [input.setName],
+      },
+    },
+    sort: {
+      field: "product-sorting-name",
+      order: "asc",
+    },
+  });
+}
+
+function filterTcgplayerSetProducts(
+  products: readonly TcgplayerAutomationProductSearchProduct[],
+  constraints: TcgplayerUnitConstraints,
+  productLineId: number | null,
+): readonly TcgplayerAutomationProductSearchProduct[] {
+  return products.filter(
+    (product) =>
+      (productLineId === null || product.productLineId === productLineId) &&
+      productSummaryMatchesUnit(product, constraints),
+  );
 }
 
 export async function runTcgplayerMtgSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
