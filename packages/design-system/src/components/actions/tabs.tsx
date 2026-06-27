@@ -1,8 +1,9 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useRef, useState, useId } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import { LayoutGroup, motion } from "motion/react";
-import { renderActivePill } from "./shared";
+import { motion } from "motion/react";
+import { useChaseMotion } from "../../theme/provider";
+import { renderActivePill, renderActivePillGroup } from "./shared";
 import { cx } from "../../utils/cx";
 import { useControllableValue } from "../controllable";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
@@ -28,6 +29,7 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
   const [currentValue, setCurrentValue] = useControllableValue(value, resolvedValue, onValueChange);
   const [reservedPanelHeight, setReservedPanelHeight] = useState<number | null>(null);
   const groupId = useId();
+  const motionSettings = useChaseMotion();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelFrameRef = useRef<HTMLDivElement | null>(null);
   const scrollSnapshotRef = useRef<{ top: number } | null>(null);
@@ -73,7 +75,7 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
 
   function handleValueChange(nextValue: string) {
     const panelHeight = panelFrameRef.current?.getBoundingClientRect().height ?? 0;
-    if (panelHeight > 0) {
+    if (!motionSettings.reducedMotion && panelHeight > 0) {
       setReservedPanelHeight(Math.ceil(panelHeight));
     }
     scrollSnapshotRef.current = captureScrollSnapshot();
@@ -101,7 +103,9 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
       dir={dir}
       className="space-y-4"
     >
-      <LayoutGroup id={groupId}>
+      {renderActivePillGroup(
+        groupId,
+        motionSettings.reducedMotion,
         <TabsPrimitive.List className="grid w-full min-w-0 max-w-full grid-cols-2 gap-2 rounded-tokenLg border border-muted bg-background p-2 md:inline-flex md:flex-wrap">
           {items.map((item) => {
             const active = item.value === currentValue;
@@ -120,7 +124,7 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
                   )
                 }
               >
-                {active ? renderActivePill(groupId, "accent") : null}
+                {active ? renderActivePill(groupId, "accent", motionSettings.reducedMotion) : null}
                 <span className="relative z-10 min-w-0 break-words">{item.label}</span>
                 {item.badge ? (
                   <span className="relative z-10 rounded-tokenFull bg-background px-2 py-0.5 text-2xs">
@@ -130,8 +134,8 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
               </TabsPrimitive.Tab>
             );
           })}
-        </TabsPrimitive.List>
-      </LayoutGroup>
+        </TabsPrimitive.List>,
+      )}
       <div
         ref={panelFrameRef}
         className="[overflow-anchor:none]"
@@ -139,9 +143,9 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
       >
         <motion.div
           key={currentValue}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18 }}
+          initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 10 }}
+          animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+          transition={motionSettings.reducedMotion ? undefined : { duration: 0.18 }}
           onAnimationComplete={releaseReservedPanelHeight}
         >
           <TabsPrimitive.Panel value={currentValue} keepMounted className="focus-visible:outline-none">

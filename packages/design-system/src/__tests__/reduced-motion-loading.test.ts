@@ -14,6 +14,16 @@ describe("reduced motion loading affordances", () => {
 
     expect(reducedMotionBlock).toContain(".animate-spin");
     expect(reducedMotionBlock).toContain(".animate-pulse");
+    expect(reducedMotionBlock).toContain(".ds-reveal");
     expect(reducedMotionBlock).toContain("animation: none !important");
+  });
+
+  it('honors ChaseRoot reducedMotion="always" without depending on the OS media query', () => {
+    const styles = readFileSync(stylesPath, "utf8");
+    const rootPolicyBlock = styles.match(
+      /\[data-reduced-motion="true"\] \.animate-spin,[\s\S]*?\[data-reduced-motion="true"\] \.ds-reveal \{(?<body>[\s\S]*?)\n  \}/,
+    )?.groups?.body;
+
+    expect(rootPolicyBlock).toContain("animation: none !important");
   });
 });

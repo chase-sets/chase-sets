@@ -1,7 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { LayoutGroup } from "motion/react";
 import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
@@ -11,7 +10,7 @@ import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { controlSquareSizeClasses } from "../control-sizing";
-import { renderActivePill } from "./shared";
+import { renderActivePill, renderActivePillGroup } from "./shared";
 
 export interface NavigationItem {
   key: string;
@@ -42,6 +41,7 @@ function renderNavigationItem(
   groupId?: string,
   onSelect?: (key: string) => void,
   activeKey?: string,
+  reducedMotion = false,
 ) {
   const content = (
     <>
@@ -77,6 +77,7 @@ function renderNavigationItem(
         groupId={groupId}
         onSelect={onSelect}
         activeKey={activeKey}
+        reducedMotion={reducedMotion}
       />
     );
   }
@@ -92,6 +93,7 @@ function renderNavigationItem(
         groupId={groupId}
         onSelect={onSelect}
         activeKey={activeKey}
+        reducedMotion={reducedMotion}
       />
     );
   }
@@ -99,7 +101,7 @@ function renderNavigationItem(
   if (item.href) {
     return (
       <a key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
-        {active && groupId ? renderActivePill(groupId) : null}
+        {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
         <NavItemContent>{content}</NavItemContent>
       </a>
     );
@@ -107,7 +109,7 @@ function renderNavigationItem(
 
   return (
     <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
-      {active && groupId ? renderActivePill(groupId) : null}
+      {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
       <NavItemContent>{content}</NavItemContent>
     </button>
   );
@@ -121,6 +123,7 @@ function NavigationItemGroup({
   groupId,
   onSelect,
   activeKey,
+  reducedMotion,
 }: {
   item: NavigationItem;
   active: boolean;
@@ -129,6 +132,7 @@ function NavigationItemGroup({
   groupId?: string;
   onSelect?: (key: string) => void;
   activeKey?: string;
+  reducedMotion: boolean;
 }) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -143,7 +147,7 @@ function NavigationItemGroup({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger className={cx(className, active && "bg-surface-2 text-accent shadow-tokenSm")}>
-        {active && groupId ? renderActivePill(groupId) : null}
+        {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
         <NavItemContent>{content}</NavItemContent>
         <NavItemContent className={cx("transition-transform duration-200", open && "rotate-180")}>
           <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
@@ -186,6 +190,7 @@ function NavigationTreeItem({
   groupId,
   onSelect,
   activeKey,
+  reducedMotion,
 }: {
   item: NavigationItem;
   active: boolean;
@@ -194,6 +199,7 @@ function NavigationTreeItem({
   groupId?: string;
   onSelect?: (key: string) => void;
   activeKey?: string;
+  reducedMotion: boolean;
 }) {
   const regionId = useId();
   const [open, setOpen] = useState(active);
@@ -235,6 +241,7 @@ function NavigationTreeItem({
             groupId,
             onSelect,
             activeKey,
+            reducedMotion,
           ),
         )}
       </div>
@@ -248,6 +255,7 @@ function renderBottomNavigationItem(
   groupId?: string,
   onSelect?: (key: string) => void,
   activeKey?: string,
+  reducedMotion = false,
 ) {
   const content = (
     <>
@@ -276,7 +284,7 @@ function renderBottomNavigationItem(
     return (
       <details key={item.key} className="group relative min-w-0">
         <summary className={cx(className, "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}>
-          {active && groupId ? renderActivePill(groupId) : null}
+          {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
           <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
         </summary>
         <div className="modern-surface absolute bottom-[calc(100%+0.5rem)] right-0 z-dropdown w-[min(16rem,calc(100vw-1.5rem))] rounded-tokenLg border border-muted p-2 shadow-overlay">
@@ -298,7 +306,7 @@ function renderBottomNavigationItem(
   if (item.href) {
     return (
       <a key={item.key} href={item.href} className={className}>
-        {active && groupId ? renderActivePill(groupId) : null}
+        {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
         <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
       </a>
     );
@@ -306,7 +314,7 @@ function renderBottomNavigationItem(
 
   return (
     <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
-      {active && groupId ? renderActivePill(groupId) : null}
+      {active && groupId ? renderActivePill(groupId, "default", reducedMotion) : null}
       <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
     </button>
   );
@@ -418,6 +426,7 @@ export function TopNav({
   ...rest
 }: TopNavProps) {
   const groupId = useId();
+  const motionSettings = useChaseMotion();
   const navLabel = rest["aria-label"] ?? "Primary navigation";
   const primaryItems = items.filter((item) => item.placement !== "utility");
   const utilityItems = items
@@ -444,7 +453,9 @@ export function TopNav({
         <Cluster justify="between" gap={4}>
           <Inline gap={4} wrap={false}>
             {brand}
-            <LayoutGroup id={groupId}>
+            {renderActivePillGroup(
+              groupId,
+              motionSettings.reducedMotion,
               <Show above="md" display="flex">
                 <Inline gap={1} wrap={false}>
                   {primaryItems.map((item) =>
@@ -455,11 +466,12 @@ export function TopNav({
                       groupId,
                       onSelect,
                       activeKey,
+                      motionSettings.reducedMotion,
                     ),
                   )}
                 </Inline>
-              </Show>
-            </LayoutGroup>
+              </Show>,
+            )}
           </Inline>
           <Inline gap={2} wrap={false}>
             {actions && mobileActionsLabel ? (
@@ -480,24 +492,27 @@ export function TopNav({
             ) : (
               actions
             )}
-            {utilityItems.length > 0 ? (
-              <LayoutGroup id={`${groupId}-utility`}>
-                <Show above="md" display="flex">
-                  <Inline gap={1} wrap={false}>
-                    {utilityItems.map((item) =>
-                      renderNavigationItem(
-                        item,
-                        isNavigationItemActive(item, activeKey),
-                        "horizontal",
-                        `${groupId}-utility`,
-                        onSelect,
-                        activeKey,
-                      ),
-                    )}
-                  </Inline>
-                </Show>
-              </LayoutGroup>
-            ) : null}
+            {utilityItems.length > 0
+              ? renderActivePillGroup(
+                  `${groupId}-utility`,
+                  motionSettings.reducedMotion,
+                  <Show above="md" display="flex">
+                    <Inline gap={1} wrap={false}>
+                      {utilityItems.map((item) =>
+                        renderNavigationItem(
+                          item,
+                          isNavigationItemActive(item, activeKey),
+                          "horizontal",
+                          `${groupId}-utility`,
+                          onSelect,
+                          activeKey,
+                          motionSettings.reducedMotion,
+                        ),
+                      )}
+                    </Inline>
+                  </Show>,
+                )
+              : null}
           </Inline>
         </Cluster>
       </Container>
@@ -531,17 +546,28 @@ export interface SideNavProps extends Omit<HTMLAttributes<HTMLElement>, "classNa
 
 export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
   const groupId = useId();
+  const motionSettings = useChaseMotion();
 
   return (
     <nav
       {...rest}
       className="glass-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
     >
-      <LayoutGroup id={groupId}>
-        {items.map((item) =>
-          renderNavigationItem(item, isNavigationItemActive(item, activeKey), "vertical", groupId, onSelect, activeKey),
-        )}
-      </LayoutGroup>
+      {renderActivePillGroup(
+        groupId,
+        motionSettings.reducedMotion,
+        items.map((item) =>
+          renderNavigationItem(
+            item,
+            isNavigationItemActive(item, activeKey),
+            "vertical",
+            groupId,
+            onSelect,
+            activeKey,
+            motionSettings.reducedMotion,
+          ),
+        ),
+      )}
     </nav>
   );
 }
@@ -555,6 +581,7 @@ export interface BottomNavProps extends Omit<HTMLAttributes<HTMLElement>, "class
 
 export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest }: BottomNavProps) {
   const groupId = useId();
+  const motionSettings = useChaseMotion();
   const visibleItems = items;
   const gridColumnsClass =
     visibleItems.length > 5
@@ -574,13 +601,22 @@ export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest 
       {...rest}
       className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/overlay px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden"
     >
-      <LayoutGroup id={groupId}>
+      {renderActivePillGroup(
+        groupId,
+        motionSettings.reducedMotion,
         <div className={cx("mx-auto grid w-full gap-2", gridColumnsClass, layoutWidthClasses[width])}>
           {visibleItems.map((item) =>
-            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect, activeKey),
+            renderBottomNavigationItem(
+              item,
+              isNavigationItemActive(item, activeKey),
+              groupId,
+              onSelect,
+              activeKey,
+              motionSettings.reducedMotion,
+            ),
           )}
-        </div>
-      </LayoutGroup>
+        </div>,
+      )}
     </nav>
   );
 }
@@ -593,15 +629,28 @@ export interface NavRailProps extends Omit<HTMLAttributes<HTMLElement>, "classNa
 
 export function NavRail({ items, activeKey, onSelect, ...rest }: NavRailProps) {
   const groupId = useId();
+  const motionSettings = useChaseMotion();
 
   return (
     <nav
       {...rest}
       className="glass-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
     >
-      <LayoutGroup id={groupId}>
-        {items.map((item) => renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect, activeKey))}
-      </LayoutGroup>
+      {renderActivePillGroup(
+        groupId,
+        motionSettings.reducedMotion,
+        items.map((item) =>
+          renderNavigationItem(
+            item,
+            item.key === activeKey,
+            "rail",
+            groupId,
+            onSelect,
+            activeKey,
+            motionSettings.reducedMotion,
+          ),
+        ),
+      )}
     </nav>
   );
 }

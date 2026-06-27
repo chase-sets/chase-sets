@@ -1,11 +1,11 @@
 import type { HTMLAttributes, KeyboardEvent } from "react";
 import { useId } from "react";
-import { LayoutGroup } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
+import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
-import { renderActivePill } from "./shared";
+import { renderActivePill, renderActivePillGroup } from "./shared";
 
 export interface SegmentedControlItem {
   value: string;
@@ -35,6 +35,7 @@ export function SegmentedControl({
   ...rest
 }: SegmentedControlProps) {
   const groupId = useId();
+  const motionSettings = useChaseMotion();
 
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let next = -1;
@@ -56,48 +57,48 @@ export function SegmentedControl({
     }
   }
 
-  return (
-    <LayoutGroup id={groupId}>
-      <div
-        {...rest}
-        role="radiogroup"
-        aria-label={ariaLabel ?? (ariaLabelledBy ? undefined : label)}
-        aria-labelledby={ariaLabelledBy}
-        className={cx(
-          "rounded-tokenLg border border-muted bg-background p-1",
-          fullWidth ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr" : "inline-flex flex-wrap",
-        )}
-      >
-        {items.map((item, index) => {
-          const active = item.value === value;
+  return renderActivePillGroup(
+    groupId,
+    motionSettings.reducedMotion,
+    <div
+      {...rest}
+      role="radiogroup"
+      aria-label={ariaLabel ?? (ariaLabelledBy ? undefined : label)}
+      aria-labelledby={ariaLabelledBy}
+      className={cx(
+        "rounded-tokenLg border border-muted bg-background p-1",
+        fullWidth ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr" : "inline-flex flex-wrap",
+      )}
+    >
+      {items.map((item, index) => {
+        const active = item.value === value;
 
-          return (
-            <button
-              key={item.value}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              tabIndex={active ? 0 : -1}
-              className={cx(
-                "focus-ring relative inline-flex min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd font-semibold transition",
-                controlHeightClasses.md,
-                controlPaddingClasses.md,
-                controlTextClasses.md,
-                fullWidth && "justify-center",
-                active ? "text-accent" : "text-secondary hover:text-foreground",
-              )}
-              onClick={() => onValueChange?.(item.value)}
-              onKeyDown={(event) => handleKeyDown(event, index)}
-            >
-              {active ? renderActivePill(groupId, "accent") : null}
-              <span className="relative z-10 inline-flex min-w-0 items-center gap-2">
-                {item.icon ? <Icon name={item.icon} size="sm" tone="inherit" /> : null}
-                <span className="min-w-0">{item.label}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </LayoutGroup>
+        return (
+          <button
+            key={item.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            className={cx(
+              "focus-ring relative inline-flex min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd font-semibold transition",
+              controlHeightClasses.md,
+              controlPaddingClasses.md,
+              controlTextClasses.md,
+              fullWidth && "justify-center",
+              active ? "text-accent" : "text-secondary hover:text-foreground",
+            )}
+            onClick={() => onValueChange?.(item.value)}
+            onKeyDown={(event) => handleKeyDown(event, index)}
+          >
+            {active ? renderActivePill(groupId, "accent", motionSettings.reducedMotion) : null}
+            <span className="relative z-10 inline-flex min-w-0 items-center gap-2">
+              {item.icon ? <Icon name={item.icon} size="sm" tone="inherit" /> : null}
+              <span className="min-w-0">{item.label}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>,
   );
 }
