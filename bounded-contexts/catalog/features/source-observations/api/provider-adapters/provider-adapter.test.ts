@@ -556,6 +556,74 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
+  it("falls back to set-name search when TCGplayer product-line terms produce no scoped products", async () => {
+    const listAllProductRequests: unknown[] = [];
+    const pokemonBaseSetProduct = {
+      ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
+      productId: 610101,
+      productName: "Charizard",
+      productLineId: 3,
+      productLineName: "Pokemon",
+      productTypeName: "Cards",
+      setId: 604,
+      setName: "Base Set",
+      sealed: false,
+      customAttributes: { number: "4/102", releaseDate: "1999-01-09", cardType: ["Pokemon"] },
+    };
+    const magicBaseSetProduct = {
+      ...pokemonBaseSetProduct,
+      productId: 14240,
+      productName: "Fury Sliver",
+      productLineId: 1,
+      productLineName: "Magic",
+    };
+    const pokemonBaseSetDetail = {
+      ...tcgplayerAutomationResponseFixtures.productDetail,
+      ...pokemonBaseSetProduct,
+      setCode: "BS",
+      skus: [{ sku: 700610101, condition: "Near Mint", variant: "Holofoil", language: "English" }],
+      listings: 42,
+    };
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
+      client: {
+        ...tcgplayerClient(),
+        listAllProducts: async (input) => {
+          listAllProductRequests.push(input);
+          return input.filters?.term?.productLineName ? [] : [magicBaseSetProduct, pokemonBaseSetProduct];
+        },
+        getProductDetail: async ({ productId }) => {
+          if (productId !== 610101) {
+            throw new Error(`Unexpected product detail fetch for ${productId}.`);
+          }
+          return pokemonBaseSetDetail;
+        },
+      },
+    });
+
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        externalKey: "product:610101",
+        payload: expect.objectContaining({ kind: "product-detail", detail: pokemonBaseSetDetail }),
+      }),
+    ]);
+    expect(listAllProductRequests).toEqual([
+      expect.objectContaining({
+        filters: { term: { productLineName: ["Pokemon"], setName: ["Base Set"] } },
+      }),
+      expect.objectContaining({
+        filters: { term: { setName: ["Base Set"] } },
+      }),
+    ]);
+  });
+
   it("serves TCGplayer Magic single-card transport through the active profile unit", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
