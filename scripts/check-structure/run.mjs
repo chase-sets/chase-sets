@@ -18,6 +18,7 @@ import {
   isSoftwareDeliveryConceptGuardedFile,
 } from "./software-delivery-concepts.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
+import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
@@ -3080,6 +3081,17 @@ export async function runStructureCheck(options = {}) {
     violations.push(violation);
   }
   for (const warning of crossContextFallbackInventoryResult.warnings) {
+    warnings.push(warning);
+  }
+
+  const crossContextReadInventoryResult = await validateCrossContextReadInventory({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of crossContextReadInventoryResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of crossContextReadInventoryResult.warnings) {
     warnings.push(warning);
   }
 
