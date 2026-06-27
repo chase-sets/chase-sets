@@ -2,6 +2,7 @@ export type McpServiceKind = "bounded-context" | "external-provider" | "infrastr
 export type McpAccessScope = "public" | "actor" | "account" | "operator";
 export type McpToolRisk = "read" | "sensitive" | "destructive";
 export type McpIdempotencyPolicy = "not-applicable" | "recommended" | "required";
+export type McpCapabilityAvailability = "available" | "planned";
 
 export type McpJsonSchema = Readonly<{
   type: "object";
@@ -50,6 +51,7 @@ export type McpToolDescriptor = Readonly<{
   name: string;
   title: string;
   description: string;
+  availability?: McpCapabilityAvailability;
   serviceId: string;
   risk: McpToolRisk;
   inputSchema: McpJsonSchema;
@@ -64,6 +66,7 @@ export type McpResourceDescriptor = Readonly<{
   uriTemplate: string;
   title: string;
   description: string;
+  availability?: McpCapabilityAvailability;
   serviceId: string;
   permissionBoundary: McpPermissionBoundary;
   expectedUsage: readonly string[];
@@ -107,6 +110,8 @@ export const CORE_MCP_SERVICE_IDS = [
 ] as const;
 
 export const EXTERNAL_MCP_SERVICE_IDS = ["easypost-postage", "stripe-connect", "stripe-payments"] as const;
+
+const DEFAULT_MCP_CAPABILITY_AVAILABILITY: McpCapabilityAvailability = "planned";
 
 const emptySchema: McpJsonSchema = {
   type: "object",
@@ -197,6 +202,7 @@ const readTool = (
   name: `${serviceId}.${name}`,
   title,
   description,
+  availability: DEFAULT_MCP_CAPABILITY_AVAILABILITY,
   serviceId,
   risk: "read",
   inputSchema,
@@ -221,6 +227,7 @@ const writeTool = (
   name: `${serviceId}.${name}`,
   title,
   description,
+  availability: DEFAULT_MCP_CAPABILITY_AVAILABILITY,
   serviceId,
   risk,
   inputSchema,
@@ -242,6 +249,7 @@ const resource = (
   uriTemplate,
   title,
   description,
+  availability: DEFAULT_MCP_CAPABILITY_AVAILABILITY,
   serviceId,
   permissionBoundary: readBoundary(permission, scope),
   expectedUsage,
@@ -603,85 +611,97 @@ export const mcpServiceCatalog = [
         "inventory-item",
         ["Use before creating or updating listings."],
       ),
-      readTool(
-        "inventory",
-        "list-import-sources",
-        "List Inventory Import Sources",
-        "List supported inventory import source profiles, field mappings, external reference candidates, and option inference rules.",
-        "inventory.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-          },
-          ["accountId"],
+      {
+        ...readTool(
+          "inventory",
+          "list-import-sources",
+          "List Inventory Import Sources",
+          "List supported inventory import source profiles, field mappings, external reference candidates, and option inference rules.",
+          "inventory.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+            },
+            ["accountId"],
+          ),
+          "import-source-profile",
+          ["Use before creating an import batch so agents can choose the right sourceKey and row shape."],
         ),
-        "import-source-profile",
-        ["Use before creating an import batch so agents can choose the right sourceKey and row shape."],
-      ),
-      writeTool(
-        "inventory",
-        "create-import-batch",
-        "Create Inventory Import Batch",
-        "Create a review-first import batch from CSV text or pre-parsed provider rows.",
-        "inventory.manage",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            sourceKey: stringProperty("Configured import source key."),
-            quantityMode: stringProperty("How row quantities should affect stock.", ["add", "replace"]),
-            csvText: stringProperty("CSV text to parse through the configured source profile."),
-            parsedRows: arrayProperty("Pre-parsed rows to normalize through the configured source profile.", {
-              type: "object",
-              description: "Parsed row with rowNumber and string values.",
-              additionalProperties: true,
-            }),
-            defaultStorageLocationId: stringProperty("Default Inventory Storage Location for rows that omit one."),
-            sourceFilename: stringProperty("Original file or connector source name."),
-            idempotencyKey: stringProperty("Stable key supplied by the agent host."),
-            confirmationText: stringProperty("Exact user or policy confirmation text."),
-            dryRun: booleanProperty("Validate the action without committing it."),
-          },
-          ["accountId", "sourceKey", "quantityMode", "idempotencyKey", "confirmationText"],
+        availability: "available",
+      },
+      {
+        ...writeTool(
+          "inventory",
+          "create-import-batch",
+          "Create Inventory Import Batch",
+          "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+          "inventory.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              sourceKey: stringProperty("Configured import source key."),
+              quantityMode: stringProperty("How row quantities should affect stock.", ["add", "replace"]),
+              csvText: stringProperty("CSV text to parse through the configured source profile."),
+              parsedRows: arrayProperty("Pre-parsed rows to normalize through the configured source profile.", {
+                type: "object",
+                description: "Parsed row with rowNumber and string values.",
+                additionalProperties: true,
+              }),
+              defaultStorageLocationId: stringProperty("Default Inventory Storage Location for rows that omit one."),
+              sourceFilename: stringProperty("Original file or connector source name."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "sourceKey", "quantityMode", "idempotencyKey", "confirmationText"],
+          ),
+          "import-batch",
+          ["Use after source rows are fetched and before committing stock or draft listings."],
         ),
-        "import-batch",
-        ["Use after source rows are fetched and before committing stock or draft listings."],
-      ),
-      readTool(
-        "inventory",
-        "get-import-batch",
-        "Get Inventory Import Batch",
-        "Read import batch match results, validation errors, and committed inventory/listing ids.",
-        "inventory.view",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            batchId: stringProperty("Import batch identifier."),
-          },
-          ["accountId", "batchId"],
+        availability: "available",
+      },
+      {
+        ...readTool(
+          "inventory",
+          "get-import-batch",
+          "Get Inventory Import Batch",
+          "Read import batch match results, validation errors, and committed inventory/listing ids.",
+          "inventory.view",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              batchId: stringProperty("Import batch identifier."),
+            },
+            ["accountId", "batchId"],
+          ),
+          "import-batch",
+          ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
         ),
-        "import-batch",
-        ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
-      ),
-      writeTool(
-        "inventory",
-        "commit-import-batch",
-        "Commit Inventory Import Batch",
-        "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
-        "inventory.manage",
-        objectSchema(
-          {
-            accountId: stringProperty("Authenticated account scope."),
-            batchId: stringProperty("Import batch identifier."),
-            reason: stringProperty("Business reason for the action."),
-            idempotencyKey: stringProperty("Stable key supplied by the agent host."),
-            confirmationText: stringProperty("Exact user or policy confirmation text."),
-            dryRun: booleanProperty("Validate the action without committing it."),
-          },
-          ["accountId", "batchId", "reason", "idempotencyKey", "confirmationText"],
+        availability: "available",
+      },
+      {
+        ...writeTool(
+          "inventory",
+          "commit-import-batch",
+          "Commit Inventory Import Batch",
+          "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+          "inventory.manage",
+          objectSchema(
+            {
+              accountId: stringProperty("Authenticated account scope."),
+              batchId: stringProperty("Import batch identifier."),
+              reason: stringProperty("Business reason for the action."),
+              idempotencyKey: stringProperty("Stable key supplied by the agent host."),
+              confirmationText: stringProperty("Exact user or policy confirmation text."),
+              dryRun: booleanProperty("Validate the action without committing it."),
+            },
+            ["accountId", "batchId", "reason", "idempotencyKey", "confirmationText"],
+          ),
+          "import-batch",
+          ["Use only after reviewing match outcomes and confirming rejected rows should remain in review."],
         ),
-        "import-batch",
-        ["Use only after reviewing match outcomes and confirming rejected rows should remain in review."],
-      ),
+        availability: "available",
+      },
       writeTool(
         "inventory",
         "adjust-item",
@@ -713,14 +733,17 @@ export const mcpServiceCatalog = [
         "inventory.view",
         ["Use before pricing, listing, or fulfillment actions."],
       ),
-      resource(
-        "inventory",
-        "chase-sets://inventory/{accountId}/import-batches/{batchId}",
-        "Inventory Import Batch",
-        "Review-first inventory import batch with product match and draft listing outcomes.",
-        "inventory.view",
-        ["Use after an agent creates or commits an import batch."],
-      ),
+      {
+        ...resource(
+          "inventory",
+          "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+          "Inventory Import Batch",
+          "Review-first inventory import batch with product match and draft listing outcomes.",
+          "inventory.view",
+          ["Use after an agent creates or commits an import batch."],
+        ),
+        availability: "available",
+      },
     ],
   },
   {
@@ -1477,6 +1500,28 @@ export function flattenMcpResources(
   services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
 ): McpResourceDescriptor[] {
   return services.flatMap((serviceDescriptor) => [...serviceDescriptor.resources]);
+}
+
+export function getMcpCapabilityAvailability(
+  capability: Pick<McpToolDescriptor | McpResourceDescriptor, "availability">,
+): McpCapabilityAvailability {
+  return capability.availability ?? DEFAULT_MCP_CAPABILITY_AVAILABILITY;
+}
+
+export function isAvailableMcpCapability(capability: Pick<McpToolDescriptor | McpResourceDescriptor, "availability">) {
+  return getMcpCapabilityAvailability(capability) === "available";
+}
+
+export function flattenAvailableMcpTools(
+  services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
+): McpToolDescriptor[] {
+  return flattenMcpTools(services).filter(isAvailableMcpCapability);
+}
+
+export function flattenAvailableMcpResources(
+  services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
+): McpResourceDescriptor[] {
+  return flattenMcpResources(services).filter(isAvailableMcpCapability);
 }
 
 export function findMcpTool(

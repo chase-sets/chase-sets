@@ -4,6 +4,8 @@ import {
   EXTERNAL_MCP_SERVICE_IDS,
   authorizeMcpToolInvocation,
   findMcpTool,
+  flattenAvailableMcpResources,
+  flattenAvailableMcpTools,
   flattenMcpTools,
   mcpServiceCatalog,
   validateMcpServiceCatalog,
@@ -47,6 +49,25 @@ describe("MCP service catalog", () => {
       expect(tool.audit.targetType.length).toBeGreaterThan(0);
       expect(tool.expectedUsage.length).toBeGreaterThan(0);
     }
+  });
+
+  it("marks only registered native MCP v1 capabilities as available", () => {
+    expect(
+      flattenAvailableMcpTools()
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual([
+      "inventory.commit-import-batch",
+      "inventory.create-import-batch",
+      "inventory.get-import-batch",
+      "inventory.list-import-sources",
+    ]);
+    expect(
+      flattenAvailableMcpResources()
+        .map((resource) => resource.uriTemplate)
+        .sort(),
+    ).toEqual(["chase-sets://inventory/{accountId}/import-batches/{batchId}"]);
+    expect(flattenMcpTools().find((tool) => tool.name === "inventory.list-items")?.availability).toBe("planned");
   });
 
   it("requires confirmation and idempotency for sensitive and destructive tools", () => {

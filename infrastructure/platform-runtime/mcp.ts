@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import {
   authorizeMcpToolInvocation,
+  flattenAvailableMcpResources,
+  flattenAvailableMcpTools,
   findMcpTool,
   flattenMcpResources,
-  flattenMcpTools,
+  getMcpCapabilityAvailability,
   mcpServiceCatalog,
   type McpActor,
   type McpResourceDescriptor,
@@ -158,6 +160,7 @@ function toToolListItem(tool: McpToolDescriptor) {
     inputSchema: tool.inputSchema,
     annotations: {
       serviceId: tool.serviceId,
+      availability: getMcpCapabilityAvailability(tool),
       risk: tool.risk,
       requiredPermissions: tool.permissionBoundary.requiredPermissions,
       accountScoped: tool.permissionBoundary.accountScoped,
@@ -178,6 +181,7 @@ function toResourceListItem(resource: McpResourceDescriptor) {
     description: resource.description,
     annotations: {
       serviceId: resource.serviceId,
+      availability: getMcpCapabilityAvailability(resource),
       requiredPermissions: resource.permissionBoundary.requiredPermissions,
       accountScoped: resource.permissionBoundary.accountScoped,
       expectedUsage: resource.expectedUsage,
@@ -446,13 +450,13 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
   app.get("/tools", (c) =>
     c.json({
-      tools: flattenMcpTools(services).map(toToolListItem),
+      tools: flattenAvailableMcpTools(services).map(toToolListItem),
     }),
   );
 
   app.get("/resources", (c) =>
     c.json({
-      resources: flattenMcpResources(services).map(toResourceListItem),
+      resources: flattenAvailableMcpResources(services).map(toResourceListItem),
     }),
   );
 
@@ -482,13 +486,13 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
       case "tools/list":
         return c.json(
           jsonRpcResult(body.id, {
-            tools: flattenMcpTools(services).map(toToolListItem),
+            tools: flattenAvailableMcpTools(services).map(toToolListItem),
           }),
         );
       case "resources/list":
         return c.json(
           jsonRpcResult(body.id, {
-            resources: flattenMcpResources(services).map(toResourceListItem),
+            resources: flattenAvailableMcpResources(services).map(toResourceListItem),
           }),
         );
       case "tools/call": {
