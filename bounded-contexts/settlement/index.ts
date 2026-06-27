@@ -38,7 +38,7 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
           buildHandlers: () => buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db),
         },
         "marketplace.settlement-account-risk-source-projection": {
-          subscriptionName: "settlement.reputation-account-risk-source-projection",
+          subscriptionName: "settlement.marketplace-review-account-risk-source-projection",
           buildHandlers: () => buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),
         },
       },

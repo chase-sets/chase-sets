@@ -11,7 +11,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
       };
 
       await db.query(
-        `INSERT INTO reputation_account_pages (
+        `INSERT INTO marketplace_review_account_sources (
            account_id,
            display_name,
            status,
@@ -29,7 +29,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
       const { displayName } = event.data as { displayName: string };
 
       await db.query(
-        `INSERT INTO reputation_account_pages (
+        `INSERT INTO marketplace_review_account_sources (
            account_id,
            display_name,
            status,
@@ -37,7 +37,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
          ) VALUES (
            $1,
            $2,
-           COALESCE((SELECT status FROM reputation_account_pages WHERE account_id = $1), 'active'),
+           COALESCE((SELECT status FROM marketplace_review_account_sources WHERE account_id = $1), 'active'),
            $3
          )
          ON CONFLICT (account_id) DO UPDATE SET
@@ -48,7 +48,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
     },
     "identity.account.suspended": async (event) => {
       await db.query(
-        `UPDATE reputation_account_pages
+        `UPDATE marketplace_review_account_sources
          SET status = 'suspended',
              updated_at = $2
          WHERE account_id = $1`,
@@ -57,7 +57,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
     },
     "identity.account.reactivated": async (event) => {
       await db.query(
-        `UPDATE reputation_account_pages
+        `UPDATE marketplace_review_account_sources
          SET status = 'active',
              updated_at = $2
          WHERE account_id = $1`,
@@ -66,7 +66,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
     },
     "identity.account.closed": async (event) => {
       await db.query(
-        `UPDATE reputation_account_pages
+        `UPDATE marketplace_review_account_sources
          SET status = 'closed',
              updated_at = $2
          WHERE account_id = $1`,
@@ -76,7 +76,7 @@ export function buildReviewAccountProjectionHandlers(db: PgQueryable): Projector
   };
 }
 
-export function buildReputationOrderProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildReviewOrderSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -86,7 +86,7 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
       };
 
       await db.query(
-        `INSERT INTO reputation_order_sources (
+        `INSERT INTO marketplace_review_order_sources (
            order_id,
            buyer_account_id,
            seller_account_id,
@@ -116,7 +116,7 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
       };
 
       await db.query(
-        `UPDATE reputation_order_sources
+        `UPDATE marketplace_review_order_sources
          SET status = 'pending-payment',
              updated_at = $2
          WHERE order_id = $1`,
@@ -127,7 +127,7 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
       const data = event.data as { orderId: string; cancelledAt: string };
 
       await db.query(
-        `UPDATE reputation_order_sources
+        `UPDATE marketplace_review_order_sources
          SET status = 'cancelled',
              cancelled_at = $2,
              updated_at = $2
@@ -142,7 +142,7 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
       };
 
       await db.query(
-        `UPDATE reputation_order_sources
+        `UPDATE marketplace_review_order_sources
          SET status = 'ready-for-fulfillment',
              ready_for_fulfillment_at = $2,
              updated_at = $2
@@ -153,7 +153,7 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
   };
 }
 
-export function buildReputationShipmentProjectionHandlers(
+export function buildReviewShipmentSourceProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
     onDeliveredShipment?: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
@@ -168,7 +168,7 @@ export function buildReputationShipmentProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO reputation_shipment_sources (
+        `INSERT INTO marketplace_review_shipment_sources (
            shipment_id,
            order_id,
            status,
@@ -192,7 +192,7 @@ export function buildReputationShipmentProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE reputation_shipment_sources
+        `UPDATE marketplace_review_shipment_sources
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
@@ -207,7 +207,7 @@ export function buildReputationShipmentProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE reputation_shipment_sources
+        `UPDATE marketplace_review_shipment_sources
          SET status = 'delivered',
              delivered_at = $2,
              updated_at = $2
@@ -224,7 +224,7 @@ export function buildReputationShipmentProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE reputation_shipment_sources
+        `UPDATE marketplace_review_shipment_sources
          SET status = 'returned',
              returned_at = $2,
              updated_at = $2
@@ -239,7 +239,7 @@ export function buildReputationShipmentProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE reputation_shipment_sources
+        `UPDATE marketplace_review_shipment_sources
          SET status = 'exception',
              exception_raised_at = $2,
              updated_at = $2
@@ -260,8 +260,8 @@ async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, e
        order_source.buyer_account_id,
        order_source.seller_account_id,
        shipment_source.delivered_at::text AS delivered_at
-     FROM reputation_order_sources order_source
-     JOIN reputation_shipment_sources shipment_source
+     FROM marketplace_review_order_sources order_source
+     JOIN marketplace_review_shipment_sources shipment_source
        ON shipment_source.order_id = order_source.order_id
       AND shipment_source.status = 'delivered'
      WHERE order_source.order_id = $1
@@ -276,7 +276,7 @@ async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, e
   const restoredAt = row.delivered_at ?? eligibleAt;
 
   await db.query(
-    `INSERT INTO reputation_review_eligibility_pages (
+    `INSERT INTO marketplace_review_eligibility_pages (
        order_id,
        author_account_id,
        subject_account_id,
@@ -293,13 +293,13 @@ async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, e
   );
 }
 
-export function buildReputationSupportProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+export function buildReviewSupportSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as { orderId: string };
 
       await db.query(
-        `DELETE FROM reputation_review_eligibility_pages
+        `DELETE FROM marketplace_review_eligibility_pages
          WHERE order_id = $1`,
         [data.orderId],
       );

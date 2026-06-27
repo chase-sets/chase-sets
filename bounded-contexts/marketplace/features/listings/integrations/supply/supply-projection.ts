@@ -184,7 +184,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
         updatedAt: event.timing.recordedAt,
       });
     },
-    "reputation.review.submitted": async (event) => {
+    "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         subjectAccountId: string;
@@ -209,7 +209,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
       );
       await refreshMarketplaceAccountReputation(db, data.subjectAccountId, data.submittedAt);
     },
-    "reputation.review.updated": async (event) => {
+    "marketplace.review.updated": async (event) => {
       const data = event.data as {
         reviewId: string;
         rating: number;
@@ -228,7 +228,7 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
         await refreshMarketplaceAccountReputation(db, subjectAccountId, data.updatedAt);
       }
     },
-    "reputation.review.withdrawn": async (event) => {
+    "marketplace.review.withdrawn": async (event) => {
       const data = event.data as {
         reviewId: string;
         withdrawnAt: string;

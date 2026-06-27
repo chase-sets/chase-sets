@@ -43,16 +43,16 @@ describe("settlement account risk source projection", () => {
     await identityHandlers["identity.account.badge-assigned"]!(
       event("identity.account.badge-assigned", { badgeKey: "trusted-seller" }),
     );
-    await reputationHandlers["reputation.review.submitted"]!(
+    await reputationHandlers["marketplace.review.submitted"]!(
       event(
-        "reputation.review.submitted",
+        "marketplace.review.submitted",
         {
           reviewId: "rev_1",
           subjectAccountId: "acc_seller",
           rating: 5,
           submittedAt: "2026-05-03T00:00:00.000Z",
         },
-        "reputation.review-rev_1",
+        "marketplace.review-rev_1",
       ),
     );
 

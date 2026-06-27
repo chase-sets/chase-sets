@@ -68,7 +68,7 @@ function createServices(): ReviewServices {
   } as unknown as ReviewServices;
 }
 
-describe("reputation review routes", () => {
+describe("marketplace review routes", () => {
   it("lists written reviews for the current account", async () => {
     const services = createServices();
     const app = buildApp({

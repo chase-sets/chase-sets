@@ -128,7 +128,7 @@ describe("platform api bootstrap", () => {
        WHERE event_type = 'fulfillment.shipment.delivered'`,
     );
     const reputationReviews = await pools.marketplace.query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM reputation_review_pages",
+      "SELECT COUNT(*) AS count FROM marketplace_review_pages",
     );
     expect(authReplayContext?.requiredGroups).toBeGreaterThan(0);
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
@@ -183,7 +183,7 @@ describe("platform api bootstrap", () => {
       "SELECT COUNT(*) AS count FROM marketplace_listing_pages",
     );
     const reputationReviews = await pools.marketplace.query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM reputation_review_pages",
+      "SELECT COUNT(*) AS count FROM marketplace_review_pages",
     );
 
     expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);

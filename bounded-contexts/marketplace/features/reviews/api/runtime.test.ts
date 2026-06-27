@@ -75,16 +75,16 @@ const context = {
   },
 };
 
-describe("reputation review runtime", () => {
+describe("marketplace review runtime", () => {
   it("creates buyer and seller review eligibility from delivered local shipment and order sources", async () => {
     const inserts: (readonly unknown[])[] = [];
     const db = {
       query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
-        if (sql.includes("FROM reputation_shipment_sources")) {
+        if (sql.includes("FROM marketplace_review_shipment_sources")) {
           return { rows: [{ order_id: "ord_1" }] };
         }
 
-        if (sql.includes("FROM reputation_order_sources")) {
+        if (sql.includes("FROM marketplace_review_order_sources")) {
           return {
             rows: [
               {
@@ -95,7 +95,7 @@ describe("reputation review runtime", () => {
           };
         }
 
-        if (sql.includes("INSERT INTO reputation_review_eligibility_pages")) {
+        if (sql.includes("INSERT INTO marketplace_review_eligibility_pages")) {
           inserts.push(params ?? []);
           return { rows: [] };
         }
@@ -123,7 +123,7 @@ describe("reputation review runtime", () => {
   it("submits a seller-to-buyer review from seller eligibility", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
-        if (sql.includes("FROM reputation_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
+        if (sql.includes("FROM marketplace_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
           return {
             rows: [
               {
@@ -137,7 +137,7 @@ describe("reputation review runtime", () => {
           };
         }
 
-        if (sql.includes("FROM reputation_review_pages")) {
+        if (sql.includes("FROM marketplace_review_pages")) {
           return { rows: [] };
         }
 
@@ -170,7 +170,7 @@ describe("reputation review runtime", () => {
 
     expect(result.reviewId).toMatch(/^rev_/);
     expect(allEvents).toHaveLength(1);
-    expect(allEvents[0]?.eventType).toBe("reputation.review.submitted");
+    expect(allEvents[0]?.eventType).toBe("marketplace.review.submitted");
     expect(allEvents[0]?.payload).toMatchObject({
       orderId: "ord_1",
       authorAccountId: "acc_seller",

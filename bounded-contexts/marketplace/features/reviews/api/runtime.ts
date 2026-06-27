@@ -107,7 +107,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     recordDeliveredShipmentReviewEligibility: async (params) => {
       const shipmentResult = await deps.db.query<{ order_id: string }>(
         `SELECT order_id
-         FROM reputation_shipment_sources
+         FROM marketplace_review_shipment_sources
          WHERE shipment_id = $1
            AND status = 'delivered'`,
         [params.shipmentId],
@@ -122,7 +122,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
         seller_account_id: string;
       }>(
         `SELECT buyer_account_id, seller_account_id
-         FROM reputation_order_sources
+         FROM marketplace_review_order_sources
          WHERE order_id = $1`,
         [orderId],
       );
@@ -133,7 +133,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
 
       const upsertEligibility = async (authorAccountId: string, subjectAccountId: string, authorRole: ReviewRole) => {
         await deps.db.query(
-          `INSERT INTO reputation_review_eligibility_pages (
+          `INSERT INTO marketplace_review_eligibility_pages (
              order_id,
              author_account_id,
              subject_account_id,
@@ -144,7 +144,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
            ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
            SET author_role = EXCLUDED.author_role,
                eligible_at = LEAST(
-                 reputation_review_eligibility_pages.eligible_at,
+                 marketplace_review_eligibility_pages.eligible_at,
                  EXCLUDED.eligible_at
                ),
                updated_at = EXCLUDED.updated_at`,
@@ -186,7 +186,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       const reviewId = createId("rev") as ReviewId;
       const submittedAt = new Date().toISOString();
       const result = await commandHandler({
-        streamId: `reputation.review-${reviewId}`,
+        streamId: `marketplace.review-${reviewId}`,
         command: {
           type: "SubmitReview",
           reviewId,
@@ -210,7 +210,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       }
 
       const result = await commandHandler({
-        streamId: `reputation.review-${review.review_id}`,
+        streamId: `marketplace.review-${review.review_id}`,
         command: {
           type: "UpdateReview",
           rating: normalizeRating(params.rating),
@@ -226,7 +226,7 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       const review = await requireOwnedReview(deps.db, params.reviewId, params.authorAccountId);
 
       const result = await commandHandler({
-        streamId: `reputation.review-${review.review_id}`,
+        streamId: `marketplace.review-${review.review_id}`,
         command: {
           type: "WithdrawReview",
           withdrawnAt: new Date().toISOString(),
@@ -245,11 +245,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       getOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [
       createProjectionHandlerSet({
-        projectionName: "reputation-review-projection",
+        projectionName: "marketplace-review-projection",
         handlers: buildReviewProjectionHandlers(deps.db),
-        // Review events keep their durable reputation. stream prefix, so the
-        // marketplace default (`marketplace.`) must not apply.
-        streamPrefixes: ["reputation."],
+        streamPrefixes: ["marketplace.review-"],
       }),
     ],
   };

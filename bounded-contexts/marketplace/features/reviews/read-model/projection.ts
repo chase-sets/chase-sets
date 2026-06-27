@@ -3,7 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, updatedAt: string) {
   await db.query(
-    `INSERT INTO review_summary_pages (
+    `INSERT INTO marketplace_review_summary_pages (
        account_id,
        average_rating,
        review_count,
@@ -27,7 +27,7 @@ async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, u
        COUNT(*) FILTER (WHERE rating = 4)::integer,
        COUNT(*) FILTER (WHERE rating = 5)::integer,
        $2
-     FROM reputation_review_pages
+     FROM marketplace_review_pages
      WHERE subject_account_id = $1
        AND status = 'active'
      ON CONFLICT (account_id) DO UPDATE
@@ -45,7 +45,7 @@ async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, u
 
 export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "reputation.review.submitted": async (event) => {
+    "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         orderId: string;
@@ -58,7 +58,7 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
       };
 
       await db.query(
-        `INSERT INTO reputation_review_pages (
+        `INSERT INTO marketplace_review_pages (
            review_id,
            order_id,
            author_account_id,
@@ -93,7 +93,7 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
 
       await refreshReviewSummary(db, data.subjectAccountId, data.submittedAt);
     },
-    "reputation.review.updated": async (event) => {
+    "marketplace.review.updated": async (event) => {
       const data = event.data as {
         reviewId: string;
         rating: number;
@@ -102,7 +102,7 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
       };
 
       const subjectResult = await db.query<{ subject_account_id: string }>(
-        `UPDATE reputation_review_pages
+        `UPDATE marketplace_review_pages
          SET rating = $2,
              feedback = $3,
              updated_at = $4
@@ -118,14 +118,14 @@ export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandler
 
       await refreshReviewSummary(db, subjectAccountId, data.updatedAt);
     },
-    "reputation.review.withdrawn": async (event) => {
+    "marketplace.review.withdrawn": async (event) => {
       const data = event.data as {
         reviewId: string;
         withdrawnAt: string;
       };
 
       const subjectResult = await db.query<{ subject_account_id: string }>(
-        `UPDATE reputation_review_pages
+        `UPDATE marketplace_review_pages
          SET status = 'withdrawn',
              withdrawn_at = $2,
              updated_at = $2

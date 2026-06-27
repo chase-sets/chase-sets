@@ -247,9 +247,9 @@
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
         "marketplace.offer.accepted",
-        "reputation.review.submitted",
-        "reputation.review.updated",
-        "reputation.review.withdrawn"
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["discovery-market-projection"]

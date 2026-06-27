@@ -60,13 +60,13 @@ async function refreshCheckoutSellerAccountReputation(
  * Each handler upserts/transitions behind a `last_stream_version` guard,
  * mirroring the inventory/identity auxiliary tables, so replaying review events
  * converges to the same row without regressing a newer review state.
- * `reputation.review.updated` / `.withdrawn` carry only the `review_id`, so the
+ * `marketplace.review.updated` / `.withdrawn` carry only the `review_id`, so the
  * affected account is resolved back through the auxiliary review row before
  * recomputing its counters.
  */
 export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "reputation.review.submitted": async (event) => {
+    "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         subjectAccountId: string;
@@ -97,7 +97,7 @@ export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQue
 
       await refreshCheckoutSellerAccountReputation(db, data.subjectAccountId, data.submittedAt);
     },
-    "reputation.review.updated": async (event) => {
+    "marketplace.review.updated": async (event) => {
       const data = event.data as {
         reviewId: string;
         rating: number;
@@ -120,7 +120,7 @@ export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQue
         await refreshCheckoutSellerAccountReputation(db, subjectAccountId, data.updatedAt);
       }
     },
-    "reputation.review.withdrawn": async (event) => {
+    "marketplace.review.withdrawn": async (event) => {
       const data = event.data as {
         reviewId: string;
         withdrawnAt: string;

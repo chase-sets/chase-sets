@@ -11,13 +11,13 @@ import {
 import { buildMarketplaceListingProjectionHandlers } from "./features/listings/read-model/projection";
 import {
   buildReviewAccountProjectionHandlers,
-  buildReputationOrderProjectionHandlers,
-  buildReputationShipmentProjectionHandlers,
-  buildReputationSupportProjectionHandlers,
+  buildReviewOrderSourceProjectionHandlers,
+  buildReviewShipmentSourceProjectionHandlers,
+  buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 import type { MarketplaceServiceOptions, MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
-import { buildReputationApi } from "./features/reviews/api/http";
+import { buildReviewApi } from "./features/reviews/api/http";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
 import { seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
@@ -26,7 +26,7 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   manifest: contextManifest,
   schemaSql: marketplaceSchemaSql,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
-  buildApis: (services) => [buildMarketplaceApi(services), buildReputationApi(services.reviews)],
+  buildApis: (services) => [buildMarketplaceApi(services), buildReviewApi(services.reviews)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);
@@ -49,7 +49,7 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
             onInventoryItemChanged: services.listings.reconcileInventoryCapacity,
           }),
         "marketplace.marketplace-identity-account-projection": {
-          subscriptionName: "marketplace.reputation-account-projection",
+          subscriptionName: "marketplace.review-account-projection",
           filterToEventTypes: true,
           buildHandlers: () => accountProjectionHandlers,
         },
@@ -58,24 +58,24 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
           filterToEventTypes: true,
           buildHandlers: () => buildMarketplaceListingProjectionHandlers(services.db),
         },
-        "identity.reputation-account-projection": {
-          subscriptionName: "reputation.identity-account-projection",
+        "identity.marketplace-review-account-source-projection": {
+          subscriptionName: "marketplace.review-account-source-projection",
           buildHandlers: () => buildReviewAccountProjectionHandlers(services.db),
         },
-        "ordering.reputation-order-source-projection": {
-          subscriptionName: "reputation.order-source-projection",
-          buildHandlers: () => buildReputationOrderProjectionHandlers(services.db),
+        "ordering.marketplace-review-order-source-projection": {
+          subscriptionName: "marketplace.review-order-source-projection",
+          buildHandlers: () => buildReviewOrderSourceProjectionHandlers(services.db),
         },
-        "fulfillment.reputation-shipment-source-projection": {
-          subscriptionName: "reputation.shipment-source-projection",
+        "fulfillment.marketplace-review-shipment-source-projection": {
+          subscriptionName: "marketplace.review-shipment-source-projection",
           buildHandlers: () =>
-            buildReputationShipmentProjectionHandlers(services.db, {
+            buildReviewShipmentSourceProjectionHandlers(services.db, {
               onDeliveredShipment: services.reviews.recordDeliveredShipmentReviewEligibility,
             }),
         },
-        "platform-operations.reputation-support-source-projection": {
-          subscriptionName: "reputation.support-source-projection",
-          buildHandlers: () => buildReputationSupportProjectionHandlers(services.db),
+        "platform-operations.marketplace-review-support-source-projection": {
+          subscriptionName: "marketplace.review-support-source-projection",
+          buildHandlers: () => buildReviewSupportSourceProjectionHandlers(services.db),
         },
       },
     });

@@ -1039,7 +1039,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       });
       await emitOfferPatch(db, event, data.offerId);
     },
-    "reputation.review.submitted": async (event) => {
+    "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         authorAccountId: string;
@@ -1084,7 +1084,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshAccountReputation(db, data.subjectAccountId, data.submittedAt);
       await emitAccountReputationPatches(db, event, data.subjectAccountId);
     },
-    "reputation.review.updated": async (event) => {
+    "marketplace.review.updated": async (event) => {
       const data = event.data as {
         reviewId: string;
         rating: number;
@@ -1106,7 +1106,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshAccountReputation(db, subjectAccountId, data.updatedAt);
       await emitAccountReputationPatches(db, event, subjectAccountId);
     },
-    "reputation.review.withdrawn": async (event) => {
+    "marketplace.review.withdrawn": async (event) => {
       const data = event.data as {
         reviewId: string;
         withdrawnAt: string;

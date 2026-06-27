@@ -123,7 +123,7 @@ function event(type: string, streamVersion: number, data: Record<string, unknown
   return {
     id: "evt_1" as never,
     type,
-    streamId: "reputation.review-rev_1" as never,
+    streamId: "marketplace.review-rev_1" as never,
     streamVersion: streamVersion as never,
     globalPosition: streamVersion as never,
     tenantId: "tnt_1" as never,
@@ -147,16 +147,16 @@ describe("checkout reputation seller-reviews projection", () => {
     db.seedAccount({ account_id: "acc_seller" });
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_2",
         subjectAccountId: "acc_seller",
         rating: 4,
@@ -173,24 +173,24 @@ describe("checkout reputation seller-reviews projection", () => {
     db.seedAccount({ account_id: "acc_seller" });
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_2",
         subjectAccountId: "acc_seller",
         rating: 2,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
-    await handlers["reputation.review.updated"]!(
-      event("reputation.review.updated", 2, {
+    await handlers["marketplace.review.updated"]!(
+      event("marketplace.review.updated", 2, {
         reviewId: "rev_2",
         rating: 4,
         updatedAt: "2026-06-17T01:00:00.000Z",
@@ -206,16 +206,16 @@ describe("checkout reputation seller-reviews projection", () => {
     db.seedAccount({ account_id: "acc_seller" });
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_seller",
         rating: 5,
         submittedAt: "2026-06-17T00:00:00.000Z",
       }),
     );
-    await handlers["reputation.review.withdrawn"]!(
-      event("reputation.review.withdrawn", 2, {
+    await handlers["marketplace.review.withdrawn"]!(
+      event("marketplace.review.withdrawn", 2, {
         reviewId: "rev_1",
         withdrawnAt: "2026-06-17T02:00:00.000Z",
       }),
@@ -230,26 +230,26 @@ describe("checkout reputation seller-reviews projection", () => {
     db.seedAccount({ account_id: "acc_seller" });
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    const submit = event("reputation.review.submitted", 1, {
+    const submit = event("marketplace.review.submitted", 1, {
       reviewId: "rev_1",
       subjectAccountId: "acc_seller",
       rating: 3,
       submittedAt: "2026-06-17T00:00:00.000Z",
     });
-    const update = event("reputation.review.updated", 2, {
+    const update = event("marketplace.review.updated", 2, {
       reviewId: "rev_1",
       rating: 5,
       updatedAt: "2026-06-17T01:00:00.000Z",
     });
 
-    await handlers["reputation.review.submitted"]!(submit);
-    await handlers["reputation.review.updated"]!(update);
+    await handlers["marketplace.review.submitted"]!(submit);
+    await handlers["marketplace.review.updated"]!(update);
 
     expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
 
     // Replaying the older submit (stream version 1) must not regress the rating
     // applied by the newer update (stream version 2): the guard ignores it.
-    await handlers["reputation.review.submitted"]!(submit);
+    await handlers["marketplace.review.submitted"]!(submit);
 
     expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
   });
@@ -258,8 +258,8 @@ describe("checkout reputation seller-reviews projection", () => {
     const db = new ReputationProjectionDb();
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    await handlers["reputation.review.submitted"]!(
-      event("reputation.review.submitted", 1, {
+    await handlers["marketplace.review.submitted"]!(
+      event("marketplace.review.submitted", 1, {
         reviewId: "rev_1",
         subjectAccountId: "acc_late",
         rating: 4,
@@ -277,15 +277,15 @@ describe("checkout reputation seller-reviews projection", () => {
     db.seedAccount({ account_id: "acc_seller", average_rating: 4.5, review_count: 2 });
     const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
 
-    await handlers["reputation.review.updated"]!(
-      event("reputation.review.updated", 9, {
+    await handlers["marketplace.review.updated"]!(
+      event("marketplace.review.updated", 9, {
         reviewId: "rev_missing",
         rating: 1,
         updatedAt: "2026-06-17T03:00:00.000Z",
       }),
     );
-    await handlers["reputation.review.withdrawn"]!(
-      event("reputation.review.withdrawn", 9, {
+    await handlers["marketplace.review.withdrawn"]!(
+      event("marketplace.review.withdrawn", 9, {
         reviewId: "rev_missing",
         withdrawnAt: "2026-06-17T03:00:00.000Z",
       }),

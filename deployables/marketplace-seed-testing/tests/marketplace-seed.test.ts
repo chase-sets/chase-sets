@@ -68,14 +68,14 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
 
     const reviewStatuses = await pools.marketplace.query<{ status: string }>(
-      "SELECT status FROM reputation_review_pages ORDER BY review_id ASC",
+      "SELECT status FROM marketplace_review_pages ORDER BY review_id ASC",
     );
     expect(new Set(reviewStatuses.rows.map((row) => row.status))).toEqual(new Set(["active", "withdrawn"]));
 
     const summary = await pools.marketplace.query<{
       review_count: number;
       average_rating: string | null;
-    }>("SELECT review_count, average_rating::text AS average_rating FROM review_summary_pages");
+    }>("SELECT review_count, average_rating::text AS average_rating FROM marketplace_review_summary_pages");
     expect(summary.rows[0]).toMatchObject({
       review_count: 1,
       average_rating: "5.00",
