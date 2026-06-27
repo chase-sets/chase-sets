@@ -204,6 +204,14 @@ export function CatalogSyncScopeModule({
             <HiddenInput key={unitKey} name="selectedUnitKeys" value={unitKey} />
           ))}
           {catalogSync.preview.units
+            .filter((unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey))
+            .map((unit) => {
+              const providerHint = providerHintValueForUnit(unit);
+              return providerHint ? (
+                <HiddenInput key={`${unit.unitKey}:provider-hint`} name="providerHints" value={providerHint} />
+              ) : null;
+            })}
+          {catalogSync.preview.units
             .filter((unit) => unit.unitKey && !selectedUnitKeys.has(unit.unitKey))
             .map((unit) => (
               <HiddenInput key={unit.unitKey} name="excludedUnitKeys" value={unit.unitKey ?? ""} />
@@ -216,6 +224,30 @@ export function CatalogSyncScopeModule({
         <DeferredCatalogSyncRunProgress deferredCatalogSyncRun={deferredCatalogSyncRun} />
       </WorkbenchStack>
     </WorkflowModule>
+  );
+}
+
+function providerHintValueForUnit(unit: CatalogSyncUnitRow): string | null {
+  if (!unit.unitKey || !unit.childExecutionScope) {
+    return null;
+  }
+
+  return JSON.stringify(
+    compactProviderHint({
+      providerKey: unit.childExecutionScope.provider ?? unit.providerKey,
+      unitKey: unit.unitKey,
+      productLineId: unit.childExecutionScope.productLineId,
+      seriesId: unit.childExecutionScope.seriesId,
+      setId: unit.childExecutionScope.setId,
+      setName: unit.childExecutionScope.setName,
+      productId: unit.childExecutionScope.productId,
+    }),
+  );
+}
+
+function compactProviderHint(input: Record<string, string | null | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(input).filter((entry): entry is [string, string] => Boolean(entry[1]?.trim())),
   );
 }
 
