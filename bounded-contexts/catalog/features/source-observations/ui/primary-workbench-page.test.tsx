@@ -266,6 +266,140 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     );
   });
 
+  it("enables Catalog sync after selecting an optional eligible provider unit", () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const catalogSyncPreview = {
+      previewVersion: "catalog-sync-provider-participation-preview-v1" as const,
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1" as const,
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "set" as const, id: "Base Set", name: "Base Set", seriesId: null, seriesName: null },
+        providerHints: [
+          {
+            providerKey: "tcgplayer",
+            unitKey: pokemonUnit,
+            productLineId: "3",
+            productLineName: "Pokemon",
+            setName: "Base Set",
+          },
+        ],
+        providerParticipation: {
+          requiredUnitKeys: [],
+          selectedUnitKeys: [],
+          excludedUnitKeys: [],
+        },
+      },
+      status: "ready" as const,
+      startAllowed: true,
+      units: [
+        {
+          providerKey: "tcgplayer",
+          unitKey: pokemonUnit,
+          profileKey: "pokemon-tcg-automation-client",
+          profileVersion: "2026.06.03",
+          displayName: "TCGplayer Pokemon Single Cards",
+          role: "supplemental-marketplace-reference" as const,
+          requirement: "optional" as const,
+          eligibility: "eligible" as const,
+          defaultSelected: false,
+          selected: false,
+          childExecutionScope: {
+            provider: "tcgplayer",
+            profileKey: "pokemon-tcg-automation-client",
+            ingestionUnitKey: pokemonUnit,
+            language: "en",
+            productLineId: "3",
+            setName: "Base Set",
+          },
+          estimate: {
+            targetCount: null,
+            requestStrategy: null,
+            estimatedRequestCount: null,
+            estimateState: "not-requested" as const,
+            estimateReason: null,
+            transportSteps: [],
+          },
+          blockers: [],
+          explanation: "TCGplayer Pokemon Single Cards can participate as an optional reference unit.",
+        },
+      ],
+      blockers: [],
+      explanation: "Eligible provider units are ready to pull Source Observations for this Catalog scope.",
+    };
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "tcgplayer",
+            language_code: "en",
+            product_line_id: "3",
+            product_line_name: "Pokemon",
+            series_id: undefined,
+            series_name: undefined,
+            expansion_id: undefined,
+            expansion_name: "Base Set",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "pokemon-tcg-automation-client",
+            profileVersion: "2026.06.03",
+            ingestionUnitKey: pokemonUnit,
+            displayName: "TCGplayer Pokemon Single Cards",
+            lifecycle: "active",
+            active: true,
+            status: "active",
+            profile: {
+              providerKey: "tcgplayer",
+              supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+            },
+            supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      catalogSyncPreview,
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
+
+    const startButton = screen.getByRole("button", { name: "Start Catalog sync" });
+    expect(startButton.hasAttribute("disabled")).toBe(true);
+
+    const participationRow = document.querySelector<HTMLElement>(
+      `[data-catalog-sync-participation-unit="${pokemonUnit}"]`,
+    );
+    expect(participationRow).toBeTruthy();
+    const checkbox = within(participationRow!).getByRole("checkbox", { name: "Not selected" });
+    expect(checkbox.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(checkbox);
+
+    expect(within(participationRow!).getByRole("checkbox", { name: "Selected" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start Catalog sync" }).hasAttribute("disabled")).toBe(false);
+    const syncForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-catalog-sync"]',
+    );
+    expect(
+      [...(syncForm?.querySelectorAll<HTMLInputElement>('input[name="selectedUnitKeys"]') ?? [])].map(
+        (input) => input.value,
+      ),
+    ).toContain(pokemonUnit);
+  });
+
   it("reviews merged candidates before Source Observation evidence with detail mapping and action affordances", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

@@ -116,7 +116,15 @@ export function CatalogSyncScopeModule({
   const selectedEligibleCount = catalogSync.preview.units.filter(
     (unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey) && unit.eligibility === "eligible",
   ).length;
-  const disabled = catalogSync.action.state !== "available" && catalogSync.action.state !== "degraded";
+  const currentActionBlockers =
+    selectedEligibleCount > 0
+      ? catalogSync.action.blockers.filter((blocker) => blocker !== "unit-selection-required")
+      : catalogSync.action.blockers;
+  const actionStateAllowsCurrentSelection =
+    catalogSync.action.state === "available" ||
+    catalogSync.action.state === "degraded" ||
+    (catalogSync.action.state === "blocked" && currentActionBlockers.length === 0);
+  const startAllowedForCurrentSelection = selectedEligibleCount > 0 && actionStateAllowsCurrentSelection;
 
   return (
     <WorkflowModule
@@ -154,12 +162,12 @@ export function CatalogSyncScopeModule({
               { key: "Reference", value: catalogSync.scope.reference.id ?? "Not selected" },
               { key: "Reference kind", value: catalogSync.scope.reference.kind ?? "Not selected" },
               { key: "Plan", value: catalogSync.preview.explanation },
-              { key: "Start", value: catalogSync.preview.startAllowed ? "Allowed" : "Blocked" },
+              { key: "Start", value: startAllowedForCurrentSelection ? "Allowed" : "Blocked" },
             ]}
           />
         </WorkbenchGrid>
 
-        <BlockerList blockers={catalogSync.action.blockers} compact hideWhenEmpty />
+        <BlockerList blockers={currentActionBlockers} compact hideWhenEmpty />
 
         <DataTable
           rows={[...catalogSync.preview.units]}
@@ -219,7 +227,7 @@ export function CatalogSyncScopeModule({
             .map((unit) => (
               <HiddenInput key={unit.unitKey} name="excludedUnitKeys" value={unit.unitKey ?? ""} />
             ))}
-          <Button type="submit" leadingIcon="refreshCcw" disabled={disabled || selectedEligibleCount === 0}>
+          <Button type="submit" leadingIcon="refreshCcw" disabled={!startAllowedForCurrentSelection}>
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.start")}
           </Button>
         </WorkbenchForm>
