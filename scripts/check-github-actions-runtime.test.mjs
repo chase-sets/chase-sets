@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { checkGithubActionsRuntime } from "./check-github-actions-runtime.mjs";
 
 const tempDirs = [];
+const checkoutSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const cacheSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const doctlSha = "cccccccccccccccccccccccccccccccccccccccc";
+const unknownSha = "dddddddddddddddddddddddddddddddddddddddd";
 
 function workflowRootWith(content) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "github-actions-runtime-"));
@@ -22,7 +26,7 @@ afterEach(() => {
 });
 
 describe("check-github-actions-runtime", () => {
-  it("accepts local, Docker, and allowlisted Node 24 actions", () => {
+  it("accepts local, Docker, and SHA-pinned allowlisted Node 24 actions", () => {
     const rootDir = workflowRootWith(`
 name: Test
 jobs:
@@ -31,28 +35,28 @@ jobs:
     steps:
       - uses: ./.github/actions/setup-pnpm-workspace
       - uses: docker://rhysd/actionlint:1.7.12
-      - uses: actions/checkout@v6
-      - uses: digitalocean/action-doctl@v2.5.2
+      - uses: actions/checkout@${checkoutSha} # v6.0.0
+      - uses: digitalocean/action-doctl@${doctlSha} # v2.5.2
 `);
 
     expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
   });
 
-  it("rejects known actions pinned below the Node 24-compatible major", () => {
+  it("rejects known actions documented below the Node 24-compatible version", () => {
     const rootDir = workflowRootWith(`
 name: Test
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/cache@v4
+      - uses: actions/cache@${cacheSha} # v4.2.4
 `);
 
     const result = checkGithubActionsRuntime({ rootDir });
 
     expect(result.passed).toBe(false);
     expect(result.violations).toEqual([
-      expect.stringContaining("actions/cache@v4 targets an older JavaScript action runtime"),
+      expect.stringContaining("is documented as v4.2.4; keep the release comment on v5.0.0 or newer"),
     ]);
   });
 
@@ -63,7 +67,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: third-party/example-action@v1
+      - uses: third-party/example-action@${unknownSha} # v1.0.0
 `);
 
     const result = checkGithubActionsRuntime({ rootDir });
@@ -74,6 +78,38 @@ jobs:
         "external action 'third-party/example-action' is not in the Node 24 compatibility allowlist",
       ),
     ]);
+  });
+
+  it("rejects mutable action tags even when they include a version comment", () => {
+    const rootDir = workflowRootWith(`
+name: Test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6 # v6.0.0
+`);
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([expect.stringContaining("must be pinned to a full 40-character commit SHA")]);
+  });
+
+  it("rejects SHA-pinned actions without an inline version comment", () => {
+    const rootDir = workflowRootWith(`
+name: Test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@${checkoutSha}
+`);
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([expect.stringContaining("must include an inline '# vX.Y.Z' release comment")]);
   });
 
   it("rejects actions without an explicit ref", () => {

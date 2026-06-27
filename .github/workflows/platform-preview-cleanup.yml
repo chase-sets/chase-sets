@@ -53,17 +53,17 @@ jobs:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.event.pull_request.base.ref }}
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - uses: digitalocean/action-doctl@v2.5.2
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
         with:

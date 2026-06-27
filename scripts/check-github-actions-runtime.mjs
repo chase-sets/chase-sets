@@ -6,18 +6,19 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const workflowRoot = path.join(repoRoot, ".github");
 
-const minimumNode24ActionMajors = new Map([
-  ["actions/cache", 5],
-  ["actions/checkout", 6],
-  ["actions/download-artifact", 7],
-  ["actions/setup-node", 6],
-  ["actions/upload-artifact", 7],
-  ["docker/setup-buildx-action", 4],
-  ["hashicorp/setup-terraform", 4],
-  ["pnpm/action-setup", 6],
+const minimumNode24ActionVersions = new Map([
+  ["actions/cache", "v5.0.0"],
+  ["actions/checkout", "v6.0.0"],
+  ["actions/download-artifact", "v7.0.0"],
+  ["actions/setup-node", "v6.0.0"],
+  ["actions/upload-artifact", "v7.0.0"],
+  ["digitalocean/action-doctl", "v2.5.2"],
+  ["docker/setup-buildx-action", "v4.0.0"],
+  ["hashicorp/setup-terraform", "v4.0.0"],
+  ["pnpm/action-setup", "v6.0.0"],
 ]);
 
-const minimumNode24ActionVersions = new Map([["digitalocean/action-doctl", "v2.5.2"]]);
+const fullCommitShaPattern = /^[a-f0-9]{40}$/i;
 
 function walkYamlFiles(rootDir) {
   if (!existsSync(rootDir)) {
@@ -39,11 +40,6 @@ function normalizeActionUse(value) {
     .replace(/\s+#.*$/, "")
     .replace(/^["']|["']$/g, "")
     .trim();
-}
-
-function parseMajor(ref) {
-  const match = ref.match(/^v(\d+)(?:\.|$)/);
-  return match ? Number.parseInt(match[1] ?? "", 10) : null;
 }
 
 function parseVersion(ref) {
@@ -74,6 +70,11 @@ function isVersionAtLeast(ref, minimumRef) {
   return true;
 }
 
+function parseVersionComment(value) {
+  const match = value.match(/\s+#\s*(v\d+\.\d+\.\d+)(?:\s|$)/);
+  return match ? (match[1] ?? null) : null;
+}
+
 function actionUsesFromFile(filePath) {
   return readFileSync(filePath, "utf8")
     .split(/\r?\n/)
@@ -86,6 +87,7 @@ function actionUsesFromFile(filePath) {
       return {
         filePath,
         line: index + 1,
+        versionComment: parseVersionComment(match[1] ?? ""),
         value: normalizeActionUse(match[1] ?? ""),
       };
     })
@@ -98,31 +100,28 @@ function validateActionUse(actionUse) {
     return null;
   }
 
-  const [actionName, ref] = value.split("@", 2);
-  if (!actionName || !ref) {
+  const refSeparatorIndex = value.indexOf("@");
+  if (refSeparatorIndex === -1 || refSeparatorIndex === value.length - 1) {
     return `${relativePath(actionUse.filePath)}:${actionUse.line}: action '${value}' must be pinned with an explicit @ref.`;
   }
 
+  const actionName = value.slice(0, refSeparatorIndex);
+  const ref = value.slice(refSeparatorIndex + 1);
   const minimumRef = minimumNode24ActionVersions.get(actionName);
-  if (minimumRef && !isVersionAtLeast(ref, minimumRef)) {
-    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} must stay on ${minimumRef} or newer documented Node 24 metadata.`;
-  }
-  if (minimumRef) {
-    return null;
-  }
-
-  const minimumMajor = minimumNode24ActionMajors.get(actionName);
-  if (!minimumMajor) {
+  if (!minimumRef) {
     return `${relativePath(actionUse.filePath)}:${actionUse.line}: external action '${actionName}' is not in the Node 24 compatibility allowlist; verify its action metadata uses Node 24 and add it to check-github-actions-runtime.mjs.`;
   }
 
-  const major = parseMajor(ref);
-  if (major === null) {
-    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} must use a major tag at least v${minimumMajor} for Node 24 action runtime support.`;
+  if (!fullCommitShaPattern.test(ref)) {
+    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} must be pinned to a full 40-character commit SHA with an inline '# vX.Y.Z' release comment.`;
   }
 
-  if (major < minimumMajor) {
-    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} targets an older JavaScript action runtime; use v${minimumMajor}+ for Node 24 support.`;
+  if (!actionUse.versionComment) {
+    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} must include an inline '# vX.Y.Z' release comment after the SHA pin.`;
+  }
+
+  if (!isVersionAtLeast(actionUse.versionComment, minimumRef)) {
+    return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} is documented as ${actionUse.versionComment}; keep the release comment on ${minimumRef} or newer Node 24 metadata.`;
   }
 
   return null;
@@ -154,5 +153,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
 
-  console.log("GitHub Actions runtime pins are Node 24 compatible.");
+  console.log("GitHub Actions runtime pins are SHA-pinned and Node 24 compatible.");
 }

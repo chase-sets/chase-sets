@@ -75,7 +75,7 @@ jobs:
           set -euo pipefail
           echo "Representative commerce refresh confirmed."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -102,7 +102,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
         env:
@@ -215,7 +215,7 @@ jobs:
       EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
       EASYPOST_MODE: test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -298,7 +298,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sandbox provider evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sandbox-provider-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/sandbox-provider-evidence
