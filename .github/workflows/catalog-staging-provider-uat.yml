@@ -22,6 +22,7 @@ on:
           - lorcana-launch
           - tcgplayer-pokemon-targeted
           - all-provider-regression
+          - m50-final-proof
 
 permissions:
   contents: read
@@ -31,17 +32,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve-provider-uat-plan:
+    name: Resolve Provider UAT Plan
+    runs-on: ubuntu-latest
+    if: inputs.confirm == 'run catalog staging provider uat'
+    outputs:
+      journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
+    steps:
+      - id: plan
+        name: Resolve focused journey jobs
+        run: |
+          set -euo pipefail
+          case "${{ inputs.journey_scope }}" in
+            m50-final-proof)
+              journey_matrix='{"include":[{"journey_scope":"lorcana-launch"},{"journey_scope":"all-provider-regression"}]}'
+              ;;
+            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression)
+              journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
+              ;;
+            *)
+              echo "Unsupported journey_scope: ${{ inputs.journey_scope }}" >&2
+              exit 1
+              ;;
+          esac
+          echo "journey_matrix=${journey_matrix}" >> "$GITHUB_OUTPUT"
+
   staging-provider-uat:
-    name: Staging Provider Sync UAT
+    name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
+    needs: resolve-provider-uat-plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
     if: inputs.confirm == 'run catalog staging provider uat'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.resolve-provider-uat-plan.outputs.journey_matrix) }}
     env:
       CI: "true"
       PLAYWRIGHT_SKIP_WEB_SERVER: "true"
       CATALOG_STAGING_PROVIDER_UAT: "true"
-      CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ inputs.journey_scope }}
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: ${{ matrix.journey_scope }}
       CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS: "3000000"
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
@@ -51,6 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Catalog staging provider UAT confirmed for ${ADMIN_WEB_URL}."
+          echo "Focused journey scope: ${CATALOG_STAGING_PROVIDER_UAT_SCOPE}."
 
       - uses: actions/checkout@v6
 
@@ -72,15 +104,16 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run staging provider sync UAT
+        timeout-minutes: 55
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
 
       - name: Upload Playwright artifacts
-        if: ${{ failure() || cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: catalog-staging-provider-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          name: catalog-staging-provider-uat-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/playwright/report
             artifacts/playwright/test-results
