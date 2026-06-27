@@ -377,6 +377,7 @@ describe("platform api app wiring", () => {
       accountId: "account_1",
       rows: [],
     };
+    const auditRecords: unknown[] = [];
     const app = buildPlatformApiApp(
       createEmptyRuntime({
         inventory: {
@@ -390,6 +391,11 @@ describe("platform api app wiring", () => {
       }),
       {
         resolveActor: vi.fn(async () => platformActor(["inventory.view", "inventory.manage"])),
+        mcp: {
+          audit: (record) => {
+            auditRecords.push(record);
+          },
+        },
       },
     );
 
@@ -531,6 +537,58 @@ describe("platform api app wiring", () => {
 
     expect(readResourceResponse.status).toBe(200);
     expect(readResourceBody.error).toBeUndefined();
+
+    const deniedResponse = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "missing_idempotency",
+        method: "tools/call",
+        params: {
+          name: "inventory.commit-import-batch",
+          arguments: {
+            accountId: "account_1",
+            batchId: "batch_1",
+            reason: "Commit reviewed rows.",
+            confirmationText: "Commit inventory import batch.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Commit inventory import batch.",
+          },
+        },
+      }),
+    });
+
+    expect(deniedResponse.status).toBe(200);
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outcome: "allowed",
+          method: "tools/call",
+          toolName: "inventory.list-import-sources",
+          actorId: "user_1",
+          accountId: "account_1",
+          auditEventName: "mcp.inventory.list-import-sources",
+          targetType: "import-source-profile",
+        }),
+        expect.objectContaining({
+          outcome: "allowed",
+          method: "resources/read",
+          resourceUri: "chase-sets://inventory/account_1/import-batches/batch_1",
+          actorId: "user_1",
+          accountId: "account_1",
+          auditEventName: "mcp.inventory.resources.read",
+          targetType: "Inventory Import Batch",
+        }),
+        expect.objectContaining({
+          outcome: "denied",
+          method: "tools/call",
+          toolName: "inventory.commit-import-batch",
+          reason: "An idempotency key is required for this MCP tool.",
+        }),
+      ]),
+    );
   });
 
   it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {

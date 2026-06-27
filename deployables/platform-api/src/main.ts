@@ -39,6 +39,7 @@ import {
   createUcpProfileKeyResolver,
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
+import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -51,6 +52,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordCheckoutObservabilityEvent,
+  recordMcpAuditRecord,
   recordProjectionFreshnessWakeEnqueue,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
@@ -388,6 +390,28 @@ const ucpObserver = {
     });
   },
 } satisfies UcpRuntimeObserver;
+const mcpAudit = (record: McpAuditRecord) => {
+  recordMcpAuditRecord(record);
+  const logFields = {
+    type: "mcp.audit.record",
+    outcome: record.outcome,
+    method: record.method,
+    toolName: record.toolName,
+    resourceUriPresent: record.resourceUri ? true : undefined,
+    actorId: record.actorId,
+    accountId: record.accountId,
+    auditEventName: record.auditEventName,
+    targetType: record.targetType,
+    reason: record.reason,
+  };
+
+  if (record.outcome === "allowed") {
+    logger.info("Native MCP invocation completed.", logFields);
+    return;
+  }
+
+  logger.warn("Native MCP invocation did not complete.", logFields);
+};
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 configureDefaultDurableJobStreamLimiter(
   realtimeStreamLimiter.limiter
@@ -456,6 +480,9 @@ const app = buildPlatformApiApp(runtime, {
       keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
     },
     observer: ucpObserver,
+  },
+  mcp: {
+    audit: mcpAudit,
   },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
