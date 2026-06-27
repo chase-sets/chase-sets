@@ -691,6 +691,12 @@
     }
   }
 
+  [data-reduced-motion="true"] .animate-spin,
+  [data-reduced-motion="true"] .animate-pulse,
+  [data-reduced-motion="true"] .ds-reveal {
+    animation: none !important;
+  }
+
   @keyframes ds-rise {
     from {
       opacity: 0;

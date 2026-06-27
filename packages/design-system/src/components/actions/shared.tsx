@@ -1,4 +1,5 @@
-import { motion } from "motion/react";
+import type { ReactNode } from "react";
+import { LayoutGroup, motion } from "motion/react";
 import {
   compactControlHeightClasses,
   compactControlPaddingClasses,
@@ -47,15 +48,23 @@ export function resolveInteractiveMotion(reducedMotion: boolean, scale: number, 
   };
 }
 
-export function renderActivePill(groupId: string, tone: "default" | "accent" = "default") {
-  return (
-    <motion.span
-      layoutId={`${groupId}-active-pill`}
-      className={cx(
-        "absolute inset-0 rounded-tokenMd",
-        tone === "accent" ? "bg-surface-2 shadow-tokenSm" : "bg-surface-2 shadow-tokenSm",
-      )}
-      transition={{ duration: 0.18 }}
-    />
+export function renderActivePillGroup(id: string, reducedMotion: boolean, children: ReactNode) {
+  if (reducedMotion) {
+    return <>{children}</>;
+  }
+
+  return <LayoutGroup id={id}>{children}</LayoutGroup>;
+}
+
+export function renderActivePill(groupId: string, tone: "default" | "accent" = "default", reducedMotion = false) {
+  const className = cx(
+    "absolute inset-0 rounded-tokenMd",
+    tone === "accent" ? "bg-surface-2 shadow-tokenSm" : "bg-surface-2 shadow-tokenSm",
   );
+
+  if (reducedMotion) {
+    return <motion.span aria-hidden="true" className={className} />;
+  }
+
+  return <motion.span layoutId={`${groupId}-active-pill`} className={className} transition={{ duration: 0.18 }} />;
 }
