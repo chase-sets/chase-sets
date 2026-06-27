@@ -290,6 +290,71 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
+  it("enqueues targeted TCGplayer Pokemon set-name Catalog sync runs with provider hints", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const profileVersions = createActiveTcgplayerProfileVersions();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createMutableProfileVersionReader(await profileVersions.listProfileVersions("tcgplayer")),
+    );
+
+    const run = await services.enqueueCatalogSyncRun({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "set", id: "Base Set", name: "Base Set" },
+        providerHints: [
+          {
+            providerKey: "tcgplayer",
+            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+            productLineId: "3",
+            setName: "Base Set",
+          },
+        ],
+        providerParticipation: {
+          selectedUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
+        },
+      },
+      context,
+    });
+
+    expect(run).toMatchObject({
+      status: "queued",
+      progress: {
+        childJobs: {
+          total: 1,
+          queued: 1,
+        },
+      },
+      selectedUnits: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          profileKey: "pokemon-tcg-automation-client",
+          childExecutionScope: {
+            provider: "tcgplayer",
+            profileKey: "pokemon-tcg-automation-client",
+            ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+            language: "en",
+            productLineId: "3",
+            setName: "Base Set",
+          },
+        }),
+      ],
+      childJobs: [
+        expect.objectContaining({
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          syncRunLinkState: "attached-to-child-payload",
+          status: "queued",
+        }),
+      ],
+    });
+  });
+
   it("snapshots reapply profile mode on integration jobs and work units", async () => {
     const harness = createIntegrationJobDedupeHarness({
       reapplyObservationIds: ["obs_promoted_1", "obs_promoted_2"],

@@ -10,6 +10,8 @@ import {
   observationIdsFromFormData,
   type CatalogPrimaryWorkbenchFormIntent,
 } from "./integrations-command-context";
+import { CatalogApiError } from "../../../client";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-review-command-handler";
 import { handleDailyCommand, isDailyCommandIntent } from "./daily-command-handler";
@@ -64,14 +66,45 @@ async function runIntegrationsCommand(input: {
       context,
       section: context.section,
     };
-  } catch {
+  } catch (error) {
     // Fail closed without leaking the underlying error to the operator banner.
     return {
-      feedback: { status: "error", intent, result: "command-failed" },
+      feedback: { status: "error", intent, result: commandFailureResult(intent, error) },
       context: { ...context, selectedObservationIds },
       section: context.section,
     };
   }
+}
+
+function commandFailureResult(
+  intent: CatalogPrimaryWorkbenchFormIntent,
+  error: unknown,
+): CatalogPrimaryWorkbenchCommandFeedback["result"] {
+  if (intent === "start-catalog-sync" && isCatalogSyncScopeApiError(error)) {
+    return "catalog-sync-blocked";
+  }
+
+  return "command-failed";
+}
+
+function isCatalogSyncScopeApiError(error: unknown): boolean {
+  if (!(error instanceof CatalogApiError) || error.status !== 400) {
+    return false;
+  }
+  const parsed = catalogApiErrorBody(error.body);
+  return parsed.code === "invalid_scope";
+}
+
+function catalogApiErrorBody(body: unknown): Readonly<{ code: string }> {
+  if (!body || typeof body !== "object" || Array.isArray(body) || !("error" in body)) {
+    return { code: "unknown" };
+  }
+  const errorBody = (body as Readonly<{ error?: unknown }>).error;
+  if (!errorBody || typeof errorBody !== "object" || Array.isArray(errorBody)) {
+    return { code: "unknown" };
+  }
+  const code = (errorBody as Readonly<Record<string, unknown>>).code;
+  return { code: typeof code === "string" && code.trim() ? code.trim() : "unknown" };
 }
 
 async function recordCommandTelemetry(

@@ -116,6 +116,7 @@ export const catalogControlPlaneTelemetryPromotionResults = [
   "lifecycle-conflict",
   "confirmation-required",
   "reason-required",
+  "catalog-sync-blocked",
   "unsupported-command",
   "invalid-intent",
   "command-failed",

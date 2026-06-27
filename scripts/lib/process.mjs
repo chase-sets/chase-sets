@@ -4,19 +4,27 @@ import path from "node:path";
 import process from "node:process";
 import { repoRoot } from "./repo.mjs";
 
-function activePackageManagerExecPath({ env = process.env, exists = existsSync } = {}) {
+function activePackageManagerExecPath({ env = process.env, exists = existsSync, platform = process.platform } = {}) {
   const execPath = env.npm_execpath;
   if (!execPath || !/pnpm/i.test(execPath) || !exists(execPath)) {
+    return null;
+  }
+  if (platform === "win32" && isWindowsCommandShim(execPath)) {
     return null;
   }
 
   return execPath;
 }
 
+function isWindowsCommandShim(execPath) {
+  const extension = path.extname(execPath).toLowerCase();
+  return extension === ".cmd" || extension === ".bat" || extension === ".ps1";
+}
+
 function buildInvocationFromPackageManagerPath(execPath, args) {
   const extension = path.extname(execPath).toLowerCase();
 
-  if (extension === ".cjs" || extension === ".js") {
+  if (extension === ".cjs" || extension === ".js" || extension === ".mjs") {
     return {
       command: process.execPath,
       args: [execPath, ...args],
@@ -31,7 +39,7 @@ function buildInvocationFromPackageManagerPath(execPath, args) {
 
 function resolveWindowsPnpmCliPath({ env = process.env, exists = existsSync } = {}) {
   const candidates = [
-    activePackageManagerExecPath({ env, exists }),
+    activePackageManagerExecPath({ env, exists, platform: "win32" }),
     env.PNPM_HOME ? path.join(env.PNPM_HOME, "pnpm.cjs") : null,
     env.PNPM_HOME ? path.join(env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs") : null,
     path.join(path.dirname(process.execPath), "node_modules", "pnpm", "bin", "pnpm.cjs"),
@@ -53,7 +61,7 @@ export function buildPackageManagerInvocation(args, options = {}) {
     }
   }
 
-  const activeExecPath = activePackageManagerExecPath({ env, exists });
+  const activeExecPath = activePackageManagerExecPath({ env, exists, platform });
   if (activeExecPath) {
     return buildInvocationFromPackageManagerPath(activeExecPath, args);
   }
