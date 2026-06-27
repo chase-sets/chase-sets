@@ -33,21 +33,81 @@ function createActorApp(resolvedActor: ResolvedActor, options: Parameters<typeof
 }
 
 describe("MCP runtime routes", () => {
-  it("lists descriptor-backed tools", async () => {
+  it("lists only available descriptor-backed tools", async () => {
     const app = createMcpRoutes();
     const response = await app.request("/tools");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      tools: expect.arrayContaining([
+    const body = (await response.json()) as { tools: Array<{ name: string; annotations: { availability: string } }> };
+    expect(body.tools.map((tool) => tool.name).sort()).toEqual([
+      "inventory.commit-import-batch",
+      "inventory.create-import-batch",
+      "inventory.get-import-batch",
+      "inventory.list-import-sources",
+    ]);
+    expect(body.tools).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
-          name: "inventory.list-items",
+          name: "inventory.list-import-sources",
           inputSchema: expect.objectContaining({ type: "object" }),
           annotations: expect.objectContaining({
+            availability: "available",
             requiredPermissions: ["inventory.view"],
           }),
         }),
       ]),
+    );
+  });
+
+  it("lists only available descriptor-backed resources", async () => {
+    const app = createMcpRoutes();
+    const response = await app.request("/resources");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      resources: [
+        expect.objectContaining({
+          uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+          annotations: expect.objectContaining({
+            availability: "available",
+            requiredPermissions: ["inventory.view"],
+          }),
+        }),
+      ],
+    });
+  });
+
+  it("filters JSON-RPC list methods to available capabilities", async () => {
+    const app = createMcpRoutes();
+    const toolsResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("tools/list")),
+    });
+    const resourcesResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("resources/list")),
+    });
+
+    expect(toolsResponse.status).toBe(200);
+    await expect(toolsResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: [
+          expect.objectContaining({ name: "inventory.list-import-sources" }),
+          expect.objectContaining({ name: "inventory.create-import-batch" }),
+          expect.objectContaining({ name: "inventory.get-import-batch" }),
+          expect.objectContaining({ name: "inventory.commit-import-batch" }),
+        ],
+      },
+    });
+    expect(resourcesResponse.status).toBe(200);
+    await expect(resourcesResponse.json()).resolves.toMatchObject({
+      result: {
+        resources: [
+          expect.objectContaining({
+            uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+          }),
+        ],
+      },
     });
   });
 

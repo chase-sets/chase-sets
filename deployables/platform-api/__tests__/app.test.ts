@@ -372,21 +372,45 @@ describe("platform api app wiring", () => {
   });
 
   it("registers Inventory import MCP handlers from platform runtime services", async () => {
+    const importBatchDetail = {
+      batchId: "batch_1",
+      accountId: "account_1",
+      rows: [],
+    };
     const app = buildPlatformApiApp(
       createEmptyRuntime({
         inventory: {
           importBatches: {
-            createBatch: vi.fn(),
-            getBatch: vi.fn(),
+            createBatch: vi.fn(async () => importBatchDetail),
+            getBatch: vi.fn(async () => importBatchDetail),
             listBatches: vi.fn(),
-            commitBatch: vi.fn(),
+            commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
           },
         },
       }),
       {
-        resolveActor: vi.fn(async () => platformActor(["inventory.view"])),
+        resolveActor: vi.fn(async () => platformActor(["inventory.view", "inventory.manage"])),
       },
     );
+
+    const toolsResponse = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "tools_1",
+        method: "tools/list",
+      }),
+    });
+    await expect(toolsResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: [
+          expect.objectContaining({ name: "inventory.list-import-sources" }),
+          expect.objectContaining({ name: "inventory.create-import-batch" }),
+          expect.objectContaining({ name: "inventory.get-import-batch" }),
+          expect.objectContaining({ name: "inventory.commit-import-batch" }),
+        ],
+      },
+    });
 
     const response = await app.request("/mcp", {
       method: "POST",
@@ -418,6 +442,95 @@ describe("platform api app wiring", () => {
         ],
       },
     });
+
+    const toolInvocations = [
+      {
+        name: "inventory.create-import-batch",
+        arguments: {
+          accountId: "account_1",
+          sourceKey: "tcgplayer-csv",
+          quantityMode: "add",
+          csvText: "title,quantity\nCharizard,1",
+          idempotencyKey: "idem_create_batch",
+          confirmationText: "Create inventory import batch.",
+        },
+        confirmation: {
+          confirmed: true,
+          text: "Create inventory import batch.",
+        },
+      },
+      {
+        name: "inventory.get-import-batch",
+        arguments: {
+          accountId: "account_1",
+          batchId: "batch_1",
+        },
+      },
+      {
+        name: "inventory.commit-import-batch",
+        arguments: {
+          accountId: "account_1",
+          batchId: "batch_1",
+          reason: "Commit reviewed rows.",
+          idempotencyKey: "idem_commit_batch",
+          confirmationText: "Commit inventory import batch.",
+        },
+        confirmation: {
+          confirmed: true,
+          text: "Commit inventory import batch.",
+        },
+      },
+    ];
+
+    for (const invocation of toolInvocations) {
+      const invocationResponse = await app.request("/mcp", {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: invocation.name,
+          method: "tools/call",
+          params: invocation,
+        }),
+      });
+      const body = (await invocationResponse.json()) as { error?: { code: number } };
+
+      expect(invocationResponse.status).toBe(200);
+      expect(body.error).toBeUndefined();
+    }
+
+    const resourcesResponse = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "resources_1",
+        method: "resources/list",
+      }),
+    });
+    await expect(resourcesResponse.json()).resolves.toMatchObject({
+      result: {
+        resources: [
+          expect.objectContaining({
+            uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
+          }),
+        ],
+      },
+    });
+
+    const readResourceResponse = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "resource_read_1",
+        method: "resources/read",
+        params: {
+          uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        },
+      }),
+    });
+    const readResourceBody = (await readResourceResponse.json()) as { error?: { code: number } };
+
+    expect(readResourceResponse.status).toBe(200);
+    expect(readResourceBody.error).toBeUndefined();
   });
 
   it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {
