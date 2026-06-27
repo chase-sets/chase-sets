@@ -241,7 +241,15 @@ Operator notes:
 
 ### Lorcana staging UAT evidence
 
-The milestone #50 staging UAT must include the `lorcana-launch` journey from `deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts` or an equivalent operator-recorded walkthrough through the same visible controls.
+Milestone #50 accepted the interface-only Lorcana launch proof on `0fc9f20279428b78d19c079cb61085a7f6d0cfd6`. The accepted evidence is:
+
+- `lorcana-launch` run `28278540059`: all active Lorcana providers completed from the shared importer and downstream Catalog Items projection passed.
+- second same-SHA `lorcana-launch` run `28278807826`: rerun idempotency proof passed and reached the same downstream projection.
+- `all-provider-regression` run `28279080021`: Lorcana providers, One Piece Scrydex/TCGplayer, Pokemon TCGdex, and MTG MTGJSON completed through the same Admin importer; downstream Lorcana Catalog Items projection passed.
+
+The downstream smoke row observed `Abu - Mischievous Monkey ... The First Chapter ... English Lorcana Card Print ... lorcanajson, tcgplayer ... draft`. The proof used Chase Sets screens and redacted workflow logs only; it did not use direct provider URLs, direct APIs, SQL, browser console commands, hidden routes, raw provider payloads, provider imagery, or secrets.
+
+Future milestone #50 revalidation or rollback evidence should use the `lorcana-launch` journey from `deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts` plus the `all-provider-regression` journey, or an equivalent operator-recorded walkthrough through the same visible controls.
 
 Record an interface-only packet with:
 
