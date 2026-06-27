@@ -303,6 +303,7 @@ jobs:
     environment: staging
     outputs:
       deployed: ${{ steps.staging_deployed.outputs.deployed }}
+      platform_image_digest: ${{ steps.image.outputs.digest }}
       started_at: ${{ steps.staging_started.outputs.started_at }}
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
       buy_now_probe_result: ${{ steps.buy_now_probes.outputs.result }}
@@ -569,6 +570,7 @@ jobs:
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
           echo "Pushed ${image}@${digest}"
 
       - name: Terraform init
@@ -1333,6 +1335,7 @@ jobs:
       TF_VAR_environment: production
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
+      TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_proof_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
@@ -1669,6 +1672,12 @@ jobs:
           fi
 
           doctl registry login --expiry-seconds 3600
+          expected_digest="${TF_VAR_platform_image_digest}"
+          if [ -z "$expected_digest" ]; then
+            echo "Staging did not publish a verified App Platform image digest; refusing production promotion." >&2
+            exit 1
+          fi
+
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
           if ! docker buildx imagetools inspect "$image" >/tmp/promoted-image.txt; then
             echo "Promoted image ${image} was not found. Run a successful staging deployment for ${TF_VAR_platform_image_tag} first." >&2
@@ -1676,8 +1685,14 @@ jobs:
           fi
 
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          if [ "$digest" != "$expected_digest" ]; then
+            echo "Promoted image digest ${digest} did not match staging verified digest ${expected_digest}." >&2
+            exit 1
+          fi
+
           echo "image=${image}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"
           echo "Promoting ${image}@${digest}"
 
       - name: Terraform init

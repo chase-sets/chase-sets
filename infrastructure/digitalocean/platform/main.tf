@@ -458,7 +458,8 @@ resource "digitalocean_app" "platform" {
       image {
         registry_type = "DOCR"
         repository    = var.platform_image_repository
-        tag           = var.platform_image_tag
+        tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+        digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
         deploy_on_push {
           enabled = false
@@ -535,7 +536,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -630,7 +632,8 @@ resource "digitalocean_app" "platform" {
       image {
         registry_type = "DOCR"
         repository    = var.platform_image_repository
-        tag           = var.platform_image_tag
+        tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+        digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
         deploy_on_push {
           enabled = false
@@ -678,7 +681,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -962,7 +966,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -1142,7 +1147,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -1603,7 +1609,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -1753,7 +1760,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false
@@ -1915,7 +1923,8 @@ resource "digitalocean_app" "platform" {
         image {
           registry_type = "DOCR"
           repository    = var.platform_image_repository
-          tag           = var.platform_image_tag
+          tag           = var.platform_image_digest == "" ? var.platform_image_tag : null
+          digest        = var.platform_image_digest != "" ? var.platform_image_digest : null
 
           deploy_on_push {
             enabled = false

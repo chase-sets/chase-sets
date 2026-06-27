@@ -1268,6 +1268,36 @@ describe("DigitalOcean platform configuration", () => {
     expect(smokeIndex).toBeLessThan(pushIndex);
   });
 
+  it("deploys App Platform releases by the verified image digest", () => {
+    const stagingImageStep = workflowStep(platformProductionWorkflow, "Build and push App Platform image");
+    const productionImageStep = workflowStep(platformProductionWorkflow, "Verify promoted App Platform image");
+
+    expect(platformVariables).toContain('variable "platform_image_digest"');
+    expect(platformVariables).toContain('regex("^sha256:[a-f0-9]{64}$", var.platform_image_digest)');
+    expect(
+      occurrenceCount(platformMain, 'tag           = var.platform_image_digest == "" ? var.platform_image_tag : null'),
+    ).toBe(9);
+    expect(
+      occurrenceCount(
+        platformMain,
+        'digest        = var.platform_image_digest != "" ? var.platform_image_digest : null',
+      ),
+    ).toBe(9);
+
+    expect(platformProductionWorkflow).toContain("platform_image_digest: ${{ steps.image.outputs.digest }}");
+    expect(stagingImageStep).toContain('digest="$(docker buildx imagetools inspect "$image" --format');
+    expect(stagingImageStep).toContain('echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"');
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
+    );
+
+    expect(productionImageStep).toContain('expected_digest="${TF_VAR_platform_image_digest}"');
+    expect(productionImageStep).toContain("Staging did not publish a verified App Platform image digest");
+    expect(productionImageStep).toContain('if [ "$digest" != "$expected_digest" ]; then');
+    expect(productionImageStep).toContain("did not match staging verified digest");
+    expect(productionImageStep).toContain('echo "TF_VAR_platform_image_digest=${digest}" >> "$GITHUB_ENV"');
+  });
+
   it("keeps the release image dependency layer cacheable without pnpm fetch", () => {
     const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
 
