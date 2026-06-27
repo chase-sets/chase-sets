@@ -703,6 +703,7 @@ async function expectTargetedTcgplayerPokemonCatalogSync(page: Page): Promise<vo
       selectedScope,
       catalogSyncAttempt.previousJobRows,
       progress,
+      { allowPartialWithReview: true },
     );
     await promoteTcgplayerPokemonMergeCandidateFromReview(page, selectedScope, progress);
   } catch (error) {
@@ -1222,6 +1223,7 @@ async function expectImportJobSettledForSelectedUnit(
   selectedScope: SelectedProviderScope,
   previousJobRows: readonly string[],
   progress?: TargetedTcgplayerPokemonProgress,
+  options: Readonly<{ allowPartialWithReview?: boolean }> = {},
 ): Promise<void> {
   const previous = new Set(previousJobRows.map(normalizeWhitespace));
   const deadline = Date.now() + terminalSyncTimeoutMs;
@@ -1233,6 +1235,22 @@ async function expectImportJobSettledForSelectedUnit(
     const changedRows = observedRows.filter((row) => !previous.has(row));
     const unsuccessful = changedRows.find(importJobRowReachedUnsuccessfulTerminal);
     if (unsuccessful) {
+      if (options.allowPartialWithReview && importJobRowReachedPartialTerminal(unsuccessful)) {
+        const partialRow = await importJobRowLocatorForStableSummary(page, unitKey, selectedScope, unsuccessful);
+        if (!partialRow) {
+          throw new Error(`Partial import job row for ${unitKey} was no longer visible: ${unsuccessful}`);
+        }
+        await expect(partialRow.getByRole("link", { name: "Review observations" }).first()).toBeVisible({
+          timeout: sourceOptionTimeoutMs,
+        });
+        recordTargetedTcgplayerPokemonProgress(
+          progress,
+          "child import job reached partial terminal state with reviewable observations",
+          "open Review changes and promote a TCGplayer Pokemon merge candidate",
+          [unsuccessful],
+        );
+        return;
+      }
       recordTargetedTcgplayerPokemonProgress(
         progress,
         "child import job reached an unsuccessful terminal state",
@@ -1738,6 +1756,10 @@ function importJobRowReachedUnsuccessfulTerminal(row: string): boolean {
   return /\bimport job \S+ is (?:failed|cancelled|partial|stale)\b/i.test(row);
 }
 
+function importJobRowReachedPartialTerminal(row: string): boolean {
+  return /\bimport job \S+ is partial\b/i.test(row);
+}
+
 function importJobRowReachedCompletedTerminal(row: string): boolean {
   return /\bimport job \S+ is completed\b/i.test(row);
 }
@@ -1899,6 +1921,38 @@ async function completedImportJobRowLocatorForSelectedUnit(
   }
 
   return null;
+}
+
+async function importJobRowLocatorForStableSummary(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  summary: string,
+): Promise<Locator | null> {
+  const jobId = importJobIdFromStableSummary(summary);
+  if (!jobId) {
+    return null;
+  }
+
+  const rows = page.locator(
+    `[data-catalog-import-job-row="true"][data-catalog-import-job-unit="${cssAttrValue(
+      unitKey,
+    )}"][data-catalog-import-job-id="${cssAttrValue(jobId)}"]`,
+  );
+  const scopeCandidates = selectedProviderScopeActiveJobImportScopes(selectedScope, currentRouteImportScope(page));
+  const count = await rows.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    if ((await row.isVisible().catch(() => false)) && (await importJobRowMatchesSelectedScope(row, scopeCandidates))) {
+      return row;
+    }
+  }
+
+  return null;
+}
+
+function importJobIdFromStableSummary(summary: string): string | null {
+  return summary.match(/\bimport job (\S+) is\b/i)?.[1] ?? null;
 }
 
 function importJobRowsForSelectedUnit(page: Page, unitKey: string): Locator {
