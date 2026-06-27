@@ -3522,6 +3522,7 @@ describe("Catalog integrations route", () => {
         seriesId: "SV",
         seriesName: "Scarlet & Violet",
       },
+      providerHints: [],
       providerParticipation: {
         requiredUnitKeys: [],
         selectedUnitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
@@ -3533,6 +3534,69 @@ describe("Catalog integrations route", () => {
     expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
     expect(location.searchParams.get("importScope")).toBe("ja:SV:SV8");
+  });
+
+  it("preserves selected provider hints when starting a set-name Catalog sync run", async () => {
+    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_base" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueCatalogSyncRun,
+    });
+
+    const response = await runDailyActionRedirect(
+      {
+        _intent: "start-catalog-sync",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        referenceKind: "set",
+        referenceId: "Base Set",
+        referenceName: "Base Set",
+        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
+        providerHints: JSON.stringify({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          productLineId: "3",
+          productLineName: "Pokemon",
+          setName: "Base Set",
+        }),
+      },
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base%20Set",
+    );
+    const location = redirectLocation(response);
+
+    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith({
+      scopeVersion: "catalog-sync-scope-v1",
+      productDomain: "pokemon",
+      productForm: "single-card",
+      languageCode: "en",
+      reference: {
+        kind: "set",
+        id: "Base Set",
+        name: "Base Set",
+        seriesId: null,
+        seriesName: null,
+      },
+      providerHints: [
+        {
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          productLineId: "3",
+          productLineName: "Pokemon",
+          seriesId: null,
+          setId: null,
+          setName: "Base Set",
+          productId: null,
+        },
+      ],
+      providerParticipation: {
+        requiredUnitKeys: [],
+        selectedUnitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
+        excludedUnitKeys: [],
+      },
+    });
+    expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_base");
+    expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
 
   it("queues a TCGdex native language-series-set scope as a concrete expansion import", async () => {

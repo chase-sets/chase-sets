@@ -4,12 +4,13 @@ import type {
   SourceObservationPromotionScope,
 } from "../../../client";
 import { CatalogApiError } from "../../../client";
-import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
 import type {
+  CatalogSyncProviderScopeHint,
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
-  SourceObservationIntegrationJobScope,
-} from "../../../features/source-observations/ui/contracts";
+} from "../../../features/source-observations/api/catalog-sync-scope-planner";
+import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
+import type { SourceObservationIntegrationJobScope } from "../../../features/source-observations/ui/contracts";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
@@ -133,6 +134,7 @@ export function catalogSyncScopeFromContext(context: RouteContext, formData: For
     .getAll("excludedUnitKeys")
     .map((value) => stringValue(value))
     .filter((value): value is string => Boolean(value));
+  const providerHints = catalogSyncProviderHintsFromFormData(formData);
   const reference = catalogSyncReferenceFromContext(context, formData);
 
   if (!productDomain || !productForm || !languageCode || !reference) {
@@ -145,6 +147,7 @@ export function catalogSyncScopeFromContext(context: RouteContext, formData: For
     productForm,
     languageCode,
     reference,
+    providerHints,
     providerParticipation: {
       requiredUnitKeys: [],
       selectedUnitKeys: [...new Set(selectedUnitKeys)],
@@ -326,6 +329,44 @@ function catalogSyncReferenceFromContext(
     seriesId: stringValue(formData.get("seriesId")) ?? scope.seriesId,
     seriesName: stringValue(formData.get("seriesName")) ?? scope.seriesName,
   };
+}
+
+function catalogSyncProviderHintsFromFormData(formData: FormData): readonly CatalogSyncProviderScopeHint[] {
+  return formData
+    .getAll("providerHints")
+    .map(catalogSyncProviderHintValue)
+    .filter((hint): hint is CatalogSyncProviderScopeHint => Boolean(hint));
+}
+
+function catalogSyncProviderHintValue(value: FormDataEntryValue): CatalogSyncProviderScopeHint | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const providerKey = stringValue(record.providerKey);
+    if (!providerKey) {
+      return null;
+    }
+
+    return {
+      providerKey,
+      unitKey: stringValue(record.unitKey),
+      productLineId: stringValue(record.productLineId),
+      productLineName: stringValue(record.productLineName),
+      seriesId: stringValue(record.seriesId),
+      setId: stringValue(record.setId),
+      setName: stringValue(record.setName),
+      productId: stringValue(record.productId),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function tokenSegment(value: string): string {

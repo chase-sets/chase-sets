@@ -2021,6 +2021,15 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(syncForm?.querySelector<HTMLInputElement>('input[name="referenceId"]')?.value).toBe("base1");
     expect(syncForm?.getAttribute("action")).toContain("/catalog/integrations?");
     expect(syncForm?.getAttribute("action")).not.toMatch(/raw-json|legacy|compat/i);
+    expect(
+      JSON.parse(syncForm?.querySelector<HTMLInputElement>('input[name="providerHints"]')?.value ?? "{}"),
+    ).toMatchObject({
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      productLineId: "3",
+      seriesId: "base",
+      setId: "base1",
+    });
 
     const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
     const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];
