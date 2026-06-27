@@ -204,6 +204,15 @@ async function openAccountColorThemeControl(page: Page) {
   return colorTheme;
 }
 
+function expectFirstPaintChaseRoot(html: string, expected: Readonly<{ colorMode: string; reducedMotion: string }>) {
+  const root = html.match(/<div\s[^>]*data-chase-theme=""[^>]*>/)?.[0] ?? "";
+
+  expect(root, "first paint should include the design-system shell root").toContain('data-chase-theme=""');
+  expect(root).toContain(`data-color-mode="${expected.colorMode}"`);
+  expect(root).toContain(`data-reduced-motion="${expected.reducedMotion}"`);
+  expect(root).not.toContain('data-color-mode="light"');
+}
+
 test.describe("marketplace critical flows", () => {
   test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {
     await expectPageOk(page, "/search");
@@ -332,9 +341,7 @@ test.describe("marketplace critical flows", () => {
     const firstPaintResponse = await page.request.get("/account/cart");
     expect(firstPaintResponse.status()).toBeLessThan(400);
     const firstPaintHtml = await firstPaintResponse.text();
-    expect(firstPaintHtml).toContain('data-color-mode="dark"');
-    expect(firstPaintHtml).toContain('data-reduced-motion="true"');
-    expect(firstPaintHtml).not.toContain('data-color-mode="light"');
+    expectFirstPaintChaseRoot(firstPaintHtml, { colorMode: "dark", reducedMotion: "true" });
 
     const origin = new URL(page.url()).origin;
     const secondContext = await browser.newContext({ baseURL: origin });
