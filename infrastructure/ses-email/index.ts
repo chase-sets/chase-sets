@@ -10,7 +10,7 @@ import type {
   TransactionalEmailGateway,
   TransactionalEmailMessage,
   TransactionalEmailTemplateRenderer,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import type {
   EmailProviderWebhookEvent,
   EmailWebhookGateway,
@@ -18,7 +18,7 @@ import type {
   NotificationChannelAdapter,
   NotificationDelivery,
   SentNotificationReceipt,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,

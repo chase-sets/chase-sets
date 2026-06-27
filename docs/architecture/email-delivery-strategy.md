@@ -67,7 +67,7 @@ Keep provider details in `infrastructure/` and keep behavior in bounded contexts
 
 ### 1) Use the unified outbound messaging contract
 
-ADR 0012 supersedes the earlier package split. Use `contracts/notifications` for transactional email and notification-center messages with:
+ADR 0012 supersedes the earlier package split. Use `contracts/outbound-messaging` for transactional email and notification-center messages with:
 
 - email channel notification messages for event projectors
 - `sendTransactionalEmail(command)` only as a low-level provider adapter helper

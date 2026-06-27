@@ -1,4 +1,4 @@
-import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/notifications";
+import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export type ProductAlertNotificationInput = Readonly<{

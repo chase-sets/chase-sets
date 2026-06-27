@@ -1,5 +1,5 @@
 {
-  "name": "@chase-sets/notification-center",
+  "name": "@chase-sets/notifications",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -30,7 +30,7 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
-    "@chase-sets/notifications": "workspace:*",
+    "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/web-notifications": "workspace:*",
     "hono": "^4.12.12",

@@ -23,7 +23,7 @@ import {
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
-import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";

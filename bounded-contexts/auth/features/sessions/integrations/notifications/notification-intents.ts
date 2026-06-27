@@ -1,4 +1,4 @@
-import type { NotificationMessage } from "@chase-sets/notifications";
+import type { NotificationMessage } from "@chase-sets/outbound-messaging";
 
 export type PhoneCodeRequestedNotificationIntentInput = Readonly<{
   phone: string;

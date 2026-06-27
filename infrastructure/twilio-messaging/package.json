@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@chase-sets/http": "workspace:*",
-    "@chase-sets/notifications": "workspace:*"
+    "@chase-sets/outbound-messaging": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

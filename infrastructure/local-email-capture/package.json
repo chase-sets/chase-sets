@@ -12,7 +12,7 @@
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
-    "@chase-sets/notifications": "workspace:*"
+    "@chase-sets/outbound-messaging": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

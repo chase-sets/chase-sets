@@ -14,7 +14,7 @@
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1045.0",
     "@chase-sets/http": "workspace:*",
-    "@chase-sets/notifications": "workspace:*"
+    "@chase-sets/outbound-messaging": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

@@ -6,7 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { NotificationOutbox } from "@chase-sets/notifications";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";

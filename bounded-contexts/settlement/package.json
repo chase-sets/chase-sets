@@ -28,7 +28,7 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/money-movement": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
-    "@chase-sets/notifications": "workspace:*",
+    "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",

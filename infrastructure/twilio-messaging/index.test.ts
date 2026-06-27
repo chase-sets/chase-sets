@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import type { NotificationMessage } from "@chase-sets/notifications";
+import type { NotificationMessage } from "@chase-sets/outbound-messaging";
 import { createTwilioMessagingAdapter, parseTwilioMessagingWebhook } from "./index";
 
 const message: NotificationMessage = {

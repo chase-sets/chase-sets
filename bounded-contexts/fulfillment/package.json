@@ -26,7 +26,7 @@
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
-    "@chase-sets/notifications": "workspace:*",
+    "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/postage-labels": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",

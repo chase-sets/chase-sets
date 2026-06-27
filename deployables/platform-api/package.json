@@ -39,7 +39,7 @@
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/money-movement": "workspace:*",
-    "@chase-sets/notification-center": "workspace:*",
+    "@chase-sets/notifications": "workspace:*",
     "@chase-sets/object-storage": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/ordering": "workspace:*",

@@ -1,4 +1,4 @@
-import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/outbound-messaging";
 
 export type OrderConfirmedEmailIntentInput = Readonly<{
   buyerEmail: string;

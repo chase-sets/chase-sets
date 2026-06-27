@@ -9,7 +9,7 @@ import fulfillmentManifest from "@chase-sets/fulfillment/context";
 import identityManifest from "@chase-sets/identity/context";
 import inventoryManifest from "@chase-sets/inventory/context";
 import marketplaceManifest from "@chase-sets/marketplace/context";
-import notificationsManifest from "@chase-sets/notification-center/context";
+import notificationsManifest from "@chase-sets/notifications/context";
 import orderingManifest from "@chase-sets/ordering/context";
 import paymentsManifest from "@chase-sets/payments/context";
 import platformOperationsManifest from "@chase-sets/platform-operations/context";
@@ -54,7 +54,7 @@ export const webContextRegistry = [
   },
   {
     contextName: "notifications",
-    packageName: "@chase-sets/notification-center",
+    packageName: "@chase-sets/notifications",
     manifest: notificationsManifest as WebContextRegistry[number]["manifest"],
   },
   {
