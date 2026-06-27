@@ -307,9 +307,12 @@ fixture-backed activation evidence; it is not a fixture-only production path.
 
 Disney Lorcana production sync uses active LorcanaJSON, Lorcast, Scrydex, and
 TCGplayer Lorcana profile units through the shared product-line-agnostic
-importer. Production-like writes remain gated until
-[Catalog Integration Lorcana Production Signoff](./catalog-integration-production-signoff.md#lorcana)
-is accepted and the #2481 interface-only UAT plus #2486 downstream smoke pass.
+importer. Milestone #50 accepted the source-authority signoff and the #2481 /
+#2486 interface-only UAT on SHA `0fc9f20279428b78d19c079cb61085a7f6d0cfd6`
+with runs `28278540059`, `28278807826`, and `28279080021`. Production-like
+writes still require the normal
+`CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE` and rollout controls
+from [Catalog Integration Lorcana Production Signoff](./catalog-integration-production-signoff.md#lorcana).
 
 Lorcana profile units are narrow ingestion units, not one broad importer branch:
 
@@ -358,6 +361,14 @@ presence, and official app references unless a later legal/source-authority
 decision explicitly approves ingestion. Their raw text, imagery, scraped
 payload bodies, and hidden URLs must not appear in fixtures, logs, PR bodies, or
 UAT evidence.
+
+The accepted milestone #50 UAT evidence used only the active profile units above
+and the shared importer. It completed the LorcanaJSON, Lorcast, Scrydex, and
+TCGplayer Lorcana units, completed One Piece/Pokemon/MTG regression units, and
+verified downstream Catalog Items projection for `Abu - Mischievous Monkey ...
+lorcanajson, tcgplayer ... draft`. The proof did not use a Lorcana-specific
+importer area, direct provider URLs, APIs, SQL, browser console commands, hidden
+routes, raw provider payloads, provider imagery, or secrets.
 
 ## Future Integrations
 

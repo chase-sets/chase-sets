@@ -409,6 +409,17 @@ a representative downstream read model or UI; and
 provider-data approval, #2481 UAT evidence, and #2486 smoke evidence before
 production-like Lorcana imports, promotions, reapply, or activation are opened.
 
+For milestone #50, the accepted provider-data approval is recorded on #2464 and
+#2466. The accepted interface-only UAT and downstream smoke evidence is on
+`0fc9f20279428b78d19c079cb61085a7f6d0cfd6`: `lorcana-launch` run
+`28278540059`, second same-SHA `lorcana-launch` run `28278807826`, and
+`all-provider-regression` run `28279080021`. Those runs completed the active
+Lorcana provider units, One Piece/Pokemon/MTG regression units, and downstream
+Catalog Items projection without direct provider URLs, direct APIs, SQL, browser
+console commands, hidden routes, raw provider payloads, provider imagery, or
+secrets. The downstream row observed was `Abu - Mischievous Monkey ... The First
+Chapter ... English Lorcana Card Print ... lorcanajson, tcgplayer ... draft`.
+
 LorcanaJSON, Lorcast, Scrydex, and TCGplayer may provide image URI evidence only
 when the provider-data signoff permits that evidence class; official Disney
 Lorcana/Ravensburger images are validation labels only. Promotion downloads
@@ -420,19 +431,25 @@ Catalog asset takedown path in
 
 ### Milestone / UAT
 
-The #2481 staging UAT must demonstrate one Lorcana set/source scope synced from
-each active Lorcana provider profile through normal operator navigation, and one
-Pokemon set, one MTG set, and one One Piece set synced through the same
-source-scope importer so the Lorcana rollout cannot regress existing operator
-workflows. The active Lorcana launch profile set is LorcanaJSON card/set
-reference data, Lorcast card/set reference data, Scrydex card/set reference
-data, and TCGplayer card/sealed-product source observations. The gated
-Scrydex sealed-product profile is not part of the active launch profile set.
-The #2486 downstream smoke must prove one promoted/reapplied Lorcana item or
-set projects into a representative downstream read model or UI. Evidence must
-prove normal LorcanaJSON and active Scrydex paths used bulk/list/search or
-set-file ingestion and did not make one provider call per card, variant, or
-active sealed-product unit.
+The #2481 staging UAT and #2486 downstream smoke are accepted for milestone #50
+on SHA `0fc9f20279428b78d19c079cb61085a7f6d0cfd6`:
+
+- `28278540059` (`lorcana-launch`) completed one Lorcana set/source scope from
+  each active Lorcana provider profile and verified downstream Catalog Items
+  projection.
+- `28278807826` (`lorcana-launch`) repeated the same proof on the same SHA so
+  reruns are not poisoned by prior promotions.
+- `28279080021` (`all-provider-regression`) completed Lorcana plus One Piece,
+  Pokemon, and MTG shared-importer regression scopes and verified downstream
+  Lorcana projection again.
+
+The active Lorcana launch profile set is LorcanaJSON card/set reference data,
+Lorcast card/set reference data, Scrydex card/set reference data, and TCGplayer
+card/sealed-product source observations. The gated Scrydex sealed-product
+profile is not part of the active launch profile set. Future revalidation must
+use the same normal operator navigation and must prove normal LorcanaJSON and
+active Scrydex paths use bulk/list/search or set-file ingestion instead of one
+provider call per card, variant, or active sealed-product unit.
 
 Related issues:
 
