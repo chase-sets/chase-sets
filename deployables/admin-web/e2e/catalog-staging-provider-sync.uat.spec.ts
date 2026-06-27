@@ -1405,7 +1405,12 @@ async function executePromotionFromFreshPreview(
   const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i }).first();
   await expect(confirmation).toBeEnabled({ timeout: syncTimeoutMs });
   if (!(await confirmation.isChecked().catch(() => false))) {
-    await confirmation.check();
+    await page
+      .locator("label")
+      .filter({ hasText: /^I confirm this will promote/i })
+      .first()
+      .click();
+    await expect(confirmation).toBeChecked({ timeout: syncTimeoutMs });
   }
 
   const executeForm = page
