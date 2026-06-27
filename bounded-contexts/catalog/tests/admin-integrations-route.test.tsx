@@ -826,6 +826,11 @@ describe("Catalog integrations route", () => {
 
     expect(previewCatalogSyncScope).toHaveBeenCalledWith(
       expect.objectContaining({
+        providerParticipation: expect.objectContaining({
+          requiredUnitKeys: [],
+          selectedUnitKeys: [pokemonUnit],
+          excludedUnitKeys: [],
+        }),
         providerHints: [
           expect.objectContaining({
             providerKey: "tcgplayer",

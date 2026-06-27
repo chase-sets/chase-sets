@@ -18,6 +18,7 @@ describe("Catalog sync scope planner", () => {
     const tcgplayerPlanImport = vi.fn(fakePlanImport(205));
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope({
+        requiredUnitKeys: [tcgdexUnitKey],
         selectedUnitKeys: [tcgplayerUnitKey],
       }),
       providerProfileVersions: [tcgdex, tcgplayer],
@@ -59,6 +60,45 @@ describe("Catalog sync scope planner", () => {
         values: expect.objectContaining({ productLineId: "3", setName: "Base Set" }),
       }),
     );
+  });
+
+  it("limits participation to an explicitly selected optional provider unit", async () => {
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-tcg-automation-client");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const tcgdexPlanImport = vi.fn(fakePlanImport(102));
+    const tcgplayerPlanImport = vi.fn(fakePlanImport(205));
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: pokemonBaseSetScope({
+        selectedUnitKeys: [tcgplayerUnitKey],
+      }),
+      providerProfileVersions: [tcgdex, tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([
+        fakeAdapter("tcgdex", tcgdexPlanImport),
+        fakeAdapter("tcgplayer", tcgplayerPlanImport),
+      ]),
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(preview.startAllowed).toBe(true);
+    expect(preview.units.map((unit) => [unit.unitKey, unit.role, unit.requirement, unit.selected])).toEqual([
+      [tcgplayerUnitKey, "supplemental-marketplace-reference", "optional", true],
+    ]);
+    expect(preview.units[0]?.childExecutionScope).toMatchObject({
+      provider: "tcgplayer",
+      ingestionUnitKey: tcgplayerUnitKey,
+      productLineId: "3",
+      setName: "Base Set",
+    });
+    expect(tcgdexPlanImport).not.toHaveBeenCalled();
+    expect(tcgplayerPlanImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unitKey: tcgplayerUnitKey,
+        values: expect.objectContaining({ productLineId: "3", setName: "Base Set" }),
+      }),
+    );
+    expect(JSON.stringify(preview)).not.toContain(tcgdexUnitKey);
   });
 
   it("blocks required provider units when the transport adapter is unsupported", async () => {
@@ -109,9 +149,11 @@ describe("Catalog sync scope planner", () => {
   it("marks selected optional units ineligible without blocking the required unit", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
     const tcgplayer = activeProfile("tcgplayer", "pokemon-tcg-automation-client");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope({
+        requiredUnitKeys: [tcgdexUnitKey],
         selectedUnitKeys: [tcgplayerUnitKey],
         providerHints: [],
       }),
