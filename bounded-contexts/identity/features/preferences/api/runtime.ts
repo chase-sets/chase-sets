@@ -7,6 +7,7 @@ import {
   decideUserPreferences,
   evolveUserPreferences,
   initialUserPreferencesState,
+  userPreferencesFor,
   type UserPreferencesCommand,
   type UserPreferencesEvent,
   type UserPreferencesState,
@@ -21,7 +22,7 @@ export type UserPreferencesServices = Readonly<{
 }>;
 
 export function createUserPreferencesRuntime(deps: IdentityRuntimeDeps): UserPreferencesServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<UserPreferencesEvent>(),
     initialState: () => initialUserPreferencesState,
@@ -31,7 +32,14 @@ export function createUserPreferencesRuntime(deps: IdentityRuntimeDeps): UserPre
 
   return {
     commandHandler,
-    getUserPreferences: (userId) => getUserPreferences(deps.db, userId),
+    getUserPreferences: async (userId) => {
+      const aggregate = await repository.load(`identity.user-preferences-${userId}`);
+      if (aggregate.state.userId) {
+        return userPreferencesFor(aggregate.state.userId, aggregate.state);
+      }
+
+      return getUserPreferences(deps.db, userId);
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "identity-user-preferences-projection",
