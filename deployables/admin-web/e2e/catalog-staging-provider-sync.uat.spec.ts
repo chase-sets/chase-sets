@@ -642,9 +642,8 @@ async function syncSelectedProviderUnit(
   unitKey: string,
   selectedScope: SelectedProviderScope,
 ): Promise<ProviderSyncAttempt> {
-  const commandForm = sourceScopeSyncForms(page, unitKey).first();
-  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
   await expandWorkflowStage(page, "run-sync");
+  const commandForm = await selectedSourceScopeSyncForm(page, unitKey, selectedScope);
   const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
 
   const syncButton = commandForm.getByRole("button", { name: /^Sync / });
@@ -1067,6 +1066,7 @@ async function waitForSelectedImportPreflightPanel(
   const panels = importPreflightPanelsForSelectedScope(page, unitKey, selectedScope.providerKey);
   const scopeCandidates = selectedScope.importScope ? importPreflightScopeCandidates(selectedScope.importScope) : [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
+  let nextRecoveryAttemptAt = Date.now() + 10_000;
   let observedScopes: readonly string[] = [];
 
   // Deferred review data can move the operator stepper back to Review Changes
@@ -1078,6 +1078,10 @@ async function waitForSelectedImportPreflightPanel(
       return panel;
     }
     observedScopes = await visibleImportPreflightPanelScopes(panels);
+    if (observedScopes.length > 0 && Date.now() >= nextRecoveryAttemptAt) {
+      await recoverSelectedImportPreflightScope(page, unitKey, selectedScope, observedScopes);
+      nextRecoveryAttemptAt = Date.now() + 15_000;
+    }
     await page.waitForTimeout(1_000);
   }
 
@@ -1086,6 +1090,30 @@ async function waitForSelectedImportPreflightPanel(
       scopeCandidates.join(", ") || "any selected scope"
     }. Observed visible preview scopes: ${observedScopes.join(", ") || "none"}.`,
   );
+}
+
+async function recoverSelectedImportPreflightScope(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  observedScopes: readonly string[],
+): Promise<void> {
+  console.log(
+    `[catalog-staging-provider-uat] refreshing import preflight for ${unitKey} and ${
+      selectedScope.displayLabel
+    }; observed visible preview scopes: ${observedScopes.join(", ") || "none"}`,
+  );
+  await selectedSourceScopeSyncForm(page, unitKey, selectedScope, 5_000).catch(() => undefined);
+  const contextBar = page.locator("[data-catalog-import-context-bar='true']");
+  await expandImportContextBar(contextBar).catch(() => undefined);
+  const selectSourceScope = contextBar.getByRole("button", { name: "Select source scope" });
+  if (
+    (await selectSourceScope.isVisible({ timeout: 1_000 }).catch(() => false)) &&
+    (await selectSourceScope.isEnabled().catch(() => false))
+  ) {
+    await selectSourceScope.click();
+  }
+  await expandWorkflowStage(page, "run-sync").catch(() => undefined);
 }
 
 function importPreflightPanelsForSelectedScope(page: Page, unitKey: string, providerKey: string): Locator {
@@ -1704,6 +1732,45 @@ function sourceScopeSyncForms(page: Page, unitKey: string): Locator {
   });
 }
 
+async function selectedSourceScopeSyncForm(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<Locator> {
+  const commandForms = sourceScopeSyncForms(page, unitKey);
+  const deadline = Date.now() + timeoutMs;
+  let observedScopes: readonly string[] = [];
+
+  while (Date.now() < deadline) {
+    await expandWorkflowStage(page, "run-sync").catch(() => undefined);
+    const count = await commandForms.count().catch(() => 0);
+    const observed: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const commandForm = commandForms.nth(index);
+      if (!(await commandForm.isVisible().catch(() => false))) {
+        continue;
+      }
+      const candidate = await selectedProviderScopeFromCommandForm(commandForm).catch(() => null);
+      if (!candidate) {
+        continue;
+      }
+      observed.push(candidate.displayLabel);
+      if (selectedProviderScopeMatchesSelectedScope(candidate, selectedScope)) {
+        return commandForm;
+      }
+    }
+    observedScopes = [...new Set(observed)];
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Sync command form for ${unitKey} did not settle on ${selectedScope.displayLabel}. Observed visible command scopes: ${
+      observedScopes.join(", ") || "none"
+    }.`,
+  );
+}
+
 async function expectCommandQueued(page: Page): Promise<void> {
   await expect(page.getByText("Command queued").first()).toBeVisible({ timeout: syncTimeoutMs });
   await expect(
@@ -1969,6 +2036,27 @@ function selectedProviderScopeMatchesJourneySelection(
   return selectedChoices.every((choice) =>
     choice.values.some((value) => scopeValues.has(comparableProviderScopeValue(value))),
   );
+}
+
+function selectedProviderScopeMatchesSelectedScope(
+  candidate: SelectedProviderScope,
+  expected: SelectedProviderScope,
+): boolean {
+  if (candidate.providerKey !== expected.providerKey) {
+    return false;
+  }
+
+  if (candidate.importScope && expected.importScope) {
+    const candidateScopes = importPreflightScopeCandidates(candidate.importScope).map(comparableImportScope);
+    const expectedScopes = importPreflightScopeCandidates(expected.importScope).map(comparableImportScope);
+    if (candidateScopes.some((scope) => expectedScopes.includes(scope))) {
+      return true;
+    }
+  }
+
+  const candidateValues = selectedProviderScopeComparableValues(candidate);
+  const expectedFieldValues = expected.fields.map((field) => comparableProviderScopeValue(field.value)).filter(Boolean);
+  return expectedFieldValues.length > 0 && expectedFieldValues.every((value) => candidateValues.has(value));
 }
 
 function selectedProviderScopeComparableValues(selectedScope: SelectedProviderScope): ReadonlySet<string> {
