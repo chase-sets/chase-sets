@@ -19,6 +19,7 @@ describe("push wake capacity evidence", () => {
     expect(evidence.schemaVersion).toBe(PUSH_WAKE_CAPACITY_EVIDENCE_VERSION);
     expect(evidence.terraformDefaults.directListenerContexts).toEqual([
       "checkout",
+      "identity",
       "inventory",
       "marketplace",
       "ordering",
@@ -27,6 +28,7 @@ describe("push wake capacity evidence", () => {
     expect(evidence.terraformDefaults.activeRegistryRelayContexts).toEqual([
       "catalog",
       "checkout",
+      "identity",
       "inventory",
       "marketplace",
       "ordering",
@@ -34,17 +36,17 @@ describe("push wake capacity evidence", () => {
       "settlement",
     ]);
 
-    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 45, limit: 94, headroom: 49 });
-    expect(evidence.environments.staging.deployOverlap).toMatchObject({ total: 50, limit: 94, headroom: 44 });
+    expect(evidence.environments.staging.steadyState).toMatchObject({ total: 46, limit: 94, headroom: 48 });
+    expect(evidence.environments.staging.deployOverlap).toMatchObject({ total: 52, limit: 94, headroom: 42 });
     expect(evidence.environments.production).toMatchObject({
       apiPoolDemand: 24,
-      workerPoolDemand: 16,
-      steadyState: { total: 49, limit: 94, headroom: 45 },
+      workerPoolDemand: 14,
+      steadyState: { total: 48, limit: 94, headroom: 46 },
       deployOverlap: {
-        total: 94,
+        total: 92,
         limit: 94,
-        headroom: 0,
-        additionalDirectListenerContextsAtCurrentTier: 0,
+        headroom: 2,
+        additionalDirectListenerContextsAtCurrentTier: 1,
       },
     });
   });
@@ -60,20 +62,19 @@ describe("push wake capacity evidence", () => {
     expect(evidence.registryToInfrastructureGap.wave2ContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
       "fulfillment",
-      "identity",
     ]);
     expect(evidence.expansionDecision.posture).toBe("hold-wave-2-direct-listeners-until-tier-or-overlap-decision");
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
-      additionalListenerContextCount: 3,
-      additionalOverlapDemand: 6,
-      expandedOverlapDemand: 100,
+      additionalListenerContextCount: 2,
+      additionalOverlapDemand: 4,
+      expandedOverlapDemand: 96,
       fitsCurrentTier: false,
       requiredDatabaseSize: "db-s-4vcpu-8gb",
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 94/94");
+    expect(markdown).toContain("Rolling-deploy overlap: 92/94");
     expect(markdown).toContain("Posture: **hold-wave-2-direct-listeners-until-tier-or-overlap-decision**");
     expect(markdown).toContain("Production-like volume load proof for #1363 still requires live load evidence");
   });

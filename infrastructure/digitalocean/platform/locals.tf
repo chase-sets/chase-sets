@@ -104,13 +104,13 @@ locals {
   }
 
   api_database_pool_max               = "6"
-  worker_default_database_pool_max    = local.is_staging ? 11 : 8
+  worker_default_database_pool_max    = local.is_staging ? 11 : 7
   worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
   worker_max_concurrent_runners       = local.is_staging ? "8" : "5"
-  worker_projection_concurrency       = "2"
+  worker_projection_concurrency       = local.is_staging ? "2" : "1"
   worker_default_job_concurrency      = local.is_staging ? 4 : 1
   worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
   worker_inventory_import_concurrency = "1"
@@ -122,23 +122,28 @@ locals {
   # reservation to be real while standard/bulk keep a slot. Production runs 2
   # like staging so the reservation is provisioned before production proof
   # mode (#1237) enables the relay; the worker_runner_capacity check sums
-  # production runner concurrency to 8 = worker_database_pool_max and staging
-  # to 11 = worker_database_pool_max.
+  # production runner concurrency to 7 = worker_database_pool_max and staging
+  # to 11 = worker_database_pool_max. Production keeps one projection runner
+  # by default so the current database tier can budget the Identity listener
+  # added for cross-device presentation preference freshness (#2744).
   worker_wake_concurrency           = "2"
   worker_wake_hot_lane_runners      = "1"
   worker_wake_standard_lane_runners = "1"
   worker_wake_bulk_lane_runners     = "1"
   worker_wake_statement_timeout_ms  = "30000"
 
-  # Direct listener URLs for the worker-owned projection wake relay (wave-1
-  # source contexts). LISTEN is incompatible with PgBouncer transaction
+  # Direct listener URLs for the worker-owned projection wake relay. LISTEN is
+  # incompatible with PgBouncer transaction
   # pooling, so staging and production both use direct cluster URLs built from
   # dedicated least-privilege wake-listener users (#1243): CONNECT for LISTEN
   # plus read-only event-store grants, never the owning context users or the
-  # full-DML App Platform bindings. Previews intentionally omit listener URLs:
-  # push rollout never targets preview environments and the relay falls back
-  # to catch-up-only behavior.
-  worker_listener_source_contexts = ["checkout", "inventory", "marketplace", "ordering", "payments"]
+  # full-DML App Platform bindings. The list covers the checkout hot path plus
+  # direct-listened dependencies whose staging proofs require live notification
+  # latency: Inventory reservation outcomes and Identity presentation
+  # preferences. Previews intentionally omit listener URLs: push rollout never
+  # targets preview environments and the relay falls back to catch-up-only
+  # behavior.
+  worker_listener_source_contexts = ["checkout", "identity", "inventory", "marketplace", "ordering", "payments"]
   wake_listener_database_users = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"
@@ -229,10 +234,11 @@ locals {
   worker_total_pool_demand = tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances
 
   # Direct LISTEN connections held by the single active worker-owned relay,
-  # one per wave-1 source context. Production defines dedicated wake-listener
-  # URLs while the relay stays killed; budget the relay-enabled worst case
-  # anyway so flipping WORKER_PROJECTION_WAKE_RELAY_ENABLED later cannot
-  # violate the budget. Previews define no listener URLs and budget zero.
+  # one per direct-listened source context. Production defines dedicated
+  # wake-listener URLs while the relay stays killed; budget the relay-enabled
+  # worst case anyway so flipping WORKER_PROJECTION_WAKE_RELAY_ENABLED later
+  # cannot violate the budget. Previews define no listener URLs and budget
+  # zero.
   relay_listener_demand = (local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0
 
   # Bootstrap PRE_DEPLOY jobs are transient (single instance, finished before
