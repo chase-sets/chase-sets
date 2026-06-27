@@ -9,6 +9,7 @@ const sourceOptionTimeoutMs = 90_000;
 const syncTimeoutMs = 120_000;
 const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
+const controlActionTimeoutMs = 10_000;
 const uatTestTimeoutMs =
   Number.parseInt(process.env.CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS?.trim() ?? "", 10) || 3_000_000;
 const supportedProviderUatJourneyScopes = [
@@ -745,7 +746,7 @@ async function startCatalogSyncForSelectedProviderUnit(
       );
     });
   if (!(await participationCheckbox.isChecked().catch(() => false))) {
-    await participationCheckbox.check();
+    await selectCatalogSyncParticipationRow(participationRow, participationCheckbox);
   }
   await expect(participationCheckbox).toBeChecked({ timeout: sourceOptionTimeoutMs });
   recordTargetedTcgplayerPokemonProgress(
@@ -791,6 +792,19 @@ async function visibleLocatorText(locator: Locator): Promise<string> {
     .innerText({ timeout: 2_000 })
     .then(normalizeWhitespace)
     .catch(() => "row text unavailable");
+}
+
+async function selectCatalogSyncParticipationRow(participationRow: Locator, checkbox: Locator): Promise<void> {
+  const checkboxId = await checkbox.getAttribute("id");
+  const visibleToggle = checkboxId
+    ? participationRow.locator(`label[for="${cssAttrValue(checkboxId)}"]`).first()
+    : participationRow.locator("label").filter({ has: checkbox }).first();
+  if (await visibleToggle.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await visibleToggle.click({ timeout: controlActionTimeoutMs });
+    return;
+  }
+
+  await checkbox.check({ timeout: controlActionTimeoutMs });
 }
 
 const targetedTcgplayerPokemonObservedLimit = 3;
