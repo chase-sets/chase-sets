@@ -1,4 +1,9 @@
-import type { BcApiModule, BcEventSubscription, BcProjectionHandlerSet } from "@chase-sets/bounded-context-module";
+import type {
+  BcApiModule,
+  BcEventSubscription,
+  BcProjectionHandlerSet,
+  BcSubscriptionHandlerKind,
+} from "@chase-sets/bounded-context-module";
 import { isTransientProjectionError, ZERO_GLOBAL_POSITION, toTransportEvent } from "@chase-sets/event-core";
 import type {
   ProjectionBlockedStream,
@@ -45,6 +50,7 @@ export type SubscriptionReplayState = "idle" | "behind" | "running" | "caught-up
 export type ContextSubscriptionStatus = Readonly<{
   checkpointKey: string;
   subscriptionName: string;
+  handlerKind?: BcSubscriptionHandlerKind;
   projectionName: string;
   sourceContextName: string;
   targetContextName: string;
@@ -90,6 +96,7 @@ export type SubscriptionLedgerMetrics = Readonly<{
 
 export type ContextSubscriptionRunner = Readonly<{
   subscriptionName: string;
+  handlerKind?: BcSubscriptionHandlerKind;
   projectionName: string;
   sourceContextName: string;
   targetContextName: string;
@@ -167,10 +174,12 @@ export function createSubscriptionRunner(
   const batchSize = subscription.batchSize ?? 100;
   const checkpointBatchSize = Math.max(1, subscription.checkpointBatchSize ?? batchSize);
   const checkpointKey = createCheckpointKey(subscription);
+  const handlerKind = subscription.handlerKind ?? "projection";
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const status: {
     checkpointKey: string;
     subscriptionName: string;
+    handlerKind: BcSubscriptionHandlerKind;
     projectionName: string;
     sourceContextName: string;
     targetContextName: string;
@@ -188,6 +197,7 @@ export function createSubscriptionRunner(
   } = {
     checkpointKey,
     subscriptionName: subscription.subscriptionName,
+    handlerKind,
     projectionName: subscription.projectionName,
     sourceContextName: subscription.sourceContextName,
     targetContextName,
@@ -207,6 +217,7 @@ export function createSubscriptionRunner(
 
   return {
     subscriptionName: subscription.subscriptionName,
+    handlerKind,
     projectionName: subscription.projectionName,
     sourceContextName: subscription.sourceContextName,
     targetContextName,
@@ -701,6 +712,7 @@ function createLocalProjectionSubscription(
 ): BcEventSubscription {
   return {
     subscriptionName: `${contextName}.${projection.projectionName}`,
+    handlerKind: "projection",
     sourceContextName: contextName,
     projectionName: projection.projectionName,
     subscriptionVersion: 1,

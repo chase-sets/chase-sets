@@ -474,6 +474,56 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("records degraded reaction failures separately from projection lag", async () => {
+    const statuses: Array<Readonly<{ runnerName: string; state: string; lastError?: string | null }>> = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "ordering.inventory-reservation-outcomes",
+      kind: "projection-group",
+      projectionStatusSnapshot: () =>
+        ({
+          ...createProjectionGroup().getStatus(),
+          handlerKind: "reaction",
+          projectionName: "ordering-inventory-reservation-outcomes",
+        }) as never,
+      runOnce: async () => ({
+        processed: 1,
+        lastGlobalPosition: "4" as never,
+        state: "degraded",
+        blockedStreams: 1,
+        poisonEvents: 1,
+      }),
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(statuses).toContainEqual(
+          expect.objectContaining({
+            runnerName: "ordering.inventory-reservation-outcomes",
+            state: "degraded",
+            lastError: "Reaction has 1 blocked stream(s) and 1 poison event(s).",
+          }),
+        );
+      });
+    } finally {
+      await loop.stop();
+    }
+  });
+
   it("publishes projection group status snapshots after leased projection batches", async () => {
     const snapshots: Array<
       Readonly<{ projectionKey: string; runnerName: string; ownerId: string; status: Record<string, unknown> }>
@@ -839,6 +889,7 @@ function createProjectionGroup(
 ) {
   return {
     projectionName: "inventory-catalog-item-projection",
+    handlerKind: "projection",
     projectionRevision: 2,
     targetContextName: "inventory",
     sourceContextNames: ["catalog"],
@@ -849,6 +900,7 @@ function createProjectionGroup(
     reset: overrides.reset ?? (async () => undefined),
     getStatus: () => ({
       projectionName: "inventory-catalog-item-projection",
+      handlerKind: "projection",
       projectionRevision: 2,
       storedProjectionRevision: 1,
       revisionStale: true,

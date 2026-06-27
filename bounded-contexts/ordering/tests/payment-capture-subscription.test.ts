@@ -50,6 +50,18 @@ function getPaymentCapturedHandler(services: OrderingServices) {
   return handler;
 }
 
+function getPaymentCaptureSubscription(services: OrderingServices) {
+  const subscription = (orderingModule.buildSubscriptions?.(services) ?? []).find(
+    (candidate) => candidate.subscriptionName === "ordering.payment-capture",
+  );
+
+  if (!subscription) {
+    throw new Error("Ordering payment-capture subscription was not registered.");
+  }
+
+  return subscription;
+}
+
 function createPaymentCapturedEvent(orderIds: readonly string[]): TransportEvent {
   const capturedAt = "2026-06-12T10:30:00.000Z";
 
@@ -87,6 +99,15 @@ function createPaymentCapturedEvent(orderIds: readonly string[]): TransportEvent
 }
 
 describe("ordering payment-capture subscription", () => {
+  it("registers payment capture as a reaction with explicit failure semantics", () => {
+    expect(getPaymentCaptureSubscription(createServices(async () => undefined as never))).toMatchObject({
+      handlerKind: "reaction",
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+    });
+  });
+
   it("stores captured order IDs as JSONB and starts per-order command dispatch concurrently", async () => {
     const firstDispatchStarted = createDeferred();
     const releaseFirstDispatch = createDeferred();

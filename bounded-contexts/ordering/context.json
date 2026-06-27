@@ -64,34 +64,6 @@
       "projectionHandlerSetNames": ["ordering-inventory-supply-input-projection"]
     },
     {
-      "sourceContextName": "inventory",
-      "projectionName": "ordering-inventory-reservation-outcomes",
-      "subscriptionVersion": 1,
-      "eventTypes": [
-        "inventory.reservation.confirmed",
-        "inventory.reservation.rejected",
-        "inventory.reservation.released"
-      ],
-      "order": 45,
-      "projectionHandlerSetNames": ["ordering-inventory-reservation-outcomes"]
-    },
-    {
-      "sourceContextName": "marketplace",
-      "projectionName": "ordering-marketplace-offer-acceptance",
-      "subscriptionVersion": 1,
-      "eventTypes": ["marketplace.offer.accepted"],
-      "order": 50,
-      "projectionHandlerSetNames": ["ordering-marketplace-offer-acceptance"]
-    },
-    {
-      "sourceContextName": "payments",
-      "projectionName": "ordering-payment-capture",
-      "subscriptionVersion": 1,
-      "eventTypes": ["payments.payment-captured"],
-      "order": 60,
-      "projectionHandlerSetNames": ["ordering-payment-capture"]
-    },
-    {
       "sourceContextName": "fulfillment",
       "projectionName": "ordering-fulfillment-cancellation-inputs",
       "subscriptionVersion": 1,
@@ -105,6 +77,45 @@
       ],
       "order": 70,
       "projectionHandlerSetNames": ["ordering-fulfillment-cancellation-inputs"]
+    }
+  ],
+  "eventReactions": [
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "ordering-inventory-reservation-outcomes",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "inventory.reservation.confirmed",
+        "inventory.reservation.rejected",
+        "inventory.reservation.released"
+      ],
+      "order": 45,
+      "reactionHandlerSetNames": ["ordering-inventory-reservation-outcomes"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "ordering-marketplace-offer-acceptance",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.offer.accepted"],
+      "order": 50,
+      "reactionHandlerSetNames": ["ordering-marketplace-offer-acceptance"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "payments",
+      "reactionName": "ordering-payment-capture",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.payment-captured"],
+      "order": 60,
+      "reactionHandlerSetNames": ["ordering-payment-capture"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -131,11 +142,11 @@
     },
     {
       "projectionName": "ordering-inventory-reservation-outcomes",
+      "handlerKind": "reaction",
       "sourceContextNames": ["inventory"],
       "ownedTables": [],
       "requiredDuringBootstrap": false,
-      "resetStrategy": "replay-only",
-      "sideEffectOnly": true
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-order-projection",
@@ -146,6 +157,7 @@
     },
     {
       "projectionName": "ordering-marketplace-offer-acceptance",
+      "handlerKind": "reaction",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["ordering_offer_acceptance_inputs"],
       "requiredDuringBootstrap": false,
@@ -153,6 +165,7 @@
     },
     {
       "projectionName": "ordering-payment-capture",
+      "handlerKind": "reaction",
       "sourceContextNames": ["payments"],
       "ownedTables": ["ordering_payment_capture_inputs"],
       "requiredDuringBootstrap": false,

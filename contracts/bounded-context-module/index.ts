@@ -43,6 +43,12 @@ export function defineEventSubscriptionHandlers<TEventPayloads extends EventPayl
   return handlers;
 }
 
+export function defineEventReactionHandlers<TEventPayloads extends EventPayloadMap>(
+  handlers: BcEventSubscriptionHandlerMap<TEventPayloads>,
+): BcEventSubscriptionHandlerMap<TEventPayloads> {
+  return handlers;
+}
+
 export type BcRouteType = "route" | "index";
 export type BcRoutePlacement = "root" | "layout";
 
@@ -136,6 +142,25 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly order?: number;
 }>;
 
+export type BcSubscriptionHandlerKind = "projection" | "reaction";
+export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
+export type BcReactionRetryPolicy = "retry-from-last-checkpoint";
+export type BcReactionFailurePolicy = "surface-as-reaction-failure";
+
+export type BcEventReactionDeclaration = Readonly<{
+  readonly sourceContextName: string;
+  readonly reactionName: string;
+  readonly subscriptionVersion: number;
+  readonly reactionHandlerSetNames: readonly string[];
+  readonly idempotencyPolicy: BcReactionIdempotencyPolicy;
+  readonly retryPolicy: BcReactionRetryPolicy;
+  readonly failurePolicy: BcReactionFailurePolicy;
+  readonly eventTypes?: readonly string[];
+  readonly streamPrefixes?: readonly string[];
+  readonly errorPolicy?: ProjectionErrorPolicy;
+  readonly order?: number;
+}>;
+
 export type BcProjectionGroupResetStrategy =
   | "replay-only"
   | "append-only-no-reset"
@@ -144,6 +169,7 @@ export type BcProjectionGroupResetStrategy =
 
 export type BcProjectionGroupDeclaration = Readonly<{
   readonly projectionName: string;
+  readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
   readonly ownedTables: readonly string[];
@@ -154,10 +180,15 @@ export type BcProjectionGroupDeclaration = Readonly<{
 
 export type BcEventSubscription = Readonly<{
   readonly subscriptionName: string;
+  readonly handlerKind?: BcSubscriptionHandlerKind;
   readonly sourceContextName: string;
   readonly projectionName: string;
+  readonly reactionName?: string;
   readonly subscriptionVersion: number;
   readonly handlers: ProjectorHandlerMap;
+  readonly idempotencyPolicy?: BcReactionIdempotencyPolicy;
+  readonly retryPolicy?: BcReactionRetryPolicy;
+  readonly failurePolicy?: BcReactionFailurePolicy;
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
@@ -172,6 +203,7 @@ export type BcContextManifest = Readonly<{
   readonly streamPrefix: string;
   readonly apiMounts?: readonly unknown[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
+  readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly unknown[];
 }>;
 
@@ -225,12 +257,78 @@ export function buildEventSubscriptionsFromManifest<TEventPayloads extends Event
 
     return {
       subscriptionName: normalizedRegistration.subscriptionName,
+      handlerKind: "projection",
       sourceContextName: declaration.sourceContextName,
       projectionName: declaration.projectionName,
       subscriptionVersion: declaration.subscriptionVersion,
       handlers: normalizedRegistration.filterToEventTypes
         ? selectEventSubscriptionHandlers(handlerMap, declaration.eventTypes)
         : handlerMap,
+      eventTypes: declaration.eventTypes,
+      streamPrefixes: declaration.streamPrefixes,
+      errorPolicy: declaration.errorPolicy,
+      order: declaration.order,
+    };
+  });
+}
+
+export type BcEventReactionHandlerMapBuilder<TEventPayloads extends EventPayloadMap = EventPayloadMap> = (
+  declaration: BcEventReactionDeclaration,
+) => ProjectorHandlerMap | BcEventSubscriptionHandlerMap<TEventPayloads>;
+
+export type BcEventReactionHandlerRegistration<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
+  | BcEventReactionHandlerMapBuilder<TEventPayloads>
+  | Readonly<{
+      subscriptionName?: string;
+      buildHandlers: BcEventReactionHandlerMapBuilder<TEventPayloads>;
+      filterToEventTypes?: boolean;
+    }>;
+
+export type BcEventReactionHandlerRegistrations<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<
+  Record<string, BcEventReactionHandlerRegistration<TEventPayloads>>
+>;
+
+export type BuildEventReactionsFromManifestInput<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<{
+  contextName: string;
+  manifest: Pick<BcContextManifest, "eventReactions">;
+  handlers: BcEventReactionHandlerRegistrations<TEventPayloads>;
+}>;
+
+export function buildEventReactionsFromManifest<TEventPayloads extends EventPayloadMap = EventPayloadMap>({
+  contextName,
+  manifest,
+  handlers,
+}: BuildEventReactionsFromManifestInput<TEventPayloads>): readonly BcEventSubscription[] {
+  const declarations = manifest.eventReactions ?? [];
+
+  return Object.entries(handlers).map(([reactionKey, registration]) => {
+    const { sourceContextName, reactionName } = parseEventReactionKey(reactionKey);
+    const declaration = declarations.find(
+      (entry) => entry.sourceContextName === sourceContextName && entry.reactionName === reactionName,
+    );
+
+    if (!declaration) {
+      throw new Error(
+        `Context '${contextName}' is missing an eventReactions declaration for '${sourceContextName}' -> '${reactionName}'.`,
+      );
+    }
+
+    const normalizedRegistration = normalizeEventReactionHandlerRegistration(contextName, reactionName, registration);
+    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(declaration));
+
+    return {
+      subscriptionName: normalizedRegistration.subscriptionName,
+      handlerKind: "reaction",
+      sourceContextName: declaration.sourceContextName,
+      projectionName: declaration.reactionName,
+      reactionName: declaration.reactionName,
+      subscriptionVersion: declaration.subscriptionVersion,
+      handlers: normalizedRegistration.filterToEventTypes
+        ? selectEventSubscriptionHandlers(handlerMap, declaration.eventTypes)
+        : handlerMap,
+      idempotencyPolicy: declaration.idempotencyPolicy,
+      retryPolicy: declaration.retryPolicy,
+      failurePolicy: declaration.failurePolicy,
       eventTypes: declaration.eventTypes,
       streamPrefixes: declaration.streamPrefixes,
       errorPolicy: declaration.errorPolicy,
@@ -362,6 +460,18 @@ function parseEventSubscriptionKey(
   };
 }
 
+function parseEventReactionKey(reactionKey: string): Readonly<{ sourceContextName: string; reactionName: string }> {
+  const separatorIndex = reactionKey.indexOf(".");
+  if (separatorIndex <= 0 || separatorIndex === reactionKey.length - 1) {
+    throw new Error(`Invalid event reaction key '${reactionKey}'. Use '<sourceContextName>.<reactionName>'.`);
+  }
+
+  return {
+    sourceContextName: reactionKey.slice(0, separatorIndex),
+    reactionName: reactionKey.slice(separatorIndex + 1),
+  };
+}
+
 function normalizeEventSubscriptionHandlerRegistration(
   contextName: string,
   projectionName: string,
@@ -381,6 +491,30 @@ function normalizeEventSubscriptionHandlerRegistration(
 
   return {
     subscriptionName: registration.subscriptionName ?? defaultSubscriptionName(contextName, projectionName),
+    buildHandlers: registration.buildHandlers,
+    filterToEventTypes: registration.filterToEventTypes ?? false,
+  };
+}
+
+function normalizeEventReactionHandlerRegistration(
+  contextName: string,
+  reactionName: string,
+  registration: BcEventReactionHandlerRegistration,
+): Readonly<{
+  subscriptionName: string;
+  buildHandlers: BcEventReactionHandlerMapBuilder;
+  filterToEventTypes: boolean;
+}> {
+  if (typeof registration === "function") {
+    return {
+      subscriptionName: defaultSubscriptionName(contextName, reactionName),
+      buildHandlers: registration,
+      filterToEventTypes: false,
+    };
+  }
+
+  return {
+    subscriptionName: registration.subscriptionName ?? defaultSubscriptionName(contextName, reactionName),
     buildHandlers: registration.buildHandlers,
     filterToEventTypes: registration.filterToEventTypes ?? false,
   };

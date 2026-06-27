@@ -158,6 +158,33 @@ describe("bounded context subscription runner", () => {
     expect(status.applicableLagEstimate).toBe("2");
   });
 
+  it("surfaces reaction-kind subscription status separately from projection subscriptions", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("ordering", targetPool as never, sourcePool as never, {
+      subscriptionName: "ordering.inventory-reservation-outcomes",
+      handlerKind: "reaction",
+      sourceContextName: "inventory",
+      projectionName: "ordering-inventory-reservation-outcomes",
+      reactionName: "ordering-inventory-reservation-outcomes",
+      subscriptionVersion: 1,
+      handlers: {
+        "inventory.reservation.confirmed": async () => undefined,
+      },
+      eventTypes: ["inventory.reservation.confirmed"],
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+    });
+
+    expect(runner.handlerKind).toBe("reaction");
+    expect(runner.checkpointKey).toBe("ordering-inventory-reservation-outcomes:inventory:v1");
+    expect(runner.getStatus()).toMatchObject({
+      handlerKind: "reaction",
+      projectionName: "ordering-inventory-reservation-outcomes",
+    });
+  });
+
   it("does not move in-memory status behind events observed after the captured source head", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

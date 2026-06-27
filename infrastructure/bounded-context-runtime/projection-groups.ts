@@ -1,4 +1,8 @@
-import type { BcProjectionGroup, BcProjectionGroupResetStrategy } from "@chase-sets/bounded-context-module";
+import type {
+  BcProjectionGroup,
+  BcProjectionGroupResetStrategy,
+  BcSubscriptionHandlerKind,
+} from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withProjectionTransaction } from "./projection-transactions";
@@ -19,6 +23,7 @@ type ProjectionGroupRevisionRow = Readonly<{
 
 export type ContextProjectionGroupStatus = Readonly<{
   projectionName: string;
+  handlerKind?: BcSubscriptionHandlerKind;
   projectionRevision: number;
   storedProjectionRevision: number | null;
   revisionStale: boolean;
@@ -72,6 +77,7 @@ export type ProjectionReplaySummary = Readonly<{
 
 export type ContextProjectionGroup = Readonly<{
   projectionName: string;
+  handlerKind?: BcSubscriptionHandlerKind;
   projectionRevision: number;
   targetContextName: string;
   sourceContextNames: readonly string[];
@@ -344,6 +350,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
 
     const sourceContextNames = [...new Set(group.sourceContextNames)];
     const ownedTables = [...new Set(group.ownedTables)];
+    const handlerKind = group.handlerKind ?? "projection";
     const projectionRevision = assertProjectionRevision(group.projectionRevision);
     if (group.sideEffectOnly && ownedTables.length > 0) {
       throw new Error(
@@ -362,6 +369,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
 
     return {
       projectionName: group.projectionName,
+      handlerKind,
       projectionRevision,
       targetContextName: entry.contextName,
       sourceContextNames,
@@ -380,6 +388,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         ),
       getStatus: () => ({
         projectionName: group.projectionName,
+        handlerKind,
         projectionRevision,
         storedProjectionRevision: revisionState.storedProjectionRevision,
         revisionStale: revisionStale(),
@@ -406,6 +415,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         revisionState.updatedAt = new Date().toISOString();
         return {
           projectionName: group.projectionName,
+          handlerKind,
           projectionRevision,
           storedProjectionRevision: revisionState.storedProjectionRevision,
           revisionStale: revisionStale(),
@@ -483,6 +493,12 @@ export function resolveModuleProjectionGroups(
           (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
         ),
       );
+      const groupHandlerKind = group.handlerKind ?? "projection";
+      const unexpectedHandlerKinds = [
+        ...new Set(
+          groupRunners.map((runner) => runner.handlerKind ?? "projection").filter((kind) => kind !== groupHandlerKind),
+        ),
+      ];
       const actualSources = [...new Set(groupRunners.map((runner) => runner.sourceContextName))];
 
       if (group.sourceContextNames.length === 0) {
@@ -494,6 +510,12 @@ export function resolveModuleProjectionGroups(
       if (groupRunners.length === 0) {
         throw new Error(
           `Context '${entry.contextName}' projection group '${group.projectionName}' does not have any matching subscriptions.`,
+        );
+      }
+
+      if (unexpectedHandlerKinds.length > 0) {
+        throw new Error(
+          `Context '${entry.contextName}' ${groupHandlerKind} group '${group.projectionName}' has mismatched subscription handler kind(s): ${unexpectedHandlerKinds.join(", ")}.`,
         );
       }
 
@@ -562,6 +584,7 @@ export function resolveModuleProjectionGroups(
 
           return {
             projectionName: group.projectionName,
+            handlerKind: group.handlerKind ?? "projection",
             projectionRevision: group.projectionRevision,
             storedProjectionRevision: baseStatus.storedProjectionRevision,
             revisionStale: baseStatus.revisionStale,
