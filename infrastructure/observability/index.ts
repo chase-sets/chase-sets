@@ -111,6 +111,7 @@ const ucpOperationCounter = lazyCounter("chase_sets_ucp_operations_total");
 const ucpSignedWriteRejectedCounter = lazyCounter("chase_sets_ucp_signed_write_rejected_total");
 const ucpSignatureVerificationFailedCounter = lazyCounter("chase_sets_ucp_signature_verification_failed_total");
 const ucpIdempotencyCounter = lazyCounter("chase_sets_ucp_idempotency_total");
+const mcpAuditCounter = lazyCounter("chase_sets_mcp_audit_records_total");
 const publicPresenceWaitlistEventCounter = lazyCounter("chase_sets_public_presence_waitlist_events_total");
 const itemDetailRailEventCounter = lazyCounter("chase_sets_marketplace_item_detail_rail_events_total");
 const settlementOperationCounter = lazyCounter("chase_sets_settlement_operations_total");
@@ -902,6 +903,28 @@ export function recordUcpOperationCompleted(
     transport: event.transport,
     operation: event.operation,
     status: event.status,
+  });
+}
+
+export function recordMcpAuditRecord(
+  event: Readonly<{
+    outcome: string;
+    method: string;
+    toolName?: string | null;
+    resourceUri?: string | null;
+    auditEventName?: string | null;
+    targetType?: string | null;
+    reason?: string | null;
+  }>,
+): void {
+  mcpAuditCounter.add(1, {
+    outcome: event.outcome,
+    method: event.method,
+    tool: boundedMetricLabel(event.toolName ?? "none"),
+    resource: event.resourceUri ? "present" : "none",
+    audit_event: boundedMetricLabel(event.auditEventName ?? "none"),
+    target_type: boundedMetricLabel(event.targetType ?? "none"),
+    reason: normalizeReason(event.reason ?? "none"),
   });
 }
 

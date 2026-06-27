@@ -16,6 +16,7 @@ import {
   projectionInterestIndexLookupMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
+  recordMcpAuditRecord,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
   recordProjectionInterestIndexLookup,
@@ -280,6 +281,52 @@ describe("request metrics", () => {
         },
       }),
     ]);
+  });
+});
+
+describe("MCP observability", () => {
+  it("records native MCP audit outcomes with bounded labels", () => {
+    const counterAdds: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter,
+      createHistogram: vi.fn(),
+      createUpDownCounter: vi.fn(),
+    } as never);
+
+    try {
+      recordMcpAuditRecord({
+        outcome: "denied",
+        method: "resources/read",
+        resourceUri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        auditEventName: "mcp.inventory.resources.read",
+        targetType: "Inventory Import Batch",
+        reason: "Missing required permission: inventory.view.",
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(createCounter).toHaveBeenCalledWith("chase_sets_mcp_audit_records_total", undefined);
+    expect(counterAdds).toEqual([
+      {
+        name: "chase_sets_mcp_audit_records_total",
+        value: 1,
+        attributes: {
+          outcome: "denied",
+          method: "resources/read",
+          tool: "none",
+          resource: "present",
+          audit_event: "mcp.inventory.resources.read",
+          target_type: "Inventory_Import_Batch",
+          reason: "missing_required_permission_inventory_view",
+        },
+      },
+    ]);
+    expect(JSON.stringify(counterAdds)).not.toContain("account_1");
+    expect(JSON.stringify(counterAdds)).not.toContain("batch_1");
   });
 });
 
