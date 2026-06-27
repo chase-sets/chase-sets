@@ -12,6 +12,7 @@
   "types": "./index.ts",
   "scripts": {
     "test": "vitest run --config ./vitest.config.ts",
+    "test:db": "vitest run --config ./vitest.config.ts projection-operations.db.test.ts",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
