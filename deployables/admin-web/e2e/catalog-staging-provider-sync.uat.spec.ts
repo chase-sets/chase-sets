@@ -925,7 +925,7 @@ async function expectCatalogSyncChildImportForSelectedUnit(
     const childRow = observedRows.find((row) => !previous.has(row)) ?? observedRows[0];
     if (childRow && /import job .*(?:queued|running|completed|partial)/i.test(childRow)) {
       await expect(syncRun.getByText(/Child jobs/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-      await expect(syncRun.getByText(/TCGplayer|Pokemon/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
+      await expectVisibleCatalogSyncChildJobRow(syncRun);
       recordTargetedTcgplayerPokemonProgress(
         progress,
         "Catalog sync child import row is visible",
@@ -949,6 +949,14 @@ async function expectCatalogSyncChildImportForSelectedUnit(
       observedRows.join(" | ") || "none"
     }`,
   );
+}
+
+async function expectVisibleCatalogSyncChildJobRow(syncRun: Locator): Promise<void> {
+  const childJobsTable = syncRun.getByRole("table", { name: /Catalog sync child jobs/i }).first();
+  await expect(childJobsTable).toBeVisible({ timeout: sourceOptionTimeoutMs });
+  await expect(
+    childJobsTable.getByRole("row", { name: /TCGplayer Pokemon.*(?:Queued|Running|Completed|Partial)/i }).first(),
+  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
 }
 
 async function promoteTcgplayerPokemonMergeCandidateFromReview(
