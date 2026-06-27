@@ -9,7 +9,8 @@ const sourceOptionTimeoutMs = 90_000;
 const syncTimeoutMs = 120_000;
 const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
-const uatTestTimeoutMs = 3_600_000;
+const uatTestTimeoutMs =
+  Number.parseInt(process.env.CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS?.trim() ?? "", 10) || 3_000_000;
 const supportedProviderUatJourneyScopes = [
   "one-piece-launch",
   "lorcana-launch",
@@ -356,7 +357,6 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
     ],
     requiresTerminalSync: true,
   },
-  ...onePieceLaunchProviderSyncJourneys,
 ];
 
 const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
@@ -385,7 +385,7 @@ const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
 
 const providerSyncJourneys =
   providerUatJourneyScope === "all-provider-regression"
-    ? [...lorcanaLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
+    ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
     : providerUatJourneyScope === "tcgplayer-pokemon-targeted"
       ? []
       : providerUatJourneyScope === "lorcana-launch"
