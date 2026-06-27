@@ -92,6 +92,7 @@ import {
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
   type SourceObservationIntegrationScopeRow,
+  type SourceObservationListRow,
   type SourceObservationPromotionPreview,
   type SourceObservationReapplyPreview,
 } from "../read-model/queries";
@@ -1328,31 +1329,7 @@ export function createSourceObservationRuntime(
     const syncRunId = normalizeOptionalKey(input.syncRunId);
     const scope = normalizeCandidateGenerationScope(input.scope ?? {}, syncRunId);
     const observations = await listSourceObservationsForCandidateMatching(deps.db, scope);
-    const generated = buildCatalogMergeCandidatesFromObservations(observations, {
-      addedAt: new Date().toISOString(),
-    });
-
-    for (const candidate of generated) {
-      const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
-      const existingEvents = await deps.eventStore.readStream({ streamId });
-      await catalogMergeCandidateCommandHandler({
-        streamId,
-        command:
-          existingEvents.length > 0
-            ? {
-                type: "RefreshCatalogMergeCandidate",
-                snapshot: candidate.snapshot,
-                refreshedAt: new Date().toISOString(),
-              }
-            : {
-                type: "CreateCatalogMergeCandidate",
-                candidateId: candidate.candidateId,
-                snapshot: candidate.snapshot,
-                createdAt: new Date().toISOString(),
-              },
-        context: input.context,
-      });
-    }
+    const generated = await persistCatalogMergeCandidatesFromObservations(observations, input.context);
 
     return {
       syncRunId,
@@ -1360,6 +1337,66 @@ export function createSourceObservationRuntime(
       observationCount: observations.length,
       candidateCount: generated.length,
       candidates: generated,
+    };
+  }
+
+  async function persistCatalogMergeCandidatesFromObservations(
+    observations: readonly SourceObservationListRow[],
+    context: EventStoreContext,
+  ): Promise<readonly CatalogMergeCandidateMatchResult[]> {
+    const addedAt = new Date().toISOString();
+    const generated = buildCatalogMergeCandidatesFromObservations(observations, { addedAt });
+
+    for (const candidate of generated) {
+      const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+      const existingEvents = await deps.eventStore.readStream({ streamId });
+      const now = new Date().toISOString();
+      await catalogMergeCandidateCommandHandler({
+        streamId,
+        command:
+          existingEvents.length > 0
+            ? {
+                type: "RefreshCatalogMergeCandidate",
+                snapshot: candidate.snapshot,
+                refreshedAt: now,
+              }
+            : {
+                type: "CreateCatalogMergeCandidate",
+                candidateId: candidate.candidateId,
+                snapshot: candidate.snapshot,
+                createdAt: now,
+              },
+        context,
+      });
+    }
+
+    return generated;
+  }
+
+  function sourceObservationRecordToCandidateRow(observation: SourceObservationRecordInput): SourceObservationListRow {
+    return {
+      observation_id: observation.observationId,
+      sync_run_id: observation.syncRunId?.trim() || null,
+      provider_key: observation.providerKey,
+      external_key: observation.externalKey,
+      source_url: observation.sourceUrl,
+      language_code: observation.languageCode,
+      source_record_hash: observation.sourceRecordHash,
+      source_updated_at: observation.sourceUpdatedAt ?? null,
+      observed_at: observation.observedAt,
+      source_profile_key: observation.sourceProfileKey,
+      source_profile_version: observation.sourceProfileVersion,
+      source_mapping_fingerprint: observation.sourceMappingFingerprint,
+      normalized: observation.normalized,
+      status: "observed",
+      status_reason: null,
+      promoted_catalog_item_id: null,
+      promoted_reference_record_id: null,
+      promoted_at: null,
+      promotion_profile_key: null,
+      promotion_profile_version: null,
+      promotion_plan_fingerprint: null,
+      updated_at: observation.observedAt,
     };
   }
 
@@ -4152,6 +4189,13 @@ export function createSourceObservationRuntime(
         recordedObservations,
         observedAt,
       });
+
+      if (input.syncRunId && recordedObservations.length > 0) {
+        await persistCatalogMergeCandidatesFromObservations(
+          recordedObservations.map((recorded) => sourceObservationRecordToCandidateRow(recorded.observation)),
+          input.context,
+        );
+      }
 
       return {
         providerKey: input.providerProfile.providerKey,

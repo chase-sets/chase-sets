@@ -1245,6 +1245,7 @@ export function createIntegrationJobClaimHandoffHarness(
   input: {
     scope?: Record<string, unknown>;
     profileSnapshot?: Record<string, unknown> | null;
+    syncRunId?: string | null;
     renewSucceeds?: boolean;
     tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
@@ -1261,6 +1262,7 @@ export function createIntegrationJobClaimHandoffHarness(
         language: "en",
         setId: "base1",
       },
+      syncRunId: input.syncRunId ?? null,
       profileSnapshot: input.profileSnapshot ?? null,
     },
     event_context: context,
