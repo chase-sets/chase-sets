@@ -524,7 +524,7 @@ export type CatalogPrimaryWorkbenchCatalogSyncReadModel = Readonly<{
   }>;
   preview: Readonly<{
     previewVersion: "catalog-sync-provider-participation-preview-v1";
-    status: "ready" | "blocked";
+    status: "ready" | "degraded" | "blocked";
     startAllowed: boolean;
     explanation: string;
     blockers: readonly Readonly<{

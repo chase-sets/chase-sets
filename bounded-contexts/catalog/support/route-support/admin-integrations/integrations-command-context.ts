@@ -134,8 +134,13 @@ export function catalogSyncScopeFromContext(context: RouteContext, formData: For
     .getAll("excludedUnitKeys")
     .map((value) => stringValue(value))
     .filter((value): value is string => Boolean(value));
-  const providerHints = catalogSyncProviderHintsFromFormData(formData);
   const reference = catalogSyncReferenceFromContext(context, formData);
+  const providerHints = catalogSyncProviderHintsForSelectedUnits({
+    context,
+    reference,
+    selectedUnitKeys,
+    providerHints: catalogSyncProviderHintsFromFormData(formData),
+  });
 
   if (!productDomain || !productForm || !languageCode || !reference) {
     return null;
@@ -336,6 +341,61 @@ function catalogSyncProviderHintsFromFormData(formData: FormData): readonly Cata
     .getAll("providerHints")
     .map(catalogSyncProviderHintValue)
     .filter((hint): hint is CatalogSyncProviderScopeHint => Boolean(hint));
+}
+
+function catalogSyncProviderHintsForSelectedUnits(input: {
+  context: RouteContext;
+  reference: CatalogSyncScope["reference"] | null;
+  selectedUnitKeys: readonly string[];
+  providerHints: readonly CatalogSyncProviderScopeHint[];
+}): readonly CatalogSyncProviderScopeHint[] {
+  const scope = scopeContextFromRouteContext(input.context);
+  const formHintsByKey = new Map<string, CatalogSyncProviderScopeHint>();
+  for (const hint of input.providerHints) {
+    formHintsByKey.set(catalogSyncProviderHintKey(hint.providerKey, hint.unitKey), hint);
+  }
+
+  const selectedHints: CatalogSyncProviderScopeHint[] = [];
+  const selectedHintKeys = new Set<string>();
+  for (const unitKey of input.selectedUnitKeys) {
+    const providerKey = providerKeyFromUnitKey(unitKey) ?? input.context.providerKey;
+    if (!providerKey) {
+      continue;
+    }
+
+    const key = catalogSyncProviderHintKey(providerKey, unitKey);
+    const existing = formHintsByKey.get(key) ?? formHintsByKey.get(catalogSyncProviderHintKey(providerKey, null));
+    if (!existing && providerKey !== "tcgplayer") {
+      continue;
+    }
+    selectedHintKeys.add(key);
+    selectedHints.push({
+      providerKey,
+      unitKey: unitKey as CatalogSyncProviderScopeHint["unitKey"],
+      productLineId: existing?.productLineId ?? scope.productLineId,
+      productLineName: existing?.productLineName ?? scope.productLineName,
+      seriesId: existing?.seriesId ?? scope.seriesId,
+      setId: existing?.setId ?? scope.expansionId,
+      setName: existing?.setName ?? scope.expansionName ?? input.reference?.name ?? input.reference?.id ?? null,
+      productId: existing?.productId ?? null,
+    });
+  }
+
+  return [
+    ...selectedHints,
+    ...input.providerHints.filter(
+      (hint) => !selectedHintKeys.has(catalogSyncProviderHintKey(hint.providerKey, hint.unitKey)),
+    ),
+  ];
+}
+
+function catalogSyncProviderHintKey(providerKey: string, unitKey: string | null | undefined): string {
+  return `${providerKey}:${unitKey ?? "*"}`;
+}
+
+function providerKeyFromUnitKey(unitKey: string): string | null {
+  const [providerKey] = unitKey.split(":");
+  return providerKey || null;
 }
 
 function catalogSyncProviderHintValue(value: FormDataEntryValue): CatalogSyncProviderScopeHint | null {

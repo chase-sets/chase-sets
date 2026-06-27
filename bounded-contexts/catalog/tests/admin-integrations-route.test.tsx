@@ -711,6 +711,143 @@ describe("Catalog integrations route", () => {
     expect(JSON.stringify(routeData.readModel.catalogSync)).not.toContain("The First Chapter");
   });
 
+  it("uses canonical Catalog sync preview readiness before enabling a targeted TCGplayer sync", async () => {
+    const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";
+    const blocker = {
+      code: "scope-parent-required" as const,
+      severity: "error" as const,
+      message: "Choose or map the provider product-line/category value before selecting this provider unit.",
+      action: "Choose or map the provider product-line/category value before selecting this provider unit.",
+    };
+    const previewCatalogSyncScope = vi.fn().mockResolvedValue({
+      previewVersion: "catalog-sync-provider-participation-preview-v1",
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "set", id: "Base Set", name: "Base Set", seriesId: null, seriesName: null },
+        providerHints: [
+          {
+            providerKey: "tcgplayer",
+            unitKey: pokemonUnit,
+            productLineId: "3",
+            setName: "Base Set",
+          },
+        ],
+        providerParticipation: {
+          requiredUnitKeys: [],
+          selectedUnitKeys: [pokemonUnit],
+          excludedUnitKeys: [],
+        },
+      },
+      status: "blocked",
+      startAllowed: false,
+      explanation: "Required provider units must be eligible before this Catalog sync can start.",
+      blockers: [blocker],
+      units: [
+        {
+          providerKey: "tcgplayer",
+          unitKey: pokemonUnit,
+          profileKey: "pokemon-tcg-automation-client",
+          profileVersion: "2026.06.03",
+          displayName: "TCGplayer Pokemon Single Cards",
+          role: "primary-source-observation",
+          requirement: "required",
+          eligibility: "ineligible",
+          defaultSelected: false,
+          selected: true,
+          childExecutionScope: null,
+          estimate: {
+            targetCount: null,
+            requestStrategy: null,
+            estimatedRequestCount: null,
+            estimateState: "not-requested",
+            estimateReason: null,
+            transportSteps: [],
+          },
+          blockers: [blocker],
+          explanation: "TCGplayer Pokemon Single Cards is ineligible and blocks this Catalog sync.",
+        },
+      ],
+    });
+
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
+        items: [
+          sourceObservationScope({
+            provider_key: "tcgplayer",
+            language_code: "en",
+            product_line_id: "3",
+            product_line_name: "Pokemon",
+            series_id: undefined,
+            series_name: undefined,
+            expansion_id: undefined,
+            expansion_name: "Base Set",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "pokemon-tcg-automation-client",
+            profileVersion: "2026.06.03",
+            ingestionUnitKey: pokemonUnit,
+            displayName: "TCGplayer Pokemon Single Cards",
+            active: true,
+            lifecycle: "active",
+            status: "active",
+            profile: {
+              providerKey: "tcgplayer",
+              supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+            },
+            supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+          }),
+        ],
+        total: 1,
+        count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewCatalogSyncScope,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(previewCatalogSyncScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerHints: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            unitKey: pokemonUnit,
+            productLineId: "3",
+            setName: "Base Set",
+          }),
+        ],
+      }),
+    );
+    expect(routeData.readModel.catalogSync.preview.startAllowed).toBe(false);
+    expect(routeData.readModel.catalogSync.action).toMatchObject({
+      key: "start-catalog-sync",
+      state: "blocked",
+      blockers: expect.arrayContaining(["import-scope-required"]),
+    });
+    expect(routeData.readModel.catalogSync.preview.units[0]).toMatchObject({
+      eligibility: "blocked",
+      blockers: [expect.objectContaining({ message: blocker.message })],
+    });
+  });
+
   it("loads cache-only provider source option pages into the daily read model", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
@@ -3631,6 +3768,84 @@ describe("Catalog integrations route", () => {
     expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_base");
     expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
+  });
+
+  it("derives selected provider hints from the route scope when starting a set-name Catalog sync run", async () => {
+    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_derived" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueCatalogSyncRun,
+    });
+
+    const response = await runDailyActionRedirect(
+      {
+        _intent: "start-catalog-sync",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        referenceKind: "set",
+        referenceId: "Base Set",
+        referenceName: "Base Set",
+        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
+      },
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base%20Set",
+    );
+    const location = redirectLocation(response);
+
+    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerHints: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+            productLineId: "3",
+            productLineName: "Pokemon",
+            setName: "Base Set",
+          }),
+        ],
+      }),
+    );
+    expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_derived");
+    expect(location.searchParams.get("commandResult")).toBe("job-queued");
+  });
+
+  it("fills missing provider parent values on partial set-name Catalog sync hints", async () => {
+    const enqueueCatalogSyncRun = vi.fn().mockResolvedValue({ syncRunId: "catalog_sync_run_tcgplayer_partial" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueCatalogSyncRun,
+    });
+
+    await runDailyActionRedirect(
+      {
+        _intent: "start-catalog-sync",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        referenceKind: "set",
+        referenceId: "Base Set",
+        referenceName: "Base Set",
+        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
+        providerHints: JSON.stringify({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          setName: "Base Set",
+        }),
+      },
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base%20Set",
+    );
+
+    expect(enqueueCatalogSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerHints: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+            productLineId: "3",
+            productLineName: "Pokemon",
+            setName: "Base Set",
+          }),
+        ],
+      }),
+    );
   });
 
   it("keeps Catalog sync scope API blockers specific without leaking raw provider errors", async () => {

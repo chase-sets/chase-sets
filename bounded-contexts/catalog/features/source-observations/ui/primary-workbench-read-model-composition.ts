@@ -295,6 +295,7 @@ function buildCatalogPrimaryWorkbenchCore(
   const catalogSync = catalogSyncFor({
     canManage,
     generatedAt,
+    catalogSyncPreview: input.catalogSyncPreview ?? null,
     readinessBlockers,
     routeContext,
     sourceScopeWorkset,

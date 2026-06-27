@@ -7,6 +7,11 @@ import type {
   SourceObservationListItem,
 } from "../../../client";
 import type {
+  CatalogSyncProviderParticipationPreview,
+  CatalogSyncProviderScopeHint,
+  CatalogSyncScope,
+} from "../../../features/source-observations/api/catalog-sync-scope-planner";
+import type {
   CatalogPrimaryWorkbenchLifecycleOperation,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
@@ -177,7 +182,7 @@ async function finalizeSurfaceLoad(input: {
   // read model without the option pages, so `sourceOptions` is the structural
   // skeleton. The daily surface streams the populated slice separately (#1970);
   // the other surfaces do not render the status panel at all.
-  const readModel = buildSurfaceReadModelFailSoft({
+  const readModelInput: BuildSurfaceReadModelInput = {
     surface: input.surface,
     baseline: input.baseline,
     requestUrl: input.request.url,
@@ -188,8 +193,18 @@ async function finalizeSurfaceLoad(input: {
     mergeCandidates: input.mergeCandidates ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
+    catalogSyncPreview: null,
     canManageCatalog: input.baseline.canManageCatalog,
-  });
+  };
+  let readModel = buildSurfaceReadModelFailSoft(readModelInput);
+  const catalogSyncPreview =
+    input.surface === "daily" ? await selectedCatalogSyncPreview(input.api, readModel.catalogSync) : null;
+  if (catalogSyncPreview) {
+    readModel = buildSurfaceReadModelFailSoft({
+      ...readModelInput,
+      catalogSyncPreview,
+    });
+  }
   await recordCatalogControlPlaneEvents(input.api, loaderTelemetryEvents(readModel));
 
   return {
@@ -289,6 +304,7 @@ function normalizedDailyRouteContext(
     mergeCandidates: null,
     reviewPagination: dailyReviewPaginationFor(routeContext),
     sourceOptionPages: null,
+    catalogSyncPreview: null,
     canManageCatalog: baseline.canManageCatalog,
   });
   return {
@@ -350,6 +366,84 @@ async function selectedImportPreview(
   } catch {
     return null;
   }
+}
+
+async function selectedCatalogSyncPreview(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
+): Promise<CatalogSyncProviderParticipationPreview | null> {
+  if (typeof api.previewCatalogSyncScope !== "function") {
+    return null;
+  }
+
+  const scope = catalogSyncScopeFromReadModel(catalogSync);
+  if (!scope) {
+    return null;
+  }
+
+  try {
+    return await api.previewCatalogSyncScope<CatalogSyncProviderParticipationPreview>(scope);
+  } catch {
+    return null;
+  }
+}
+
+function catalogSyncScopeFromReadModel(
+  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
+): CatalogSyncScope | null {
+  const selectedUnitKeys = catalogSync.preview.units
+    .filter((unit) => unit.selected && unit.unitKey)
+    .map((unit) => unit.unitKey as string);
+  const excludedUnitKeys = catalogSync.preview.units
+    .filter((unit) => unit.unitKey && !selectedUnitKeys.includes(unit.unitKey))
+    .map((unit) => unit.unitKey as string);
+
+  if (
+    !catalogSync.scope.productDomain ||
+    !catalogSync.scope.productForm ||
+    !catalogSync.scope.languageCode ||
+    !catalogSync.scope.reference.kind ||
+    !catalogSync.scope.reference.id
+  ) {
+    return null;
+  }
+
+  return {
+    scopeVersion: "catalog-sync-scope-v1",
+    productDomain: catalogSync.scope.productDomain,
+    productForm: catalogSync.scope.productForm,
+    languageCode: catalogSync.scope.languageCode,
+    reference: {
+      kind: catalogSync.scope.reference.kind,
+      id: catalogSync.scope.reference.id,
+      name: catalogSync.scope.reference.name,
+      seriesId: catalogSync.scope.reference.seriesId,
+      seriesName: catalogSync.scope.reference.seriesName,
+    },
+    providerHints: catalogSyncProviderHintsFromReadModel(catalogSync, new Set(selectedUnitKeys)),
+    providerParticipation: {
+      requiredUnitKeys: [],
+      selectedUnitKeys,
+      excludedUnitKeys,
+    },
+  };
+}
+
+function catalogSyncProviderHintsFromReadModel(
+  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
+  selectedUnitKeys: ReadonlySet<string>,
+): readonly CatalogSyncProviderScopeHint[] {
+  return catalogSync.preview.units
+    .filter((unit) => unit.unitKey && selectedUnitKeys.has(unit.unitKey) && unit.childExecutionScope)
+    .map((unit) => ({
+      providerKey: unit.childExecutionScope?.provider ?? unit.providerKey,
+      unitKey: unit.unitKey as CatalogSyncProviderScopeHint["unitKey"],
+      productLineId: unit.childExecutionScope?.productLineId,
+      seriesId: unit.childExecutionScope?.seriesId,
+      setId: unit.childExecutionScope?.setId,
+      setName: unit.childExecutionScope?.setName,
+      productId: unit.childExecutionScope?.productId,
+    }));
 }
 
 function importPreviewMatchesSelectedScope(
@@ -434,6 +528,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
+  catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
   canManageCatalog: boolean;
 }>;
 
@@ -482,6 +577,7 @@ function surfaceReadModelInput(
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
+    catalogSyncPreview: input.catalogSyncPreview,
     canManageCatalog: input.canManageCatalog,
   };
 }
