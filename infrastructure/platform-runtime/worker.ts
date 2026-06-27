@@ -569,6 +569,7 @@ async function runLeasedRunner(
     };
     const result = await runner.runOnce(runnerContext);
     throwIfLeaseLost();
+    const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
     options.observer?.runnerCompleted?.({
       ...leaseEvent(options.workerId, runner, lease),
       processed: result.processed,
@@ -587,11 +588,12 @@ async function runLeasedRunner(
       lastProcessed: result.processed,
       lastError:
         state === "degraded"
-          ? `Projection has ${result.blockedStreams ?? 0} blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
+          ? `${projectionStatusSnapshot?.handlerKind === "reaction" ? "Reaction" : "Projection"} has ${
+              result.blockedStreams ?? 0
+            } blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
           : null,
     });
 
-    const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
     if (projectionStatusSnapshot) {
       throwIfLeaseLost();
       await options.controlPlane.recordProjectionStatusSnapshot({

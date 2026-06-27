@@ -524,16 +524,25 @@ export function validateProjectionGroupOwnershipReset(projectionGroup, projectio
     diagnostics.push(`${projectionGroupLabel}: ${message}`);
   };
 
+  if (
+    "handlerKind" in projectionGroup &&
+    projectionGroup.handlerKind !== "projection" &&
+    projectionGroup.handlerKind !== "reaction"
+  ) {
+    addDiagnostic("handlerKind must be projection or reaction when provided");
+  }
+
   if ("sideEffectOnly" in projectionGroup && !isBoolean(projectionGroup.sideEffectOnly)) {
     addDiagnostic("sideEffectOnly must be a boolean when provided");
   }
 
+  const handlerKind = projectionGroup.handlerKind ?? "projection";
   const sideEffectOnly = projectionGroup.sideEffectOnly === true;
   if (!isStringArray(projectionGroup.ownedTables)) {
     addDiagnostic("ownedTables must be an array of strings");
   } else if (sideEffectOnly && projectionGroup.ownedTables.length > 0) {
     addDiagnostic("sideEffectOnly projection groups must not declare ownedTables");
-  } else if (!sideEffectOnly && projectionGroup.ownedTables.length === 0) {
+  } else if (handlerKind === "projection" && !sideEffectOnly && projectionGroup.ownedTables.length === 0) {
     addDiagnostic("ownedTables must be a non-empty array of strings unless sideEffectOnly is true");
   }
 
@@ -551,9 +560,66 @@ export function validateProjectionGroupOwnershipReset(projectionGroup, projectio
   if (sideEffectOnly && projectionGroup.resetStrategy !== "replay-only") {
     addDiagnostic("sideEffectOnly projection groups must use replay-only resetStrategy");
   }
+  if (handlerKind === "reaction" && projectionGroup.resetStrategy !== "replay-only") {
+    addDiagnostic("reaction groups must use replay-only resetStrategy");
+  }
 
   if ("requiredDuringBootstrap" in projectionGroup && !isBoolean(projectionGroup.requiredDuringBootstrap)) {
     addDiagnostic("requiredDuringBootstrap must be a boolean when provided");
+  }
+
+  return diagnostics;
+}
+
+export function validateEventReactionDeclaration(reaction, reactionLabel) {
+  const diagnostics = [];
+  const addDiagnostic = (message) => {
+    diagnostics.push(`${reactionLabel}: ${message}`);
+  };
+
+  if (!isPlainObject(reaction)) {
+    addDiagnostic("event reaction must be an object");
+    return diagnostics;
+  }
+
+  if (typeof reaction.sourceContextName !== "string" || reaction.sourceContextName.length === 0) {
+    addDiagnostic("sourceContextName must be a non-empty string");
+  }
+
+  if (typeof reaction.reactionName !== "string" || reaction.reactionName.length === 0) {
+    addDiagnostic("reactionName must be a non-empty string");
+  }
+
+  if (!Number.isInteger(reaction.subscriptionVersion) || reaction.subscriptionVersion < 1) {
+    addDiagnostic("subscriptionVersion must be an integer >= 1");
+  }
+
+  if (!isStringArray(reaction.reactionHandlerSetNames) || reaction.reactionHandlerSetNames.length === 0) {
+    addDiagnostic("reactionHandlerSetNames must be a non-empty array of strings");
+  }
+
+  if (reaction.idempotencyPolicy !== "idempotent-command-dispatch") {
+    addDiagnostic("idempotencyPolicy must be idempotent-command-dispatch");
+  }
+
+  if (reaction.retryPolicy !== "retry-from-last-checkpoint") {
+    addDiagnostic("retryPolicy must be retry-from-last-checkpoint");
+  }
+
+  if (reaction.failurePolicy !== "surface-as-reaction-failure") {
+    addDiagnostic("failurePolicy must be surface-as-reaction-failure");
+  }
+
+  if ("eventTypes" in reaction && !isStringArray(reaction.eventTypes)) {
+    addDiagnostic("eventTypes must be an array of strings when provided");
+  }
+
+  if ("streamPrefixes" in reaction && !isStringArray(reaction.streamPrefixes)) {
+    addDiagnostic("streamPrefixes must be an array of strings when provided");
+  }
+
+  if ("order" in reaction && (typeof reaction.order !== "number" || Number.isNaN(reaction.order))) {
+    addDiagnostic("order must be a number when provided");
   }
 
   return diagnostics;
@@ -874,18 +940,22 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "eventSubscriptions must be an array when provided");
     }
 
+    if ("eventReactions" in manifest && !Array.isArray(manifest.eventReactions)) {
+      addPathViolation(`${relativeRoot}/context.json`, "eventReactions must be an array when provided");
+    }
+
     if ("projectionGroups" in manifest && !Array.isArray(manifest.projectionGroups)) {
       addPathViolation(`${relativeRoot}/context.json`, "projectionGroups must be an array when provided");
     }
 
     if (
-      Array.isArray(manifest.eventSubscriptions) &&
-      manifest.eventSubscriptions.length > 0 &&
+      ((Array.isArray(manifest.eventSubscriptions) && manifest.eventSubscriptions.length > 0) ||
+        (Array.isArray(manifest.eventReactions) && manifest.eventReactions.length > 0)) &&
       !Array.isArray(manifest.projectionGroups)
     ) {
       addPathViolation(
         `${relativeRoot}/context.json`,
-        "contexts with eventSubscriptions must declare projectionGroups",
+        "contexts with eventSubscriptions or eventReactions must declare projectionGroups",
       );
     }
 
@@ -1475,6 +1545,14 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(subscriptionLabel, "projectionHandlerSetNames must be a non-empty array of strings");
       }
 
+      if ("reactionHandlerSetNames" in subscription) {
+        addPathViolation(subscriptionLabel, "reactionHandlerSetNames belongs under eventReactions");
+      }
+
+      if ("handlerKind" in subscription && subscription.handlerKind !== "projection") {
+        addPathViolation(subscriptionLabel, "eventSubscriptions must declare projection handlers only");
+      }
+
       if ("eventTypes" in subscription && !isStringArray(subscription.eventTypes)) {
         addPathViolation(subscriptionLabel, "eventTypes must be an array of strings when provided");
       }
@@ -1485,6 +1563,22 @@ export async function runStructureCheck(options = {}) {
 
       if ("order" in subscription && (typeof subscription.order !== "number" || Number.isNaN(subscription.order))) {
         addPathViolation(subscriptionLabel, "order must be a number when provided");
+      }
+    }
+
+    for (const [index, reaction] of (manifest.eventReactions ?? []).entries()) {
+      const reactionLabel = `${root}/context.json eventReactions[${index}]`;
+      const diagnostics = validateEventReactionDeclaration(reaction, reactionLabel);
+      for (const diagnostic of diagnostics) {
+        violations.push(diagnostic);
+      }
+
+      if (!isPlainObject(reaction)) {
+        continue;
+      }
+
+      if ("projectionHandlerSetNames" in reaction) {
+        addPathViolation(reactionLabel, "projectionHandlerSetNames belongs under eventSubscriptions");
       }
     }
 
@@ -1535,10 +1629,42 @@ export async function runStructureCheck(options = {}) {
         );
         continue;
       }
+      if ((projectionGroup.handlerKind ?? "projection") !== "projection") {
+        addPathViolation(
+          `${root}/context.json`,
+          `eventSubscriptions references reaction group ${projectionName}; use eventReactions`,
+        );
+        continue;
+      }
 
       const subscribedSources = subscribedSourcesByProjection.get(projectionName) ?? new Set();
       subscribedSources.add(subscription.sourceContextName);
       subscribedSourcesByProjection.set(projectionName, subscribedSources);
+    }
+
+    const subscribedSourcesByReaction = new Map();
+    for (const reaction of manifest.eventReactions ?? []) {
+      const reactionName = reaction.reactionName;
+      if (typeof reactionName !== "string" || reactionName.length === 0) {
+        continue;
+      }
+
+      const projectionGroup = projectionGroupsByName.get(reactionName);
+      if (!projectionGroup) {
+        addPathViolation(`${root}/context.json`, `eventReactions references undeclared reaction group ${reactionName}`);
+        continue;
+      }
+      if ((projectionGroup.handlerKind ?? "projection") !== "reaction") {
+        addPathViolation(
+          `${root}/context.json`,
+          `eventReactions references projection group ${reactionName}; mark its projectionGroups entry with handlerKind reaction`,
+        );
+        continue;
+      }
+
+      const subscribedSources = subscribedSourcesByReaction.get(reactionName) ?? new Set();
+      subscribedSources.add(reaction.sourceContextName);
+      subscribedSourcesByReaction.set(reactionName, subscribedSources);
     }
 
     for (const [projectionName, subscribedSources] of subscribedSourcesByProjection.entries()) {
@@ -1552,6 +1678,21 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(
           `${root}/context.json`,
           `projection group ${projectionName} sourceContextNames must exactly match subscribed sources; declared [${formatSetValues(declaredSources)}], actual [${formatSetValues(subscribedSources)}]`,
+        );
+      }
+    }
+
+    for (const [reactionName, subscribedSources] of subscribedSourcesByReaction.entries()) {
+      const reactionGroup = projectionGroupsByName.get(reactionName);
+      if (!reactionGroup) {
+        continue;
+      }
+
+      const declaredSources = new Set(reactionGroup.sourceContextNames ?? []);
+      if (!setsAreEqual(subscribedSources, declaredSources)) {
+        addPathViolation(
+          `${root}/context.json`,
+          `reaction group ${reactionName} sourceContextNames must exactly match subscribed sources; declared [${formatSetValues(declaredSources)}], actual [${formatSetValues(subscribedSources)}]`,
         );
       }
     }
@@ -1960,15 +2101,26 @@ export async function runStructureCheck(options = {}) {
   async function validateDeployableRuntimeOwnership(contexts) {
     for (const context of contexts.values()) {
       const contextDeployables = new Set(context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? []);
-      for (const subscription of context.manifest.eventSubscriptions ?? []) {
+      const sourceConsumers = [
+        ...(context.manifest.eventSubscriptions ?? []).map((subscription) => ({
+          sourceContextName: subscription.sourceContextName,
+          label: "eventSubscriptions",
+        })),
+        ...(context.manifest.eventReactions ?? []).map((reaction) => ({
+          sourceContextName: reaction.sourceContextName,
+          label: "eventReactions",
+        })),
+      ];
+
+      for (const sourceConsumer of sourceConsumers) {
         const providerContext = [...contexts.values()].find(
-          (candidate) => candidate.manifest.contextName === subscription.sourceContextName,
+          (candidate) => candidate.manifest.contextName === sourceConsumer.sourceContextName,
         );
 
         if (!providerContext) {
           addPathViolation(
             `${context.root}/context.json`,
-            `eventSubscriptions references unknown context ${subscription.sourceContextName}`,
+            `${sourceConsumer.label} references unknown context ${sourceConsumer.sourceContextName}`,
           );
           continue;
         }
@@ -1981,7 +2133,7 @@ export async function runStructureCheck(options = {}) {
         if (!sharesDeployable) {
           addPathViolation(
             `${context.root}/context.json`,
-            `eventSubscriptions context ${subscription.sourceContextName} must be mounted in the same runtime deployable`,
+            `${sourceConsumer.label} context ${sourceConsumer.sourceContextName} must be mounted in the same runtime deployable`,
           );
         }
       }

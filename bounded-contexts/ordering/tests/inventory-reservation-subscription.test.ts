@@ -166,9 +166,9 @@ describe("ordering inventory reservation subscription", () => {
     const orderProjection = groups.find((group) => group.projectionName === "ordering-order-projection");
 
     expect(reservationOutcomes).toMatchObject({
+      handlerKind: "reaction",
       sourceContextNames: ["inventory"],
       ownedTables: [],
-      sideEffectOnly: true,
       resetStrategy: "replay-only",
     });
     expect(orderProjection?.ownedTables).toEqual(
@@ -193,9 +193,18 @@ describe("ordering inventory reservation subscription", () => {
       return undefined as never;
     };
     const handler = getReservationConfirmedHandler(createServices(commandHandler));
+    const subscription = (orderingModule.buildSubscriptions?.(createServices(commandHandler)) ?? []).find(
+      (candidate) => candidate.handlers["inventory.reservation.confirmed"],
+    );
 
     await handler(createReservationConfirmedEvent());
 
+    expect(subscription).toMatchObject({
+      handlerKind: "reaction",
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+    });
     expect(commands).toEqual([
       {
         type: "RecordReservationConfirmed",

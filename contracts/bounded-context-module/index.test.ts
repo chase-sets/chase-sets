@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import {
+  buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
+  defineEventReactionHandlers,
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
   type BcContextManifest,
@@ -39,6 +41,19 @@ const manifest: BcContextManifest = {
       resetStrategy: "replay-only",
     },
   ],
+  eventReactions: [
+    {
+      sourceContextName: "ordering",
+      reactionName: "inventory-order-reservation-workflow",
+      subscriptionVersion: 1,
+      reactionHandlerSetNames: ["inventory-order-reservation-workflow"],
+      eventTypes: ["ordering.order.created"],
+      idempotencyPolicy: "idempotent-command-dispatch",
+      retryPolicy: "retry-from-last-checkpoint",
+      failurePolicy: "surface-as-reaction-failure",
+      order: 20,
+    },
+  ],
 };
 
 describe("buildEventSubscriptionsFromManifest", () => {
@@ -57,6 +72,7 @@ describe("buildEventSubscriptionsFromManifest", () => {
     expect(subscriptions).toEqual([
       {
         subscriptionName: "inventory.catalog-item-projection",
+        handlerKind: "projection",
         sourceContextName: "catalog",
         projectionName: "inventory-catalog-item-projection",
         subscriptionVersion: 2,
@@ -152,6 +168,57 @@ describe("buildEventSubscriptionsFromManifest", () => {
     });
 
     expect(subscription?.handlers["catalog.catalog-item.published"]).toBe(handlers["catalog.catalog-item.published"]);
+  });
+});
+
+describe("buildEventReactionsFromManifest", () => {
+  it("copies reaction semantics and registers reaction-kind subscriptions", () => {
+    const handler = vi.fn(async () => undefined);
+    const reactions = buildEventReactionsFromManifest({
+      contextName: "inventory",
+      manifest,
+      handlers: {
+        "ordering.inventory-order-reservation-workflow": () =>
+          defineEventReactionHandlers({
+            "ordering.order.created": handler,
+          }),
+      },
+    });
+
+    expect(reactions).toEqual([
+      {
+        subscriptionName: "inventory.order-reservation-workflow",
+        handlerKind: "reaction",
+        sourceContextName: "ordering",
+        projectionName: "inventory-order-reservation-workflow",
+        reactionName: "inventory-order-reservation-workflow",
+        subscriptionVersion: 1,
+        handlers: {
+          "ordering.order.created": handler,
+        },
+        idempotencyPolicy: "idempotent-command-dispatch",
+        retryPolicy: "retry-from-last-checkpoint",
+        failurePolicy: "surface-as-reaction-failure",
+        eventTypes: ["ordering.order.created"],
+        streamPrefixes: undefined,
+        errorPolicy: undefined,
+        order: 20,
+      },
+    ]);
+  });
+
+  it("uses one canonical missing reaction declaration error", () => {
+    expect(() =>
+      buildEventReactionsFromManifest({
+        contextName: "inventory",
+        manifest,
+        handlers: {
+          "ordering.inventory-missing-reaction": () => ({}),
+        },
+      }),
+    ).toThrow(
+      "Context 'inventory' is missing an eventReactions declaration for 'ordering' -> 'inventory-missing-reaction'.",
+    );
   });
 });
 
