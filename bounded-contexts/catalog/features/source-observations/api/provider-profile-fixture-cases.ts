@@ -843,6 +843,13 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             normalizedFields: {
               name: "Sprigatito",
               productForm: "single",
+              "mergeIdentity.tcg": "pokemon",
+              "mergeIdentity.productLineName": "Pokemon",
+              "mergeIdentity.setName": "Scarlet & Violet",
+              "mergeIdentity.printedProductName": "Sprigatito",
+              "mergeIdentity.collectorNumber": "001/198",
+              "mergeIdentity.languageCode": "en",
+              "mergeIdentity.productForm": "single",
             },
             externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:493958" }],
             externalProductReferences: [

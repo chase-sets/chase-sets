@@ -116,6 +116,66 @@ describe("Catalog Merge Candidate matcher", () => {
       "obs_055",
     ]);
   });
+
+  it("builds ready candidates from canonical TCGplayer Pokemon provider-product merge identity", () => {
+    const candidates = buildCatalogMergeCandidatesFromObservations(
+      [
+        providerProductObservationRow("tcgplayer_en_product_42346", "42346", {
+          name: "Alakazam",
+          cardNumber: "1",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42346" }],
+          externalProductReferences: [
+            {
+              providerKey: "tcgplayer",
+              externalKey: "sku:99942346",
+              selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
+            },
+          ],
+          skuReferences: [
+            {
+              providerKey: "tcgplayer",
+              externalKey: "sku:99942346",
+              selectedOptions: [{ dimensionId: "printing", optionId: "normal" }],
+            },
+          ],
+          mergeIdentity: {
+            tcg: "pokemon",
+            productLineName: "Pokemon",
+            setName: "Base Set",
+            printedProductName: "Alakazam",
+            collectorNumber: "1",
+            languageCode: "en",
+            productForm: "single",
+          },
+        }),
+      ],
+      { addedAt: "2026-06-27T12:00:00.000Z" },
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.snapshot).toMatchObject({
+      identity: {
+        tcg: "pokemon",
+        productLineName: "Pokemon",
+        setName: "Base Set",
+        printedProductName: "Alakazam",
+        collectorNumber: "1",
+        languageCode: "en",
+        productForm: "single",
+      },
+      proposedCatalogItemFacts: {
+        name: "Alakazam",
+        setName: "Base Set",
+        collectorNumber: "1",
+        productLineName: "Pokemon",
+        productForm: "single",
+      },
+      proposedExternalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:42346" }],
+      proposedExternalProductReferences: [{ providerKey: "tcgplayer", externalKey: "sku:99942346" }],
+      conflicts: [],
+      promotionIntent: "create-catalog-item",
+    });
+  });
 });
 
 function observationRow(
@@ -195,3 +255,55 @@ function observationRow(
 }
 
 type PokemonObservation = Extract<SourceObservationNormalized, { kind: "pokemon-card" }>;
+
+function providerProductObservationRow(
+  observationId: string,
+  externalKey: string,
+  overrides: Partial<ProviderProductObservation> = {},
+): SourceObservationListRow {
+  const normalized: ProviderProductObservation = {
+    kind: "provider-product",
+    languageCode: "en",
+    name: "Alakazam",
+    setName: "Base Set",
+    expansionName: "Base Set",
+    cardNumber: "1",
+    imageUrls: [],
+    providerProductId: externalKey,
+    providerProductName: "Alakazam",
+    productLineName: "Pokemon",
+    productCategoryName: "Cards",
+    productForm: "single",
+    skuReferences: [],
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...overrides,
+  };
+
+  return {
+    observation_id: observationId,
+    sync_run_id: "job_sync_1",
+    provider_key: "tcgplayer",
+    external_key: externalKey,
+    source_url: `https://provider.example/product/${externalKey}`,
+    language_code: "en",
+    source_record_hash: `${observationId}-hash`,
+    source_updated_at: null,
+    observed_at: "2026-06-27T11:59:00.000Z",
+    source_profile_key: "pokemon-tcg-automation-client",
+    source_profile_version: "2026.06.03",
+    source_mapping_fingerprint: "tcgplayer-pokemon-mapping",
+    normalized,
+    status: "observed",
+    status_reason: null,
+    promoted_catalog_item_id: null,
+    promoted_reference_record_id: null,
+    promoted_at: null,
+    promotion_profile_key: null,
+    promotion_profile_version: null,
+    promotion_plan_fingerprint: null,
+    updated_at: "2026-06-27T11:59:00.000Z",
+  };
+}
+
+type ProviderProductObservation = Extract<SourceObservationNormalized, { kind: "provider-product" }>;
