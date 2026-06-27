@@ -403,7 +403,18 @@ variable "platform_image_repository" {
 
 variable "platform_image_tag" {
   type        = string
-  description = "Container image tag to deploy for App Platform components."
+  description = "Human-readable container image tag associated with the App Platform release artifact."
+}
+
+variable "platform_image_digest" {
+  type        = string
+  default     = ""
+  description = "Verified container image digest to deploy for App Platform components."
+
+  validation {
+    condition     = var.platform_image_digest == "" || can(regex("^sha256:[a-f0-9]{64}$", var.platform_image_digest))
+    error_message = "platform_image_digest must be empty or a sha256 digest in the form sha256:<64 lowercase hex characters>."
+  }
 }
 
 variable "platform_internal_auth_secret" {
