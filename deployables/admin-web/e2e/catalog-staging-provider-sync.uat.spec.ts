@@ -1156,9 +1156,8 @@ async function promoteSelectedScopeFromSharedImporter(
   const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
   if (!promotionPreviewId) {
     console.log(
-      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview for ${selectedScope.displayLabel}; trying row-level or reapply fallback.`,
+      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
     );
-    return null;
   }
   const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
     allowOperatorStateFallback: true,
@@ -1174,7 +1173,7 @@ async function promoteSelectedScopeFromSharedImporter(
     unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: [],
-    promotionPreviewId,
+    promotionPreviewId: promotionPreviewId ?? currentSearchParam(page, "promotionPreviewId"),
     jobId,
   };
 }
@@ -1442,7 +1441,9 @@ async function expectCatalogItemsProjectionForProvider(
   await expect(page).toHaveURL(new RegExp(`/catalog/catalog-items\\?source=${result.providerKey}`), {
     timeout: pageReadyTimeoutMs,
   });
-  await expect(page.getByRole("heading", { name: "Catalog Items" })).toBeVisible({ timeout: pageReadyTimeoutMs });
+  await expect(page.getByRole("heading", { name: "Catalog Items", exact: true })).toBeVisible({
+    timeout: pageReadyTimeoutMs,
+  });
 
   const deadline = Date.now() + downstreamProjectionTimeoutMs;
   let observedRows: readonly string[] = [];
