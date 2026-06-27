@@ -34,6 +34,7 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "preview-required" ||
     value === "job-required" ||
     value === "reason-required" ||
+    value === "catalog-sync-blocked" ||
     value === "unsupported-command" ||
     value === "invalid-intent" ||
     value === "command-failed"

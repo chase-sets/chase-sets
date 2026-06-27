@@ -50,6 +50,10 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required":
     "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked":
+    "Catalog sync could not start for the selected provider scope. Review the Catalog scope sync participation readiness and retry after the named blocker is resolved.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked.title":
+    "Catalog sync needs attention",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description":
     "The new draft profile is selected. Review lifecycle restrictions and validation evidence before activation.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title": "Draft profile created",

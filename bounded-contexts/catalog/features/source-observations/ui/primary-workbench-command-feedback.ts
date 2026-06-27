@@ -20,6 +20,7 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "preview-required"
     | "job-required"
     | "reason-required"
+    | "catalog-sync-blocked"
     | "unsupported-command"
     | "invalid-intent"
     | "command-failed";
@@ -91,6 +92,8 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required");
     case "reason-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required");
+    case "catalog-sync-blocked":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked");
     case "section-conflict":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict");
     case "section-invalid":
@@ -107,4 +110,12 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
     default:
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed");
   }
+}
+
+export function commandErrorTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
+  if (result === "catalog-sync-blocked") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.catalogSync.blocked.title");
+  }
+
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title");
 }

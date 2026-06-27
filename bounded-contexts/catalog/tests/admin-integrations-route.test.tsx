@@ -184,6 +184,40 @@ describe("Catalog integrations route", () => {
     expect(screen.getByText("Command queued")).toBeTruthy();
   });
 
+  it("renders specific Catalog sync blocked feedback from the action result", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgplayer";
+    mockUseLoaderData.mockReturnValue({
+      data: scopes,
+      query: {},
+      profileReviews,
+      controlPlaneOverview: null,
+      requestUrl,
+      commandFeedback: null,
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+    mockUseActionData.mockReturnValue({
+      feedback: { status: "error", intent: "start-catalog-sync", result: "catalog-sync-blocked" },
+      context: { section: "import-to-promotion" },
+      section: "import-to-promotion",
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(screen.getByText("Catalog sync needs attention")).toBeTruthy();
+    expect(screen.getByText(/Catalog sync could not start for the selected provider scope/i)).toBeTruthy();
+  });
+
   it("replaces the daily URL when preview-ready action data carries a routable checkpoint", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
@@ -3597,6 +3631,48 @@ describe("Catalog integrations route", () => {
     expect(location.searchParams.get("jobId")).toBe("catalog_sync_run_tcgplayer_base");
     expect(location.searchParams.get("commandIntent")).toBe("start-catalog-sync");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
+  });
+
+  it("keeps Catalog sync scope API blockers specific without leaking raw provider errors", async () => {
+    const enqueueCatalogSyncRun = vi.fn().mockRejectedValue(
+      new CatalogApiError(400, {
+        error: {
+          code: "invalid_scope",
+          message: "provider secret leaked",
+        },
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueCatalogSyncRun,
+    });
+
+    const result = await runDailyAction(
+      {
+        _intent: "start-catalog-sync",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        languageCode: "en",
+        referenceKind: "set",
+        referenceId: "Base Set",
+        referenceName: "Base Set",
+        selectedUnitKeys: "tcgplayer:pokemon:single-card:source-observation-import",
+        providerHints: JSON.stringify({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          productLineId: "3",
+          setName: "Base Set",
+        }),
+      },
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:pokemon:single-card:source-observation-import&languageCode=en&productLineId=3&expansionName=Base%20Set",
+    );
+
+    expect(enqueueCatalogSyncRun).toHaveBeenCalled();
+    expect(result.feedback).toEqual({
+      status: "error",
+      intent: "start-catalog-sync",
+      result: "catalog-sync-blocked",
+    });
+    expect(JSON.stringify(result)).not.toContain("provider secret leaked");
   });
 
   it("queues a TCGdex native language-series-set scope as a concrete expansion import", async () => {

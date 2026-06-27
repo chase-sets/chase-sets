@@ -27,6 +27,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "preview-required"
   | "job-required"
   | "reason-required"
+  | "catalog-sync-blocked"
   | "unsupported-command"
   | "invalid-intent"
   | "command-failed";
@@ -397,6 +398,7 @@ function blockerCategoryForCommandResult(
   }
   if (
     result === "reason-required" ||
+    result === "catalog-sync-blocked" ||
     result === "unsupported-command" ||
     result === "invalid-intent" ||
     result === "section-invalid" ||
@@ -435,6 +437,7 @@ function promotionTelemetryResult(
     case "confirmation-required":
     case "preview-required":
     case "reason-required":
+    case "catalog-sync-blocked":
     case "unsupported-command":
     case "invalid-intent":
     case "command-failed":

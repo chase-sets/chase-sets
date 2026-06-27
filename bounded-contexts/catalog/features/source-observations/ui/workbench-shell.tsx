@@ -13,7 +13,11 @@ import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/i
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
-import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
+import {
+  commandErrorTitle,
+  commandFeedbackDescription,
+  commandSuccessTitle,
+} from "./primary-workbench-command-feedback";
 
 export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -124,11 +128,7 @@ function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbench
   return (
     <OperationalStatusBanner
       tone={feedback.status === "success" ? "success" : "warning"}
-      title={
-        feedback.status === "success"
-          ? commandSuccessTitle(feedback.result)
-          : t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title")
-      }
+      title={feedback.status === "success" ? commandSuccessTitle(feedback.result) : commandErrorTitle(feedback.result)}
       description={commandFeedbackDescription(feedback)}
     />
   );
