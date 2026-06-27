@@ -10,16 +10,16 @@ The historical staging incident cannot be attributed to a specific worker outage
 
 | Environment posture | Marketplace platform components | Worker instances | Per-worker projection concurrency | Per-worker total runner concurrency | Per-worker DB pool | Notes |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| Preview | `platform-api` and `platform-worker` when marketplace platform is enabled | 1 | 2 | 5 | 8 | Smallest non-production posture; preview bootstrap may drain scenario projections. |
-| Staging | Full `platform-api` and `platform-worker` | 2 | 2 | 8 | 8 | Provides four concurrent projection runner slots across two workers. |
-| Production landing/admin-only | `admin-support-api` and admin-support worker; no public marketplace flow | 1 admin-support worker | 2 | 5 | 6 | Guest Buy Now public marketplace is not exposed in this posture. |
-| Production proof/public marketplace | `platform-api`, `platform-worker`, marketplace web, and commerce databases | 1 by default, overrideable | 2 | 5 | 6 | Required before production marketplace proof or public launch can exercise guest Buy Now. |
+| Preview | `platform-api` and `platform-worker` when marketplace platform is enabled | 1 | 1 | 7 | 7 | Smallest non-production posture; preview bootstrap may drain scenario projections. |
+| Staging | Full `platform-api` and `platform-worker` | 2 | 2 | 11 | 11 | Provides four concurrent projection runner slots across two workers. |
+| Production landing/admin-only | `admin-support-api` and admin-support worker; no public marketplace flow | 1 admin-support worker | 1 | 7 | 7 | Guest Buy Now public marketplace is not exposed in this posture. |
+| Production proof/public marketplace | `platform-api`, `platform-worker`, marketplace web, and commerce databases | 1 by default, overrideable | 1 | 7 | 7 | Required before production marketplace proof or public launch can exercise guest Buy Now. |
 
 Terraform enforces that per-worker projection, job, dispatch, and scheduled runner concurrency does not exceed `worker_database_pool_max`. The relevant settings are:
 
 - `worker_instance_count`: optional instance override, with staging defaulting to two workers and preview/production defaulting to one.
-- `worker_database_pool_max`: optional worker `DATABASE_POOL_MAX` override, defaulting to `8` for non-production and `6` for production.
-- `WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS`: currently `2` per worker.
+- `worker_database_pool_max`: optional worker `DATABASE_POOL_MAX` override, defaulting to `11` for staging and `7` elsewhere.
+- `WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS`: `2` per worker in staging and `1` elsewhere by default.
 - `WORKER_JOB_MAX_CONCURRENT_RUNNERS`: staging defaults to `4`, production/preview to `1`.
 - `WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS`: `1`.
 - `WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS`: `1`.
@@ -33,7 +33,7 @@ The Checkout session projection was optimized before this audit:
 - it writes through the runner transaction-scoped projection database;
 - command continuations no longer depend on `checkout_session_pages` before appending follow-up session events.
 
-Given that shape, staging's four total projection runner slots are enough for the first guest Buy Now SLO target unless workers are absent, restarting, blocked by poison events, or the database tier cannot keep up. Production proof/public marketplace starts with two total projection runner slots and should be treated as launch minimum capacity, not headroom for broad traffic.
+Given that shape, staging's four total projection runner slots are enough for the first guest Buy Now SLO target unless workers are absent, restarting, blocked by poison events, or the database tier cannot keep up. Production proof/public marketplace starts with one total projection runner slot so the current database tier can also budget the direct Identity wake listener; treat that as launch minimum capacity, not headroom for broad traffic.
 
 The platform API can still serve reads while projection workers are absent or restarting. That is intentional: API readiness should not fail merely because an eventually consistent worker is temporarily draining. The customer contract is:
 

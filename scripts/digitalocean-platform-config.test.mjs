@@ -96,6 +96,12 @@ function hotRelaySourceContextsFromRegistry(source) {
     .sort((left, right) => left.localeCompare(right));
 }
 
+function directListenerSourceContextsFromRegistry(source) {
+  return [...new Set([...hotRelaySourceContextsFromRegistry(source), "identity"])].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
 function terraformStringMap(source, localName) {
   const match = new RegExp(`${localName} = \\{([\\s\\S]*?)\\n  \\}`).exec(source);
   expect(match).not.toBeNull();
@@ -253,10 +259,10 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 11 : 8");
+    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 11 : 7");
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
-    expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_projection_concurrency", 'local.is_staging ? "2" : "1"');
     expectTerraformAssignment(platformLocals, "worker_wake_concurrency", '"2"');
     expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", '"1"');
@@ -342,7 +348,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STATEMENT_TIMEOUT_MS"')).toBe(1);
     expect(terraformStringList(platformLocals, "worker_listener_source_contexts").sort()).toEqual(
-      hotRelaySourceContextsFromRegistry(sourceContextWakeRegistry),
+      directListenerSourceContextsFromRegistry(sourceContextWakeRegistry),
     );
     expect(platformLocals).toContain("worker_listener_database_urls");
     expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);

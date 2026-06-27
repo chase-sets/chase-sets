@@ -71,12 +71,12 @@ describe("projection push migration inventory", () => {
       consumesDurableWakeIntents: true,
     });
 
-    // Mixed sources: catalog, inventory, and marketplace are enabled while
-    // identity waits on its wave -> push-eligible with partial wake delivery.
+    // Mixed sources are fully push-enabled once catalog, identity, inventory,
+    // and marketplace all have relay fan-out enabled.
     expect(byKey.get("discovery:discovery-market-projection")).toMatchObject({
-      status: "push-eligible",
+      status: "push-enabled",
       owner: "Discovery",
-      enabledSourceContextCount: 3,
+      enabledSourceContextCount: 4,
       sourceContextCount: 4,
       consumesDurableWakeIntents: true,
     });

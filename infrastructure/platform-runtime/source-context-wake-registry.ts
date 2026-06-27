@@ -269,7 +269,16 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "identity",
     owner: "Identity",
-    rolloutState: "eligible",
+    // Staging-enabled for cross-device User presentation preferences (#2744):
+    // preference writes must wake Identity's own read models so reloads and
+    // second sessions observe the committed viewer setting without waiting on
+    // fallback polling. Production remains inert through the environment kill
+    // switches until the production proof gates pass.
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-2-composite-migration",
     rolloutWave: "wave-2-commerce-dependencies",
     priorityLane: "standard",
