@@ -55,7 +55,7 @@ export async function listDimensions(
     extraConditions,
     extraValues,
   );
-  return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listDimensionIds(db: PgQueryable, params: DimensionListParams = {}): Promise<string[]> {

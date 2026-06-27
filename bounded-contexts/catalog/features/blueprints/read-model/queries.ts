@@ -67,7 +67,7 @@ export async function listBlueprints(
   }
 
   const query = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC", extraConditions);
-  return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listBlueprintIds(db: PgQueryable, params: BlueprintListParams = {}): Promise<string[]> {

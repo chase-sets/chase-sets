@@ -35,7 +35,13 @@ function mapAccountRow(row: AccountQueryRow): AccountRow {
 
 export async function listAccounts(db: PgQueryable, params: ListParams = {}) {
   const query = buildFilteredQuery("identity_accounts", params, ["name", "display_name"], "display_name ASC");
-  const result = await executeListQuery<AccountQueryRow>(db, query.countSql, query.listSql, query.values);
+  const result = await executeListQuery<AccountQueryRow>(
+    db,
+    query.countSql,
+    query.listSql,
+    query.countValues,
+    query.listValues,
+  );
   return {
     ...result,
     items: result.items.map(mapAccountRow),

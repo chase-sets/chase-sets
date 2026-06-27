@@ -46,7 +46,7 @@ export async function listFields(db: PgQueryable, params: FieldListParams = {}):
   }
 
   const query = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC", extraConditions, extraValues);
-  return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listFieldIds(db: PgQueryable, params: FieldListParams = {}): Promise<string[]> {

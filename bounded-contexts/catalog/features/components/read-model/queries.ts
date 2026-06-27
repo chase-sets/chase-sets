@@ -58,7 +58,7 @@ export async function listComponents(
   }
 
   const query = buildFilteredQuery("catalog_components", params, ["key", "name"], "key ASC", extraConditions);
-  return executeListQuery<ComponentRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<ComponentRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listComponentIds(db: PgQueryable, params: ComponentListParams = {}): Promise<string[]> {
