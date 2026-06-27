@@ -92,7 +92,52 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
 );
 
 ALTER TABLE catalog_merge_candidates
-  ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS identity_fingerprint text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS sync_run_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ready',
+  ADD COLUMN IF NOT EXISTS status_reason text NULL,
+  ADD COLUMN IF NOT EXISTS identity_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS matched_catalog_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS matched_product_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS proposed_catalog_item_facts_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS proposed_external_catalog_item_references_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS proposed_external_product_references_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS conflicts_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS warnings_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS field_provenance_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS promotion_intent text NOT NULL DEFAULT 'create-catalog-item',
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS stale_at timestamptz NULL;
+
+ALTER TABLE catalog_merge_candidates
+  ALTER COLUMN identity_fingerprint DROP DEFAULT,
+  ALTER COLUMN status DROP DEFAULT,
+  ALTER COLUMN identity_json DROP DEFAULT,
+  ALTER COLUMN promotion_intent DROP DEFAULT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'catalog_merge_candidates_status_check'
+  ) THEN
+    ALTER TABLE catalog_merge_candidates
+      ADD CONSTRAINT catalog_merge_candidates_status_check
+      CHECK (status IN ('ready', 'has-conflicts', 'stale', 'deferred', 'rejected', 'promoted')) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'catalog_merge_candidates_promotion_intent_check'
+  ) THEN
+    ALTER TABLE catalog_merge_candidates
+      ADD CONSTRAINT catalog_merge_candidates_promotion_intent_check
+      CHECK (promotion_intent IN ('create-catalog-item', 'update-catalog-item', 'link-existing-catalog-item')) NOT VALID;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
   candidate_id text NOT NULL,
@@ -114,7 +159,25 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidate_observations (
 );
 
 ALTER TABLE catalog_merge_candidate_observations
-  ADD COLUMN IF NOT EXISTS sync_run_id text NULL;
+  ADD COLUMN IF NOT EXISTS sync_run_id text NULL,
+  ADD COLUMN IF NOT EXISTS provider_key text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS external_key text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source_record_hash text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source_profile_key text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS observed_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS added_at timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE catalog_merge_candidate_observations
+  ALTER COLUMN provider_key DROP DEFAULT,
+  ALTER COLUMN external_key DROP DEFAULT,
+  ALTER COLUMN source_record_hash DROP DEFAULT,
+  ALTER COLUMN source_profile_key DROP DEFAULT,
+  ALTER COLUMN source_profile_version DROP DEFAULT,
+  ALTER COLUMN source_mapping_fingerprint DROP DEFAULT,
+  ALTER COLUMN observed_at DROP DEFAULT,
+  ALTER COLUMN added_at DROP DEFAULT;
 
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
   ON catalog_merge_candidates (status, updated_at DESC);
