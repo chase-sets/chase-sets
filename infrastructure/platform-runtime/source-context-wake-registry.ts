@@ -260,7 +260,7 @@ export const sourceContextWakeRegistry = [
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-fulfillment-cancellation-inputs",
       "pricing:pricing-fulfillment-input-projection",
-      "marketplace:reputation-shipment-source-projection",
+      "marketplace:marketplace-review-shipment-source-projection",
       "settlement:settlement-fulfillment-source-projection",
       "platform-operations:support-shipment-source-projection",
     ],
@@ -303,7 +303,7 @@ export const sourceContextWakeRegistry = [
       "identity:identity-user-projection",
       "marketplace:marketplace-identity-account-projection",
       "ordering:ordering-account-projection",
-      "marketplace:reputation-account-projection",
+      "marketplace:marketplace-review-account-source-projection",
       "settlement:settlement-account-risk-source-projection",
     ],
     routeDependencyIds: [
@@ -380,7 +380,7 @@ export const sourceContextWakeRegistry = [
       "marketplace:marketplace-identity-account-projection",
       "marketplace:marketplace-listing-projection",
       "marketplace:marketplace-offer-projection",
-      "marketplace:reputation-review-projection",
+      "marketplace:marketplace-review-projection",
       "ordering:ordering-marketplace-offer-acceptance",
       "ordering:ordering-marketplace-supply-input-projection",
       "pricing:pricing-market-input-projection",
@@ -397,7 +397,7 @@ export const sourceContextWakeRegistry = [
       "marketplace.listing-stock-location-self-refresh",
       "marketplace.offer-match-accept-to-detail",
       "marketplace.submitted-offer-detail",
-      "reputation.review-submit-to-detail",
+      "marketplace.review-submit-to-detail",
     ],
   }),
   registryEntry({
@@ -435,7 +435,7 @@ export const sourceContextWakeRegistry = [
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-order-input-projection",
       "pricing:pricing-order-input-projection",
-      "marketplace:reputation-order-source-projection",
+      "marketplace:marketplace-review-order-source-projection",
       "platform-operations:support-order-source-projection",
     ],
     routeDependencyIds: [
@@ -482,7 +482,7 @@ export const sourceContextWakeRegistry = [
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
       "payments:payments-support-refund-effect",
-      "marketplace:reputation-support-source-projection",
+      "marketplace:marketplace-review-support-source-projection",
       "settlement:settlement-support-hold-projection",
     ],
     routeDependencyIds: [],

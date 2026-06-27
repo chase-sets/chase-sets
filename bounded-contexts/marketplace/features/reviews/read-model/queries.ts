@@ -63,10 +63,10 @@ const baseReviewSelect = `
     page.submitted_at,
     page.updated_at,
     page.withdrawn_at
-  FROM reputation_review_pages AS page
-  LEFT JOIN reputation_account_pages AS author
+  FROM marketplace_review_pages AS page
+  LEFT JOIN marketplace_review_account_sources AS author
     ON author.account_id = page.author_account_id
-  LEFT JOIN reputation_account_pages AS subject
+  LEFT JOIN marketplace_review_account_sources AS subject
     ON subject.account_id = page.subject_account_id
 `;
 
@@ -86,7 +86,7 @@ export async function listPublicAccountReviews(
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM reputation_review_pages
+       FROM marketplace_review_pages
        WHERE subject_account_id = $1
          AND status = 'active'`,
       [params.accountId],
@@ -116,7 +116,7 @@ export async function listWrittenReviews(
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM reputation_review_pages
+       FROM marketplace_review_pages
        WHERE author_account_id = $1`,
       [params.authorAccountId],
     ),
@@ -144,7 +144,7 @@ export async function listReceivedReviews(
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM reputation_review_pages
+       FROM marketplace_review_pages
        WHERE subject_account_id = $1`,
       [params.subjectAccountId],
     ),
@@ -191,8 +191,8 @@ export async function getPublicAccountSummary(db: PgQueryable, accountId: string
        summary.rating_4_count,
      summary.rating_5_count,
      summary.updated_at::text AS updated_at
-     FROM review_summary_pages AS summary
-     LEFT JOIN reputation_account_pages AS account
+     FROM marketplace_review_summary_pages AS summary
+     LEFT JOIN marketplace_review_account_sources AS account
        ON account.account_id = summary.account_id
      WHERE summary.account_id = $1`,
     [accountId],
@@ -229,7 +229,7 @@ export async function getReviewEligibility(
        subject_account_id,
        author_role,
        eligible_at
-     FROM reputation_review_eligibility_pages
+     FROM marketplace_review_eligibility_pages
      WHERE order_id = $1
        AND author_account_id = $2
        AND subject_account_id = $3`,
@@ -254,12 +254,12 @@ export async function getOrderReviewOpportunity(
        eligibility.author_role,
        eligibility.eligible_at,
        active.review_id AS active_review_id
-     FROM reputation_review_eligibility_pages AS eligibility
-     INNER JOIN reputation_order_sources AS order_source
+     FROM marketplace_review_eligibility_pages AS eligibility
+     INNER JOIN marketplace_review_order_sources AS order_source
        ON order_source.order_id = eligibility.order_id
-     LEFT JOIN reputation_account_pages AS subject
+     LEFT JOIN marketplace_review_account_sources AS subject
        ON subject.account_id = eligibility.subject_account_id
-     LEFT JOIN reputation_review_pages AS active
+     LEFT JOIN marketplace_review_pages AS active
        ON active.order_id = eligibility.order_id
       AND active.author_account_id = eligibility.author_account_id
       AND active.subject_account_id = eligibility.subject_account_id
@@ -294,7 +294,7 @@ export async function findActiveReviewForDirection(
 ): Promise<Pick<ReviewListRow, "review_id"> | null> {
   const result = await db.query<{ review_id: string }>(
     `SELECT review_id
-     FROM reputation_review_pages
+     FROM marketplace_review_pages
      WHERE order_id = $1
        AND author_account_id = $2
        AND subject_account_id = $3

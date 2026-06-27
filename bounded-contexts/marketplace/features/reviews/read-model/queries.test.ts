@@ -27,7 +27,7 @@ function reviewRow(overrides: Partial<ReviewListRow> = {}): ReviewListRow {
   };
 }
 
-describe("reputation review queries", () => {
+describe("marketplace review queries", () => {
   it("returns the buyer-to-seller review opportunity for a verified order", async () => {
     const db = {
       query: vi.fn(async () => ({

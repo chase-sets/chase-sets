@@ -25,9 +25,9 @@ describe("item detail offer matches", () => {
     } satisfies PgQueryable;
     const handlers = buildDiscoveryMarketProjectionHandlers(db);
 
-    await handlers["reputation.review.submitted"]?.(
+    await handlers["marketplace.review.submitted"]?.(
       createEvent(
-        "reputation.review.submitted",
+        "marketplace.review.submitted",
         {
           reviewId: "rev_1",
           authorAccountId: "acc_buyer",

@@ -387,7 +387,7 @@ describeDb("discovery projection row identity", () => {
     );
     await project(
       marketHandlers,
-      event("reputation.review.submitted", "reputation.review-review_1", {
+      event("marketplace.review.submitted", "marketplace.review-review_1", {
         reviewId: "review_1",
         authorAccountId: "buyer_1",
         subjectAccountId: "acc_seller",
@@ -399,7 +399,7 @@ describeDb("discovery projection row identity", () => {
     );
     await project(
       marketHandlers,
-      event("reputation.review.updated", "reputation.review-review_1", {
+      event("marketplace.review.updated", "marketplace.review-review_1", {
         reviewId: "review_1",
         rating: 4,
         feedback: "Packed well after update.",
@@ -408,7 +408,7 @@ describeDb("discovery projection row identity", () => {
     );
     await project(
       marketHandlers,
-      event("reputation.review.withdrawn", "reputation.review-review_1", {
+      event("marketplace.review.withdrawn", "marketplace.review-review_1", {
         reviewId: "review_1",
         withdrawnAt: "2026-06-12T13:04:00.000Z",
       }),

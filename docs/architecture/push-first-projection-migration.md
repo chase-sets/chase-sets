@@ -80,11 +80,11 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-inventory-supply-projection` | Marketplace | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:reputation-account-projection` | Marketplace | **identity** | push-enabled | 1/1 |
-| `marketplace:reputation-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
-| `marketplace:reputation-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:reputation-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
-| `marketplace:reputation-support-source-projection` | Marketplace | platform-operations | push-eligible | 0/1 |
+| `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
+| `marketplace:marketplace-review-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
+| `marketplace:marketplace-review-support-source-projection` | Marketplace | platform-operations | push-eligible | 0/1 |
 | `notifications:notifications-source-facts-outbox-projection` | Notifications | fulfillment, **ordering** | push-eligible | 1/2 |
 | `ordering:ordering-account-projection` | Ordering | **identity** | push-enabled | 1/1 |
 | `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
@@ -182,7 +182,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.checkout-status-order-input-fresh-read` | payments | critical | exact wait | push-accelerated |
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
-| `reputation.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `settlement.payout-readiness-self-refresh` | settlement | critical | exact wait | push-accelerated |
 | `settlement.payout-request-to-detail` | settlement | critical | exact wait | push-accelerated |
 

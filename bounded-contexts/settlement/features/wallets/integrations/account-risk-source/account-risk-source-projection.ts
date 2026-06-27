@@ -89,7 +89,7 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(db: P
 
 export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "reputation.review.submitted": async (event) => {
+    "marketplace.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
         subjectAccountId: string;
@@ -113,7 +113,7 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
       );
       await refreshAccountReviews(db, data.subjectAccountId, data.submittedAt);
     },
-    "reputation.review.updated": async (event) => {
+    "marketplace.review.updated": async (event) => {
       const data = event.data as { reviewId: string; rating: number; updatedAt: string };
       const result = await db.query<{ subject_account_id: string }>(
         `UPDATE settlement_account_review_sources
@@ -128,7 +128,7 @@ export function buildSettlementReputationAccountRiskSourceProjectionHandlers(db:
         await refreshAccountReviews(db, accountId, data.updatedAt);
       }
     },
-    "reputation.review.withdrawn": async (event) => {
+    "marketplace.review.withdrawn": async (event) => {
       const data = event.data as { reviewId: string; withdrawnAt: string };
       const result = await db.query<{ subject_account_id: string }>(
         `UPDATE settlement_account_review_sources

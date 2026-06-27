@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildReviewProjectionHandlers } from "./projection";
 
-describe("reputation review projection", () => {
+describe("marketplace review projection", () => {
   it("refreshes the unified subject account summary for seller-to-buyer reviews", async () => {
     const queries: { sql: string; params: readonly unknown[] }[] = [];
     const db = {
@@ -17,7 +17,7 @@ describe("reputation review projection", () => {
     };
     const handlers = buildReviewProjectionHandlers(db as never);
 
-    await handlers["reputation.review.submitted"]?.({
+    await handlers["marketplace.review.submitted"]?.({
       data: {
         reviewId: "rev_1",
         orderId: "ord_1",
@@ -29,14 +29,16 @@ describe("reputation review projection", () => {
         submittedAt: "2026-04-02T00:00:00.000Z",
       },
     } as never);
-    await handlers["reputation.review.withdrawn"]?.({
+    await handlers["marketplace.review.withdrawn"]?.({
       data: {
         reviewId: "rev_1",
         withdrawnAt: "2026-04-03T00:00:00.000Z",
       },
     } as never);
 
-    const summaryRefreshes = queries.filter((query) => query.sql.includes("INSERT INTO review_summary_pages"));
+    const summaryRefreshes = queries.filter((query) =>
+      query.sql.includes("INSERT INTO marketplace_review_summary_pages"),
+    );
     expect(summaryRefreshes).toHaveLength(2);
     expect(summaryRefreshes.map((query) => query.params[0])).toEqual(["acc_buyer", "acc_buyer"]);
     for (const refresh of summaryRefreshes) {

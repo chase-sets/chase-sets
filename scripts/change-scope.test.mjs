@@ -485,12 +485,12 @@ describe("change-scope", () => {
       changedFiles: [
         "bounded-contexts/identity/routes/marketplace/account.tsx",
         "bounded-contexts/support/routes/marketplace/account-support.tsx",
-        "bounded-contexts/reputation/routes/marketplace/account-written-reviews.tsx",
+        "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx",
       ],
       workspaces: [
         workspace(baseDir, "bounded-contexts", "identity", "@test/identity"),
         workspace(baseDir, "bounded-contexts", "support", "@test/support"),
-        workspace(baseDir, "bounded-contexts", "reputation", "@test/reputation"),
+        workspace(baseDir, "bounded-contexts", "marketplace", "@test/marketplace"),
       ],
     });
 

@@ -67,7 +67,7 @@ export type WithdrawReviewCommand = Readonly<{
 export type ReviewCommand = SubmitReviewCommand | UpdateReviewCommand | WithdrawReviewCommand;
 
 export type ReviewSubmittedEvent = DomainEvent<
-  "reputation.review.submitted",
+  "marketplace.review.submitted",
   Readonly<{
     reviewId: ReviewId;
     orderId: OrderId;
@@ -81,7 +81,7 @@ export type ReviewSubmittedEvent = DomainEvent<
 >;
 
 export type ReviewUpdatedEvent = DomainEvent<
-  "reputation.review.updated",
+  "marketplace.review.updated",
   Readonly<{
     reviewId: ReviewId;
     rating: number;
@@ -91,7 +91,7 @@ export type ReviewUpdatedEvent = DomainEvent<
 >;
 
 export type ReviewWithdrawnEvent = DomainEvent<
-  "reputation.review.withdrawn",
+  "marketplace.review.withdrawn",
   Readonly<{
     reviewId: ReviewId;
     withdrawnAt: string;
@@ -108,7 +108,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
       return [
         {
-          type: "reputation.review.submitted",
+          type: "marketplace.review.submitted",
           data: {
             reviewId: command.reviewId,
             orderId: command.orderId,
@@ -127,7 +127,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
       return [
         {
-          type: "reputation.review.updated",
+          type: "marketplace.review.updated",
           data: {
             reviewId: state.reviewId,
             rating: normalizeRating(command.rating),
@@ -144,7 +144,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
       return [
         {
-          type: "reputation.review.withdrawn",
+          type: "marketplace.review.withdrawn",
           data: {
             reviewId: state.reviewId,
             withdrawnAt: ensureIsoTimestamp(command.withdrawnAt, "Review withdrawal must record a timestamp."),
@@ -158,7 +158,7 @@ export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEv
 
 export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, event) => {
   switch (event.type) {
-    case "reputation.review.submitted":
+    case "marketplace.review.submitted":
       return {
         reviewId: event.data.reviewId,
         orderId: event.data.orderId,
@@ -172,14 +172,14 @@ export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, 
         updatedAt: event.data.submittedAt,
         withdrawnAt: null,
       };
-    case "reputation.review.updated":
+    case "marketplace.review.updated":
       return {
         ...state,
         rating: normalizeRating(event.data.rating),
         feedback: normalizeFeedback(event.data.feedback),
         updatedAt: event.data.updatedAt,
       };
-    case "reputation.review.withdrawn":
+    case "marketplace.review.withdrawn":
       return {
         ...state,
         status: normalizeReviewStatus("withdrawn"),

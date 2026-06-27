@@ -826,7 +826,7 @@ export async function seedReputationData(
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
   try {
-    const existing = await services.db.query("SELECT COUNT(*) AS count FROM reputation_review_pages");
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM marketplace_review_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Reputation already contains data. Skipping seed.");
       return;
@@ -843,8 +843,8 @@ export async function seedReputationData(
     (
       await services.db.query<{ order_id: string }>(
         `SELECT eligibility.order_id
-         FROM reputation_review_eligibility_pages eligibility
-         JOIN reputation_order_sources order_source
+         FROM marketplace_review_eligibility_pages eligibility
+         JOIN marketplace_review_order_sources order_source
            ON order_source.order_id = eligibility.order_id
          WHERE eligibility.author_account_id = $1
          ORDER BY order_source.ready_for_fulfillment_at DESC NULLS LAST,
@@ -877,7 +877,7 @@ export async function seedReputationData(
   }
 
   await services.reviews.commandHandler({
-    streamId: `reputation.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
+    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
@@ -892,7 +892,7 @@ export async function seedReputationData(
     context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
   });
   await services.reviews.commandHandler({
-    streamId: `reputation.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
+    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
     command: {
       type: "UpdateReview",
       rating: 5,
@@ -903,7 +903,7 @@ export async function seedReputationData(
   });
 
   await services.reviews.commandHandler({
-    streamId: `reputation.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
+    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
@@ -918,7 +918,7 @@ export async function seedReputationData(
     context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
   });
   await services.reviews.commandHandler({
-    streamId: `reputation.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
+    streamId: `marketplace.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
     command: {
       type: "WithdrawReview",
       withdrawnAt: "2026-03-23T10:15:00.000Z",

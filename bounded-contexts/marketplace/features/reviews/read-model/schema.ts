@@ -1,5 +1,5 @@
 export const reviewSchemaSql = `
-CREATE TABLE IF NOT EXISTS reputation_review_pages (
+CREATE TABLE IF NOT EXISTS marketplace_review_pages (
   review_id text PRIMARY KEY,
   order_id text NOT NULL,
   author_account_id text NOT NULL,
@@ -13,18 +13,18 @@ CREATE TABLE IF NOT EXISTS reputation_review_pages (
   withdrawn_at timestamptz NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS reputation_active_review_direction_idx
-  ON reputation_review_pages (order_id, author_account_id, subject_account_id)
+CREATE UNIQUE INDEX IF NOT EXISTS marketplace_active_review_direction_idx
+  ON marketplace_review_pages (order_id, author_account_id, subject_account_id)
   WHERE status = 'active';
 
-CREATE INDEX IF NOT EXISTS reputation_review_pages_author_idx
-  ON reputation_review_pages (author_account_id, updated_at DESC, review_id DESC);
+CREATE INDEX IF NOT EXISTS marketplace_review_pages_author_idx
+  ON marketplace_review_pages (author_account_id, updated_at DESC, review_id DESC);
 
-CREATE INDEX IF NOT EXISTS reputation_review_pages_subject_idx
-  ON reputation_review_pages (subject_account_id, updated_at DESC, review_id DESC)
+CREATE INDEX IF NOT EXISTS marketplace_review_pages_subject_idx
+  ON marketplace_review_pages (subject_account_id, updated_at DESC, review_id DESC)
   WHERE status = 'active';
 
-CREATE TABLE IF NOT EXISTS review_summary_pages (
+CREATE TABLE IF NOT EXISTS marketplace_review_summary_pages (
   account_id text PRIMARY KEY,
   average_rating numeric(4, 2) NULL,
   review_count integer NOT NULL DEFAULT 0,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS review_summary_pages (
   updated_at timestamptz NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS reputation_review_eligibility_pages (
+CREATE TABLE IF NOT EXISTS marketplace_review_eligibility_pages (
   order_id text NOT NULL,
   author_account_id text NOT NULL,
   subject_account_id text NOT NULL,
@@ -46,6 +46,6 @@ CREATE TABLE IF NOT EXISTS reputation_review_eligibility_pages (
   PRIMARY KEY (order_id, author_account_id, subject_account_id)
 );
 
-CREATE INDEX IF NOT EXISTS reputation_review_eligibility_author_idx
-  ON reputation_review_eligibility_pages (author_account_id, eligible_at DESC, order_id DESC);
+CREATE INDEX IF NOT EXISTS marketplace_review_eligibility_author_idx
+  ON marketplace_review_eligibility_pages (author_account_id, eligible_at DESC, order_id DESC);
 `;

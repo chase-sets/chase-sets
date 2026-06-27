@@ -36,11 +36,11 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
           buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
         },
         // The marketplace subscription feeds this projection both the listing
-        // lifecycle handlers and — because the `reputation.review.*` events are
-        // emitted by the marketplace context — the seller-review reputation
-        // handlers, composed under the single marketplace -> projection key the
-        // manifest builder allows. The event-type keys are disjoint
-        // (`marketplace.*` vs `reputation.*`), so the spread cannot collide.
+        // lifecycle handlers and the seller-review reputation handlers,
+        // composed under the single marketplace -> projection key the manifest
+        // builder allows. The event-type keys are disjoint (`listing.*` vs
+        // `review.*` under the Marketplace namespace), so the spread cannot
+        // collide.
         "marketplace.checkout-marketplace-seller-options-projection": {
           filterToEventTypes: true,
           buildHandlers: () => ({

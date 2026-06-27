@@ -109,13 +109,14 @@
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
+      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "streamPrefixes": ["marketplace.review-"],
       "order": 40,
       "projectionHandlerSetNames": ["marketplace-identity-account-projection"]
     },
     {
       "sourceContextName": "identity",
-      "projectionName": "reputation-account-projection",
+      "projectionName": "marketplace-review-account-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "identity.account.created",
@@ -125,11 +126,11 @@
         "identity.account.closed"
       ],
       "order": 50,
-      "projectionHandlerSetNames": ["reputation-account-projection"]
+      "projectionHandlerSetNames": ["marketplace-review-account-source-projection"]
     },
     {
       "sourceContextName": "ordering",
-      "projectionName": "reputation-order-source-projection",
+      "projectionName": "marketplace-review-order-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "ordering.order.created",
@@ -138,11 +139,11 @@
         "ordering.order.ready-for-fulfillment-recorded"
       ],
       "order": 60,
-      "projectionHandlerSetNames": ["reputation-order-source-projection"]
+      "projectionHandlerSetNames": ["marketplace-review-order-source-projection"]
     },
     {
       "sourceContextName": "fulfillment",
-      "projectionName": "reputation-shipment-source-projection",
+      "projectionName": "marketplace-review-shipment-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "fulfillment.shipment.created",
@@ -152,11 +153,11 @@
         "fulfillment.shipment.exception-raised"
       ],
       "order": 70,
-      "projectionHandlerSetNames": ["reputation-shipment-source-projection"]
+      "projectionHandlerSetNames": ["marketplace-review-shipment-source-projection"]
     },
     {
       "sourceContextName": "platform-operations",
-      "projectionName": "reputation-support-source-projection",
+      "projectionName": "marketplace-review-support-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "support.support-request.opened",
@@ -164,7 +165,7 @@
         "support.support-request.cancelled"
       ],
       "order": 90,
-      "projectionHandlerSetNames": ["reputation-support-source-projection"]
+      "projectionHandlerSetNames": ["marketplace-review-support-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -209,37 +210,37 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
-      "projectionName": "reputation-review-projection",
+      "projectionName": "marketplace-review-projection",
       "sourceContextNames": ["marketplace"],
-      "ownedTables": ["reputation_review_pages", "review_summary_pages"],
+      "ownedTables": ["marketplace_review_pages", "marketplace_review_summary_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
-      "projectionName": "reputation-account-projection",
+      "projectionName": "marketplace-review-account-source-projection",
       "sourceContextNames": ["identity"],
-      "ownedTables": ["reputation_account_pages"],
+      "ownedTables": ["marketplace_review_account_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
-      "projectionName": "reputation-order-source-projection",
+      "projectionName": "marketplace-review-order-source-projection",
       "sourceContextNames": ["ordering"],
-      "ownedTables": ["reputation_order_sources"],
+      "ownedTables": ["marketplace_review_order_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
-      "projectionName": "reputation-shipment-source-projection",
+      "projectionName": "marketplace-review-shipment-source-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["reputation_shipment_sources"],
+      "ownedTables": ["marketplace_review_shipment_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
-      "projectionName": "reputation-support-source-projection",
+      "projectionName": "marketplace-review-support-source-projection",
       "sourceContextNames": ["platform-operations"],
-      "ownedTables": ["reputation_review_eligibility_pages"],
+      "ownedTables": ["marketplace_review_eligibility_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }
@@ -349,7 +350,7 @@
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
-              "readModelTable": "reputation_review_pages"
+              "readModelTable": "marketplace_review_pages"
             }
           ]
         }
@@ -642,7 +643,7 @@
       }
     },
     {
-      "id": "reputation.review-submit-to-detail",
+      "id": "marketplace.review-submit-to-detail",
       "owner": "marketplace",
       "risk": "important",
       "freshnessSlo": {
@@ -660,7 +661,7 @@
         "routeId": "account-review",
         "apiContextName": "marketplace",
         "apiRoutePath": "/reviews/:id",
-        "readModelTables": ["reputation_review_pages"],
+        "readModelTables": ["marketplace_review_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -926,10 +927,10 @@
         "routeId": "account-review",
         "apiContextName": "marketplace",
         "apiRoutePath": "/reviews/:id",
-        "readModelTables": ["reputation_review_pages"],
+        "readModelTables": ["marketplace_review_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Purchase and sale review forms submit through Marketplace review route support and redirect to review detail with a SubmitReview receipt; the review detail loader waits on reputation_review_pages before rendering the submitted rating and feedback."
+          "behavior": "Purchase and sale review forms submit through Marketplace review route support and redirect to review detail with a SubmitReview receipt; the review detail loader waits on marketplace_review_pages before rendering the submitted rating and feedback."
         }
       },
       "proof": {

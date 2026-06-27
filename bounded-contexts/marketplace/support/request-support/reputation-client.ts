@@ -1,7 +1,7 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
-import type { buildReputationApi } from "../../features/reviews/api/http";
+import type { buildReviewApi } from "../../features/reviews/api/http";
 
 export type {
   ReviewSummary,
@@ -17,7 +17,7 @@ import type {
   ReviewListItem,
 } from "../../features/reviews/api/contracts";
 
-type ReputationApiApp = ReturnType<typeof buildReputationApi>;
+type ReputationApiApp = ReturnType<typeof buildReviewApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
 export class ReputationApiError extends Error {

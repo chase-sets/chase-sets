@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decideReview, evolveReview, initialReviewState } from "./domain";
 
-describe("reputation review domain", () => {
+describe("marketplace review domain", () => {
   it("submits reviews in both transaction directions", async () => {
     const buyerToSeller = await decideReview(initialReviewState, {
       type: "SubmitReview",

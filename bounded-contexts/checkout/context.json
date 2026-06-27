@@ -55,14 +55,14 @@
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
-        "reputation.review.submitted",
-        "reputation.review.updated",
-        "reputation.review.withdrawn"
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn"
       ],
       "order": 20,
       "projectionHandlerSetNames": [
         "checkout.marketplace-seller-options-projection",
-        "checkout.reputation-seller-options-reviews-projection"
+        "checkout.marketplace-review-seller-options-projection"
       ]
     },
     {

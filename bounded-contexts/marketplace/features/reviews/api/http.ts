@@ -5,7 +5,7 @@ import type { createReviewRuntime } from "./runtime";
 
 export type ReputationApiEnv = AuthenticatedApiEnv;
 
-export function buildReputationApi(reviews: ReturnType<typeof createReviewRuntime>) {
+export function buildReviewApi(reviews: ReturnType<typeof createReviewRuntime>) {
   const app = new Hono<ReputationApiEnv>();
 
   app.route("/reviews", createAccountReviewRoutes(reviews));
