@@ -21,7 +21,7 @@ Issue #2704 is not complete until automated tests demonstrate the end-to-end beh
 | Cross-device theme persistence | A signed-in user sets `dark`, reloads, and a second browser context/session/device converges to `dark` from the Identity-backed resolved preference. | #2698, #2699, #2700, #2703 |
 | First paint/no FOUC | Server-rendered output for a signed-in user with stored `dark` applies the dark color mode before hydration; the test must fail on a light-to-dark flash. | #2701, #2703 |
 | Settings ownership | Tests or docs gates prove viewer presentation preferences are Identity-owned, notification settings remain Notifications-owned, and deployables do not grow domain/read-model behavior. | #2698-#2703 |
-| Reduced motion | The design-system control and shell wiring respect reduced-motion preference or clearly document the unresolved product decision if only OS media-query behavior is supported in this milestone. | #2702, #2703 |
+| Reduced motion | Identity persists the reduced-motion preference, the shell viewer exposes it, and deployable roots pass it to the design-system `ChaseRoot` so motion policy is honored before route content renders. | #2702, #2703, #2704 |
 
 ## Suggested Test Shape
 
@@ -33,9 +33,9 @@ Keep proof at the lowest level that can catch the regression:
 4. Browser e2e covers the complete user path: sign in, set dark, reload, open a second context, and observe convergence without custom deployable overrides.
 5. SSR/no-FOUC proof inspects the first rendered document or pre-hydration DOM/class/data attribute before client scripts can correct the theme.
 
-## Reduced-Motion Ambiguity
+## Reduced-Motion Decision
 
-Reduced motion appears in the milestone value-object direction, while the first implemented vertical is color mode. If reduced motion is not persisted by the final milestone slice, #2704 should record the narrowed decision explicitly: OS/browser `prefers-reduced-motion` remains authoritative for this milestone, and durable Identity persistence is deferred to a follow-up. If it is persisted, it should follow the same User Preferences ownership and cross-device proof rule as color mode.
+Color mode is the first AccountMenu control exposed by this milestone. Reduced motion is still a durable User Preference in Identity and is honored by shell roots through the design-system `ChaseRoot` contract. The browser e2e proof may set it through the Identity API until a dedicated user-facing reduced-motion control is added.
 
 ## Closure Gate
 

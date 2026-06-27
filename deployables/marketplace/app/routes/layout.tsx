@@ -106,6 +106,7 @@ export default function MarketplaceLayoutRoute() {
         viewer?: {
           preferences?: {
             colorMode?: ColorMode;
+            reducedMotion?: "user" | "always" | "never";
           } | null;
         } | null;
       }
@@ -175,6 +176,7 @@ export default function MarketplaceLayoutRoute() {
     <DiscoveryShellLayout
       activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
       colorMode={colorMode}
+      reducedMotion={rootData?.viewer?.preferences?.reducedMotion}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       onNavSelect={handleNavSelect}

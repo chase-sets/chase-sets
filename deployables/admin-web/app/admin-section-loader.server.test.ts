@@ -85,7 +85,7 @@ describe("admin section loader", () => {
 
   it("folds the resolved actor and Identity preferences into the shell viewer read model", async () => {
     const actor = { permissions: ["catalog.view"], userId: "usr_admin" };
-    const viewer = { actor, preferences: { colorMode: "dark" } };
+    const viewer = { actor, preferences: { colorMode: "dark", reducedMotion: "user" } };
     const cookieHeaders = new Headers({ "Set-Cookie": "chase_sets_color_mode=dark" });
     mockRequireAdminSectionActor.mockResolvedValue(actor);
     mockResolveIdentityShellViewer.mockResolvedValue(viewer);

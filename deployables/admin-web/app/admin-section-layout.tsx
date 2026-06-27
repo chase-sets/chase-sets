@@ -26,7 +26,7 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
   const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
 
   return (
-    <ChaseRoot colorMode={colorMode}>
+    <ChaseRoot colorMode={colorMode} reducedMotion={viewer?.preferences?.reducedMotion}>
       <AdminShell
         brand={<Text weight="semibold">{config.brand}</Text>}
         topNavItems={resolveAdminWebSectionNavItems(actor)}

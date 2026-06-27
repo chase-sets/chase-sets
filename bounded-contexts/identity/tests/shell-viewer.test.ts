@@ -34,6 +34,7 @@ describe("identity shell viewer", () => {
       actor,
       preferences: {
         colorMode: "dark",
+        reducedMotion: "user",
       },
     });
     expect(readCount).toBe(1);

@@ -340,6 +340,7 @@ describe("marketplace root layout", () => {
 
     expect(data.colorMode).toBe("dark");
     expect(data.viewer?.preferences?.colorMode).toBe("dark");
+    expect(data.viewer?.preferences?.reducedMotion).toBe("user");
     expect(loaderHeaders(result).get("Set-Cookie")).toContain("chase_sets_color_mode=dark");
   });
 

@@ -1,10 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
-import { BrandLink, ChaseRoot, MarketplaceShell, type NavigationItem, type ColorMode } from "@chase-sets/design-system";
+import {
+  BrandLink,
+  ChaseRoot,
+  MarketplaceShell,
+  type ChaseRootProps,
+  type NavigationItem,
+  type ColorMode,
+} from "@chase-sets/design-system";
 
 export function DiscoveryShellLayout({
   activeKey = "search",
   colorMode = "system",
+  reducedMotion = "user",
   topNavItems,
   bottomNavItems,
   onNavSelect,
@@ -13,6 +21,7 @@ export function DiscoveryShellLayout({
 }: {
   activeKey?: string;
   colorMode?: ColorMode;
+  reducedMotion?: ChaseRootProps["reducedMotion"];
   topNavItems: readonly NavigationItem[];
   bottomNavItems: readonly NavigationItem[];
   onNavSelect?: (key: string) => void;
@@ -20,7 +29,7 @@ export function DiscoveryShellLayout({
   children: ReactNode;
 }) {
   return (
-    <ChaseRoot colorMode={colorMode}>
+    <ChaseRoot colorMode={colorMode} reducedMotion={reducedMotion}>
       <MarketplaceShell
         brand={<BrandLink label={t("discovery.support.shellSupport.layout.chase.sets")} />}
         topNavItems={[...topNavItems]}

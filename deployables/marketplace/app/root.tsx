@@ -162,7 +162,7 @@ async function resolveMarketplaceRootTheme(
       viewer: cookieColorMode
         ? {
             actor,
-            preferences: { colorMode: cookieColorMode },
+            preferences: { colorMode: cookieColorMode, reducedMotion: "user" },
           }
         : null,
     };

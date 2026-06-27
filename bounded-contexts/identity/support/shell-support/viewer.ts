@@ -1,7 +1,7 @@
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { UserPreferences } from "../../features/preferences/api/contracts";
 
-export type IdentityShellViewerPreferences = Pick<UserPreferences, "colorMode">;
+export type IdentityShellViewerPreferences = Pick<UserPreferences, "colorMode" | "reducedMotion">;
 
 export type IdentityShellViewer = Readonly<{
   actor: ResolvedActor | null;
@@ -26,6 +26,7 @@ export async function resolveIdentityShellViewer(
     actor,
     preferences: {
       colorMode: preferences.colorMode,
+      reducedMotion: preferences.reducedMotion,
     },
   };
 }

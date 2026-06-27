@@ -154,7 +154,7 @@ describe("admin web section layouts", () => {
       actor: allSectionsActor,
       viewer: {
         actor: allSectionsActor,
-        preferences: { colorMode: "dark" },
+        preferences: { colorMode: "dark", reducedMotion: "user" },
       },
     });
     mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
@@ -188,7 +188,7 @@ describe("admin web section layouts", () => {
       actor: allSectionsActor,
       viewer: {
         actor: allSectionsActor,
-        preferences: { colorMode: "dark" },
+        preferences: { colorMode: "dark", reducedMotion: "user" },
       },
     });
     mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
@@ -287,13 +287,29 @@ describe("admin web root hub", () => {
       sections: [{ key: "catalog", label: "Catalog", href: "/catalog" }],
       viewer: {
         actor: allSectionsActor,
-        preferences: { colorMode: "dark" },
+        preferences: { colorMode: "dark", reducedMotion: "user" },
       },
     });
 
     const html = renderToString(<AdminIndex />);
 
     expect(html).toContain('data-color-mode="dark"');
+  });
+
+  it("applies the shell viewer reduced-motion preference", () => {
+    mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
+      viewer: {
+        actor: allSectionsActor,
+        preferences: { colorMode: "dark", reducedMotion: "always" },
+      },
+    });
+    mockUseLocation.mockReturnValue({ pathname: "/catalog/dimensions" });
+
+    const html = renderToString(<CatalogLayout />);
+
+    expect(html).toContain('data-color-mode="dark"');
+    expect(html).toContain('data-reduced-motion="true"');
   });
 
   it("renders the offline fallback inside the admin shell", () => {
