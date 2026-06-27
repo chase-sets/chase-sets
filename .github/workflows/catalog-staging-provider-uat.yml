@@ -84,14 +84,14 @@ jobs:
           echo "Catalog staging provider UAT confirmed for ${ADMIN_WEB_URL}."
           echo "Focused journey scope: ${CATALOG_STAGING_PROVIDER_UAT_SCOPE}."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
 
       - name: Cache Playwright Chromium
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: catalog-staging-provider-uat-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

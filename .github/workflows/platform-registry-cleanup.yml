@@ -31,11 +31,11 @@ jobs:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
-      - uses: digitalocean/action-doctl@v2.5.2
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
         with:

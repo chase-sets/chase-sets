@@ -60,7 +60,7 @@ jobs:
           fi
           echo "Production proof canary credentials are configured."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -193,18 +193,18 @@ jobs:
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ needs.resolve-release.outputs.release_commit }}
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
         continue-on-error: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
 
-      - uses: digitalocean/action-doctl@v2.5.2
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
         with:
@@ -333,7 +333,7 @@ jobs:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -459,14 +459,14 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         if: env.SHOULD_DEPLOY != 'false'
         with:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - uses: digitalocean/action-doctl@v2.5.2
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         if: env.SHOULD_DEPLOY != 'false'
         env:
           NODE_OPTIONS: --no-deprecation
@@ -485,7 +485,7 @@ jobs:
 
       - name: Upload staged doctl binary
         if: env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staged-doctl-linux-amd64
           path: artifacts/deploy-tools/doctl/doctl
@@ -533,12 +533,12 @@ jobs:
           TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
         run: terraform apply -auto-approve
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Build and push App Platform image
@@ -1095,7 +1095,7 @@ jobs:
 
       - name: Upload staging Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-playwright-critical-flow-artifacts
           path: |
@@ -1106,7 +1106,7 @@ jobs:
 
       - name: Upload staging Buy Now probe evidence
         if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-buy-now-freshness-probes
           path: |
@@ -1168,7 +1168,7 @@ jobs:
       - deploy-staging
     if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.deployed != 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -1308,7 +1308,7 @@ jobs:
           node ./scripts/release-health.mjs
 
       - name: Upload staging release health summary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-release-health
           path: artifacts/release-health/staging-release.json
@@ -1364,7 +1364,7 @@ jobs:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
 
@@ -1624,7 +1624,7 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         if: env.SHOULD_DEPLOY != 'false'
         with:
           terraform_wrapper: false
@@ -1633,7 +1633,7 @@ jobs:
 
       - name: Download staged doctl binary
         if: env.SHOULD_DEPLOY != 'false'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: staged-doctl-linux-amd64
           path: artifacts/deploy-tools/doctl
@@ -1649,12 +1649,12 @@ jobs:
           "$RUNNER_TEMP/doctl" version
           "$RUNNER_TEMP/doctl" auth init --access-token "$DIGITALOCEAN_ACCESS_TOKEN"
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
         if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Verify promoted App Platform image
@@ -2323,7 +2323,7 @@ jobs:
 
       - name: Upload release health summary
         if: always() && env.SHOULD_DEPLOY != 'false'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-release-health
           path: |
