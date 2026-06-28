@@ -15,7 +15,7 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import type { PgPoolClient, PgTransactionalPool } from "./types";
+import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbEventRow = Readonly<{
@@ -239,7 +239,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         },
         async () => {
           try {
-            return await withTransaction(
+            return await withPgTransaction(
               pool,
               async (client) =>
                 appendEventsToStream({
@@ -252,16 +252,18 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
                   insertEventSql,
                   updateStreamVersionSql,
                 }),
-              wakeNotifications
-                ? (client, storedEvents) =>
-                    emitEventStoreWakeNotificationAfterCommit({
-                      client,
-                      config: wakeNotifications,
-                      input,
-                      storedEvents,
-                      emittedAt: now(),
-                    })
-                : undefined,
+              {
+                afterCommit: wakeNotifications
+                  ? (client, storedEvents) =>
+                      emitEventStoreWakeNotificationAfterCommit({
+                        client,
+                        config: wakeNotifications,
+                        input,
+                        storedEvents,
+                        emittedAt: now(),
+                      })
+                  : undefined,
+              },
             );
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
@@ -818,31 +820,6 @@ function assertSafeWakeNotificationRecord(value: unknown, path: string): void {
 
 function byteLengthUtf8(value: string): number {
   return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
-}
-
-async function withTransaction<T>(
-  pool: PgTransactionalPool,
-  work: (client: PgPoolClient) => Promise<T>,
-  afterCommit?: (client: PgPoolClient, result: T) => Promise<void>,
-): Promise<T> {
-  const client = await pool.connect();
-  let committed = false;
-
-  try {
-    await client.query("BEGIN");
-    const result = await work(client);
-    await client.query("COMMIT");
-    committed = true;
-    await afterCommit?.(client, result);
-    return result;
-  } catch (error) {
-    if (!committed) {
-      await client.query("ROLLBACK");
-    }
-    throw error;
-  } finally {
-    client.release();
-  }
 }
 
 function normalizeEventStoreError(error: unknown, message: string): EventStoreError {

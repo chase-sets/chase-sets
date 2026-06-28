@@ -14,7 +14,7 @@ export type PgQueryable = Readonly<{
 
 export type PgPoolClient = PgQueryable &
   Readonly<{
-    release: () => void;
+    release: (error?: unknown) => void;
   }>;
 
 export type PgTransactionalPool = PgQueryable &
@@ -25,18 +25,28 @@ export type PgTransactionalPool = PgQueryable &
 export async function withPgTransaction<T>(
   pool: PgTransactionalPool,
   work: (client: PgPoolClient) => Promise<T>,
+  options: Readonly<{
+    afterCommit?: (client: PgPoolClient, result: T) => Promise<void>;
+  }> = {},
 ): Promise<T> {
   const client = await pool.connect();
+  let committed = false;
+  let releaseError: unknown;
 
   try {
     await client.query("BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
+    committed = true;
+    await options.afterCommit?.(client, result);
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    releaseError = error;
+    if (!committed) {
+      await client.query("ROLLBACK").catch(() => undefined);
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(releaseError);
   }
 }
