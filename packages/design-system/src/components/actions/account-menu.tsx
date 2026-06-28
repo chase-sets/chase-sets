@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import type { IconName } from "../../icons";
 import { useMediaQuery } from "../../hooks";
 import { ThemePreferenceControl } from "../../theme/theme-toggle";
 import type { ColorMode } from "../../theme/tokens";
+import { useControllableOpen } from "../feedback/shared";
 import { AccountMenuDesktopSurface, AccountMenuMobileSurface } from "./account-menu-surfaces";
 
 export interface AccountMenuItem {
@@ -35,6 +36,9 @@ export interface AccountMenuProps {
   userLabel?: ReactNode;
   userName: ReactNode;
   mobileSheetThreshold?: number;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function isAccountMenuPreferences(preferences: AccountMenuProps["preferences"]): preferences is AccountMenuPreferences {
@@ -57,11 +61,14 @@ export function AccountMenu({
   userLabel = "User",
   userName,
   mobileSheetThreshold = 4,
+  open,
+  defaultOpen,
+  onOpenChange,
 }: AccountMenuProps) {
   const menuId = useId();
   const titleId = useId();
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const [open, setOpen] = useState(false);
+  const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const useMobileSheet = !isDesktop && items.length > mobileSheetThreshold;
   const preferencesContent = isAccountMenuPreferences(preferences) ? (
@@ -84,7 +91,7 @@ export function AccountMenu({
     menuId,
     menuLabel,
     menuRef,
-    open,
+    open: resolvedOpen,
     preferences: preferencesContent,
     roleLabel,
     roleName,
@@ -93,12 +100,12 @@ export function AccountMenu({
     titleId,
     userLabel,
     userName,
-    onClose: () => setOpen(false),
-    onToggle: () => setOpen((current) => !current),
+    onClose: () => setResolvedOpen(false),
+    onToggle: () => setResolvedOpen(!resolvedOpen),
   };
 
   useEffect(() => {
-    if (!open) {
+    if (!resolvedOpen) {
       return undefined;
     }
 
@@ -109,7 +116,7 @@ export function AccountMenu({
         return;
       }
 
-      setOpen(false);
+      setResolvedOpen(false);
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -117,7 +124,7 @@ export function AccountMenu({
         return;
       }
 
-      setOpen(false);
+      setResolvedOpen(false);
       menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
     }
 
@@ -128,7 +135,7 @@ export function AccountMenu({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [resolvedOpen, setResolvedOpen]);
 
   if (useMobileSheet) {
     return <AccountMenuMobileSurface {...surfaceProps} />;

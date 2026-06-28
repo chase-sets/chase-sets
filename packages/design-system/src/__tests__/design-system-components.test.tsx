@@ -32,6 +32,7 @@ import {
   LoadingSpinner,
   Menu,
   PanelSectionAccordion,
+  Popover,
   ProgressiveDisclosure,
   ProgressiveDisclosureGroup,
   Rating,
@@ -684,6 +685,42 @@ describe("design system components", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("respects controlled open state for popovers and menus", async () => {
+    const onPopoverOpenChange = vi.fn();
+    const onMenuOpenChange = vi.fn();
+    const { rerender } = render(
+      <ChaseRoot>
+        <Popover open trigger={<Button>Filters</Button>} title="Saved filters" onOpenChange={onPopoverOpenChange}>
+          Filter body
+        </Popover>
+        <Menu
+          open={false}
+          trigger={<Button>Actions</Button>}
+          items={[{ key: "duplicate", label: "Duplicate listing" }]}
+          onOpenChange={onMenuOpenChange}
+        />
+      </ChaseRoot>,
+    );
+
+    expect(await screen.findByText("Filter body")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+
+    expect(onMenuOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole("menuitem", { name: "Duplicate listing" })).toBeNull();
+
+    rerender(
+      <ChaseRoot>
+        <Popover open={false} trigger={<Button>Filters</Button>} title="Saved filters">
+          Filter body
+        </Popover>
+        <Menu open trigger={<Button>Actions</Button>} items={[{ key: "duplicate", label: "Duplicate listing" }]} />
+      </ChaseRoot>,
+    );
+
+    expect(screen.queryByText("Filter body")).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: "Duplicate listing" })).toBeTruthy();
+  });
+
   it("maps Banner tone to live-region semantics", () => {
     render(
       <ChaseRoot>
@@ -772,6 +809,23 @@ describe("design system components", () => {
     await waitFor(() => {
       expect(screen.queryByText("Price includes marketplace fees")).toBeNull();
     });
+  });
+
+  it("respects controlled open state for tooltips", async () => {
+    const onOpenChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Tooltip open={false} content="Price includes marketplace fees" onOpenChange={onOpenChange}>
+          <button type="button">Fee help</button>
+        </Tooltip>
+      </ChaseRoot>,
+    );
+
+    fireEvent.focus(screen.getByRole("button", { name: "Fee help" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByText("Price includes marketplace fees")).toBeNull();
   });
 
   it("selects autocomplete options", async () => {

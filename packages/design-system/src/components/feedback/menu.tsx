@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Icon, type IconName } from "../../icons";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderButtonTrigger, renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "./motion-overlay";
+import { useControllableOpen } from "./shared";
 
 export interface MenuItem {
   key: string;
@@ -27,6 +28,9 @@ export interface MenuProps {
   trigger: ReactNode;
   items?: MenuItem[];
   groups?: MenuGroup[];
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function renderMenuItem(item: MenuItem) {
@@ -89,19 +93,19 @@ function renderMenuItem(item: MenuItem) {
   );
 }
 
-export function Menu({ trigger, items, groups }: MenuProps) {
+export function Menu({ trigger, items, groups, open, defaultOpen, onOpenChange }: MenuProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
-  const [open, setOpen] = useState(false);
+  const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
   const motionProps = resolveOverlayMotion(
     motionSettings,
-    open,
+    resolvedOpen,
     { opacity: 1, y: 0, scale: 1 },
     { opacity: 0, y: 10, scale: 0.98 },
   );
 
   return (
-    <MenuPrimitive.Root open={open} onOpenChange={setOpen}>
+    <MenuPrimitive.Root open={resolvedOpen} onOpenChange={setResolvedOpen}>
       <MenuPrimitive.Trigger render={renderButtonTrigger(trigger)} />
       <MenuPrimitive.Portal container={overlayNode ?? undefined}>
         <MenuPrimitive.Positioner sideOffset={8} className="z-dropdown">

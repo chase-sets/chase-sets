@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { RouterForm } from "../components/forms/router-form";
@@ -303,6 +303,129 @@ describe("form system", () => {
     expect(formData.get("language")).toBe("en");
     expect(formData.get("quantity")).toBe("3");
     expect(formData.getAll("tags")).toEqual(["sealed", "popular"]);
+  });
+
+  it("serializes controlled composite field values through native FormData", () => {
+    const { container } = render(
+      <Form id="controlled-composite-form">
+        <Select
+          name="condition"
+          label="Condition"
+          value="near_mint"
+          onValueChange={() => {}}
+          items={[
+            { value: "near_mint", label: "Near Mint" },
+            { value: "played", label: "Played" },
+          ]}
+        />
+        <Autocomplete
+          name="expansion"
+          label="Expansion"
+          value="Scarlet & Violet"
+          onValueChange={() => {}}
+          items={[{ value: "sv1", label: "Scarlet & Violet" }]}
+        />
+        <Combobox
+          name="language"
+          label="Language"
+          value="en"
+          onValueChange={() => {}}
+          items={[{ value: "en", label: "English" }]}
+        />
+      </Form>,
+    );
+
+    const form = container.querySelector("form");
+    if (!form) {
+      throw new Error("Expected form to render.");
+    }
+
+    const formData = new FormData(form);
+    expect(formData.get("condition")).toBe("near_mint");
+    expect(formData.get("expansion")).toBe("Scarlet & Violet");
+    expect(formData.get("language")).toBe("en");
+  });
+
+  it("keeps controlled custom selects caller-owned until the caller updates value", async () => {
+    const user = userEvent.setup();
+    const onSelectChange = vi.fn();
+    const onComboboxChange = vi.fn();
+
+    const { container } = render(
+      <Form id="controlled-selects-form">
+        <Select
+          name="condition"
+          label="Condition"
+          value="played"
+          onValueChange={onSelectChange}
+          items={[
+            { value: "near_mint", label: "Near Mint" },
+            { value: "played", label: "Played" },
+          ]}
+        />
+        <Combobox
+          name="language"
+          label="Language"
+          value="en"
+          onValueChange={onComboboxChange}
+          items={[
+            { value: "en", label: "English" },
+            { value: "jp", label: "Japanese" },
+          ]}
+        />
+      </Form>,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Condition" }));
+    await user.click(await screen.findByRole("option", { name: "Near Mint" }));
+    await user.click(screen.getByRole("button", { name: "Language" }));
+    await user.click(await screen.findByRole("option", { name: "Japanese" }));
+
+    const form = container.querySelector("form");
+    if (!form) {
+      throw new Error("Expected form to render.");
+    }
+
+    const formData = new FormData(form);
+    expect(onSelectChange).toHaveBeenCalledWith("near_mint");
+    expect(onComboboxChange).toHaveBeenCalledWith("jp");
+    expect(formData.get("condition")).toBe("played");
+    expect(formData.get("language")).toBe("en");
+  });
+
+  it("updates controlled custom selects when caller state changes", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [condition, setCondition] = useState("played");
+
+      return (
+        <Form id="controlled-select-update-form">
+          <Select
+            name="condition"
+            label="Condition"
+            value={condition}
+            onValueChange={setCondition}
+            items={[
+              { value: "near_mint", label: "Near Mint" },
+              { value: "played", label: "Played" },
+            ]}
+          />
+        </Form>
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Condition" }));
+    await user.click(await screen.findByRole("option", { name: "Near Mint" }));
+
+    const form = container.querySelector("form");
+    if (!form) {
+      throw new Error("Expected form to render.");
+    }
+
+    expect(new FormData(form).get("condition")).toBe("near_mint");
   });
 
   it("propagates disabled and submitting state through form context and a disabled fieldset", () => {

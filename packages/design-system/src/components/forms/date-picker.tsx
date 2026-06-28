@@ -13,6 +13,7 @@ import { Icon } from "../../icons";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
+import { useControllableValue } from "../controllable";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
@@ -373,8 +374,7 @@ export function DatePicker({
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
   const [open, setOpen] = useState(false);
-  const [uncontrolledValue, setUncontrolledValue] = useState<CalendarDate | undefined>(defaultValue);
-  const selectedValue = value ?? uncontrolledValue;
+  const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
 
   const motionProps = resolveOverlayMotion(
     motionSettings,
@@ -387,11 +387,10 @@ export function DatePicker({
 
   const handleSelect = useCallback(
     (nextValue: CalendarDate) => {
-      setUncontrolledValue(nextValue);
-      onValueChange?.(nextValue);
+      setSelectedValue(nextValue);
       setOpen(false);
     },
-    [onValueChange],
+    [setSelectedValue],
   );
 
   return (
@@ -436,8 +435,8 @@ export function DatePicker({
               })}
             >
               <Calendar
-                value={selectedValue}
-                defaultFocusedDate={selectedValue}
+                value={selectedValue || undefined}
+                defaultFocusedDate={selectedValue || undefined}
                 onValueChange={handleSelect}
                 aria-label={typeof label === "string" ? label : "Choose date"}
               />

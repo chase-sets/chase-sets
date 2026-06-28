@@ -111,6 +111,36 @@ describe("DatePicker", () => {
     expect(screen.getByText("2026-06-05")).toBeTruthy();
   });
 
+  it("keeps controlled selection caller-owned until the caller updates value", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    function Harness() {
+      const [submitted, setSubmitted] = useState<string | null>(null);
+      return (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitted(String(new FormData(event.currentTarget).get("ship_by")));
+          }}
+        >
+          <DatePicker label="Ship by" name="ship_by" value="2026-06-01" onValueChange={onValueChange} />
+          <button type="submit">Save</button>
+          <output>{submitted ?? "none"}</output>
+        </form>
+      );
+    }
+
+    renderInRoot(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: /ship by/i }));
+    await user.click(await screen.findByRole("button", { name: "Friday, June 5, 2026" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onValueChange).toHaveBeenCalledWith("2026-06-05");
+    expect(screen.getByText("2026-06-01")).toBeTruthy();
+  });
+
   it("wires FieldChrome error state into the trigger and exposes the alert", () => {
     renderInRoot(<DatePicker label="Ship by" error="Pick a valid date." />);
 
