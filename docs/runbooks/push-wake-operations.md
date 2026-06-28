@@ -13,6 +13,8 @@ No wake-path failure loses data or permanently stalls projections:
 
 A broken wake path degrades freshness from push-accelerated to poll-bounded. Treat "data is wrong" as a projection/event problem ([Projection Operations](./projection-operations.md)), not a wake problem.
 
+Event-store `pg_notify` emission is deliberately best-effort and happens after the event transaction commits. If the process crashes after commit but before notify, or if Postgres rejects the notification, the committed event rows remain authoritative and every projection still converges through the worker `projections` runner polling interval (`WORKER_POLL_INTERVAL_MS`, default 1s). Notification failures and payload rejections are logged as `event_store_wake.notification_failed` and `event_store_wake.payload_rejected`; investigate those logs as latency degradations, then confirm checkpoint convergence through the dashboard or wake-status endpoint.
+
 ## Where To Look
 
 | Surface | What it answers | Access |

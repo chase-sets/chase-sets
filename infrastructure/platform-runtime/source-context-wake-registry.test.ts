@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createEventStoreWakeNotificationConfigForSourceContext,
@@ -277,6 +277,63 @@ describe("source-context wake registry", () => {
 
     expect(unwiredServiceFiles).toEqual([]);
     expect(wiredServiceFileCount).toBeGreaterThan(0);
+  });
+
+  it("surfaces failed and rejected event-store wake notifications to observability logs", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const config = createEventStoreWakeNotificationConfigForSourceContext({
+      sourceContextName: "checkout",
+    });
+
+    config.observer?.notificationFailed?.({
+      channel: "platform_event_store_commits",
+      sourceContextName: "checkout",
+      streamCategory: "checkout.checkout-session",
+      firstGlobalPosition: "101" as never,
+      lastGlobalPosition: "102" as never,
+      eventCount: 2,
+      correlationId: "trace_1",
+      error: new Error("notify unavailable"),
+    });
+    config.observer?.payloadRejected?.({
+      channel: "platform_event_store_commits",
+      sourceContextName: "checkout",
+      streamCategory: "checkout.checkout-session",
+      firstGlobalPosition: "101" as never,
+      lastGlobalPosition: "102" as never,
+      eventCount: 2,
+      correlationId: "trace_1",
+      reason: "payload too large",
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "Event-store wake notification failed after commit; projections fall back to bounded polling.",
+      expect.objectContaining({
+        type: "event_store_wake.notification_failed",
+        sourceContextName: "checkout",
+        streamCategory: "checkout.checkout-session",
+        firstGlobalPosition: "101",
+        lastGlobalPosition: "102",
+        eventCount: 2,
+        correlationId: "trace_1",
+        error: "notify unavailable",
+      }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "Event-store wake notification payload rejected; projections fall back to bounded polling.",
+      expect.objectContaining({
+        type: "event_store_wake.payload_rejected",
+        sourceContextName: "checkout",
+        streamCategory: "checkout.checkout-session",
+        firstGlobalPosition: "101",
+        lastGlobalPosition: "102",
+        eventCount: 2,
+        correlationId: "trace_1",
+        reason: "payload too large",
+      }),
+    );
+
+    warn.mockRestore();
   });
 });
 
