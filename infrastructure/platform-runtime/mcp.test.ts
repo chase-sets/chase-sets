@@ -210,6 +210,44 @@ describe("MCP runtime routes", () => {
     }
   });
 
+  it("rejects native MCP JSON-RPC batches as transport-level invalid requests", async () => {
+    const app = createActorApp(actor);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify([createRequest("tools/list")]),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32600,
+        message: "JSON-RPC batch requests are not supported.",
+      },
+    });
+  });
+
+  it("returns native MCP unsupported methods as in-band JSON-RPC errors", async () => {
+    const app = createActorApp(actor);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("unknown/method")),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32601,
+        message: "Unsupported MCP method 'unknown/method'.",
+      },
+    });
+  });
+
   it("calls a registered tool handler after authorization", async () => {
     const auditRecords: McpAuditRecord[] = [];
     const app = createActorApp(actor, {

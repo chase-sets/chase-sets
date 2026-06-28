@@ -50,6 +50,8 @@ Verify a public catalog call returns `structuredContent`:
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"search","method":"tools/call","params":{"name":"search_catalog","arguments":{"query":"charizard","limit":3}}}'
 ```
 
+JSON-RPC MCP transport status convention: `/ucp/mcp` and the native `/mcp` endpoint return HTTP 200 with an in-band JSON-RPC `error` object for protocol/application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, and authentication failures that prevent discovery from producing a normal JSON-RPC response. The advertised UCP MCP protocol version is `2025-06-18`; batch arrays are rejected explicitly instead of being partially executed.
+
 Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
 
 ## Signed Checkout Writes
