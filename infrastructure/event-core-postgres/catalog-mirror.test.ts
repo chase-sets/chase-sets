@@ -305,6 +305,114 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     });
   });
 
+  it("refreshes only items assigned to blueprints affected by dimension and option changes", async () => {
+    const replayDb = createCatalogMirrorReplayDb("checkout_catalog");
+    const handlers = buildCatalogMirrorProjectionHandlers(replayDb.db, { tablePrefix: "checkout_catalog" });
+
+    await handlers["catalog.dimension.created"]!(
+      event(
+        "catalog.dimension.created",
+        { dimensionId: "dim_condition", name: "Condition" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+    await handlers["catalog.dimension.created"]!(
+      event(
+        "catalog.dimension.created",
+        { dimensionId: "dim_language", name: "Language" },
+        "catalog.dimension-dim_language",
+      ),
+    );
+    await handlers["catalog.dimension.option-added"]!(
+      event(
+        "catalog.dimension.option-added",
+        { optionId: "opt_nm", code: "NM", label: "Near Mint" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+    await handlers["catalog.dimension.option-added"]!(
+      event(
+        "catalog.dimension.option-added",
+        { optionId: "opt_en", code: "EN", label: "English" },
+        "catalog.dimension-dim_language",
+      ),
+    );
+    await handlers["catalog.catalog-item.created"]!(
+      event("catalog.catalog-item.created", { itemId: "cat_affected", title: "Affected", subtitle: null }),
+    );
+    await handlers["catalog.catalog-item.created"]!(
+      event("catalog.catalog-item.created", { itemId: "cat_unaffected", title: "Unaffected", subtitle: null }),
+    );
+    await handlers["catalog.blueprint.created"]!(
+      event(
+        "catalog.blueprint.created",
+        { blueprintId: "bp_condition", name: "Condition Card" },
+        "catalog.blueprint-bp_condition",
+      ),
+    );
+    await handlers["catalog.blueprint.created"]!(
+      event(
+        "catalog.blueprint.created",
+        { blueprintId: "bp_language", name: "Language Card" },
+        "catalog.blueprint-bp_language",
+      ),
+    );
+    await handlers["catalog.blueprint.dimensions-set"]!(
+      event(
+        "catalog.blueprint.dimensions-set",
+        {
+          dimensionRules: [{ dimensionId: "dim_condition", required: true, allowedOptionIds: ["opt_nm"] }],
+        },
+        "catalog.blueprint-bp_condition",
+      ),
+    );
+    await handlers["catalog.blueprint.dimensions-set"]!(
+      event(
+        "catalog.blueprint.dimensions-set",
+        {
+          dimensionRules: [{ dimensionId: "dim_language", required: true, allowedOptionIds: ["opt_en"] }],
+        },
+        "catalog.blueprint-bp_language",
+      ),
+    );
+    await handlers["catalog.catalog-item.blueprint-assigned"]!(
+      event("catalog.catalog-item.blueprint-assigned", { blueprintId: "bp_condition" }, "catalog.item-cat_affected"),
+    );
+    await handlers["catalog.catalog-item.blueprint-assigned"]!(
+      event("catalog.catalog-item.blueprint-assigned", { blueprintId: "bp_language" }, "catalog.item-cat_unaffected"),
+    );
+
+    const beforeDimensionRevision = replayDb.effects.length;
+    await handlers["catalog.dimension.revised"]!(
+      event("catalog.dimension.revised", { name: "Card Condition" }, "catalog.dimension-dim_condition"),
+    );
+    const dimensionRevisionEffects = replayDb.effects.slice(beforeDimensionRevision);
+    const dimensionProductSchemaWrites = dimensionRevisionEffects.filter((effect) =>
+      effect.sql.includes("SET product_schema = $2"),
+    );
+
+    expect(dimensionProductSchemaWrites).toHaveLength(1);
+    expect(dimensionProductSchemaWrites[0]?.params[0]).toBe("cat_affected");
+    expect(dimensionRevisionEffects.some((effect) => effect.sql.includes("ORDER BY catalog_item_id ASC"))).toBe(false);
+
+    const beforeOptionRevision = replayDb.effects.length;
+    await handlers["catalog.dimension.option-revised"]!(
+      event(
+        "catalog.dimension.option-revised",
+        { optionId: "opt_nm", code: "NM", label: "Near Mint Revised" },
+        "catalog.dimension-dim_condition",
+      ),
+    );
+    const optionRevisionEffects = replayDb.effects.slice(beforeOptionRevision);
+    const optionProductSchemaWrites = optionRevisionEffects.filter((effect) =>
+      effect.sql.includes("SET product_schema = $2"),
+    );
+
+    expect(optionProductSchemaWrites).toHaveLength(1);
+    expect(optionProductSchemaWrites[0]?.params[0]).toBe("cat_affected");
+    expect(optionRevisionEffects.some((effect) => effect.sql.includes("ORDER BY catalog_item_id ASC"))).toBe(false);
+  });
+
   it("returns a null version schema for unknown blueprints", async () => {
     const replayDb = createCatalogMirrorReplayDb("checkout_catalog");
 

@@ -256,12 +256,65 @@ async function refreshCatalogMirrorItemsByBlueprint(
   await Promise.all(result.rows.map((row) => refreshCatalogMirrorItem(db, tables, row.catalog_item_id)));
 }
 
-async function refreshAllCatalogMirrorItems(db: PgQueryable, tables: CatalogMirrorTables): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM ${tables.items} ORDER BY catalog_item_id ASC`,
+async function findBlueprintIdsByDimension(
+  db: PgQueryable,
+  tables: CatalogMirrorTables,
+  dimensionId: string,
+): Promise<string[]> {
+  const result = await db.query<{ blueprint_id: string }>(
+    `SELECT blueprint_id
+     FROM ${tables.blueprints}
+     WHERE dimension_rules @> $1::jsonb
+        OR canonical_dimension_order @> $2::jsonb
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(dimension_rules) AS rule
+          WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause
+            WHERE clause->>'dimensionId' = $3
+          )
+        )
+     ORDER BY blueprint_id ASC`,
+    [JSON.stringify([{ dimensionId }]), JSON.stringify([dimensionId]), dimensionId],
   );
 
-  await Promise.all(result.rows.map((row) => refreshCatalogMirrorItem(db, tables, row.catalog_item_id)));
+  return result.rows.map((row) => row.blueprint_id);
+}
+
+async function findBlueprintIdsByDimensionOption(
+  db: PgQueryable,
+  tables: CatalogMirrorTables,
+  optionId: string,
+): Promise<string[]> {
+  const result = await db.query<{ blueprint_id: string }>(
+    `SELECT blueprint_id
+     FROM ${tables.blueprints}
+     WHERE EXISTS (
+       SELECT 1
+       FROM jsonb_array_elements(dimension_rules) AS rule
+       WHERE (rule->'allowedOptionIds') @> to_jsonb(ARRAY[$1]::text[])
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause
+            WHERE (clause->'optionIds') @> to_jsonb(ARRAY[$1]::text[])
+          )
+     )
+     ORDER BY blueprint_id ASC`,
+    [optionId],
+  );
+
+  return result.rows.map((row) => row.blueprint_id);
+}
+
+async function refreshCatalogMirrorItemsByBlueprintIds(
+  db: PgQueryable,
+  tables: CatalogMirrorTables,
+  blueprintIds: readonly string[],
+): Promise<void> {
+  await Promise.all(
+    [...new Set(blueprintIds)].map((blueprintId) => refreshCatalogMirrorItemsByBlueprint(db, tables, blueprintId)),
+  );
 }
 
 export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: CatalogMirrorSpec): ProjectorHandlerMap {
@@ -300,7 +353,11 @@ export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: Cata
       [dimensionId, resolvedName, recordedAt],
     );
 
-    await refreshAllCatalogMirrorItems(db, tables);
+    await refreshCatalogMirrorItemsByBlueprintIds(
+      db,
+      tables,
+      await findBlueprintIdsByDimension(db, tables, dimensionId),
+    );
   }
 
   async function upsertDimensionOption(
@@ -340,7 +397,11 @@ export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: Cata
       ],
     );
 
-    await refreshAllCatalogMirrorItems(db, tables);
+    await refreshCatalogMirrorItemsByBlueprintIds(
+      db,
+      tables,
+      await findBlueprintIdsByDimensionOption(db, tables, optionId),
+    );
   }
 
   const handlers: Record<string, ProjectorHandlerMap[string]> = {

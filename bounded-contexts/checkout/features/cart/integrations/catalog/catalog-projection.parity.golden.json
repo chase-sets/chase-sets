@@ -22,8 +22,8 @@
       "params": ["dim_condition", "Condition", "2026-06-01T00:01:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC",
-      "params": []
+      "sql": "SELECT blueprint_id FROM checkout_catalog_blueprints WHERE dimension_rules @> $1::jsonb OR canonical_dimension_order @> $2::jsonb OR EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause WHERE clause->>'dimensionId' = $3 ) ) ORDER BY blueprint_id ASC",
+      "params": ["[{\"dimensionId\":\"dim_condition\"}]", "[\"dim_condition\"]", "dim_condition"]
     },
     {
       "sql": "INSERT INTO checkout_catalog_dimension_options ( option_id, dimension_id, code, label_i18n, label, updated_at ) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (option_id) DO UPDATE SET dimension_id = EXCLUDED.dimension_id, code = EXCLUDED.code, label_i18n = EXCLUDED.label_i18n, label = EXCLUDED.label, updated_at = EXCLUDED.updated_at",
@@ -37,8 +37,8 @@
       ]
     },
     {
-      "sql": "SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC",
-      "params": []
+      "sql": "SELECT blueprint_id FROM checkout_catalog_blueprints WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE (rule->'allowedOptionIds') @> to_jsonb(ARRAY[$1]::text[]) OR EXISTS ( SELECT 1 FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause WHERE (clause->'optionIds') @> to_jsonb(ARRAY[$1]::text[]) ) ) ORDER BY blueprint_id ASC",
+      "params": ["opt_near_mint"]
     },
     {
       "sql": "INSERT INTO checkout_catalog_items ( catalog_item_id, language_code, title, subtitle, status, updated_at ) VALUES ($1, $2, $3, $4, 'draft', $5) ON CONFLICT (catalog_item_id) DO UPDATE SET language_code = EXCLUDED.language_code, title = EXCLUDED.title, subtitle = EXCLUDED.subtitle, updated_at = EXCLUDED.updated_at",
@@ -145,24 +145,20 @@
       "params": ["dim_language", "Language", "2026-06-01T00:09:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC",
-      "params": []
+      "sql": "SELECT blueprint_id FROM checkout_catalog_blueprints WHERE dimension_rules @> $1::jsonb OR canonical_dimension_order @> $2::jsonb OR EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause WHERE clause->>'dimensionId' = $3 ) ) ORDER BY blueprint_id ASC",
+      "params": ["[{\"dimensionId\":\"dim_language\"}]", "[\"dim_language\"]", "dim_language"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM checkout_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
     },
     {
       "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
       "params": ["cat_alpha"]
     },
     {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_beta"]
-    },
-    {
       "sql": "SELECT * FROM checkout_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
-    },
-    {
-      "sql": "UPDATE checkout_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
-      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
     },
     {
       "sql": "SELECT dimension_id AS id, name AS name FROM checkout_catalog_dimensions WHERE dimension_id = ANY($1)",
@@ -185,24 +181,20 @@
       "params": ["dim_condition", "Card Condition", "2026-06-01T00:10:00.000Z"]
     },
     {
-      "sql": "SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC",
-      "params": []
+      "sql": "SELECT blueprint_id FROM checkout_catalog_blueprints WHERE dimension_rules @> $1::jsonb OR canonical_dimension_order @> $2::jsonb OR EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause WHERE clause->>'dimensionId' = $3 ) ) ORDER BY blueprint_id ASC",
+      "params": ["[{\"dimensionId\":\"dim_condition\"}]", "[\"dim_condition\"]", "dim_condition"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM checkout_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
     },
     {
       "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
       "params": ["cat_alpha"]
     },
     {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_beta"]
-    },
-    {
       "sql": "SELECT * FROM checkout_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
-    },
-    {
-      "sql": "UPDATE checkout_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
-      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
     },
     {
       "sql": "SELECT dimension_id AS id, name AS name FROM checkout_catalog_dimensions WHERE dimension_id = ANY($1)",
@@ -232,24 +224,20 @@
       ]
     },
     {
-      "sql": "SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC",
-      "params": []
+      "sql": "SELECT blueprint_id FROM checkout_catalog_blueprints WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE (rule->'allowedOptionIds') @> to_jsonb(ARRAY[$1]::text[]) OR EXISTS ( SELECT 1 FROM jsonb_array_elements(COALESCE(rule->'appliesWhen', '[]'::jsonb)) AS clause WHERE (clause->'optionIds') @> to_jsonb(ARRAY[$1]::text[]) ) ) ORDER BY blueprint_id ASC",
+      "params": ["opt_near_mint"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM checkout_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
     },
     {
       "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
       "params": ["cat_alpha"]
     },
     {
-      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM checkout_catalog_items WHERE catalog_item_id = $1",
-      "params": ["cat_beta"]
-    },
-    {
       "sql": "SELECT * FROM checkout_catalog_blueprints WHERE blueprint_id = $1",
       "params": ["bp_main"]
-    },
-    {
-      "sql": "UPDATE checkout_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
-      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
     },
     {
       "sql": "SELECT dimension_id AS id, name AS name FROM checkout_catalog_dimensions WHERE dimension_id = ANY($1)",
