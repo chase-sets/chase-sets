@@ -188,6 +188,13 @@ const audit = (
   sensitiveInputFields,
 });
 
+const sensitiveWriteInputFieldNames = ["amount", "confirmationText", "email", "reason"] as const;
+
+function sensitiveInputFieldsForWriteTool(inputSchema: McpJsonSchema): readonly string[] {
+  const properties = inputSchema.properties ?? {};
+  return sensitiveWriteInputFieldNames.filter((fieldName) => fieldName in properties);
+}
+
 const readTool = (
   serviceId: string,
   name: string,
@@ -233,7 +240,7 @@ const writeTool = (
   inputSchema,
   permissionBoundary: readBoundary(permission, scope),
   guardrails: guardrails(risk),
-  audit: audit(serviceId, name, targetType, ["confirmationText"]),
+  audit: audit(serviceId, name, targetType, sensitiveInputFieldsForWriteTool(inputSchema)),
   expectedUsage,
 });
 
