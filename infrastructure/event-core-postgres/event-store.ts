@@ -134,6 +134,10 @@ const DEFAULT_EVENTS_TABLE = "event_store_events";
 
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
 
+const EVENT_STORE_ERROR_CODES = new Set(["concurrency_conflict", "infrastructure_failure"]);
+
+const POSTGRES_RETRYABLE_CONFLICT_CODES = new Set(["40001", "40P01"]);
+
 const POSTGRES_WAKE_NOTIFICATION_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 const SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN =
   /(^|_|\b)(email|guestEmail|payment|card|pan|cvc|cvv|password|secret|privatePayload|providerPayload|eventPayload|rawPayload|payloadJson|phone|address|tenantId|userId|accountId|streamId)(_|$|\b)/i;
@@ -852,6 +856,12 @@ function normalizeEventStoreError(error: unknown, message: string): EventStoreEr
     });
   }
 
+  if (isPgRetryableConflict(error)) {
+    return createEventStoreError("concurrency_conflict", "Retryable Postgres conflict while appending events.", {
+      postgresCode: error.code,
+    });
+  }
+
   return createEventStoreError("infrastructure_failure", message, {
     cause: error instanceof Error ? error.message : String(error),
   });
@@ -865,12 +875,22 @@ function isPgUniqueViolation(error: unknown): error is PgError {
   return typeof error === "object" && error !== null && "code" in error && (error as PgError).code === "23505";
 }
 
+function isPgRetryableConflict(error: unknown): error is PgError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    POSTGRES_RETRYABLE_CONFLICT_CODES.has((error as PgError).code ?? "")
+  );
+}
+
 function isEventStoreError(error: unknown): error is EventStoreError {
   return (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    typeof (error as { code?: unknown }).code === "string"
+    typeof (error as { code?: unknown }).code === "string" &&
+    EVENT_STORE_ERROR_CODES.has((error as { code: string }).code)
   );
 }
 

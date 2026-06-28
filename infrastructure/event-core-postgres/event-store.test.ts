@@ -240,6 +240,28 @@ describe("postgres event store", () => {
     expect(calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(false);
   });
 
+  it.each([
+    ["40001", "serialization_failure"],
+    ["40P01", "deadlock_detected"],
+  ])("maps Postgres %s %s to a retryable concurrency conflict", async (postgresCode) => {
+    const { pool, calls } = createAppendPool({ failInsertWithPostgresCode: postgresCode });
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+
+    await expect(store.appendToStream(appendInput())).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: {
+        postgresCode,
+      },
+    });
+
+    expect(calls.map((call) => call.sql)).toContain("ROLLBACK");
+    expect(calls.map((call) => call.sql)).not.toContain("COMMIT");
+  });
+
   it("keeps the committed append successful when the post-commit notification fails", async () => {
     const { pool, calls } = createAppendPool({ failNotify: true, globalPositions: ["501"] });
     const failed: unknown[] = [];
@@ -413,6 +435,7 @@ function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCal
 function createAppendPool(
   options: Readonly<{
     currentVersion?: number;
+    failInsertWithPostgresCode?: string;
     failNotify?: boolean;
     globalPositions?: readonly string[];
   }> = {},
@@ -441,6 +464,12 @@ function createAppendPool(
       }
 
       if (normalizedSql.includes("RETURNING")) {
+        if (options.failInsertWithPostgresCode) {
+          throw Object.assign(new Error("simulated postgres append conflict"), {
+            code: options.failInsertWithPostgresCode,
+          });
+        }
+
         const values = params ?? [];
         const globalPosition = options.globalPositions?.[insertCount] ?? String(insertCount + 1);
         insertCount += 1;
