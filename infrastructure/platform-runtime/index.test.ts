@@ -20,12 +20,27 @@ type FakeQueryResult = Readonly<{
 
 type FakePool = Readonly<{
   query: (sql: string, params?: readonly unknown[]) => Promise<FakeQueryResult>;
+  connect: () => Promise<FakePoolClient>;
+}>;
+
+type FakePoolClient = Readonly<{
+  query: (sql: string, params?: readonly unknown[]) => Promise<FakeQueryResult>;
+  release: (error?: unknown) => void;
 }>;
 
 function createPool(): FakePool {
+  const query = async (sql: string) => ({
+    rows: sql.includes("pg_try_advisory_lock")
+      ? [{ acquired: true }]
+      : sql.includes("COUNT(*) AS count")
+        ? [{ count: "0" }]
+        : [],
+  });
   return {
-    query: async (sql: string) => ({
-      rows: sql.includes("COUNT(*) AS count") ? [{ count: "0" }] : [],
+    query,
+    connect: async () => ({
+      query,
+      release: () => undefined,
     }),
   };
 }
