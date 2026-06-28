@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { Box } from "@chase-sets/design-system";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogSyncRun, SourceObservationIntegrationImportPreview } from "./contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
@@ -64,6 +65,6 @@ export function renderCatalogWorkbenchSurfaceWorkspaces(
 ): readonly ReactElement[] {
   return workspaceKeys.map((workspaceKey) => {
     const renderWorkspace = CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS[workspaceKey];
-    return <div key={workspaceKey}>{renderWorkspace(readModel, slots)}</div>;
+    return <Box key={workspaceKey}>{renderWorkspace(readModel, slots)}</Box>;
   });
 }

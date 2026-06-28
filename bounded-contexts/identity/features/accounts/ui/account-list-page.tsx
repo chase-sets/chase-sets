@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Inline, type DataColumn } from "@chase-sets/design-system";
+import { Inline, Text, type DataColumn } from "@chase-sets/design-system";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { AccountBadgeList } from "./account-badges";
 import type { Account } from "./contracts";
@@ -10,7 +10,7 @@ const columns: DataColumn<Account>[] = [
     header: t("identity.features.accounts.ui.accountListPage.display.name"),
     cell: (row) => (
       <Inline gap={2}>
-        <span>{row.display_name}</span>
+        <Text element="span">{row.display_name}</Text>
         <AccountBadgeList badges={row.badges} compact />
       </Inline>
     ),

@@ -10,6 +10,7 @@ import {
   LinkButton,
   MarketplaceEmptyState,
   AccountCredibilityHeader,
+  Box,
   PageSection,
   ProductOptions,
   RatingSummary,
@@ -239,7 +240,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           }
         />
 
-        <div id="feedback">
+        <Box id="feedback">
           <PageSection title={t("discovery.routes.publicAccount.feedback")}>
             <Stack gap={3}>
               <Text>
@@ -282,7 +283,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               )}
             </Stack>
           </PageSection>
-        </div>
+        </Box>
 
         <OrderProtectionModule
           title={t("discovery.routes.publicAccount.buyer.confidence")}
