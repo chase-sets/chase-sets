@@ -13,7 +13,7 @@ export * from "./patterns/app-shells";
 export * from "./patterns/dense-admin-workbench";
 export * from "./patterns/dense-admin-workbench-proof";
 export * from "./primitives/layout";
-export * from "./primitives/tone-icon";
+export { ToneIcon, type ToneIconProps, type ToneIconSize, type ToneIconTone } from "./primitives/tone-icon";
 export * from "./primitives/typography";
 export * from "./theme/provider";
 export * from "./theme/stripe-appearance";
