@@ -170,7 +170,10 @@ describe("DigitalOcean platform configuration", () => {
     const restorePointStep = workflowStep(platformProductionWorkflow, "Create production database restore point");
 
     expect(restorePointStep).toContain("terraform output -raw postgres_cluster_id");
-    expect(restorePointStep).toContain("terraform state show -no-color digitalocean_database_cluster.postgres");
+    expect(restorePointStep).toContain("terraform state list");
+    expect(restorePointStep).toContain(`awk '/(^|\\.)digitalocean_database_cluster\\./ { print; exit }'`);
+    expect(restorePointStep).toContain("Using production database cluster Terraform state address");
+    expect(restorePointStep).toContain(`terraform state show -no-color "$database_cluster_address"`);
     expect(restorePointStep).toContain(`awk -F '='`);
     expect(restorePointStep).toContain(`gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)`);
     expect(restorePointStep).toContain(`key == "id"`);

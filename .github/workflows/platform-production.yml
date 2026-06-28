@@ -1827,11 +1827,19 @@ jobs:
           set -euo pipefail
           source_cluster_id="$(terraform output -raw postgres_cluster_id 2>/dev/null || true)"
           if [ -z "$source_cluster_id" ]; then
-            source_cluster_id="$(
-              terraform state show -no-color digitalocean_database_cluster.postgres 2>/dev/null \
-                | awk -F '=' '{ key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key); if (key == "id") { value = $2; gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value); print value; exit } }' \
+            database_cluster_address="$(
+              terraform state list 2>/dev/null \
+                | awk '/(^|\.)digitalocean_database_cluster\./ { print; exit }' \
                 || true
             )"
+            if [ -n "$database_cluster_address" ]; then
+              echo "Using production database cluster Terraform state address ${database_cluster_address}."
+              source_cluster_id="$(
+                terraform state show -no-color "$database_cluster_address" 2>/dev/null \
+                  | awk -F '=' '{ key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key); if (key == "id") { value = $2; gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value); print value; exit } }' \
+                  || true
+              )"
+            fi
           fi
           if [ -z "$source_cluster_id" ] && [ "$PRODUCTION_DB_RESTORE_POINT_BYPASS" != "true" ]; then
             echo "Production Terraform state did not expose postgres_cluster_id; refusing to continue without a pre-migrate restore point." >&2
