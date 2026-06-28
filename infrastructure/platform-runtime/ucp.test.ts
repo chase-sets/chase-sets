@@ -739,7 +739,7 @@ describe("UCP MCP routes", () => {
     });
   });
 
-  it("replays idempotent MCP tool calls and rejects changed bodies for the same key", async () => {
+  it("replays idempotent MCP tool calls with fresh JSON-RPC ids and rejects changed arguments", async () => {
     const handler = vi.fn(async () => ({
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: `chk_${handler.mock.calls.length}` },
@@ -761,9 +761,18 @@ describe("UCP MCP routes", () => {
         arguments: { id: "chk_1" },
       },
     });
-    const secondBody = JSON.stringify({
+    const replayBody = JSON.stringify({
       jsonrpc: "2.0",
       id: "2",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_1" },
+      },
+    });
+    const conflictBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "3",
       method: "tools/call",
       params: {
         name: "complete_checkout",
@@ -778,13 +787,13 @@ describe("UCP MCP routes", () => {
     });
     const replay = await app.request("/ucp/mcp", {
       method: "POST",
-      body: firstBody,
-      headers: signedHeaders(firstBody, { "Idempotency-Key": "idem_2" }),
+      body: replayBody,
+      headers: signedHeaders(replayBody, { "Idempotency-Key": "idem_2" }),
     });
     const conflict = await app.request("/ucp/mcp", {
       method: "POST",
-      body: secondBody,
-      headers: signedHeaders(secondBody, { "Idempotency-Key": "idem_2" }),
+      body: conflictBody,
+      headers: signedHeaders(conflictBody, { "Idempotency-Key": "idem_2" }),
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
