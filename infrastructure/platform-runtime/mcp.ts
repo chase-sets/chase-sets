@@ -8,6 +8,8 @@ import {
   getMcpCapabilityAvailability,
   getMcpToolConfirmationExpectedValue,
   mcpServiceCatalog,
+  type McpJsonSchema,
+  type McpJsonSchemaProperty,
   type McpActor,
   type McpResourceDescriptor,
   type McpServiceDescriptor,
@@ -80,6 +82,18 @@ type McpResourceReadParams = Readonly<{
 
 const JSON_RPC_VERSION = "2.0";
 
+type McpInputValidationIssue = Readonly<{
+  path: string;
+  message: string;
+  expected?: string;
+  actual?: string;
+}>;
+
+type ResourceUriMatch = Readonly<{
+  resource: McpResourceDescriptor;
+  variables: Readonly<Record<string, string>>;
+}>;
+
 function toMcpActor(actor: ResolvedActor | null): McpActor | null {
   if (!actor) {
     return null;
@@ -112,12 +126,154 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
-function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
+    return false;
   }
 
-  return value as Readonly<Record<string, unknown>>;
+  return true;
+}
+
+function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
+  return isRecord(value) ? value : {};
+}
+
+function typeName(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+
+  if (Array.isArray(value)) {
+    return "array";
+  }
+
+  return typeof value;
+}
+
+function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+  switch (expected) {
+    case "array":
+      return Array.isArray(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "object":
+      return isRecord(value);
+    case "boolean":
+    case "string":
+      return typeof value === expected;
+  }
+}
+
+function validateSchemaProperty(
+  value: unknown,
+  schema: McpJsonSchemaProperty,
+  path: string,
+): McpInputValidationIssue[] {
+  if (!validatePrimitiveType(value, schema.type)) {
+    return [
+      {
+        path,
+        message: `Expected ${schema.type}.`,
+        expected: schema.type,
+        actual: typeName(value),
+      },
+    ];
+  }
+
+  const issues: McpInputValidationIssue[] = [];
+
+  if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
+    issues.push({
+      path,
+      message: `Expected one of: ${schema.enum.join(", ")}.`,
+      expected: schema.enum.join(" | "),
+      actual: value,
+    });
+  }
+
+  if (schema.type === "array" && schema.items) {
+    (value as readonly unknown[]).forEach((item, index) => {
+      issues.push(...validateSchemaProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
+    });
+  }
+
+  if (schema.type === "object" && schema.properties) {
+    issues.push(
+      ...validateObjectProperties(
+        value as Readonly<Record<string, unknown>>,
+        {
+          additionalProperties: schema.additionalProperties,
+          properties: schema.properties,
+          required: schema.required,
+        },
+        path,
+      ),
+    );
+  }
+
+  return issues;
+}
+
+function validateObjectProperties(
+  value: Readonly<Record<string, unknown>>,
+  schema: Pick<McpJsonSchema, "additionalProperties" | "properties" | "required">,
+  basePath = "",
+): McpInputValidationIssue[] {
+  const issues: McpInputValidationIssue[] = [];
+  const properties = schema.properties;
+
+  for (const field of schema.required ?? []) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      issues.push({
+        path: basePath ? `${basePath}.${field}` : field,
+        message: "Required field is missing.",
+        expected: "present",
+        actual: "missing",
+      });
+    }
+  }
+
+  if (schema.additionalProperties === false) {
+    for (const field of Object.keys(value)) {
+      if (!Object.prototype.hasOwnProperty.call(properties, field)) {
+        issues.push({
+          path: basePath ? `${basePath}.${field}` : field,
+          message: "Unexpected field.",
+        });
+      }
+    }
+  }
+
+  for (const [field, propertySchema] of Object.entries(properties)) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      continue;
+    }
+
+    issues.push(...validateSchemaProperty(value[field], propertySchema, basePath ? `${basePath}.${field}` : field));
+  }
+
+  return issues;
+}
+
+function validateToolArguments(schema: McpJsonSchema, value: unknown): McpInputValidationIssue[] {
+  if (value === undefined) {
+    return validateObjectProperties({}, schema);
+  }
+
+  if (!isRecord(value)) {
+    return [
+      {
+        path: "$",
+        message: "Expected object.",
+        expected: "object",
+        actual: typeName(value),
+      },
+    ];
+  }
+
+  return validateObjectProperties(value, schema);
 }
 
 function normalizeConfirmation(value: unknown) {
@@ -194,10 +350,67 @@ function toResourceListItem(resource: McpResourceDescriptor) {
   };
 }
 
-function isResourceMatch(resource: McpResourceDescriptor, uri: string) {
-  const expression = resource.uriTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\{[^}]+\\\}/g, "[^/]+");
+function matchResourceUri(resource: McpResourceDescriptor, uri: string): ResourceUriMatch | null {
+  const templateSegments = resource.uriTemplate.split("/");
+  const uriSegments = uri.split("/");
 
-  return new RegExp(`^${expression}$`).test(uri);
+  if (templateSegments.length !== uriSegments.length) {
+    return null;
+  }
+
+  const variables: Record<string, string> = {};
+
+  for (let index = 0; index < templateSegments.length; index += 1) {
+    const templateSegment = templateSegments[index];
+    const uriSegment = uriSegments[index];
+    const variableMatch = /^\{([^}]+)\}$/.exec(templateSegment);
+
+    if (variableMatch) {
+      variables[variableMatch[1]] = decodeURIComponent(uriSegment);
+      continue;
+    }
+
+    if (templateSegment !== uriSegment) {
+      return null;
+    }
+  }
+
+  return {
+    resource,
+    variables,
+  };
+}
+
+function validateToolAccountOwnership(
+  tool: McpToolDescriptor,
+  actor: ResolvedActor | null,
+  args: Readonly<Record<string, unknown>>,
+) {
+  if (!tool.permissionBoundary.accountScoped || typeof args.accountId !== "string") {
+    return null;
+  }
+
+  if (args.accountId === actor?.accountId) {
+    return null;
+  }
+
+  return "MCP tool accountId must match the authenticated actor account.";
+}
+
+function validateResourceAccountOwnership(
+  resource: McpResourceDescriptor,
+  actor: ResolvedActor | null,
+  variables: Readonly<Record<string, string>>,
+) {
+  if (!resource.permissionBoundary.accountScoped || !variables.accountId) {
+    return null;
+  }
+
+  if (variables.accountId === actor?.accountId) {
+    return null;
+  }
+
+  return "MCP resource accountId must match the authenticated actor account.";
 }
 
 async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
@@ -217,6 +430,26 @@ async function callTool(
   const tool = findMcpTool(params.name, options.services);
   if (!tool) {
     return jsonRpcError(null, -32602, `Unknown MCP tool '${params.name}'.`);
+  }
+
+  const validationIssues = validateToolArguments(tool.inputSchema, params.arguments);
+  if (validationIssues.length > 0) {
+    const reason = "Invalid MCP tool arguments.";
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+    });
+
+    return jsonRpcError(null, -32602, reason, {
+      issues: validationIssues,
+    });
   }
 
   const args = normalizeArguments(params.arguments);
@@ -242,6 +475,23 @@ async function callTool(
     });
 
     return jsonRpcError(null, -32001, authorization.reason);
+  }
+
+  const accountOwnershipReason = validateToolAccountOwnership(tool, actor, args);
+  if (accountOwnershipReason) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason: accountOwnershipReason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+    });
+
+    return jsonRpcError(null, -32001, accountOwnershipReason);
   }
 
   if (!hasRequiredIdempotencyKey(tool, args)) {
@@ -337,14 +587,16 @@ async function readResource(
     return jsonRpcError(null, -32602, "Resource URI is required.");
   }
 
-  const resource = flattenMcpResources(options.services).find((candidate) =>
-    isResourceMatch(candidate, params.uri as string),
-  );
+  const resourceMatch =
+    flattenMcpResources(options.services)
+      .map((candidate) => matchResourceUri(candidate, params.uri as string))
+      .find((candidate) => candidate !== null) ?? null;
 
-  if (!resource) {
+  if (!resourceMatch) {
     return jsonRpcError(null, -32602, `Unknown MCP resource '${params.uri}'.`);
   }
 
+  const { resource, variables } = resourceMatch;
   const pseudoTool: McpToolDescriptor = {
     name: `resources/read:${resource.uriTemplate}`,
     title: resource.title,
@@ -393,6 +645,22 @@ async function readResource(
     });
 
     return jsonRpcError(null, -32001, authorization.reason);
+  }
+
+  const accountOwnershipReason = validateResourceAccountOwnership(resource, actor, variables);
+  if (accountOwnershipReason) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "resources/read",
+      resourceUri: params.uri,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: pseudoTool.audit.eventName,
+      targetType: pseudoTool.audit.targetType,
+      reason: accountOwnershipReason,
+    });
+
+    return jsonRpcError(null, -32001, accountOwnershipReason);
   }
 
   const handler = options.resourceHandlers[resource.uriTemplate];

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createMcpRoutes, type McpAuditRecord } from "./mcp";
 import type { ResolvedActor } from "./auth";
+import type { McpServiceDescriptor } from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -31,6 +32,56 @@ function createActorApp(resolvedActor: ResolvedActor, options: Parameters<typeof
   app.route("/", createMcpRoutes(options));
   return app;
 }
+
+const accountDefaultedToolServices: readonly McpServiceDescriptor[] = [
+  {
+    serviceId: "inventory",
+    serviceName: "Inventory",
+    kind: "bounded-context",
+    owner: "bounded-contexts/inventory",
+    serviceBoundary: "Inventory account-defaulted test tool.",
+    tools: [
+      {
+        name: "inventory.account-defaulted-summary",
+        title: "Inventory Account Defaulted Summary",
+        description: "Read account-scoped inventory summary using the authenticated account.",
+        serviceId: "inventory",
+        risk: "read",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            status: {
+              type: "string",
+              description: "Optional inventory status.",
+            },
+          },
+        },
+        permissionBoundary: {
+          scope: "account",
+          requiredPermissions: ["inventory.view"],
+          accountScoped: true,
+          auditPrincipal: "actor",
+        },
+        guardrails: {
+          confirmation: {
+            required: false,
+          },
+          idempotencyKey: "not-applicable",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.inventory.account-defaulted-summary",
+          targetType: "inventory-summary",
+          sensitiveInputFields: [],
+        },
+        expectedUsage: ["Use when the actor account is implicit."],
+      },
+    ],
+    resources: [],
+  },
+];
 
 describe("MCP runtime routes", () => {
   it("lists only available descriptor-backed tools", async () => {
@@ -175,6 +226,228 @@ describe("MCP runtime routes", () => {
     ]);
   });
 
+  it("rejects account-scoped tool calls for another account before reaching handlers", async () => {
+    const handler = vi.fn();
+    const audit = vi.fn();
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "inventory.list-items": handler,
+      },
+      audit,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.list-items",
+          arguments: {
+            accountId: "account_2",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "MCP tool accountId must match the authenticated actor account.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "inventory.list-items",
+        reason: "MCP tool accountId must match the authenticated actor account.",
+      }),
+    );
+  });
+
+  it("allows account-scoped tool calls without an accountId argument", async () => {
+    const handler = vi.fn(async ({ actor: resolvedActor }) => ({
+      accountId: resolvedActor?.accountId,
+      items: [],
+    }));
+    const app = createActorApp(actor, {
+      services: accountDefaultedToolServices,
+      toolHandlers: {
+        "inventory.account-defaulted-summary": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.account-defaulted-summary",
+          arguments: {
+            status: "available",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        content: [
+          {
+            json: {
+              accountId: "account_1",
+              items: [],
+            },
+          },
+        ],
+      },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects missing required tool arguments before reaching handlers", async () => {
+    const handler = vi.fn();
+    const audit = vi.fn();
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "inventory.list-items": handler,
+      },
+      audit,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.list-items",
+          arguments: {
+            status: "available",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32602,
+        message: "Invalid MCP tool arguments.",
+        data: {
+          issues: [
+            {
+              path: "accountId",
+              message: "Required field is missing.",
+              expected: "present",
+              actual: "missing",
+            },
+          ],
+        },
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "inventory.list-items",
+        reason: "Invalid MCP tool arguments.",
+      }),
+    );
+  });
+
+  it("rejects wrong-type tool arguments before reaching handlers", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "inventory.list-items": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.list-items",
+          arguments: {
+            accountId: 12,
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32602,
+        message: "Invalid MCP tool arguments.",
+        data: {
+          issues: [
+            {
+              path: "accountId",
+              message: "Expected string.",
+              expected: "string",
+              actual: "number",
+            },
+          ],
+        },
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-enum tool arguments before authorization", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "inventory.create-import-batch": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.create-import-batch",
+          arguments: {
+            accountId: "account_1",
+            sourceKey: "csv",
+            quantityMode: "merge",
+            idempotencyKey: "idem_1",
+            confirmationText: "Create Inventory Import Batch.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32602,
+        message: "Invalid MCP tool arguments.",
+        data: {
+          issues: [
+            {
+              path: "quantityMode",
+              message: "Expected one of: add, replace.",
+              expected: "add | replace",
+              actual: "merge",
+            },
+          ],
+        },
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("rejects tools without the required permission and records audit", async () => {
     const audit = vi.fn();
     const app = createActorApp(
@@ -241,6 +514,7 @@ describe("MCP runtime routes", () => {
             amount: "25.00",
             reason: "Seller requested payout.",
             idempotencyKey: "idem_1",
+            confirmationText: "Request Payout.",
           },
         }),
       ),
@@ -298,7 +572,7 @@ describe("MCP runtime routes", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("rejects sensitive tools without idempotency after confirmation", async () => {
+  it("rejects sensitive tools with blank idempotency after schema validation", async () => {
     const app = createActorApp(actor, {
       toolHandlers: {
         "settlement.request-payout": vi.fn(),
@@ -314,6 +588,7 @@ describe("MCP runtime routes", () => {
             accountId: "account_1",
             amount: "25.00",
             reason: "Seller requested payout.",
+            idempotencyKey: "",
             confirmationText: "Request Payout.",
           },
           confirmation: {
@@ -367,6 +642,77 @@ describe("MCP runtime routes", () => {
         }),
       },
     });
+  });
+
+  it("rejects account-scoped resource reads for another account before reaching handlers", async () => {
+    const handler = vi.fn();
+    const audit = vi.fn();
+    const app = createActorApp(actor, {
+      resourceHandlers: {
+        "chase-sets://inventory/{accountId}/import-batches/{batchId}": handler,
+      },
+      audit,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("resources/read", {
+          uri: "chase-sets://inventory/account_2/import-batches/batch_1",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "MCP resource accountId must match the authenticated actor account.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "denied",
+        method: "resources/read",
+        resourceUri: "chase-sets://inventory/account_2/import-batches/batch_1",
+        reason: "MCP resource accountId must match the authenticated actor account.",
+      }),
+    );
+  });
+
+  it("allows public resource reads without an actor account", async () => {
+    const handler = vi.fn(async () => ({ slug: "base-set-charizard" }));
+    const app = createMcpRoutes({
+      resourceHandlers: {
+        "chase-sets://discovery/items/{itemSlug}": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("resources/read", {
+          uri: "chase-sets://discovery/items/base-set-charizard",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          {
+            uri: "chase-sets://discovery/items/base-set-charizard",
+            mimeType: "application/json",
+            text: JSON.stringify({ slug: "base-set-charizard" }),
+          },
+        ],
+      },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("returns a JSON-RPC error and failed audit when a resource handler throws", async () => {
