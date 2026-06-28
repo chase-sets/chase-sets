@@ -96,6 +96,29 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
       readOption(argv, "--recovery-target-commit") ?? readEnv("RECOVERY_TARGET_COMMIT", env) ?? null,
     rollbackReadinessResult:
       readOption(argv, "--rollback-readiness-result") ?? readEnv("ROLLBACK_READINESS_RESULT", env) ?? "unknown",
+    productionRestorePointResult:
+      readOption(argv, "--production-restore-point-result") ??
+      readEnv("PRODUCTION_RESTORE_POINT_RESULT", env) ??
+      "unknown",
+    productionRestorePointType:
+      readOption(argv, "--production-restore-point-type") ?? readEnv("PRODUCTION_RESTORE_POINT_TYPE", env) ?? null,
+    productionRestorePointClusterId:
+      readOption(argv, "--production-restore-point-cluster-id") ??
+      readEnv("PRODUCTION_RESTORE_POINT_CLUSTER_ID", env) ??
+      null,
+    productionRestorePointName:
+      readOption(argv, "--production-restore-point-name") ?? readEnv("PRODUCTION_RESTORE_POINT_NAME", env) ?? null,
+    productionRestorePointStatus:
+      readOption(argv, "--production-restore-point-status") ?? readEnv("PRODUCTION_RESTORE_POINT_STATUS", env) ?? null,
+    productionRestorePointCreatedAt:
+      readOption(argv, "--production-restore-point-created-at") ??
+      readEnv("PRODUCTION_RESTORE_POINT_CREATED_AT", env) ??
+      null,
+    productionRestorePointBypassed: normalizeBoolean(
+      readOption(argv, "--production-restore-point-bypassed") ??
+        readEnv("PRODUCTION_RESTORE_POINT_BYPASSED", env) ??
+        "false",
+    ),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -134,6 +157,7 @@ export function buildReleaseHealthRecord(input) {
   validateOptionalIsoInstant("canaryCompletedAt", input.canaryCompletedAt, errors);
   validateOptionalIsoInstant("productionStartedAt", input.productionStartedAt, errors);
   validateOptionalIsoInstant("productionCompletedAt", input.productionCompletedAt, errors);
+  validateOptionalIsoInstant("productionRestorePointCreatedAt", input.productionRestorePointCreatedAt, errors);
   if (isNonEmptyString(input.mergeSha) && !isCommitSha(input.mergeSha)) {
     errors.push("mergeSha must be a 40-character Git commit SHA when provided.");
   }
@@ -224,6 +248,15 @@ export function buildReleaseHealthRecord(input) {
       reference: emptyToNull(input.recoveryReference ?? input.emergencyReference),
       targetCommit: emptyToNull(input.recoveryTargetCommit),
       rollbackReadinessResult: normalizeResult(input.rollbackReadinessResult),
+      productionRestorePoint: {
+        result: normalizeResult(input.productionRestorePointResult),
+        type: emptyToNull(input.productionRestorePointType),
+        clusterId: emptyToNull(input.productionRestorePointClusterId),
+        name: emptyToNull(input.productionRestorePointName),
+        status: emptyToNull(input.productionRestorePointStatus),
+        createdAt: emptyToNull(input.productionRestorePointCreatedAt),
+        bypassed: Boolean(input.productionRestorePointBypassed),
+      },
     },
   };
 
@@ -295,7 +328,9 @@ function normalizeResult(value) {
   const normalized = String(value ?? "")
     .trim()
     .toLowerCase();
-  return ["success", "failure", "cancelled", "skipped", "unknown"].includes(normalized) ? normalized : "unknown";
+  return ["success", "failure", "cancelled", "skipped", "bypassed", "unknown"].includes(normalized)
+    ? normalized
+    : "unknown";
 }
 
 function normalizeBoolean(value) {
