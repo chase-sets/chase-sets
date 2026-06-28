@@ -346,7 +346,13 @@ export const tcgplayerProviderProductSourceObservationMappingContract = {
     liveProviderCallsAllowed: false,
   },
   sourceObservation,
-  normalizedObservation: providerProductNormalizedObservation,
+  normalizedObservation: {
+    ...providerProductNormalizedObservation,
+    fields: {
+      ...providerProductFields,
+      mergeIdentity: tcgplayerPokemonMergeIdentityExpression(),
+    },
+  },
   externalReferences,
   referenceHierarchy,
   duplicatePrevention,
@@ -615,6 +621,39 @@ function constantExpression(
     uses,
     redaction: "none",
   };
+}
+
+function objectExpression(
+  fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>,
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "object",
+      fields,
+    },
+    owner,
+    uses,
+    redaction: "none",
+  };
+}
+
+function tcgplayerPokemonMergeIdentityExpression(): CatalogProviderMappingValueExpression {
+  return objectExpression(
+    {
+      tcg: constantExpression("pokemon", "catalog-merge-evidence", ["merge-identity"]),
+      productLineName: pathExpression("productLineName", "catalog-merge-evidence", ["merge-identity"]),
+      setName: pathExpression("setName", "catalog-merge-evidence", ["merge-identity"]),
+      printedProductName: pathExpression("productName", "catalog-merge-evidence", ["merge-identity"]),
+      collectorNumber: optionalPathExpression("customAttributes.number", "catalog-merge-evidence", ["merge-identity"]),
+      languageCode: constantExpression("en", "catalog-merge-evidence", ["merge-identity"]),
+      productForm: pathExpression("productForm", "catalog-merge-evidence", ["merge-identity"]),
+      barcode: optionalPathExpression("barcode", "catalog-merge-evidence", ["merge-identity"]),
+    },
+    "catalog-merge-evidence",
+    ["normalized-observation", "merge-identity"],
+  );
 }
 
 function tcgplayerOnePieceImageUrlsExpression(): CatalogProviderMappingValueExpression {
