@@ -60,6 +60,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     releaseAttemptPhase: readOption(argv, "--release-attempt-phase") ?? readEnv("RELEASE_ATTEMPT_PHASE", env) ?? null,
     releaseAttemptReason:
       readOption(argv, "--release-attempt-reason") ?? readEnv("RELEASE_ATTEMPT_REASON", env) ?? null,
+    releaseAttemptSupersededByCommit:
+      readOption(argv, "--release-attempt-superseded-by-commit") ??
+      readEnv("RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT", env) ??
+      null,
     releaseAttemptWorkflowUrl:
       readOption(argv, "--release-attempt-workflow-url") ?? readEnv("RELEASE_ATTEMPT_WORKFLOW_URL", env) ?? null,
     ciRetryCount: normalizeOptionalInteger(
@@ -145,6 +149,12 @@ export function buildReleaseHealthRecord(input) {
   ) {
     errors.push("releaseAttemptPhase must be queue, staging, canary, production, or review when provided.");
   }
+  if (
+    isNonEmptyString(input.releaseAttemptSupersededByCommit) &&
+    !isCommitSha(input.releaseAttemptSupersededByCommit)
+  ) {
+    errors.push("releaseAttemptSupersededByCommit must be a 40-character Git commit SHA when provided.");
+  }
 
   const record = {
     schemaVersion: RELEASE_HEALTH_VERSION,
@@ -221,12 +231,14 @@ export function buildReleaseHealthRecord(input) {
     isNonEmptyString(input.releaseAttemptResult) ||
     isNonEmptyString(input.releaseAttemptPhase) ||
     isNonEmptyString(input.releaseAttemptReason) ||
+    isNonEmptyString(input.releaseAttemptSupersededByCommit) ||
     isNonEmptyString(input.releaseAttemptWorkflowUrl)
   ) {
     record.attempt = {
       result: normalizeResult(input.releaseAttemptResult),
       phase: emptyToNull(input.releaseAttemptPhase),
       reason: emptyToNull(input.releaseAttemptReason),
+      supersededByCommit: emptyToNull(input.releaseAttemptSupersededByCommit),
       workflowUrl: emptyToNull(input.releaseAttemptWorkflowUrl),
     };
   }

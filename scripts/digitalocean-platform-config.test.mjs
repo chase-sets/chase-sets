@@ -846,6 +846,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Record staging start");
     expect(platformProductionWorkflow).toContain("- name: Record staging completion");
     expect(platformProductionWorkflow).toContain("- name: Record production start");
+    expect(platformProductionWorkflow).toContain("superseded: ${{ steps.latest_main.outputs.superseded || 'false' }}");
+    expect(platformProductionWorkflow).toContain("superseded_by_commit: ${{ steps.latest_main.outputs.latest_main }}");
+    expect(platformProductionWorkflow).toContain('echo "should_deploy=false"');
+    expect(platformProductionWorkflow).toContain('echo "superseded=true"');
+    expect(platformProductionWorkflow).toContain('echo "latest_main=${latest_main}"');
+    expect(platformProductionWorkflow).toContain('} >> "$GITHUB_OUTPUT"');
+    expect(platformProductionWorkflow).toContain("- name: Record superseded production deployment");
+    expect(platformProductionWorkflow).toContain("if: env.SHOULD_DEPLOY == 'false'");
+    expect(platformProductionWorkflow).toContain("Production deployment superseded");
+    expect(platformProductionWorkflow).toContain("Superseding commit: ${latest_main}");
     expect(platformProductionWorkflow).toContain("- name: Evaluate production release lock");
     expect(workflowStep(platformProductionWorkflow, "Evaluate production release lock")).toContain(
       "GITHUB_TOKEN: ${{ github.token }}",
@@ -916,8 +926,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("record-staging-release-health:");
     expect(platformProductionWorkflow).toContain("name: Record Staging Release Health");
     expect(platformProductionWorkflow).toContain(
-      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.deployed != 'true'",
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.deployed != 'true' || needs.deploy-production.outputs.superseded == 'true')",
     );
+    expect(platformProductionWorkflow).toContain("- deploy-production");
     expect(platformProductionWorkflow).toContain("RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json");
     expect(platformProductionWorkflow).toContain("- name: Resolve staging CI retry metadata");
     expect(platformProductionWorkflow).toContain("STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}");
@@ -964,7 +975,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+      "CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
     expect(platformProductionWorkflow).not.toContain("CANARY_EVIDENCE_RESULT");
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
@@ -972,7 +983,10 @@ describe("DigitalOcean platform configuration", () => {
       "CANARY_COMPLETED_AT: ${{ steps.settlement_probe.outputs.completed_at || steps.proof_probe.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
     const productionProofProbeStep = workflowStep(
       platformProductionWorkflow,
@@ -1007,7 +1021,18 @@ describe("DigitalOcean platform configuration", () => {
       'echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"',
     );
     expect(platformProductionWorkflow).toContain("Install Playwright Chromium for production proof probe");
-    expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || 'production-release' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}",
+    );
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}",
     );

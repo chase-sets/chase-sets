@@ -196,6 +196,46 @@ describe("release health summary", () => {
     });
   });
 
+  it("records an intentional production supersede with the newer main commit", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "789",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      releaseMode: "normal",
+      queueBatchSize: 1,
+      deploymentRequired: true,
+      stagingResult: "success",
+      canaryResult: "skipped",
+      canarySkippedReason: "production-superseded-by-newer-main",
+      productionResult: "skipped",
+      mainToProductionDriftCommits: 2,
+      mainToProductionDriftSeconds: 900,
+      releaseLocked: false,
+      recoveryMode: "none",
+      rollbackReadinessResult: "unknown",
+      releaseAttemptResult: "skipped",
+      releaseAttemptPhase: "production",
+      releaseAttemptReason: "production-superseded-by-newer-main",
+      releaseAttemptSupersededByCommit: "b".repeat(40),
+      releaseAttemptWorkflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/123/attempts/1",
+    });
+
+    expect(result.passesReleaseHealthGate).toBe(true);
+    expect(result.record).toMatchObject({
+      staging: { result: "success" },
+      canary: { result: "skipped", skippedReason: "production-superseded-by-newer-main" },
+      production: { result: "skipped" },
+      attempt: {
+        result: "skipped",
+        phase: "production",
+        reason: "production-superseded-by-newer-main",
+        supersededByCommit: "b".repeat(40),
+        workflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/123/attempts/1",
+      },
+    });
+  });
+
   it("fails validation when the release commit is not concrete", () => {
     const result = buildReleaseHealthRecord({
       releaseCommit: "main",
@@ -304,6 +344,7 @@ describe("release health summary", () => {
       RELEASE_ATTEMPT_RESULT: "cancelled",
       RELEASE_ATTEMPT_PHASE: "production",
       RELEASE_ATTEMPT_REASON: "production-release",
+      RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: "a".repeat(40),
       RELEASE_ATTEMPT_WORKFLOW_URL: "https://github.com/chase-sets/chase-sets/actions/runs/456/attempts/3",
       CI_RETRY_COUNT: "2",
       CI_FLAKY_FAILURE_COUNT: "1",
@@ -346,6 +387,7 @@ describe("release health summary", () => {
       releaseAttemptResult: "cancelled",
       releaseAttemptPhase: "production",
       releaseAttemptReason: "production-release",
+      releaseAttemptSupersededByCommit: "a".repeat(40),
       releaseAttemptWorkflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/456/attempts/3",
       ciRetryCount: 2,
       ciFlakyFailureCount: 1,
