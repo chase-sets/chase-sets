@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listContextManifests, listWorkspacePackages } from "./lib/repo.mjs";
+import {
+  assertWorkspaceRootsCoverPackageDirectories,
+  listContextManifests,
+  listWorkspacePackages,
+} from "./lib/repo.mjs";
 
 const temporaryRoots = [];
 
@@ -26,6 +30,12 @@ function writeGhostDirectory(rootDir, workspaceRoot, dirName) {
   const ghostDir = path.join(rootDir, workspaceRoot, dirName, "node_modules", ".pnpm");
   mkdirSync(ghostDir, { recursive: true });
   writeFileSync(path.join(ghostDir, "lock.yaml"), "");
+}
+
+function writePackage(rootDir, workspaceRoot, dirName, packageJson) {
+  const packageDir = path.join(rootDir, workspaceRoot, dirName);
+  mkdirSync(packageDir, { recursive: true });
+  writeFileSync(path.join(packageDir, "package.json"), `${JSON.stringify(packageJson)}\n`);
 }
 
 afterEach(() => {
@@ -69,5 +79,34 @@ describe("listWorkspacePackages", () => {
     const workspaces = listWorkspacePackages({ repoRoot: rootDir });
 
     expect(workspaces.map((workspace) => workspace.name)).toEqual(["@chase-sets/catalog"]);
+  });
+
+  it("reports package directories skipped because package.json is missing a name", () => {
+    const rootDir = createTempRepo();
+    writePackage(rootDir, "packages", "named", { name: "@chase-sets/named" });
+    writePackage(rootDir, "packages", "nameless", { private: true });
+    const skipped = [];
+
+    const workspaces = listWorkspacePackages({
+      repoRoot: rootDir,
+      onSkippedWorkspace: (workspace) => skipped.push(workspace),
+    });
+
+    expect(workspaces.map((workspace) => workspace.name)).toEqual(["@chase-sets/named"]);
+    expect(skipped).toEqual([
+      expect.objectContaining({
+        packageJsonPath: path.join(rootDir, "packages", "nameless", "package.json"),
+        reason: "package.json is missing a non-empty name",
+      }),
+    ]);
+  });
+
+  it("fails when a top-level package root is not represented in workspaceRoots", () => {
+    const rootDir = createTempRepo();
+    writePackage(rootDir, "services", "worker", { name: "@chase-sets/worker" });
+
+    expect(() => assertWorkspaceRootsCoverPackageDirectories({ repoRoot: rootDir })).toThrow(
+      "workspaceRoots is missing top-level package root(s): services.",
+    );
   });
 });

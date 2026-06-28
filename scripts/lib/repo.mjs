@@ -43,10 +43,25 @@ export function normalizeRelative(filePath, fromRoot = repoRoot) {
   return normalizePath(path.relative(fromRoot, filePath));
 }
 
+function reportSkippedWorkspace(options, skippedWorkspace) {
+  if (options.onSkippedWorkspace) {
+    options.onSkippedWorkspace(skippedWorkspace);
+    return;
+  }
+
+  console.warn(
+    `[repo] Skipping workspace package at ${normalizeRelative(skippedWorkspace.packageJsonPath, options.repoRoot ?? repoRoot)}: ${skippedWorkspace.reason}.`,
+  );
+}
+
 export function listWorkspacePackages(options = {}) {
   const roots = options.roots ?? workspaceRoots;
   const rootDir = options.repoRoot ?? repoRoot;
   const workspaces = [];
+
+  if (!options.roots && options.assertRootCoverage !== false) {
+    assertWorkspaceRootsCoverPackageDirectories({ repoRoot: rootDir, roots });
+  }
 
   for (const workspaceRoot of roots) {
     const rootPath = path.join(rootDir, workspaceRoot);
@@ -59,8 +74,20 @@ export function listWorkspacePackages(options = {}) {
       const packageDir = path.join(rootPath, entry.name);
       const packageJsonPath = path.join(packageDir, "package.json");
 
+      if (!existsSync(packageJsonPath)) {
+        continue;
+      }
+
       try {
         const packageJson = readJson(packageJsonPath);
+        if (typeof packageJson.name !== "string" || !packageJson.name.trim()) {
+          reportSkippedWorkspace(options, {
+            packageJsonPath,
+            reason: "package.json is missing a non-empty name",
+          });
+          continue;
+        }
+
         workspaces.push({
           name: packageJson.name,
           dir: packageDir,
@@ -69,11 +96,51 @@ export function listWorkspacePackages(options = {}) {
           packageJson,
           packageJsonPath,
         });
-      } catch {
-        // Ignore conceptual directories that are not implemented packages.
+      } catch (error) {
+        reportSkippedWorkspace(options, {
+          packageJsonPath,
+          reason: `package.json could not be read (${error instanceof Error ? error.message : String(error)})`,
+        });
       }
     }
   }
 
   return workspaces.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function assertWorkspaceRootsCoverPackageDirectories(options = {}) {
+  const roots = new Set(options.roots ?? workspaceRoots);
+  const rootDir = options.repoRoot ?? repoRoot;
+  const ignoredTopLevelDirectories = new Set([
+    ".codex",
+    ".git",
+    ".github",
+    ".turbo",
+    "artifacts",
+    "docs",
+    "node_modules",
+    "scripts",
+    "uat-artifacts",
+  ]);
+  const uncoveredRoots = [];
+
+  for (const entry of readDir(rootDir)) {
+    if (!entry.isDirectory() || roots.has(entry.name) || ignoredTopLevelDirectories.has(entry.name)) {
+      continue;
+    }
+
+    const topLevelPath = path.join(rootDir, entry.name);
+    const containsWorkspacePackage = readDir(topLevelPath).some(
+      (child) => child.isDirectory() && existsSync(path.join(topLevelPath, child.name, "package.json")),
+    );
+    if (containsWorkspacePackage) {
+      uncoveredRoots.push(entry.name);
+    }
+  }
+
+  if (uncoveredRoots.length > 0) {
+    throw new Error(
+      `workspaceRoots is missing top-level package root(s): ${uncoveredRoots.sort().join(", ")}. Add them to scripts/lib/repo.mjs.`,
+    );
+  }
 }

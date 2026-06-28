@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { classifyChanges, toOutputMap } from "./change-scope.mjs";
+import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   return {
@@ -17,6 +17,29 @@ function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
 }
 
 describe("change-scope", () => {
+  it("diffs changed files from the merge-base instead of the moving base branch tip", () => {
+    const calls = [];
+    const changedFiles = listChangedFiles("origin/main", "HEAD", {
+      cwd: "/repo",
+      execFileSync: (_command, args, options) => {
+        calls.push({ args, cwd: options.cwd });
+        if (args[0] === "merge-base") {
+          return "abc123\n";
+        }
+        if (args[0] === "diff") {
+          return "bounded-contexts/catalog/domain.ts\n";
+        }
+        throw new Error(`Unexpected git call: ${args.join(" ")}`);
+      },
+    });
+
+    expect(changedFiles).toEqual(["bounded-contexts/catalog/domain.ts"]);
+    expect(calls).toEqual([
+      { args: ["merge-base", "origin/main", "HEAD"], cwd: "/repo" },
+      { args: ["diff", "--name-only", "abc123...HEAD"], cwd: "/repo" },
+    ]);
+  });
+
   it("treats documentation-only changes as non-deployable", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
