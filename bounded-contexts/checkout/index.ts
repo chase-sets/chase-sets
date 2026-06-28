@@ -52,6 +52,10 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
           filterToEventTypes: true,
           buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
         },
+        "settlement.checkout.sell-list-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
+        },
         "checkout.checkout.sell-list-projection": {
           filterToEventTypes: true,
           buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),

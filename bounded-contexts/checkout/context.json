@@ -74,6 +74,14 @@
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
     {
+      "sourceContextName": "settlement",
+      "projectionName": "checkout.sell-list-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["settlement.payout-readiness.recorded"],
+      "order": 24,
+      "projectionHandlerSetNames": ["checkout.sell-list-projection"]
+    },
+    {
       "sourceContextName": "checkout",
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 1,
@@ -144,8 +152,12 @@
     },
     {
       "projectionName": "checkout.sell-list-projection",
-      "sourceContextNames": ["checkout", "marketplace"],
-      "ownedTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
+      "sourceContextNames": ["checkout", "marketplace", "settlement"],
+      "ownedTables": [
+        "checkout_sell_list_line_pages",
+        "checkout_sell_list_confirmation_pages",
+        "checkout_sell_payout_readiness_pages"
+      ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },

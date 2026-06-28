@@ -5,7 +5,11 @@ import type { MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
-import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "./features/sell-list/read-model/queries";
+import type {
+  CheckoutSellListConfirmationRow,
+  CheckoutSellListLineRow,
+  CheckoutSellPayoutReadinessRow,
+} from "./features/sell-list/read-model/queries";
 import type {
   SellListConfirmationSummary,
   SellListReadinessDecisionInput,
@@ -398,6 +402,9 @@ export function createCheckoutApiClient({
     }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
+    async getSellListPayoutReadiness(): Promise<CheckoutSellPayoutReadinessRow> {
+      return parseJsonResponse(await client.account["sell-list"]["payout-readiness"].$get({ header: headers }));
+    },
     async getGuestSellList(
       anonymousSellListId: string | null,
     ): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
@@ -681,5 +688,11 @@ export function createCheckoutApiClient({
   };
 }
 
-export type { CheckoutCartLine, CheckoutSellListConfirmationRow, CheckoutSellListLineRow, CheckoutSessionRow };
+export type {
+  CheckoutCartLine,
+  CheckoutSellListConfirmationRow,
+  CheckoutSellListLineRow,
+  CheckoutSellPayoutReadinessRow,
+  CheckoutSessionRow,
+};
 export const checkoutApi = createCheckoutApiClient();

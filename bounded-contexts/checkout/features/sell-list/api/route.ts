@@ -336,6 +336,15 @@ export function createAccountSellListRoutes(
     });
   });
 
+  app.get("/sell-list/payout-readiness", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getPayoutReadiness(access.actor.accountId));
+  });
+
   app.post("/sell-list/readiness", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {

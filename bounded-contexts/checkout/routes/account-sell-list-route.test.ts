@@ -357,6 +357,7 @@ describe("checkout web routes: account sell list", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [], count: 0, latestConfirmation: null })),
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
 

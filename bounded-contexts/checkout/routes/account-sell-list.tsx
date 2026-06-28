@@ -24,7 +24,6 @@ import {
 } from "@chase-sets/platform-runtime/post-write-consistency";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
-import { createSettlementRequestApiClient } from "@chase-sets/settlement/server";
 import type {
   OfferMatchListItem,
   MarketplaceListingInventoryItemOption,
@@ -32,12 +31,12 @@ import type {
   MarketplacePublicStandardTermsPreview,
   PublicOfferDetail,
 } from "@chase-sets/marketplace/server";
-import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
 import {
   createCheckoutRequestApiClient,
   type AddCheckoutSellListLineRequest,
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListLineRow,
+  type CheckoutSellPayoutReadinessRow,
   type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
 import {
@@ -766,10 +765,13 @@ async function loadSellListInventory(
   }
 }
 
-async function loadPayoutReadiness(request: Request): Promise<SettlementPayoutReadinessRow | null> {
+async function loadPayoutReadiness(
+  request: Request,
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
+): Promise<CheckoutSellPayoutReadinessRow | null> {
   const shouldRecordPayoutReadinessHandoff = requestHasFreshWriteSource(request, "settlement");
   try {
-    const payoutReadiness = await createSettlementRequestApiClient(request).getPayoutReadiness();
+    const payoutReadiness = await api.getSellListPayoutReadiness();
     if (shouldRecordPayoutReadinessHandoff) {
       recordPayoutReadinessPostWriteConsistencyOutcome("projection_hit", freshWriteOutcomeForRequest(request), "none");
     }
@@ -845,7 +847,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           }),
           productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, guestSource.sellList.items),
           inventoryItems: await loadSellListInventory(resolvedRequest, guestSource.sellList.items),
-          payoutReadiness: await loadPayoutReadiness(resolvedRequest),
+          payoutReadiness: await loadPayoutReadiness(resolvedRequest, api),
         };
       }
 
@@ -899,7 +901,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }),
     productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, accountSellList.items),
     inventoryItems: await loadSellListInventory(resolvedRequest, accountSellList.items),
-    payoutReadiness: await loadPayoutReadiness(resolvedRequest),
+    payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
   };
 }
 

@@ -19,6 +19,7 @@ import {
   mockCreateSellListReadiness,
   mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
+  mockGetPayoutReadiness,
   mockGetSellListConfirmation,
   MockMarketplaceApiError,
   mockPreviewOfferAcceptanceTerms,
@@ -205,6 +206,7 @@ describe("checkout web routes: sell checkout session", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
 
     const result = await sellCheckoutSessionLoader({
@@ -239,6 +241,7 @@ describe("checkout web routes: sell checkout session", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
 
     const result = await sellCheckoutSessionLoader({
@@ -335,6 +338,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -752,6 +756,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -847,6 +852,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockPreviewOfferAcceptanceTerms.mockResolvedValueOnce({
       account_type: "personal",
@@ -936,6 +942,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateListing.mockResolvedValue({
       id: "lst_slc_chk_sell_1_sll_product",
@@ -1050,6 +1057,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
