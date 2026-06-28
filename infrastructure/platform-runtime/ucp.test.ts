@@ -1,5 +1,5 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "./ucp";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -12,6 +12,10 @@ import {
   createUcpProfileRoutes,
   createUcpRestRoutes,
 } from "./ucp";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function signedHeaders(body: string, extra: Readonly<Record<string, string>> = {}) {
   return {
@@ -162,6 +166,18 @@ describe("UCP profile routes", () => {
 });
 
 describe("UCP REST routes", () => {
+  it("requires a durable idempotency store outside the test runtime", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "false");
+
+    expect(() => createUcpRestRoutes()).toThrow(
+      "REST UCP routes require a durable idempotencyStore. Bootstrap platformUcpRuntimeSchemaSql",
+    );
+    expect(() => createUcpMcpRoutes()).toThrow(
+      "MCP UCP routes require a durable idempotencyStore. Bootstrap platformUcpRuntimeSchemaSql",
+    );
+  });
+
   it("rejects checkout writes that are not signed", async () => {
     const app = new Hono().route("/ucp/v1", createUcpRestRoutes());
 

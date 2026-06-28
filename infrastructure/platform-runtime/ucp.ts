@@ -162,6 +162,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
+  allowInMemoryIdempotencyStoreForTests?: boolean;
   signatureVerification?: UcpSignatureVerificationOptions;
   businessSigningKeys?: UcpBusinessSigningKeySet;
   observer?: UcpRuntimeObserver;
@@ -936,6 +937,27 @@ function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
   };
 }
 
+function isUcpTestRuntime() {
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
+function resolveUcpIdempotencyStore(options: CreateUcpRoutesOptions, transport: "REST" | "MCP"): UcpIdempotencyStore {
+  if (options.idempotencyStore) {
+    return options.idempotencyStore;
+  }
+
+  if (
+    isUcpTestRuntime() ||
+    (options.allowInMemoryIdempotencyStoreForTests === true && process.env.NODE_ENV !== "production")
+  ) {
+    return createMemoryUcpIdempotencyStore();
+  }
+
+  throw new Error(
+    `${transport} UCP routes require a durable idempotencyStore. Bootstrap platformUcpRuntimeSchemaSql and pass createPostgresUcpIdempotencyStore(...) for production mounts; allowInMemoryIdempotencyStoreForTests is only for isolated tests.`,
+  );
+}
+
 export function createPostgresUcpIdempotencyStore(
   db: PgQueryable,
   options: Readonly<{
@@ -1240,7 +1262,7 @@ export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "bu
 
 export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
-  const idempotencyStore = options.idempotencyStore ?? createMemoryUcpIdempotencyStore();
+  const idempotencyStore = resolveUcpIdempotencyStore(options, "REST");
 
   app.get("/", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
 
@@ -1276,7 +1298,7 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
 
 export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
-  const idempotencyStore = options.idempotencyStore ?? createMemoryUcpIdempotencyStore();
+  const idempotencyStore = resolveUcpIdempotencyStore(options, "MCP");
 
   app.post("/", async (c) => {
     const body = (await c.req.raw
