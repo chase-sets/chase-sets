@@ -4,7 +4,10 @@ import { redirect, useActionData, useLoaderData, useLocation, useSearchParams } 
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
+import {
+  PlatformFeedbackPrompt,
+  platformFeedbackWorkflowFromSearchParams,
+} from "@chase-sets/platform-operations/server";
 import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
@@ -133,11 +136,7 @@ export default function MarketplaceInventoryItemRoute() {
   const actionData = useActionData<typeof action>();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const feedbackWorkflowParam = searchParams.get("feedbackWorkflow");
-  const feedbackWorkflow =
-    feedbackWorkflowParam === "inventory-adjust" || feedbackWorkflowParam === "inventory-create"
-      ? feedbackWorkflowParam
-      : null;
+  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("inventory-item-detail", searchParams);
 
   return (
     <InventoryItemDetailPage

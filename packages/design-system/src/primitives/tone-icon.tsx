@@ -16,7 +16,7 @@ export type ToneIconSize = "sm" | "md" | "lg";
  * `text-{tone}` and the glyph inherits it (`tone="inherit"`), so the badge is
  * the canonical `bg-{tone}-soft text-{tone}` pair with no `color-mix` or hex.
  */
-const toneClasses: Record<ToneIconTone, string> = {
+export const toneIconToneClasses: Record<ToneIconTone, string> = {
   neutral: "bg-surface-2 text-secondary",
   info: "bg-info-soft text-info",
   success: "bg-success-soft text-success",
@@ -26,7 +26,7 @@ const toneClasses: Record<ToneIconTone, string> = {
   primary: "bg-primary-soft text-primary",
 };
 
-const sizeClasses: Record<ToneIconSize, string> = {
+export const toneIconSizeClasses: Record<ToneIconSize, string> = {
   sm: "h-7 w-7",
   md: "h-9 w-9",
   lg: "h-11 w-11",
@@ -58,8 +58,8 @@ export function ToneIcon({ name, tone = "neutral", size = "md", label, ...rest }
       {...rest}
       className={cx(
         "inline-flex shrink-0 items-center justify-center rounded-tokenFull",
-        sizeClasses[size],
-        toneClasses[tone],
+        toneIconSizeClasses[size],
+        toneIconToneClasses[tone],
       )}
     >
       <Icon name={name} size={iconSize[size]} tone="inherit" label={label} />

@@ -17,6 +17,8 @@ import {
   parseDeploymentSummaryRows,
   pendingDomains,
   planAppChanged,
+  postgresClusterIdFromPlan,
+  readPostgresClusterIdFromPlan,
   resetStaleDomainAttachment,
   waitForDomains,
   waitForDeployments,
@@ -192,6 +194,64 @@ The resources are retired by a reviewed context merge.
     });
 
     expect(changed).toBe(true);
+  });
+
+  it("reads the production Postgres cluster id from Terraform JSON plan output", async () => {
+    const clusterId = await readPostgresClusterIdFromPlan("tfplan", {
+      commandOutput: async (command, args) => {
+        expect(command).toBe("terraform");
+        expect(args).toEqual(["show", "-json", "tfplan"]);
+        return JSON.stringify(
+          planFor([
+            {
+              type: "digitalocean_database_cluster",
+              name: "postgres",
+              change: {
+                after: {
+                  id: "d5e498f1-7a22-4108-ac84-008e51c0f6df",
+                },
+              },
+            },
+          ]),
+        );
+      },
+    });
+
+    expect(clusterId).toBe("d5e498f1-7a22-4108-ac84-008e51c0f6df");
+  });
+
+  it("falls back to planned and prior state resources for the production Postgres cluster id", () => {
+    expect(
+      postgresClusterIdFromPlan({
+        planned_values: {
+          root_module: {
+            child_modules: [
+              {
+                resources: [
+                  {
+                    type: "digitalocean_database_cluster",
+                    name: "postgres",
+                    values: { id: "planned-cluster-id" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ).toBe("planned-cluster-id");
+
+    expect(
+      postgresClusterIdFromPlan({
+        resource_changes: [
+          {
+            type: "digitalocean_database_cluster",
+            name: "postgres",
+            change: { before: { id: "prior-change-cluster-id" }, after: {} },
+          },
+        ],
+      }),
+    ).toBe("prior-change-cluster-id");
   });
 
   it("filters terminal DigitalOcean deployment phases", () => {

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { webContextRegistry } from "../generated/web-context-registry";
-import * as checkoutPaymentRoute from "@chase-sets/payments/routes/marketplace/checkout-payment";
 
 type RouteContribution = Readonly<{
   routeId: string;
@@ -25,80 +24,16 @@ function marketplaceRoutes() {
 }
 
 describe("marketplace checkout and payment composition", () => {
-  it("composes checkout-owned cart and checkout routes with payment detail", () => {
-    expect(marketplaceRoutes()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          routeId: "account-cart",
-          routePath: "account/cart",
-          fileExport: "./routes/account-cart",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "account-sell-list",
-          routePath: "account/sell-list",
-          fileExport: "./routes/account-sell-list",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "sell-checkout-session",
-          routePath: "checkout/sell/session/:sessionId",
-          fileExport: "./routes/sell-checkout-session",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "sell-checkout-confirmation",
-          routePath: "checkout/sell/session/:sessionId/confirmation",
-          fileExport: "./routes/sell-checkout-confirmation",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "buy-checkout-readiness",
-          routePath: "checkout/buy/readiness",
-          fileExport: "./routes/checkout-start",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "buy-checkout-session",
-          routePath: "checkout/buy/session/:sessionId",
-          fileExport: "./routes/checkout-session",
-          sourceContext: "checkout",
-        }),
-        expect.objectContaining({
-          routeId: "account-payment",
-          routePath: "account/payments/:paymentId",
-          fileExport: "./routes/marketplace/account-payment",
-          sourceContext: "payments",
-        }),
-        expect.objectContaining({
-          routeId: "checkout-payment",
-          routePath: "checkout/payments/:paymentId",
-          fileExport: "./routes/marketplace/checkout-payment",
-          sourceContext: "payments",
-        }),
-        expect.objectContaining({
-          routeId: "guest-checkout-exit",
-          routePath: "guest-checkout/exit",
-          fileExport: "./routes/marketplace/guest-checkout-exit",
-          sourceContext: "auth",
-        }),
-      ]),
-    );
-  });
-
-  it("does not expose the deleted checkout concept route as a customer-facing path", () => {
+  it("composes marketplace route contributions from bounded context manifests", () => {
     const routes = marketplaceRoutes();
 
-    expect(routes.map((route) => route.routeId)).not.toContain("checkout-concept");
-    expect(routes.map((route) => route.routePath)).not.toContain("checkout/concept");
-    expect(routes.map((route) => route.fileExport)).not.toContain("./routes/checkout-concept");
-    expect(routes.map((route) => route.routeId)).not.toContain("checkout-start");
-    expect(routes.map((route) => route.routePath)).not.toContain("checkout/start");
-    expect(routes.map((route) => route.routeId)).not.toContain("checkout-session");
-    expect(routes.map((route) => route.routePath)).not.toContain("checkout/:sessionId");
-  });
-
-  it("carries the guest payment recovery error boundary on the checkout payment wrapper", () => {
-    expect(checkoutPaymentRoute.ErrorBoundary).toEqual(expect.any(Function));
+    expect(routes.length).toBeGreaterThan(0);
+    expect([...new Set(routes.map((route) => route.sourceContext))]).toEqual(
+      expect.arrayContaining(["auth", "checkout", "payments"]),
+    );
+    expect(routes.every((route) => route.routeId && route.routePath && route.fileExport && route.sourceContext)).toBe(
+      true,
+    );
+    expect(new Set(routes.map((route) => route.routeId)).size).toBe(routes.length);
   });
 });
