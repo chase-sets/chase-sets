@@ -856,6 +856,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("if: env.SHOULD_DEPLOY == 'false'");
     expect(platformProductionWorkflow).toContain("Production deployment superseded");
     expect(platformProductionWorkflow).toContain("Superseding commit: ${latest_main}");
+    const markProductionReleaseStep = workflowStep(platformProductionWorkflow, "Mark production release");
+    expect(markProductionReleaseStep).toContain("id: production_marker");
+    expect(markProductionReleaseStep).toContain('echo "marker_mismatch=true"');
+    expect(markProductionReleaseStep).toContain("production-marker-non-fast-forward");
+    expect(markProductionReleaseStep).toContain("production-marker-push-failed");
+    expect(markProductionReleaseStep).toContain("Production marker mismatch");
+    expect(markProductionReleaseStep).toContain("Deployed commit: ${release_commit}");
+    expect(markProductionReleaseStep).toContain("Current production marker: ${production_marker_commit");
     expect(platformProductionWorkflow).toContain("- name: Evaluate production release lock");
     expect(workflowStep(platformProductionWorkflow, "Evaluate production release lock")).toContain(
       "GITHUB_TOKEN: ${{ github.token }}",
@@ -1050,7 +1058,7 @@ describe("DigitalOcean platform configuration", () => {
       "RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || 'production-release' }}",
+      "RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || 'production-release' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}",

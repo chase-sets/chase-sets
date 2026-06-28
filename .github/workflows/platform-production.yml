@@ -2234,6 +2234,7 @@ jobs:
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
 
       - name: Mark production release
+        id: production_marker
         if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
@@ -2255,13 +2256,58 @@ jobs:
           fi
 
           if git show-ref --verify --quiet refs/remotes/origin/production; then
+            production_marker_commit="$(git rev-parse origin/production)"
             git checkout -B production origin/production
-            git merge --ff-only "$release_commit"
+            if ! git merge --ff-only "$release_commit"; then
+              {
+                echo "marker_updated=false"
+                echo "marker_mismatch=true"
+                echo "production_marker_commit=${production_marker_commit}"
+                echo "marker_error=production-marker-non-fast-forward"
+              } >> "$GITHUB_OUTPUT"
+              {
+                echo "## Production marker mismatch"
+                echo
+                echo "Production deployed successfully, but the smoke-verified production marker could not fast-forward."
+                echo
+                echo "- Deployed commit: ${release_commit}"
+                echo "- Current production marker: ${production_marker_commit}"
+                echo "- Error: production-marker-non-fast-forward"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
           else
+            production_marker_commit=""
             git checkout -B production "$release_commit"
           fi
 
-          git push origin production
+          if ! git push origin production; then
+            git fetch origin production || true
+            production_marker_commit="$(git rev-parse origin/production 2>/dev/null || printf '%s' "${production_marker_commit}")"
+            {
+              echo "marker_updated=false"
+              echo "marker_mismatch=true"
+              echo "production_marker_commit=${production_marker_commit}"
+              echo "marker_error=production-marker-push-failed"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## Production marker mismatch"
+              echo
+              echo "Production deployed successfully, but the smoke-verified production marker push failed."
+              echo
+              echo "- Deployed commit: ${release_commit}"
+              echo "- Current production marker: ${production_marker_commit:-unknown}"
+              echo "- Error: production-marker-push-failed"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          {
+            echo "marker_updated=true"
+            echo "marker_mismatch=false"
+            echo "production_marker_commit=${release_commit}"
+            echo "marker_error="
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve release health metadata
         id: release_health_metadata
@@ -2366,7 +2412,7 @@ jobs:
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
           RELEASE_ATTEMPT_PHASE: production
-          RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || 'production-release' }}
+          RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.production_marker.outputs.marker_mismatch == 'true' && 'production-marker-mismatch' || 'production-release' }}
           RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}
           RELEASE_ATTEMPT_WORKFLOW_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
