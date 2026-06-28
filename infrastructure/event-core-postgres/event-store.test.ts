@@ -3,6 +3,8 @@ import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
+  EVENT_STORE_READ_PAGE_SIZE_DEFAULT,
+  EVENT_STORE_READ_PAGE_SIZE_LIMIT,
   EVENT_STORE_WAKE_NOTIFICATION_KIND,
   createPostgresEventStore,
   parseEventStoreWakeNotificationEnvelope,
@@ -14,6 +16,65 @@ import { withPgTransaction, type PgTransactionalPool } from "./types";
 const NOW = "2026-06-10T12:00:00.000Z" as const;
 
 describe("postgres event store", () => {
+  it("defaults readStream and readAll to the documented read page size", async () => {
+    const { pool, calls } = createReadPool();
+    const store = createPostgresEventStore({ pool });
+
+    await expect(store.readStream({ streamId: "checkout.checkout-session-chk_01" as never })).resolves.toEqual([]);
+    await expect(store.readAll()).resolves.toEqual([]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].params).toEqual(["checkout.checkout-session-chk_01", 1, EVENT_STORE_READ_PAGE_SIZE_DEFAULT]);
+    expect(calls[1].params?.[calls[1].params.length - 1]).toBe(EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
+  });
+
+  it("allows readStream and readAll page sizes at the 1 to 500 boundaries", async () => {
+    const { pool, calls } = createReadPool();
+    const store = createPostgresEventStore({ pool });
+
+    await expect(
+      store.readStream({ streamId: "checkout.checkout-session-chk_01" as never, limit: 1 }),
+    ).resolves.toEqual([]);
+    await expect(
+      store.readStream({
+        streamId: "checkout.checkout-session-chk_01" as never,
+        limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT,
+      }),
+    ).resolves.toEqual([]);
+    await expect(store.readAll({ limit: 1 })).resolves.toEqual([]);
+    await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT })).resolves.toEqual([]);
+
+    expect(calls.map((call) => call.params?.[call.params.length - 1])).toEqual([
+      1,
+      EVENT_STORE_READ_PAGE_SIZE_LIMIT,
+      1,
+      EVENT_STORE_READ_PAGE_SIZE_LIMIT,
+    ]);
+  });
+
+  it("rejects readStream and readAll page sizes outside 1 to 500 before querying Postgres", async () => {
+    const { pool, calls } = createReadPool();
+    const store = createPostgresEventStore({ pool });
+
+    await expect(store.readStream({ streamId: "checkout.checkout-session-chk_01" as never, limit: 0 })).rejects.toThrow(
+      "Event store read limit must be an integer between 1 and 500.",
+    );
+    await expect(
+      store.readStream({
+        streamId: "checkout.checkout-session-chk_01" as never,
+        limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1,
+      }),
+    ).rejects.toThrow("Event store read limit must be an integer between 1 and 500.");
+    await expect(store.readAll({ limit: 0 })).rejects.toThrow(
+      "Event store read limit must be an integer between 1 and 500.",
+    );
+    await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1 })).rejects.toThrow(
+      "Event store read limit must be an integer between 1 and 500.",
+    );
+
+    expect(calls).toEqual([]);
+  });
+
   it("pushes readAll event type and stream prefix filters into SQL", async () => {
     const queries: { sql: string; params: readonly unknown[] }[] = [];
     const store = createPostgresEventStore({
@@ -331,6 +392,23 @@ type QueryCall = Readonly<{
   sql: string;
   params?: readonly unknown[];
 }>;
+
+function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
+  const calls: QueryCall[] = [];
+
+  return {
+    pool: {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql: sql.trim(), ...(params ? { params } : {}) });
+        return { rows: [], rowCount: 0 };
+      },
+      connect: async () => {
+        throw new Error("read tests should not open transactions");
+      },
+    },
+    calls,
+  };
+}
 
 function createAppendPool(
   options: Readonly<{

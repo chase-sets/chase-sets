@@ -49,6 +49,9 @@ export const EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION = 1;
 export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL = "platform_event_store_commits";
 export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE = "event-core-postgres";
 export const EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES = 4 * 1024;
+// Keep event reads bounded to match list and poison-event page hardening.
+export const EVENT_STORE_READ_PAGE_SIZE_DEFAULT = 500;
+export const EVENT_STORE_READ_PAGE_SIZE_LIMIT = 500;
 
 export type EventStoreWakeNotificationPayload = Readonly<{
   sourceContextName: string;
@@ -265,7 +268,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 
     readStream: async (input: ReadStreamInput) => {
       const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
-      const limit = assertPositiveInteger(input.limit ?? 500, "limit");
+      const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
 
       return observeEventStoreOperation("read_stream", { limit }, async () => {
         try {
@@ -280,7 +283,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 
     readAll: async (input?: ReadAllInput) => {
       const afterGlobalPosition = input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
-      const limit = assertPositiveInteger(input?.limit ?? 500, "limit");
+      const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
 
       return observeEventStoreOperation(
         "read_all",
@@ -950,6 +953,14 @@ function assertPositiveInteger(value: number, fieldName: string): number {
   }
 
   return value;
+}
+
+function assertEventStoreReadPageSize(limit: number): number {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > EVENT_STORE_READ_PAGE_SIZE_LIMIT) {
+    throw new Error(`Event store read limit must be an integer between 1 and ${EVENT_STORE_READ_PAGE_SIZE_LIMIT}.`);
+  }
+
+  return limit;
 }
 
 function createDefaultEventId(): EventId {
