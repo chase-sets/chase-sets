@@ -94,6 +94,72 @@ function actionUsesFromFile(filePath) {
     .filter(Boolean);
 }
 
+function readWorkflowLines(filePath) {
+  return readFileSync(filePath, "utf8").split(/\r?\n/);
+}
+
+function collectIndentedBlock(lines, startIndex, parentIndent) {
+  const block = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const trimmed = line.trim();
+    if (trimmed && !line.startsWith(" ".repeat(parentIndent + 1))) {
+      break;
+    }
+    block.push(line);
+  }
+  return block;
+}
+
+function findBlock(lines, pattern, parentIndent) {
+  const startIndex = lines.findIndex((line) => pattern.test(line));
+  if (startIndex === -1) {
+    return null;
+  }
+  return collectIndentedBlock(lines, startIndex, parentIndent);
+}
+
+function previewCleanupPolicyViolations(filePath) {
+  if (
+    path.basename(path.dirname(filePath)) !== "workflows" ||
+    path.basename(filePath) !== "platform-preview-cleanup.yml"
+  ) {
+    return [];
+  }
+
+  const lines = readWorkflowLines(filePath);
+  const violations = [];
+  const workflowText = lines.join("\n");
+  const cleanupJobBlock = findBlock(lines, /^\s{2}destroy-preview:\s*$/, 2);
+  const checkoutStepBlock = findBlock(lines, /^\s{6}- uses: actions\/checkout@/, 6);
+
+  if (!/pull_request_target:\n\s+types:\n\s+- closed/.test(workflowText)) {
+    violations.push(`${relativePath(filePath)}: pull_request_target preview cleanup must stay closed-only.`);
+  }
+
+  const timeoutLine = cleanupJobBlock?.find((line) => /^\s{4}timeout-minutes:\s*\d+\s*$/.test(line));
+  const timeoutMinutes = timeoutLine ? Number.parseInt(timeoutLine.split(":")[1] ?? "", 10) : null;
+  if (!timeoutMinutes || timeoutMinutes > 60) {
+    violations.push(
+      `${relativePath(filePath)}: destroy-preview must have an explicit job timeout of 60 minutes or less.`,
+    );
+  }
+
+  const checkoutStepText = checkoutStepBlock?.join("\n") ?? "";
+  if (!checkoutStepText.includes("never checks") || !checkoutStepText.includes("PR head code")) {
+    violations.push(
+      `${relativePath(filePath)}: checkout step must document why pull_request_target is safe for preview cleanup.`,
+    );
+  }
+
+  const checkoutRefLine = checkoutStepBlock?.find((line) => /^\s{10}ref:\s*/.test(line)) ?? "";
+  if (/\bpull_request\.head\.(?:ref|sha)\b/.test(checkoutRefLine)) {
+    violations.push(`${relativePath(filePath)}: checkout ref must not use untrusted pull_request.head code.`);
+  }
+
+  return violations;
+}
+
 function validateActionUse(actionUse) {
   const value = actionUse.value;
   if (value.startsWith("./") || value.startsWith("docker://")) {
@@ -133,7 +199,10 @@ function relativePath(filePath) {
 
 export function checkGithubActionsRuntime({ rootDir = workflowRoot } = {}) {
   const violations = walkYamlFiles(rootDir).flatMap((filePath) =>
-    actionUsesFromFile(filePath).map(validateActionUse).filter(Boolean),
+    actionUsesFromFile(filePath)
+      .map(validateActionUse)
+      .filter(Boolean)
+      .concat(previewCleanupPolicyViolations(filePath)),
   );
 
   if (violations.length === 0) {

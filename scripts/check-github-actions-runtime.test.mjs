@@ -10,13 +10,45 @@ const cacheSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const doctlSha = "cccccccccccccccccccccccccccccccccccccccc";
 const unknownSha = "dddddddddddddddddddddddddddddddddddddddd";
 
-function workflowRootWith(content) {
+function workflowRootWith(content, fileName = "test.yml") {
   const rootDir = mkdtempSync(path.join(tmpdir(), "github-actions-runtime-"));
   tempDirs.push(rootDir);
   const workflowDir = path.join(rootDir, "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(workflowDir, "test.yml"), content, "utf8");
+  writeFileSync(path.join(workflowDir, fileName), content, "utf8");
   return rootDir;
+}
+
+function previewCleanupWorkflow({
+  timeoutLine = "    timeout-minutes: 45",
+  checkoutComment = `        # pull_request_target has repo secrets. Closed PR cleanup never checks
+        # out PR head code: merged PRs use the trusted merge commit, unmerged
+        # PRs fall back to the base branch, and manual runs use the selected ref.`,
+  checkoutRef = "${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.event.pull_request.base.ref }}",
+} = {}) {
+  return `
+name: Platform Preview Cleanup
+
+on:
+  pull_request_target:
+    types:
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  destroy-preview:
+    name: Destroy Preview
+    runs-on: ubuntu-latest
+${timeoutLine}
+    steps:
+      - uses: actions/checkout@${checkoutSha} # v6.0.0
+${checkoutComment}
+        with:
+          ref: ${checkoutRef}
+`;
 }
 
 afterEach(() => {
@@ -126,5 +158,47 @@ jobs:
 
     expect(result.passed).toBe(false);
     expect(result.violations).toEqual([expect.stringContaining("must be pinned with an explicit @ref")]);
+  });
+
+  it("accepts preview cleanup when pull_request_target is closed-only, timed out, and checks out trusted refs", () => {
+    const rootDir = workflowRootWith(previewCleanupWorkflow(), "platform-preview-cleanup.yml");
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it("rejects preview cleanup without an explicit bounded job timeout", () => {
+    const rootDir = workflowRootWith(previewCleanupWorkflow({ timeoutLine: "" }), "platform-preview-cleanup.yml");
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining("destroy-preview must have an explicit job timeout of 60 minutes or less"),
+    ]);
+  });
+
+  it("rejects preview cleanup checkout of untrusted PR head refs", () => {
+    const rootDir = workflowRootWith(
+      previewCleanupWorkflow({ checkoutRef: "${{ github.event.pull_request.head.sha }}" }),
+      "platform-preview-cleanup.yml",
+    );
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining("checkout ref must not use untrusted pull_request.head code"),
+    ]);
+  });
+
+  it("rejects preview cleanup without the pull_request_target safety rationale", () => {
+    const rootDir = workflowRootWith(previewCleanupWorkflow({ checkoutComment: "" }), "platform-preview-cleanup.yml");
+
+    const result = checkGithubActionsRuntime({ rootDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([
+      expect.stringContaining("checkout step must document why pull_request_target is safe"),
+    ]);
   });
 });

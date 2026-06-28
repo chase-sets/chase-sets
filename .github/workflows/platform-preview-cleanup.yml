@@ -23,6 +23,7 @@ jobs:
     name: Destroy Preview
     runs-on: ubuntu-latest
     environment: preview
+    timeout-minutes: 45
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -54,6 +55,9 @@ jobs:
         run: git config --global init.defaultBranch main
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        # pull_request_target has repo secrets. Closed PR cleanup never checks
+        # out PR head code: merged PRs use the trusted merge commit, unmerged
+        # PRs fall back to the base branch, and manual runs use the selected ref.
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.event.pull_request.base.ref }}
 
