@@ -307,21 +307,61 @@ function candidateMatchesScope(
   if (!scope) {
     return true;
   }
-  if (scope.languageCode && candidate.identity_json.languageCode !== scope.languageCode) {
+  if (
+    scope.languageCode &&
+    normalizedScopeText(candidate.identity_json.languageCode) !== normalizedScopeText(scope.languageCode)
+  ) {
     return false;
   }
   if (
     scope.expansionName &&
     candidate.identity_json.setName &&
-    candidate.identity_json.setName !== scope.expansionName
+    normalizedScopeText(candidate.identity_json.setName) !== normalizedScopeText(scope.expansionName)
   ) {
     return false;
   }
-  if (scope.productLineName && candidate.identity_json.productLineName !== scope.productLineName) {
+  if (scope.productLineName && !productLineNamesMatch(candidate.identity_json.productLineName, scope.productLineName)) {
     return false;
   }
 
   return true;
+}
+
+function productLineNamesMatch(candidateValue: string, scopeValue: string): boolean {
+  return canonicalProductLineName(candidateValue) === canonicalProductLineName(scopeValue);
+}
+
+function canonicalProductLineName(value: string): string {
+  const normalized = normalizedScopeText(value);
+  switch (normalized) {
+    case "pokemon":
+    case "pokemon tcg":
+    case "pokemon trading card game":
+      return "pokemon";
+    case "magic":
+    case "magic the gathering":
+    case "mtg":
+      return "magic";
+    case "one piece":
+    case "one piece card game":
+      return "one piece";
+    case "lorcana":
+    case "disney lorcana":
+      return "lorcana";
+    default:
+      return normalized;
+  }
+}
+
+function normalizedScopeText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function identityLabel(candidate: CatalogMergeCandidateListItem): string {
