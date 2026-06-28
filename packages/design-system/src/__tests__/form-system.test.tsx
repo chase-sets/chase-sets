@@ -392,6 +392,7 @@ describe("form system", () => {
     expect(screen.getByText("SKU is required.").getAttribute("id")).toBe("sku-error");
     expect(screen.getByText("Checking availability.").getAttribute("id")).toBe("sku-status");
     expect(screen.getByText("0 of 32").getAttribute("id")).toBe("sku-counter");
+    expect(screen.getByText("0 of 32").getAttribute("aria-live")).toBe("polite");
   });
 
   it("extends field anatomy to composite and boolean controls", () => {

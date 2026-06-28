@@ -39,6 +39,8 @@ export function Pagination({
   ...rest
 }: PaginationProps) {
   const pages = buildPageRange(page, totalPages);
+  const previousDisabled = page <= 1;
+  const nextDisabled = page >= totalPages;
 
   return (
     <nav {...rest} aria-label="Pagination" className="flex items-center gap-2">
@@ -46,8 +48,15 @@ export function Pagination({
         label={previousLabel}
         icon="chevronLeft"
         tone="secondary"
-        disabled={page <= 1}
-        onClick={() => onPageChange?.(Math.max(1, page - 1))}
+        aria-disabled={previousDisabled || undefined}
+        onClick={(event) => {
+          if (previousDisabled) {
+            event.preventDefault();
+            return;
+          }
+
+          onPageChange?.(Math.max(1, page - 1));
+        }}
       />
       <div className="flex flex-wrap gap-2">
         {pages.map((value) => {
@@ -84,8 +93,15 @@ export function Pagination({
         label={nextLabel}
         icon="chevronRight"
         tone="secondary"
-        disabled={page >= totalPages}
-        onClick={() => onPageChange?.(Math.min(totalPages, page + 1))}
+        aria-disabled={nextDisabled || undefined}
+        onClick={(event) => {
+          if (nextDisabled) {
+            event.preventDefault();
+            return;
+          }
+
+          onPageChange?.(Math.min(totalPages, page + 1));
+        }}
       />
     </nav>
   );

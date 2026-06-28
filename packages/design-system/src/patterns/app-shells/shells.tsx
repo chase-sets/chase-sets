@@ -42,7 +42,7 @@ export function MarketplaceShell({
         actions={actions}
         width={width}
       />
-      <main id="main-content" className="relative z-0">
+      <main id="main-content" tabIndex={-1} className="relative z-0">
         <Page width={width}>
           {hero}
           {sidebar ? (
@@ -128,6 +128,7 @@ export function AdminShell({
       />
       <main
         id="main-content"
+        tabIndex={-1}
         className={cx(
           "mx-auto min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:py-6 lg:pb-8",
           hasLocalNav && "grid lg:grid-cols-[16rem_minmax(0,1fr)]",

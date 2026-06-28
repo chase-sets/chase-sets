@@ -25,7 +25,12 @@ export function Breadcrumbs({ items, ariaLabel = "Breadcrumb", ...rest }: Breadc
                   {item.label}
                 </a>
               ) : (
-                <span className={isCurrent ? "font-semibold text-foreground" : undefined}>{item.label}</span>
+                <span
+                  aria-current={isCurrent ? "page" : undefined}
+                  className={isCurrent ? "font-semibold text-foreground" : undefined}
+                >
+                  {item.label}
+                </span>
               )}
               {!isCurrent ? <Icon name="chevronRight" size="sm" tone="secondary" /> : null}
             </li>

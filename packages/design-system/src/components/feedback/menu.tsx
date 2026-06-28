@@ -71,7 +71,19 @@ function renderMenuItem(item: MenuItem) {
   }
 
   return (
-    <MenuPrimitive.Item key={item.key} disabled={item.disabled} className={className} onClick={item.onSelect}>
+    <MenuPrimitive.Item
+      key={item.key}
+      aria-disabled={item.disabled || undefined}
+      className={(state) => className({ ...state, disabled: item.disabled })}
+      onClick={(event) => {
+        if (item.disabled) {
+          event.preventDefault();
+          return;
+        }
+
+        item.onSelect?.();
+      }}
+    >
       {content}
     </MenuPrimitive.Item>
   );
