@@ -214,14 +214,14 @@ export function WorkspacePage() {
     expect(entries[0].issueTargets).toEqual(["#1666"]);
   });
 
-  it("does not flag documented inline-style and structural allow-list exceptions", async () => {
+  it("does not flag sanctioned mount primitives or documented permanent structural exceptions", async () => {
     const rootDir = createRepo();
     writeSource(
       rootDir,
       "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
       `
 export function PayoutSetupPage({ containerRef }) {
-  return <div ref={containerRef} aria-label="Stripe" data-testid="stripe-connect-embedded-component" />;
+  return <MountPoint ref={containerRef} purpose="provider" aria-label="Stripe" data-testid="stripe-connect-embedded-component" />;
 }
 `,
     );

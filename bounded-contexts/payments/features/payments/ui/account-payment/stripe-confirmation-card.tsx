@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Inset,
+  MountPoint,
   Stack,
   Surface,
   Text,
@@ -350,7 +351,7 @@ export function StripeConfirmationCard({
       <Stack gap={3}>
         <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
         <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
-        <div ref={containerRef} />
+        <MountPoint ref={containerRef} purpose="provider" />
         {errorMessage ? (
           <Inset>
             <Text>{errorMessage}</Text>

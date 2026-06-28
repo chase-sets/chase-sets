@@ -29,9 +29,12 @@ import {
   EmbeddedProviderSurface,
   Grid,
   IconRow,
+  LiveRegion,
+  MountPoint,
   MediaFrame,
   MobileStickyBar,
   Show,
+  Slot,
   StickyBar,
 } from "../primitives/layout";
 import { Heading, Text } from "../primitives/typography";
@@ -362,6 +365,49 @@ describe("EmbeddedProviderSurface primitive", () => {
     expect(surface.className).toContain("[&_iframe]:min-h-[36rem]");
     expect(surface.className).toContain("[&_iframe]:w-full");
     expect(container.querySelector("iframe")).toBeTruthy();
+  });
+});
+
+describe("LiveRegion primitive", () => {
+  it("renders assertive alert regions for urgent messages", () => {
+    render(
+      <LiveRegion data-testid="live-region">
+        <Text>Payment failed</Text>
+      </LiveRegion>,
+    );
+
+    const region = screen.getByTestId("live-region");
+    expect(region.getAttribute("role")).toBe("alert");
+    expect(region.getAttribute("aria-live")).toBe("assertive");
+    expect(region.getAttribute("aria-atomic")).toBe("true");
+  });
+
+  it("renders polite status regions for non-blocking updates", () => {
+    render(<LiveRegion politeness="polite">Saved</LiveRegion>);
+
+    const region = screen.getByRole("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("MountPoint and Slot primitives", () => {
+  it("forwards refs to sanctioned provider mount hosts", () => {
+    const ref = vi.fn();
+
+    render(<MountPoint ref={ref} purpose="provider" data-testid="mount-point" aria-label="Stripe payment" />);
+
+    const mountPoint = screen.getByTestId("mount-point");
+    expect(ref).toHaveBeenCalledWith(mountPoint);
+    expect(mountPoint.className).toContain("w-full");
+    expect(mountPoint.getAttribute("aria-hidden")).toBeNull();
+  });
+
+  it("hides observer slots from assistive technology by default", () => {
+    render(<Slot purpose="observer" data-testid="sentinel" />);
+
+    const sentinel = screen.getByTestId("sentinel");
+    expect(sentinel.getAttribute("aria-hidden")).toBe("true");
+    expect(sentinel.className).toContain("h-px");
   });
 });
 

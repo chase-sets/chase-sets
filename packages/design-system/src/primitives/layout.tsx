@@ -936,6 +936,70 @@ export function VisuallyHidden({ children, ...rest }: VisuallyHiddenProps) {
   );
 }
 
+export type LiveRegionPoliteness = "polite" | "assertive";
+
+export interface LiveRegionProps extends PropsWithChildren, Omit<FrameProps, "children" | "role"> {
+  politeness?: LiveRegionPoliteness;
+  atomic?: boolean;
+}
+
+/**
+ * Assistive-technology announcement region. `assertive` maps to `role="alert"`
+ * for urgent validation or handoff failures; `polite` maps to `role="status"`
+ * for non-blocking updates.
+ */
+export function LiveRegion({ children, politeness = "assertive", atomic = true, ...rest }: LiveRegionProps) {
+  return (
+    <div {...rest} role={politeness === "assertive" ? "alert" : "status"} aria-live={politeness} aria-atomic={atomic}>
+      {children}
+    </div>
+  );
+}
+
+export type MountPointPurpose = "provider" | "observer" | "generic";
+
+export interface MountPointProps
+  extends PropsWithChildren, Omit<HTMLAttributes<HTMLDivElement>, "children" | "className" | "style"> {
+  purpose?: MountPointPurpose;
+  hiddenFromAssistiveTechnology?: boolean;
+}
+
+const mountPointPurposeClasses: Record<MountPointPurpose, string> = {
+  provider: "block w-full min-w-0",
+  observer: "h-px w-full overflow-hidden",
+  generic: "block min-w-0",
+};
+
+/**
+ * Sanctioned host node for imperative third-party mounts and behavior-only
+ * observer sentinels. It intentionally exposes a ref while keeping local raw
+ * structural elements out of feature UI.
+ */
+export const MountPoint = forwardRef(function MountPoint(
+  { children, purpose = "generic", hiddenFromAssistiveTechnology, ...rest }: MountPointProps,
+  ref: Ref<HTMLDivElement>,
+) {
+  const shouldHideFromAssistiveTechnology = hiddenFromAssistiveTechnology ?? purpose === "observer";
+
+  return (
+    <div
+      {...rest}
+      ref={ref}
+      aria-hidden={shouldHideFromAssistiveTechnology || undefined}
+      className={mountPointPurposeClasses[purpose]}
+    >
+      {children}
+    </div>
+  );
+});
+
+export type SlotProps = MountPointProps;
+
+/** Semantic alias for behavior-only mount points such as observer sentinels. */
+export const Slot = forwardRef(function Slot(props: SlotProps, ref: Ref<HTMLDivElement>) {
+  return <MountPoint {...props} ref={ref} />;
+});
+
 export function renderOptionalNode(node?: ReactNode): ReactNode {
   return node ?? null;
 }

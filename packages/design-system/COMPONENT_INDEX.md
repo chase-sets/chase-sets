@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 353
+- Runtime exports indexed: 356
 - Source modules covered: 117
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -162,6 +162,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `List` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: List. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `ListingCard` | `packages/design-system/src/components/commerce/listings.tsx` | Purpose not documented; symbol name suggests: Listing Card. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `ListingPurchasePanel` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Listing Purchase Panel. | `bounded-contexts/discovery/routes/public-listing.tsx` |
+| `LiveRegion` | `packages/design-system/src/primitives/layout.tsx` | Assistive-technology announcement region. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `LoadingSpinner` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Loading Spinner. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
 | `MarketingImageHero` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Image Hero. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketingVisualCard` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Visual Card. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
@@ -192,6 +193,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MobileStickyBar` | `packages/design-system/src/primitives/layout.tsx` | Mobile-only bottom sticky bar. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MobileStickyInset` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Mobile Sticky Inset. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `ModalDialog` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Modal Dialog. | `bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx` |
+| `MountPoint` | `packages/design-system/src/primitives/layout.tsx` | Sanctioned host node for imperative third-party mounts and behavior-only observer sentinels. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `NativeSelect` | `packages/design-system/src/components/forms/select.tsx` | Purpose not documented; symbol name suggests: Native Select. | `bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx` |
 | `NavigationDrawer` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Navigation Drawer. | `No production consumer yet.` |
 | `NavigationHeader` | `packages/design-system/src/components/actions/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `No production consumer yet.` |
@@ -286,6 +288,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Skeleton` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Skeleton. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx` |
 | `SkipLink` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Skip Link. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Slider` | `packages/design-system/src/components/forms/slider.tsx` | Purpose not documented; symbol name suggests: Slider. | `No production consumer yet.` |
+| `Slot` | `packages/design-system/src/primitives/layout.tsx` | Semantic alias for behavior-only mount points such as observer sentinels. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `Spacer` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Spacer. | `No production consumer yet.` |
 | `SpecificationList` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Specification List. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `SplitPane` | `packages/design-system/src/patterns/app-shells/page-layouts.tsx` | Purpose not documented; symbol name suggests: Split Pane. | `No production consumer yet.` |

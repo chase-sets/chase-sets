@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Card, Stack, Text } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Card, LiveRegion, Stack, Text } from "@chase-sets/design-system";
 
 export function AccountSelectionPage({
   memberships,
@@ -23,9 +23,9 @@ export function AccountSelectionPage({
         </Text>
       </Stack>
       {errorMessage ? (
-        <div role="alert">
+        <LiveRegion>
           <Text>{errorMessage}</Text>
-        </div>
+        </LiveRegion>
       ) : null}
       {memberships.map((membership) => (
         <Card key={membership.accountId}>

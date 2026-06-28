@@ -1,16 +1,16 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-06-28T01:59:20.796Z",
+  "checkedAt": "2026-06-28T10:33:06.231Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
     "representativeSurfaceCount": 19,
     "visualEvidenceCount": 20,
     "accessibilityEvidenceCount": 19,
-    "legacyInventoryFileCount": 9,
+    "legacyInventoryFileCount": 7,
     "legacyInventoryGatingFileCount": 0,
-    "legacyInventoryEntryCount": 9
+    "legacyInventoryEntryCount": 7
   },
   "verificationCommands": [
     "pnpm run ops design-system:legacy-inventory --write-ledger",
