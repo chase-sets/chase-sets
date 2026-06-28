@@ -171,7 +171,10 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(restorePointStep).toContain("terraform output -raw postgres_cluster_id");
     expect(restorePointStep).toContain("terraform state show -no-color digitalocean_database_cluster.postgres");
-    expect(restorePointStep).toContain(`$1 ~ /^[[:space:]]*id$/`);
+    expect(restorePointStep).toContain(`awk -F '='`);
+    expect(restorePointStep).toContain(`gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)`);
+    expect(restorePointStep).toContain(`key == "id"`);
+    expect(restorePointStep).toContain(`gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)`);
   });
 
   it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {

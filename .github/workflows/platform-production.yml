@@ -1829,7 +1829,7 @@ jobs:
           if [ -z "$source_cluster_id" ]; then
             source_cluster_id="$(
               terraform state show -no-color digitalocean_database_cluster.postgres 2>/dev/null \
-                | awk -F ' = ' '$1 ~ /^[[:space:]]*id$/ { gsub(/"/, "", $2); print $2; exit }' \
+                | awk -F '=' '{ key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key); if (key == "id") { value = $2; gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value); print value; exit } }' \
                 || true
             )"
           fi
