@@ -114,7 +114,7 @@ export function DataTable<T>({
   }
 
   function resolveRowSelectLabel(row: T, index: number, rowId: string) {
-    const label = findMeaningfulRowLabel(row) ?? (getRowId ? rowId : undefined);
+    const label = getRowId ? rowId : findMeaningfulRowLabel(row);
     return label ? `Select row ${label}` : `Select row ${index + 1}`;
   }
 
