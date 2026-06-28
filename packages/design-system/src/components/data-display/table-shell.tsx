@@ -130,11 +130,19 @@ export interface TableHeadCellProps extends Omit<ThHTMLAttributes<HTMLTableCellE
   children?: ReactNode;
 }
 
-export function TableHeadCell({ align = "left", control = false, density, children, ...rest }: TableHeadCellProps) {
+export function TableHeadCell({
+  align = "left",
+  control = false,
+  density,
+  scope = "col",
+  children,
+  ...rest
+}: TableHeadCellProps) {
   const resolvedDensity = density ?? useDensity();
   return (
     <th
       {...rest}
+      scope={scope}
       className={
         control
           ? cx("w-12", resolveCellPad(resolvedDensity))

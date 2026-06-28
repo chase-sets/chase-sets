@@ -102,6 +102,22 @@ describe("DataTable mobileMode", () => {
     expect(container.querySelector(".hidden.md\\:block")).not.toBeNull();
   });
 
+  it("associates stacked-card labels and values with description list semantics", () => {
+    const { container } = render(<DataTable rows={baseRows} columns={baseColumns} />);
+
+    const firstCard = within(container).getAllByRole("listitem")[0];
+    const descriptionList = firstCard.querySelector("dl");
+    expect(descriptionList).toBeTruthy();
+
+    const terms = Array.from(descriptionList?.querySelectorAll("dt") ?? []).map((term) => term.textContent);
+    const definitions = Array.from(descriptionList?.querySelectorAll("dd") ?? []).map(
+      (definition) => definition.textContent,
+    );
+
+    expect(terms).toEqual(["Name", "Price", "Stock"]);
+    expect(definitions).toEqual(["Alpha", "10", "Available"]);
+  });
+
   it("drops the card list and always shows the table in scroll mode", () => {
     const { container } = render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
 
@@ -194,6 +210,21 @@ describe("DataTable selection", () => {
     const partial = within(container).getByLabelText("Select all rows");
     expect(partial.getAttribute("aria-checked")).toBe("mixed");
   });
+
+  it("uses a meaningful row name for row selection when getRowId is omitted", () => {
+    render(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        mobileMode="scroll"
+        selectedKeys={new Set<string>()}
+        onSelectionChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Select row Alpha")).toBeTruthy();
+    expect(screen.queryByLabelText("Select row 0")).toBeNull();
+  });
 });
 
 describe("DataTable a11y semantics", () => {
@@ -207,5 +238,6 @@ describe("DataTable a11y semantics", () => {
     render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
     const headers = screen.getAllByRole("columnheader");
     expect(headers.map((header) => header.tagName)).toEqual(["TH", "TH", "TH"]);
+    expect(headers.map((header) => header.getAttribute("scope"))).toEqual(["col", "col", "col"]);
   });
 });

@@ -113,6 +113,11 @@ export function DataTable<T>({
     onSelectionChange(next);
   }
 
+  function resolveRowSelectLabel(row: T, index: number, rowId: string) {
+    const label = getRowId ? rowId : findMeaningfulRowLabel(row);
+    return label ? `Select row ${label}` : `Select row ${index + 1}`;
+  }
+
   function renderSortIndicator(column: DataColumn<T>) {
     if (!column.sortable) return null;
     if (sortKey !== column.key) {
@@ -196,6 +201,7 @@ export function DataTable<T>({
               const rowId = getRowId ? getRowId(row, index) : String(index);
               const isSelected = selectable && selectedKeys.has(rowId);
               const rowProps = getRowProps ? getRowProps(row, index) : undefined;
+              const selectLabel = resolveRowSelectLabel(row, index, rowId);
 
               return (
                 <TableRow key={rowId} surface="inset" selected={isSelected} {...rowProps}>
@@ -206,7 +212,7 @@ export function DataTable<T>({
                         checked={isSelected}
                         disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
                         onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
-                        aria-label={`Select row ${rowId}`}
+                        aria-label={selectLabel}
                         className="h-4 w-4 rounded border-border accent-accent"
                       />
                     </TableCell>
@@ -249,6 +255,7 @@ export function DataTable<T>({
             const canSelect = isRowSelectable ? isRowSelectable(row, rowIndex) : true;
             const isSelected = selectable && selectedKeys.has(rowId);
             const rowProps = getRowProps ? getRowProps(row, rowIndex) : undefined;
+            const selectLabel = resolveRowSelectLabel(row, rowIndex, rowId);
 
             return (
               <div
@@ -268,27 +275,32 @@ export function DataTable<T>({
                         checked={isSelected}
                         disabled={!canSelect}
                         onChange={() => handleSelectRow(rowId, canSelect)}
-                        aria-label={`Select row ${rowId}`}
+                        aria-label={selectLabel}
                         className="h-4 w-4 rounded border-border accent-accent"
                       />
                       <span>Select</span>
                     </label>
                   ) : null}
-                  {columns.map((column) => (
-                    <div key={column.key} className="flex items-start justify-between gap-4">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        {column.mobileLabel ?? column.header}
-                      </div>
+                  <dl>
+                    {columns.map((column) => (
                       <div
-                        className={cx(
-                          "max-w-[60%] text-right text-sm text-foreground",
-                          column.align === "left" && "text-left",
-                        )}
+                        key={column.key}
+                        className="flex items-start justify-between gap-4 py-1.5 first:pt-0 last:pb-0"
                       >
-                        {column.cell(row)}
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                          {column.mobileLabel ?? column.header}
+                        </dt>
+                        <dd
+                          className={cx(
+                            "max-w-[60%] text-right text-sm text-foreground",
+                            column.align === "left" && "text-left",
+                          )}
+                        >
+                          {column.cell(row)}
+                        </dd>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </dl>
                 </div>
               </div>
             );
@@ -303,6 +315,24 @@ export function DataTable<T>({
       <div className={mobileMode === "stack" ? "hidden md:block" : "block"}>{table}</div>
     </div>
   );
+}
+
+function findMeaningfulRowLabel(row: unknown) {
+  if (!row || typeof row !== "object") {
+    return undefined;
+  }
+
+  for (const key of ["name", "displayName", "title", "label", "id"]) {
+    const value = (row as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return undefined;
 }
 
 function SelectAllCheckbox({
