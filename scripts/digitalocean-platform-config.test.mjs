@@ -932,7 +932,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json");
     expect(platformProductionWorkflow).toContain("- name: Resolve staging CI retry metadata");
     expect(platformProductionWorkflow).toContain("STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}");
-    expect(platformProductionWorkflow).toContain('RELEASE_ATTEMPT_PHASE="staging"');
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}",
+    );
+    expect(platformProductionWorkflow).toContain('attempt_phase="staging"');
+    expect(platformProductionWorkflow).toContain('if [ "${PRODUCTION_SUPERSEDED:-}" = "true" ]; then');
+    expect(platformProductionWorkflow).toContain('attempt_phase="production"');
+    expect(platformProductionWorkflow).toContain('attempt_reason="production-superseded-by-newer-main"');
+    expect(platformProductionWorkflow).toContain('superseded_by_commit="${PRODUCTION_SUPERSEDED_BY_COMMIT:-}"');
+    expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_PHASE="$attempt_phase"');
+    expect(platformProductionWorkflow).toContain('export RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT="$superseded_by_commit"');
     expect(platformProductionWorkflow).toContain("name: staging-release-health");
     expect(platformProductionWorkflow).toContain("notify-production-deploy-incident:");
     expect(platformProductionWorkflow).toContain("name: Notify Production Deploy Incident");

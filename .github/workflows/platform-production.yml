@@ -1276,6 +1276,8 @@ jobs:
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
           CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.buy_now_probe_promotion_decision || 'skipped' }}
+          PRODUCTION_SUPERSEDED: ${{ needs.deploy-production.outputs.superseded }}
+          PRODUCTION_SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}
           PRODUCTION_RESULT: skipped
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
@@ -1299,13 +1301,24 @@ jobs:
             attempt_reason="staging-not-deployed"
           fi
 
+          attempt_result="$staging_result"
+          attempt_phase="staging"
+          superseded_by_commit=""
+          if [ "${PRODUCTION_SUPERSEDED:-}" = "true" ]; then
+            attempt_result="skipped"
+            attempt_phase="production"
+            attempt_reason="production-superseded-by-newer-main"
+            superseded_by_commit="${PRODUCTION_SUPERSEDED_BY_COMMIT:-}"
+          fi
+
           export STAGING_RESULT="$staging_result"
           if [ "${CANARY_RESULT:-skipped}" = "skipped" ]; then
             export CANARY_SKIPPED_REASON="$attempt_reason"
           fi
-          export RELEASE_ATTEMPT_RESULT="$staging_result"
-          export RELEASE_ATTEMPT_PHASE="staging"
+          export RELEASE_ATTEMPT_RESULT="$attempt_result"
+          export RELEASE_ATTEMPT_PHASE="$attempt_phase"
           export RELEASE_ATTEMPT_REASON="$attempt_reason"
+          export RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT="$superseded_by_commit"
           export RELEASE_ATTEMPT_WORKFLOW_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
 
           node ./scripts/release-health.mjs
