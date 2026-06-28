@@ -207,7 +207,7 @@ export function RailReferenceInfo({
   return (
     <>
       <ReferenceInfoTrigger
-        tone="subtle"
+        tone="neutral"
         aria-label={ariaLabel}
         onClick={() => {
           setOpen(true);

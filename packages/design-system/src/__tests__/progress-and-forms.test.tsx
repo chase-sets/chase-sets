@@ -76,23 +76,22 @@ describe("ProgressBar built on ProgressTrack", () => {
     expect(screen.getByText("50% done")).toBeTruthy();
   });
 
-  it("maps legacy tone names onto the preserved fill colors", () => {
+  it("maps canonical tone names onto the shared fill colors", () => {
     expect(renderToString(<ProgressBar value={50} tone="accent" />)).toContain("bg-accent");
     expect(renderToString(<ProgressBar value={50} tone="neutral" />)).toContain("bg-secondary");
-    expect(renderToString(<ProgressBar value={50} tone="active" />)).toContain("bg-secondary");
-    expect(renderToString(<ProgressBar value={50} tone="blocked" />)).toContain("bg-danger");
+    expect(renderToString(<ProgressBar value={50} tone="danger" />)).toContain("bg-danger");
     expect(renderToString(<ProgressBar value={50} tone="info" />)).toContain("bg-info");
   });
 });
 
 describe("Progress built on ProgressTrack", () => {
-  it("keeps its tone vocabulary and exposes the progressbar role", () => {
+  it("keeps the shared tone vocabulary and exposes the progressbar role", () => {
     render(<Progress value={25} tone="success" label="Sync" />);
 
     const bar = screen.getByRole("progressbar", { name: "Sync" });
     expect(bar.getAttribute("aria-valuenow")).toBe("25");
-    expect(renderToString(<Progress value={25} tone="active" />)).toContain("bg-accent");
-    expect(renderToString(<Progress value={25} tone="blocked" />)).toContain("bg-danger");
+    expect(renderToString(<Progress value={25} tone="accent" />)).toContain("bg-accent");
+    expect(renderToString(<Progress value={25} tone="danger" />)).toContain("bg-danger");
   });
 });
 

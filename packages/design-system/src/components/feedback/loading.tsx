@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from "react";
-import { ProgressTrack, type SurfaceSemanticTone } from "../../primitives/layout";
+import { ProgressTrack } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
-import type { Tone } from "./shared";
+import { type Tone, toneToSemantic } from "./shared";
 
 export interface LoadingSpinnerProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   label?: string;
@@ -22,23 +22,7 @@ export function LoadingSpinner({ label = "Loading", size = "md", ...rest }: Load
   );
 }
 
-export type ProgressBarTone = Tone | "active" | "blocked";
-
-/**
- * Maps the historical {@link ProgressBar} tone names onto the shared semantic
- * vocabulary the {@link ProgressTrack} primitive draws from, preserving each
- * bar's existing fill color.
- */
-const progressBarToneMap: Record<ProgressBarTone, SurfaceSemanticTone> = {
-  accent: "primary",
-  neutral: "neutral",
-  active: "neutral",
-  success: "success",
-  warning: "warning",
-  danger: "danger",
-  blocked: "danger",
-  info: "info",
-};
+export type ProgressBarTone = Tone;
 
 export interface ProgressBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   value: number;
@@ -58,20 +42,13 @@ export function ProgressBar({
 
   return (
     <div {...rest} className="space-y-2">
-      <ProgressTrack value={percentage} tone={progressBarToneMap[tone]} />
+      <ProgressTrack value={percentage} tone={toneToSemantic(tone)} />
       <div className="text-xs text-secondary">{formatLabel(percentage)}</div>
     </div>
   );
 }
 
-export type ProgressTone = "neutral" | "active" | "success" | "blocked";
-
-const progressToneMap: Record<ProgressTone, SurfaceSemanticTone> = {
-  neutral: "neutral",
-  active: "primary",
-  success: "success",
-  blocked: "danger",
-};
+export type ProgressTone = Tone;
 
 export interface ProgressProps {
   value: number;
@@ -79,8 +56,8 @@ export interface ProgressProps {
   label?: string;
 }
 
-export function Progress({ value, tone = "active", label }: ProgressProps) {
-  return <ProgressTrack value={value} tone={progressToneMap[tone]} label={label} />;
+export function Progress({ value, tone = "accent", label }: ProgressProps) {
+  return <ProgressTrack value={value} tone={toneToSemantic(tone)} label={label} />;
 }
 
 export interface SkeletonProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {

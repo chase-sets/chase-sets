@@ -570,7 +570,7 @@ function SellListTermsReferenceInfo({ review, quantity }: { review: SellListOffe
   return (
     <>
       <ReferenceInfoTrigger
-        tone="subtle"
+        tone="neutral"
         aria-label={t("checkout.features.sellList.ui.sellListPage.estimated.payout.aria")}
         onClick={() => setOpen(true)}
       >

@@ -13,6 +13,7 @@ import { cx } from "../utils/cx";
 import { resolveTextAlignClass, type TextAlignValue } from "../utils/system";
 import { AspectRatio, Center, Surface } from "./layout";
 import type { PolymorphicPrimitive, PolymorphicProps } from "./polymorphic";
+import type { Tone } from "../components/feedback/shared";
 
 type TextElement = "p" | "span" | "strong" | "em" | "div";
 
@@ -229,8 +230,10 @@ export function InlineTextGroup({ children, gap = 2, align = "center", ...rest }
   );
 }
 
+type LinkTextTone = Extract<Tone, "accent" | "neutral">;
+
 export interface LinkTextProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> {
-  tone?: "accent" | "subtle";
+  tone?: LinkTextTone;
   trailingIcon?: IconName;
 }
 
