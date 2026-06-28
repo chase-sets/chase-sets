@@ -142,7 +142,7 @@ export function CatalogIntegrationMergeCandidateReviewModule({
                 />
               ))}
             </WorkbenchActionRow>
-            <BlockerList blockers={row.actions.flatMap((actionEntry) => actionEntry.blockers)} compact hideWhenEmpty />
+            <BlockerList blockers={visibleActionBlockersFor(row)} compact hideWhenEmpty />
           </WorkbenchStack>
         ),
       },
@@ -278,18 +278,7 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
         />
         <EvidenceStringList
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads")}
-          items={row.actions.flatMap((actionEntry) =>
-            actionEntry.commandPreview
-              ? [
-                  t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayload", {
-                    action: candidateActionLabel(actionEntry.key),
-                    kind: actionEntry.commandPreview.commandKind,
-                    sourceCount: actionEntry.commandPreview.provenance.membership.length,
-                    productReferenceCount: actionEntry.commandPreview.provenance.externalProductReferences.length,
-                  }),
-                ]
-              : [],
-          )}
+          items={commandPayloadSummariesFor(row)}
           emptyLabel={t(
             "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayloads.empty",
           )}
@@ -297,6 +286,44 @@ function MergeCandidateDetailSheet({ row }: Readonly<{ row: MergeCandidateRow }>
       </WorkbenchStack>
     </SideSheet>
   );
+}
+
+function visibleActionBlockersFor(
+  row: MergeCandidateRow,
+): readonly MergeCandidateRow["actions"][number]["blockers"][number][] {
+  return row.actions
+    .flatMap((actionEntry) => actionEntry.blockers)
+    .filter((blocker) => blocker !== "unsupported-command");
+}
+
+function commandPayloadSummariesFor(row: MergeCandidateRow): readonly string[] {
+  return row.actions.flatMap((actionEntry) => {
+    if (actionEntry.commandPreview) {
+      return [
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayload", {
+          action: candidateActionLabel(actionEntry.key),
+          kind: actionEntry.commandPreview.commandKind,
+          sourceCount: actionEntry.commandPreview.provenance.membership.length,
+          productReferenceCount: actionEntry.commandPreview.provenance.externalProductReferences.length,
+        }),
+      ];
+    }
+    if (
+      actionEntry.key === "promote-merge-candidate" &&
+      (actionEntry.state === "available" || actionEntry.state === "degraded")
+    ) {
+      return [
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.detail.commandPayload", {
+          action: candidateActionLabel(actionEntry.key),
+          kind: "direct-catalog-merge-candidate-promotion",
+          sourceCount: row.sourceCount,
+          productReferenceCount: row.proposedMapping.externalProductReferences.length,
+        }),
+      ];
+    }
+
+    return [];
+  });
 }
 
 function MergeCandidateActionButton({

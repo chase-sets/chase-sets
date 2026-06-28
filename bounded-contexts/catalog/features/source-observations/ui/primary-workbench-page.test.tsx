@@ -526,6 +526,87 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByRole("button", { name: /Promote: Charizard/ }).length).toBeGreaterThan(0);
   });
 
+  it("keeps ready TCGplayer Pokemon merge-candidate Promote enabled when Source Observation review has no changed rows", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set&profileVersion=2026.06.05",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "tcgplayer",
+            observed_observations: 102,
+            changed_observations: 0,
+            promoted_observations: 0,
+            expansion_id: "Base Set",
+            expansion_name: "Base Set",
+            series_id: undefined,
+            series_name: undefined,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "pokemon-single-card-product-sku",
+            profileVersion: "2026.06.05",
+            displayName: "TCGplayer Pokemon Single Cards",
+            active: true,
+            lifecycle: "active",
+            status: "active",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [], total: 0, count: 0 },
+      mergeCandidates: {
+        items: [
+          catalogMergeCandidateListItem({
+            proposed_external_catalog_item_references_json: [
+              { providerKey: "tcgplayer", externalKey: "product:86271" },
+            ],
+            membership_json: [
+              {
+                ...catalogMergeCandidateListItem().membership_json[1],
+                observationId: "tcgplayer_en_product_86271",
+                externalKey: "product:86271",
+              },
+            ],
+            field_provenance_json: [
+              {
+                ...catalogMergeCandidateListItem().field_provenance_json[1],
+                observationId: "tcgplayer_en_product_86271",
+              },
+            ],
+            observation_count: 1,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Review changes/ }));
+
+    const reviewModule = screen.getByRole("heading", { name: "Merged candidate review" }).closest("section");
+    expect(reviewModule).toBeTruthy();
+    const promoteButtons = within(reviewModule!).getAllByRole("button", { name: /Promote: Charizard/ });
+    expect(promoteButtons.some((button) => !button.hasAttribute("disabled"))).toBe(true);
+    expect(within(reviewModule!).queryByText("Command unavailable")).toBeNull();
+
+    fireEvent.click(within(reviewModule!).getAllByRole("button", { name: "Evidence" }).at(0)!);
+
+    expect(screen.getByText(/Promote: direct-catalog-merge-candidate-promotion from \d+ source/)).toBeTruthy();
+  });
+
   it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
