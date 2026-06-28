@@ -1282,14 +1282,22 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     const body = (await c.req.raw
       .clone()
       .json()
-      .catch(() => null)) as JsonRpcRequest | null;
-    if (!body || body.jsonrpc !== JSON_RPC_VERSION) {
+      .catch(() => null)) as JsonRpcRequest | readonly unknown[] | null;
+    if (Array.isArray(body)) {
+      return c.json(jsonRpcError(null, -32600, "JSON-RPC batch requests are not supported."), 400);
+    }
+    if (!body || typeof body !== "object") {
       return c.json(jsonRpcError(null, -32600, "Invalid JSON-RPC request."), 400);
     }
 
-    if (body.method === "initialize") {
+    const request = body as JsonRpcRequest;
+    if (request.jsonrpc !== JSON_RPC_VERSION) {
+      return c.json(jsonRpcError(null, -32600, "Invalid JSON-RPC request."), 400);
+    }
+
+    if (request.method === "initialize") {
       return c.json(
-        jsonRpcResult(body.id, {
+        jsonRpcResult(request.id, {
           protocolVersion: "2025-06-18",
           serverInfo: {
             name: "chase-sets-ucp",
@@ -1304,28 +1312,28 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       );
     }
 
-    if (body.method === "tools/list") {
+    if (request.method === "tools/list") {
       return c.json(
-        jsonRpcResult(body.id, {
+        jsonRpcResult(request.id, {
           tools: UCP_MCP_TOOLS.map(toMcpToolListItem),
         }),
       );
     }
 
-    if (body.method === "resources/list") {
+    if (request.method === "resources/list") {
       return c.json(
-        jsonRpcResult(body.id, {
+        jsonRpcResult(request.id, {
           resources: UCP_MCP_RESOURCES.map(toMcpResourceListItem),
         }),
       );
     }
 
-    if (body.method === "tools/call") {
-      const params = normalizeArguments(body.params) as UcpToolCallParams;
+    if (request.method === "tools/call") {
+      const params = normalizeArguments(request.params) as UcpToolCallParams;
       const toolName = typeof params.name === "string" ? params.name : "";
       const tool = UCP_MCP_TOOLS.find((candidate) => candidate.name === toolName);
       if (!tool) {
-        return c.json(jsonRpcError(body.id, -32602, `Unknown UCP MCP tool '${toolName}'.`), 400);
+        return c.json(jsonRpcError(request.id, -32602, `Unknown UCP MCP tool '${toolName}'.`));
       }
 
       const args = normalizeArguments(params.arguments);
@@ -1333,7 +1341,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
           if (tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
-            return c.json(jsonRpcResult(body.id, toolResult(tool, unsignedMcpTrustedHandoff(tool, args))));
+            return c.json(jsonRpcResult(request.id, toolResult(tool, unsignedMcpTrustedHandoff(tool, args))));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1341,7 +1349,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
             reason: signedFailure,
             agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
           });
-          return c.json(jsonRpcError(body.id, -32602, signedFailure), 400);
+          return c.json(jsonRpcError(request.id, -32602, signedFailure));
         }
         const signatureFailure = await verifyHttpMessageSignature(c.req.raw, options.signatureVerification);
         if (signatureFailure) {
@@ -1351,11 +1359,11 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
             reason: signatureFailure,
             agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
           });
-          return c.json(jsonRpcError(body.id, -32602, signatureFailure), 400);
+          return c.json(jsonRpcError(request.id, -32602, signatureFailure));
         }
 
         if (missingIdempotencyKey(c.req.raw)) {
-          return c.json(jsonRpcError(body.id, -32602, `Idempotency-Key is required for ${tool.name}.`), 400);
+          return c.json(jsonRpcError(request.id, -32602, `Idempotency-Key is required for ${tool.name}.`));
         }
       }
 
@@ -1374,26 +1382,25 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         result.messages?.some((message) => message.code === "idempotency_key_conflict")
       ) {
         return c.json(
-          jsonRpcError(body.id, -32000, "Idempotency-Key was already used with different request parameters."),
-          409,
+          jsonRpcError(request.id, -32000, "Idempotency-Key was already used with different request parameters."),
         );
       }
 
-      return c.json(jsonRpcResult(body.id, toolResult(tool, result)));
+      return c.json(jsonRpcResult(request.id, toolResult(tool, result)));
     }
 
-    if (body.method === "resources/read") {
-      const params = normalizeResourceReadParams(body.params);
+    if (request.method === "resources/read") {
+      const params = normalizeResourceReadParams(request.params);
       const uri = typeof params.uri === "string" ? params.uri : "";
       const result = readUcpMcpResource(uri);
       if (!result) {
-        return c.json(jsonRpcError(body.id, -32602, `Unknown UCP MCP resource '${uri}'.`), 400);
+        return c.json(jsonRpcError(request.id, -32602, `Unknown UCP MCP resource '${uri}'.`));
       }
 
-      return c.json(jsonRpcResult(body.id, result));
+      return c.json(jsonRpcResult(request.id, result));
     }
 
-    return c.json(jsonRpcError(body.id, -32601, `Unsupported UCP MCP method '${body.method ?? ""}'.`), 404);
+    return c.json(jsonRpcError(request.id, -32601, `Unsupported UCP MCP method '${request.method ?? ""}'.`));
   });
 
   return app;

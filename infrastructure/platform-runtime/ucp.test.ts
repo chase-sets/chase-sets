@@ -499,6 +499,81 @@ describe("UCP MCP routes", () => {
     });
   });
 
+  it("rejects UCP MCP JSON-RPC batches as transport-level invalid requests", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify([{ jsonrpc: "2.0", id: "1", method: "tools/list" }]),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32600,
+        message: "JSON-RPC batch requests are not supported.",
+      },
+    });
+  });
+
+  it("returns UCP MCP protocol errors in-band with HTTP 200", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+
+    const unknownTool = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "tool",
+        method: "tools/call",
+        params: { name: "missing_tool" },
+      }),
+    });
+    const unknownResource = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "resource",
+        method: "resources/read",
+        params: { uri: "ui://missing/resource.html" },
+      }),
+    });
+    const unsupportedMethod = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "method",
+        method: "prompts/list",
+      }),
+    });
+
+    expect(unknownTool.status).toBe(200);
+    await expect(unknownTool.json()).resolves.toMatchObject({
+      id: "tool",
+      error: {
+        code: -32602,
+        message: "Unknown UCP MCP tool 'missing_tool'.",
+      },
+    });
+    expect(unknownResource.status).toBe(200);
+    await expect(unknownResource.json()).resolves.toMatchObject({
+      id: "resource",
+      error: {
+        code: -32602,
+        message: "Unknown UCP MCP resource 'ui://missing/resource.html'.",
+      },
+    });
+    expect(unsupportedMethod.status).toBe(200);
+    await expect(unsupportedMethod.json()).resolves.toMatchObject({
+      id: "method",
+      error: {
+        code: -32601,
+        message: "Unsupported UCP MCP method 'prompts/list'.",
+      },
+    });
+  });
+
   it("requires idempotency for complete_checkout tool calls", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
     const body = JSON.stringify({
@@ -517,7 +592,7 @@ describe("UCP MCP routes", () => {
       headers: signedHeaders(body),
     });
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       error: {
         message: "Idempotency-Key is required for complete_checkout.",
@@ -803,7 +878,7 @@ describe("UCP MCP routes", () => {
     await expect(replay.json()).resolves.toMatchObject({
       result: { structuredContent: { checkout: { id: "chk_1" } } },
     });
-    expect(conflict.status).toBe(409);
+    expect(conflict.status).toBe(200);
     await expect(conflict.json()).resolves.toMatchObject({
       error: {
         message: "Idempotency-Key was already used with different request parameters.",

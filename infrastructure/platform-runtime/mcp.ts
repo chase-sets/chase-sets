@@ -773,22 +773,26 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   });
 
   app.post("/", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
+    const body = (await c.req.json().catch(() => null)) as JsonRpcRequest | readonly unknown[] | null;
+    if (Array.isArray(body)) {
+      return c.json(jsonRpcError(null, -32600, "JSON-RPC batch requests are not supported."), 400);
+    }
     if (!body || typeof body !== "object") {
       return c.json(jsonRpcError(null, -32700, "Invalid JSON-RPC request."), 400);
     }
 
+    const request = body as JsonRpcRequest;
     const actor = c.get("actor") ?? null;
 
-    switch (body.method) {
+    switch (request.method) {
       case "initialize": {
         const actorError = requireMcpDiscoveryActor(actor);
         if (actorError) {
-          return c.json({ ...actorError, id: body.id ?? null }, 401);
+          return c.json({ ...actorError, id: request.id ?? null }, 401);
         }
 
         return c.json(
-          jsonRpcResult(body.id, {
+          jsonRpcResult(request.id, {
             protocolVersion: "2025-03-26",
             serverInfo: {
               name: "chase-sets-platform",
@@ -804,11 +808,11 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
       case "tools/list": {
         const actorError = requireMcpDiscoveryActor(actor);
         if (actorError) {
-          return c.json({ ...actorError, id: body.id ?? null }, 401);
+          return c.json({ ...actorError, id: request.id ?? null }, 401);
         }
 
         return c.json(
-          jsonRpcResult(body.id, {
+          jsonRpcResult(request.id, {
             tools: flattenAvailableMcpTools(services).map(toToolListItem),
           }),
         );
@@ -816,33 +820,33 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
       case "resources/list": {
         const actorError = requireMcpDiscoveryActor(actor);
         if (actorError) {
-          return c.json({ ...actorError, id: body.id ?? null }, 401);
+          return c.json({ ...actorError, id: request.id ?? null }, 401);
         }
 
         return c.json(
-          jsonRpcResult(body.id, {
+          jsonRpcResult(request.id, {
             resources: flattenAvailableMcpResources(services).map(toResourceListItem),
           }),
         );
       }
       case "tools/call": {
-        const result = await callTool(c.req.raw, actor, (body.params ?? {}) as McpToolCallParams, {
+        const result = await callTool(c.req.raw, actor, (request.params ?? {}) as McpToolCallParams, {
           services,
           toolHandlers,
           audit: options.audit,
         });
-        return c.json({ ...result, id: body.id ?? null });
+        return c.json({ ...result, id: request.id ?? null });
       }
       case "resources/read": {
-        const result = await readResource(c.req.raw, actor, (body.params ?? {}) as McpResourceReadParams, {
+        const result = await readResource(c.req.raw, actor, (request.params ?? {}) as McpResourceReadParams, {
           services,
           resourceHandlers,
           audit: options.audit,
         });
-        return c.json({ ...result, id: body.id ?? null });
+        return c.json({ ...result, id: request.id ?? null });
       }
       default:
-        return c.json(jsonRpcError(body.id, -32601, `Unsupported MCP method '${body.method}'.`), 404);
+        return c.json(jsonRpcError(request.id, -32601, `Unsupported MCP method '${request.method}'.`));
     }
   });
 
