@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createMcpRoutes, type McpAuditRecord } from "./mcp";
+import { MCP_PROTOCOL_VERSION } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import type { McpServiceDescriptor } from "./mcp-contracts";
 
@@ -198,6 +199,35 @@ describe("MCP runtime routes", () => {
             uriTemplate: "chase-sets://inventory/{accountId}/import-batches/{batchId}",
           }),
         ],
+      },
+    });
+  });
+
+  it("negotiates the native MCP protocol version on initialize", async () => {
+    const app = createActorApp(actor);
+
+    const supportedResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: MCP_PROTOCOL_VERSION })),
+    });
+    const unsupportedResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: "2025-03-26" })),
+    });
+
+    expect(supportedResponse.status).toBe(200);
+    await expect(supportedResponse.json()).resolves.toMatchObject({
+      result: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        serverInfo: {
+          name: "chase-sets-platform",
+        },
+      },
+    });
+    expect(unsupportedResponse.status).toBe(200);
+    await expect(unsupportedResponse.json()).resolves.toMatchObject({
+      result: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
       },
     });
   });
