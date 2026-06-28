@@ -550,6 +550,7 @@ describe("platform api app wiring", () => {
             accountId: "account_1",
             batchId: "batch_1",
             reason: "Commit reviewed rows.",
+            idempotencyKey: "commit_mismatched_confirmation",
             confirmationText: "Commit inventory import batch.",
           },
           confirmation: {
