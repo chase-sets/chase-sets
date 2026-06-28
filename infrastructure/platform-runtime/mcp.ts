@@ -414,31 +414,47 @@ async function readResource(
     });
   }
 
-  const result = await handler({
-    actor,
-    resource,
-    uri: params.uri,
-    request,
-  });
-  await audit(options.audit, {
-    outcome: "allowed",
-    method: "resources/read",
-    resourceUri: params.uri,
-    actorId: actor?.userId ?? null,
-    accountId: actor?.accountId ?? null,
-    auditEventName: pseudoTool.audit.eventName,
-    targetType: pseudoTool.audit.targetType,
-  });
+  try {
+    const result = await handler({
+      actor,
+      resource,
+      uri: params.uri,
+      request,
+    });
+    await audit(options.audit, {
+      outcome: "allowed",
+      method: "resources/read",
+      resourceUri: params.uri,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: pseudoTool.audit.eventName,
+      targetType: pseudoTool.audit.targetType,
+    });
 
-  return jsonRpcResult(null, {
-    contents: [
-      {
-        uri: params.uri,
-        mimeType: "application/json",
-        text: JSON.stringify(result),
-      },
-    ],
-  });
+    return jsonRpcResult(null, {
+      contents: [
+        {
+          uri: params.uri,
+          mimeType: "application/json",
+          text: JSON.stringify(result),
+        },
+      ],
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await audit(options.audit, {
+      outcome: "failed",
+      method: "resources/read",
+      resourceUri: params.uri,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: pseudoTool.audit.eventName,
+      targetType: pseudoTool.audit.targetType,
+      reason,
+    });
+
+    return jsonRpcError(null, -32000, reason);
+  }
 }
 
 export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {

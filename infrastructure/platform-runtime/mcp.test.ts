@@ -368,4 +368,47 @@ describe("MCP runtime routes", () => {
       },
     });
   });
+
+  it("returns a JSON-RPC error and failed audit when a resource handler throws", async () => {
+    const audit = vi.fn();
+    const app = createActorApp(actor, {
+      resourceHandlers: {
+        "chase-sets://inventory/{accountId}/import-batches/{batchId}": vi.fn(async () => {
+          throw new Error("Import batch read failed.");
+        }),
+      },
+      audit,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("resources/read", {
+          uri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32000,
+        message: "Import batch read failed.",
+      },
+    });
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "failed",
+        method: "resources/read",
+        resourceUri: "chase-sets://inventory/account_1/import-batches/batch_1",
+        actorId: "user_1",
+        accountId: "account_1",
+        auditEventName: "mcp.inventory.resources.read",
+        targetType: "Inventory Import Batch",
+        reason: "Import batch read failed.",
+      }),
+    );
+  });
 });
