@@ -160,6 +160,9 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     await handlers[eventType]!(event(eventType, {}));
 
     expect(replayDb.snapshotState().items.cat_1).toMatchObject({ status });
+    const statusEffect = replayDb.effects.find((effect) => effect.sql.includes("SET status = $2"));
+    expect(statusEffect).toMatchObject({ params: ["cat_1", status, expect.any(String)] });
+    expect(statusEffect?.sql).not.toContain(`'${status}'`);
   });
 
   it("projects created items with resolved localized display text", async () => {

@@ -277,10 +277,10 @@ export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: Cata
 
       await db.query(
         `UPDATE ${tables.items}
-         SET status = '${status}',
-             updated_at = $2
+         SET status = $2,
+             updated_at = $3
          WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
+        [itemId, status, event.timing.recordedAt],
       );
     };
   }
@@ -395,10 +395,10 @@ export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: Cata
 
       await db.query(
         `UPDATE ${tables.items}
-         SET status = '${publishedStatus}',
-             updated_at = $2
+         SET status = $2,
+             updated_at = $3
          WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
+        [itemId, publishedStatus, event.timing.recordedAt],
       );
 
       if (spec.refreshProductSchemaOnItemPublished) {

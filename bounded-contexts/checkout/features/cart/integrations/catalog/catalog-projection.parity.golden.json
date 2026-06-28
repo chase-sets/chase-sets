@@ -368,8 +368,8 @@
       ]
     },
     {
-      "sql": "UPDATE checkout_catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_alpha", "2026-06-01T00:18:00.000Z"]
+      "sql": "UPDATE checkout_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "active", "2026-06-01T00:18:00.000Z"]
     },
     {
       "sql": "INSERT INTO checkout_catalog_items ( catalog_item_id, language_code, title, subtitle, status, updated_at ) VALUES ($1, $2, $3, $4, 'draft', $5) ON CONFLICT (catalog_item_id) DO UPDATE SET language_code = EXCLUDED.language_code, title = EXCLUDED.title, subtitle = EXCLUDED.subtitle, updated_at = EXCLUDED.updated_at",
@@ -400,12 +400,12 @@
       ]
     },
     {
-      "sql": "UPDATE checkout_catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_beta", "2026-06-01T00:23:00.000Z"]
+      "sql": "UPDATE checkout_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", "archived", "2026-06-01T00:23:00.000Z"]
     },
     {
-      "sql": "UPDATE checkout_catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_alpha", "2026-06-01T00:26:00.000Z"]
+      "sql": "UPDATE checkout_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "archived", "2026-06-01T00:26:00.000Z"]
     }
   ],
   "finalState": {
