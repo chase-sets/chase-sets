@@ -20,6 +20,7 @@ import {
 import { createSesEmailWebhookGateway } from "@chase-sets/ses-email";
 import { createTwilioMessagingWebhookGateway } from "@chase-sets/twilio-messaging";
 import {
+  createInMemoryRealtimeStreamLimiter,
   createMergedRealtimeWakeSignal,
   createPostgresRealtimeStreamLimiter,
   createRealtimeOutboxPartitionMaintainer,
@@ -40,6 +41,7 @@ import {
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
+import { createMcpToolCallLimiterFromRealtime } from "@chase-sets/platform-runtime/mcp-tool-call-limiter";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -389,6 +391,12 @@ const ucpObserver = {
       ...event,
     });
   },
+  toolCallLimited: (event) => {
+    logger.warn("UCP MCP tool call limited.", {
+      type: "ucp.mcp.tool_call.limited",
+      ...event,
+    });
+  },
 } satisfies UcpRuntimeObserver;
 const mcpAudit = (record: McpAuditRecord) => {
   recordMcpAuditRecord(record);
@@ -403,6 +411,7 @@ const mcpAudit = (record: McpAuditRecord) => {
     auditEventName: record.auditEventName,
     targetType: record.targetType,
     reason: record.reason,
+    limitKind: record.limitKind,
   };
 
   if (record.outcome === "allowed") {
@@ -421,6 +430,9 @@ configureDefaultDurableJobStreamLimiter(
       })
     : undefined,
 );
+const mcpToolCallLimiter = realtimeStreamLimiter.limiter
+  ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
+  : undefined;
 const drainState = createProcessDrainState();
 const workSignalStore = createPostgresWorkSignalStore(pools.control, {
   ...(config.readConsistency?.wakeBeforeWaitEnabled
@@ -480,12 +492,14 @@ const app = buildPlatformApiApp(runtime, {
       keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
     },
     observer: ucpObserver,
+    mcpToolCallLimiter,
   },
   mcp: {
     audit: mcpAudit,
     idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),
+    toolCallLimiter: mcpToolCallLimiter,
   },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
@@ -661,6 +675,12 @@ async function createPlatformRealtimeStreamLimiter(): Promise<
         leaseTtlMs: config.realtime.streamLimiter.leaseTtlMs,
         renewIntervalMs: config.realtime.streamLimiter.renewIntervalMs,
       }),
+    };
+  }
+
+  if (config.realtime.streamLimiter.kind === "local") {
+    return {
+      limiter: createInMemoryRealtimeStreamLimiter(),
     };
   }
 

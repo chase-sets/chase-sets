@@ -52,6 +52,8 @@ Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "appli
 
 JSON-RPC MCP transport status convention: `/ucp/mcp` and the native `/mcp` endpoint return HTTP 200 with an in-band JSON-RPC `error` object for protocol/application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, and authentication failures that prevent discovery from producing a normal JSON-RPC response. Both MCP surfaces negotiate the `2025-06-18` protocol baseline and fall back to it for unsupported client proposals; batch arrays are rejected explicitly instead of being partially executed.
 
+MCP tool calls are concurrency-limited before handler execution by the platform realtime limiter. Production-like deployments should keep `REALTIME_STREAM_LIMITER=postgres` or `redis`; local mode uses in-memory process limits. Tune `MCP_MAX_CONCURRENT_TOOL_CALLS`, `MCP_MAX_CONCURRENT_TOOL_CALLS_PER_PRINCIPAL`, `MCP_MAX_CONCURRENT_WRITE_TOOL_CALLS_PER_PRINCIPAL`, and `MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL` when staging evidence shows legitimate agent fan-out needs more headroom. Limit rejections return a clear MCP error and are logged through native MCP audit or the UCP observer.
+
 Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
 
 ## Signed Checkout Writes

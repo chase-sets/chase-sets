@@ -23,6 +23,7 @@ import {
   type UcpMcpResourceDescriptor,
   type UcpMcpToolDescriptor,
 } from "./ucp-contracts";
+import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
 
 export {
@@ -142,6 +143,7 @@ export type UcpRuntimeObserver = Readonly<{
   idempotencyReplayed?: (event: UcpRuntimeIdempotencyEvent) => void;
   idempotencyConflict?: (event: UcpRuntimeIdempotencyEvent) => void;
   operationCompleted?: (event: UcpRuntimeOperationEvent) => void;
+  toolCallLimited?: (event: UcpRuntimeToolLimitEvent) => void;
 }>;
 
 export type UcpRuntimeSecurityEvent = Readonly<{
@@ -165,10 +167,21 @@ export type UcpRuntimeOperationEvent = Readonly<{
   agentProfileUrl: string | null;
 }>;
 
+export type UcpRuntimeToolLimitEvent = Readonly<{
+  transport: "mcp";
+  operation: string;
+  reason: string;
+  limitKind: McpToolCallLimitKind;
+  actorId: string | null;
+  accountId: string | null;
+  agentProfileUrl: string | null;
+}>;
+
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
+  mcpToolCallLimiter?: McpToolCallLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
   signatureVerification?: UcpSignatureVerificationOptions;
   businessSigningKeys?: UcpBusinessSigningKeySet;
@@ -1210,10 +1223,11 @@ async function invokeRestWrite(
 async function invokeMcpTool(
   c: Context<UcpRuntimeEnv>,
   options: CreateUcpRoutesOptions,
-  toolName: string,
+  tool: UcpMcpToolDescriptor,
   args: Readonly<Record<string, unknown>>,
   idempotencyStore: UcpIdempotencyStore,
 ) {
+  const toolName = tool.name;
   const input: UcpOperationHandlerInput = {
     actor: c.get("actor") ?? null,
     context: c.get("context") ?? null,
@@ -1243,20 +1257,107 @@ async function invokeMcpTool(
     return idempotencyConflictEnvelope();
   }
 
-  const response = await (options.mcpToolHandlers?.[toolName]?.(input) ?? unsupported(toolName));
-  await idempotencyStore.put({
-    key,
-    requestHash,
-    response,
-    createdAt: new Date().toISOString(),
-  });
-  emitObserver(options.observer?.operationCompleted, {
+  const limit = await acquireUcpMcpToolCallLease(c, options, tool);
+  if (!limit.allowed) {
+    return ucpMcpToolLimitEnvelope(limit.reason);
+  }
+
+  try {
+    const response = await (options.mcpToolHandlers?.[toolName]?.(input) ?? unsupported(toolName));
+    await idempotencyStore.put({
+      key,
+      requestHash,
+      response,
+      createdAt: new Date().toISOString(),
+    });
+    emitObserver(options.observer?.operationCompleted, {
+      transport: "mcp",
+      operation: toolName,
+      status: response.ucp.status,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
+    return response;
+  } finally {
+    await Promise.resolve(limit.lease?.release()).catch(() => undefined);
+  }
+}
+
+function ucpMcpToolLimitKind(tool: UcpMcpToolDescriptor): McpToolCallLimitKind {
+  return tool.idempotencyKeyRequired ? "write" : "read";
+}
+
+async function acquireUcpMcpToolCallLease(
+  c: Context<UcpRuntimeEnv>,
+  options: CreateUcpRoutesOptions,
+  tool: UcpMcpToolDescriptor,
+): Promise<
+  | Readonly<{
+      allowed: true;
+      lease?: McpToolCallLease;
+      limitKind: McpToolCallLimitKind;
+    }>
+  | Readonly<{
+      allowed: false;
+      reason: string;
+      limitKind: McpToolCallLimitKind;
+    }>
+> {
+  const limitKind = ucpMcpToolLimitKind(tool);
+  const actor = c.get("actor") ?? null;
+  if (!options.mcpToolCallLimiter) {
+    return { allowed: true, limitKind };
+  }
+
+  try {
+    const result = await options.mcpToolCallLimiter.acquire({
+      transport: "ucp-mcp",
+      toolName: tool.name,
+      limitKind,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
+
+    if (result.allowed) {
+      return { allowed: true, lease: result.lease, limitKind };
+    }
+
+    emitUcpToolCallLimited(c, options, tool, limitKind, result.reason);
+    return { allowed: false, reason: result.reason, limitKind };
+  } catch {
+    const reason = "UCP MCP tool call limiter is unavailable.";
+    emitUcpToolCallLimited(c, options, tool, limitKind, reason);
+    return { allowed: false, reason, limitKind };
+  }
+}
+
+function emitUcpToolCallLimited(
+  c: Context<UcpRuntimeEnv>,
+  options: CreateUcpRoutesOptions,
+  tool: UcpMcpToolDescriptor,
+  limitKind: McpToolCallLimitKind,
+  reason: string,
+) {
+  const actor = c.get("actor") ?? null;
+  emitObserver(options.observer?.toolCallLimited, {
     transport: "mcp",
-    operation: toolName,
-    status: response.ucp.status,
+    operation: tool.name,
+    reason,
+    limitKind,
+    actorId: actor?.userId ?? null,
+    accountId: actor?.accountId ?? null,
     agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
   });
-  return response;
+}
+
+function ucpMcpToolLimitEnvelope(reason: string) {
+  return createUcpEnvelope("error", {}, [
+    {
+      severity: "error",
+      code: "tool_call_limited",
+      message: reason,
+    },
+  ]);
 }
 
 export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "businessSigningKeys"> = {}) {
@@ -1397,14 +1498,8 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       }
 
       const result = tool.idempotencyKeyRequired
-        ? await invokeMcpTool(c, options, tool.name, args, idempotencyStore)
-        : await (options.mcpToolHandlers?.[tool.name]?.({
-            actor: c.get("actor") ?? null,
-            context: c.get("context") ?? null,
-            arguments: args,
-            request: c.req.raw,
-            params: {},
-          }) ?? unsupported(tool.name));
+        ? await invokeMcpTool(c, options, tool, args, idempotencyStore)
+        : await invokeNonIdempotentMcpTool(c, options, tool, args);
 
       if (
         tool.idempotencyKeyRequired &&
@@ -1433,6 +1528,30 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
   });
 
   return app;
+}
+
+async function invokeNonIdempotentMcpTool(
+  c: Context<UcpRuntimeEnv>,
+  options: CreateUcpRoutesOptions,
+  tool: UcpMcpToolDescriptor,
+  args: Readonly<Record<string, unknown>>,
+) {
+  const limit = await acquireUcpMcpToolCallLease(c, options, tool);
+  if (!limit.allowed) {
+    return ucpMcpToolLimitEnvelope(limit.reason);
+  }
+
+  try {
+    return await (options.mcpToolHandlers?.[tool.name]?.({
+      actor: c.get("actor") ?? null,
+      context: c.get("context") ?? null,
+      arguments: args,
+      request: c.req.raw,
+      params: {},
+    }) ?? unsupported(tool.name));
+  } finally {
+    await Promise.resolve(limit.lease?.release()).catch(() => undefined);
+  }
 }
 
 function handlerInput(c: Context<UcpRuntimeEnv>, params: Readonly<Record<string, string>>): UcpOperationHandlerInput {

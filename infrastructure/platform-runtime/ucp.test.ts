@@ -658,6 +658,70 @@ describe("UCP MCP routes", () => {
     });
   });
 
+  it("limits UCP MCP tool calls before invoking handlers and emits observer evidence", async () => {
+    const handler = vi.fn();
+    const limitedEvents: unknown[] = [];
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          search_catalog: handler,
+        },
+        mcpToolCallLimiter: {
+          acquire: vi.fn(async () => ({
+            allowed: false as const,
+            reason: "Too many MCP tool calls are already running for this principal.",
+          })),
+        },
+        observer: {
+          toolCallLimited: (event) => limitedEvents.push(event),
+        },
+      }),
+    );
+
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "limited",
+        method: "tools/call",
+        params: {
+          name: "search_catalog",
+          arguments: { query: "charizard" },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(handler).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      id: "limited",
+      result: {
+        structuredContent: {
+          ucp: {
+            status: "error",
+          },
+          messages: [
+            {
+              code: "tool_call_limited",
+              message: "Too many MCP tool calls are already running for this principal.",
+            },
+          ],
+        },
+      },
+    });
+    expect(limitedEvents).toEqual([
+      expect.objectContaining({
+        transport: "mcp",
+        operation: "search_catalog",
+        reason: "Too many MCP tool calls are already running for this principal.",
+        limitKind: "read",
+        agentProfileUrl: null,
+      }),
+    ]);
+  });
+
   it("passes MCP tool arguments to UCP handlers", async () => {
     const handler = vi.fn(async ({ arguments: args }) => ({
       ucp: { version: UCP_VERSION, status: "ok" as const },
