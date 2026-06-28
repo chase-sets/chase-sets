@@ -556,6 +556,33 @@ async function requestBodyHash(request: Request) {
   return createHash("sha256").update(body).digest("base64");
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
+}
+
+function mcpToolRequestHash(toolName: string, args: Readonly<Record<string, unknown>>) {
+  return createHash("sha256")
+    .update(
+      stableJson({
+        method: "tools/call",
+        name: toolName,
+        arguments: args,
+      }),
+    )
+    .digest("base64");
+}
+
 async function verifyContentDigest(request: Request) {
   const digest = request.headers.get("Content-Digest");
   if (!digest) {
@@ -1166,7 +1193,7 @@ async function invokeMcpTool(
     params: {},
   };
   const key = idempotencyScope(toolName, c.req.raw, input.actor);
-  const requestHash = await requestBodyHash(c.req.raw);
+  const requestHash = mcpToolRequestHash(toolName, args);
   const existing = await idempotencyStore.get(key);
   if (existing) {
     if (existing.requestHash === requestHash) {
