@@ -812,7 +812,7 @@ export function ListingPurchasePanel({
         <Stack gap={4}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-tertiary">Price</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">Price</div>
               <div className="text-3xl font-bold tabular-nums text-foreground">{price}</div>
             </div>
             {accountTrust ? null : <TrustBadge>{trust}</TrustBadge>}
@@ -885,7 +885,7 @@ export function OrderIntentSummary({
               ["Payment", paymentStatus],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-tokenMd bg-surface-2 p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-tertiary">{label}</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">{label}</div>
                 <div className="font-semibold text-foreground">{value}</div>
               </div>
             ))}

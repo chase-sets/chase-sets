@@ -562,7 +562,8 @@
   }
 
   .ds-focus:focus-visible,
-  .focus-ring:focus-visible {
+  .focus-ring:focus-visible,
+  .peer:focus-visible ~ .focus-ring {
     box-shadow:
       0 0 0 2px var(--ring),
       0 0 0 5px color-mix(in srgb, var(--ring) 18%, transparent);

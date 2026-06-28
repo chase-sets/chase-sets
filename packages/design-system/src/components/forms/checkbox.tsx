@@ -106,7 +106,7 @@ export function Checkbox({
         <span
           aria-hidden="true"
           className={cx(
-            "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated peer-focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
+            "focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated",
             (visualChecked || indeterminate) && "border-accent bg-accent",
             disabled && "opacity-60",
           )}

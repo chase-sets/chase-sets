@@ -633,18 +633,18 @@ const embeddedProviderSurfaceMinHeightClasses: Record<
   NonNullable<EmbeddedProviderSurfaceProps["minHeight"]>,
   string
 > = {
-  md: [
+  md: cx(
     "min-h-[36rem] md:min-h-[44rem]",
     "[&_iframe]:min-h-[36rem] md:[&_iframe]:min-h-[44rem]",
     "[&>stripe-connect-account-management]:min-h-[36rem] md:[&>stripe-connect-account-management]:min-h-[44rem]",
     "[&>stripe-connect-account-onboarding]:min-h-[36rem] md:[&>stripe-connect-account-onboarding]:min-h-[44rem]",
-  ].join(" "),
-  lg: [
+  ),
+  lg: cx(
     "min-h-[44rem] md:min-h-[52rem]",
     "[&_iframe]:min-h-[44rem] md:[&_iframe]:min-h-[52rem]",
     "[&>stripe-connect-account-management]:min-h-[44rem] md:[&>stripe-connect-account-management]:min-h-[52rem]",
     "[&>stripe-connect-account-onboarding]:min-h-[44rem] md:[&>stripe-connect-account-onboarding]:min-h-[52rem]",
-  ].join(" "),
+  ),
 };
 
 /**
@@ -949,7 +949,7 @@ export function SkipLink({ targetId = "main-content", label = "Skip to main cont
   return (
     <a
       href={`#${targetId}`}
-      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-tokenMd focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-contrast focus:shadow-overlay"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-toast focus:rounded-tokenMd focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-contrast focus:shadow-overlay"
     >
       {label}
     </a>

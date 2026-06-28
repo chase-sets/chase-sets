@@ -9,7 +9,7 @@ import { type ResponsiveImageSource } from "../data-display/product-media";
 // `fallback` slot so a missing image never renders a blank square.
 function MarketplaceCartLineImagePlaceholder() {
   return (
-    <span className="flex h-full w-full items-center justify-center text-[var(--muted-foreground)]" aria-hidden="true">
+    <span className="flex h-full w-full items-center justify-center text-tertiary" aria-hidden="true">
       <Icon name="image" size="md" tone="tertiary" />
     </span>
   );
@@ -79,7 +79,7 @@ export function MarketplaceCartLineItem({
       data-marketplace-cart-line
     >
       <div className="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)] md:grid-cols-[5.5rem_minmax(0,1fr)_minmax(13rem,16rem)] md:gap-4">
-        <div className="relative aspect-[2.5/3.5] min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] p-1.5 shadow-tokenSm">
+        <div className="relative aspect-[2.5/3.5] min-w-0 overflow-hidden rounded-tokenMd border border-border bg-surface-2 p-1.5 shadow-tokenSm">
           {resolvedImage.src ? (
             // The box owns the 2.5/3.5 aspect ratio and fill, so the image fills
             // its parent rather than self-sizing to an intrinsic width. Intrinsic
@@ -100,15 +100,11 @@ export function MarketplaceCartLineItem({
         </div>
         <Stack gap={3} minWidth="0">
           <Stack gap={1} minWidth="0">
-            <div className="min-w-0 text-base font-semibold leading-snug text-[var(--foreground)]">{title}</div>
-            {subtitle ? (
-              <div className="min-w-0 text-sm leading-5 text-[var(--muted-foreground)]">{subtitle}</div>
-            ) : null}
+            <div className="min-w-0 text-base font-semibold leading-snug text-foreground">{title}</div>
+            {subtitle ? <div className="min-w-0 text-sm leading-5 text-tertiary">{subtitle}</div> : null}
           </Stack>
           <div className="min-w-0 space-y-1.5">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-              {productLabel}
-            </div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">{productLabel}</div>
             <Box minWidth="0">{productSummary}</Box>
           </div>
         </Stack>

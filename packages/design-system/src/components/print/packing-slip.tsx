@@ -6,6 +6,7 @@ import { Button } from "../actions/button";
 import { Form } from "../forms/form";
 import { HiddenInput } from "../forms/hidden-input";
 import { NativeSelect } from "../forms/select";
+import { cx } from "../../utils/cx";
 
 export type PackingSlipPrintFormat = "letter" | "thermal-4x6";
 
@@ -509,7 +510,7 @@ export function PackingSlipPrintDocument({ format, toolbar, slips, labels }: Pac
         {slips.map((slip) => (
           <article
             key={slip.id}
-            className={`fulfillment-packing-slip ${printSizeClass(format)}`}
+            className={cx("fulfillment-packing-slip", printSizeClass(format))}
             data-packing-slip-page
           >
             <header className="fulfillment-packing-slip__header">

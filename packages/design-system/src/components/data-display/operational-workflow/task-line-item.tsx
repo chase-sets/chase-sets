@@ -70,7 +70,7 @@ export function TaskLineItem({
       <button
         type="button"
         className={cx(
-          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background transition-shadow focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
+          "focus-ring inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background transition-shadow",
           checked && "border-success bg-success text-success-contrast",
           !onCheckedChange && "pointer-events-none",
         )}
