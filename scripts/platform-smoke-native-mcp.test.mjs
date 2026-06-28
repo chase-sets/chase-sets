@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isNativeMcpAnonymousDiscoveryRejected } from "./platform-smoke-native-mcp.mjs";
+import {
+  isNativeMcpAnonymousDiscoveryRejected,
+  isNativeMcpPermissionBoundaryError,
+} from "./platform-smoke-native-mcp.mjs";
 
 function responseWithStatus(status) {
   return { status };
@@ -16,5 +19,15 @@ describe("native MCP platform smoke", () => {
     expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(200))).toBe(false);
     expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(204))).toBe(false);
     expect(isNativeMcpAnonymousDiscoveryRejected(responseWithStatus(404))).toBe(false);
+  });
+
+  it("recognizes the authenticated inventory permission boundary", () => {
+    expect(
+      isNativeMcpPermissionBoundaryError({ message: "Missing required permission: inventory.view." }, "inventory.view"),
+    ).toBe(true);
+    expect(
+      isNativeMcpPermissionBoundaryError({ message: "Missing required permission: inventory.edit." }, "inventory.view"),
+    ).toBe(false);
+    expect(isNativeMcpPermissionBoundaryError({ message: "Method not found." }, "inventory.view")).toBe(false);
   });
 });

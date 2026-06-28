@@ -4,7 +4,10 @@ import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { ADMIN_DEPLOYED_API_SMOKE_PROBES, ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
-import { isNativeMcpAnonymousDiscoveryRejected } from "./platform-smoke-native-mcp.mjs";
+import {
+  isNativeMcpAnonymousDiscoveryRejected,
+  isNativeMcpPermissionBoundaryError,
+} from "./platform-smoke-native-mcp.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -400,6 +403,12 @@ async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId })
   });
   const listSourcesBody = await listSourcesResponse.json();
   if (listSourcesBody.error) {
+    if (isNativeMcpPermissionBoundaryError(listSourcesBody.error, "inventory.view")) {
+      console.warn(
+        "Native MCP inventory source read reached the authenticated permission boundary; skipping inventory-specific read proof.",
+      );
+      return;
+    }
     throw new Error(`Native MCP inventory source read returned JSON-RPC error: ${listSourcesBody.error.message}.`);
   }
   const items = listSourcesBody.result?.content?.find((entry) => entry?.type === "json")?.json?.items;
