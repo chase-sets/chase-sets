@@ -41,7 +41,7 @@ Workers run projection consumers separately from bulk jobs, dispatchers, and sch
 
 Projection subscriptions push event-type and stream-prefix filters into Postgres reads. This keeps each consumer independent while avoiding full source-log scans for every projection. When a filtered subscription has no matching tail left, it advances its checkpoint to the captured source head so irrelevant source events do not create permanent lag.
 
-The Postgres event store keeps composite indexes for common projection scans: event type plus global position, tenant plus event type plus global position, and stream-prefix lookup plus global position. Query plans should be checked with production-like data before introducing new broad stream-prefix subscriptions.
+The Postgres event store keeps composite indexes for common projection scans: event type plus global position, tenant plus event type plus global position, and stream-prefix lookup plus global position. Query plans should be checked with production-like data before introducing new broad stream-prefix subscriptions. The partitioning and retention policy keeps that same cursor contract: `event_store_events` should partition by global-position ranges rather than `recorded_at` time ranges once the migration ledger from #2843 exists. See [Postgres Event Store Partitioning And Retention](./postgres-event-store-partitioning-retention.md).
 
 Legacy `createProjector` consumers also push handler event types into `readAll` and batch checkpoint writes. New cross-context read models should still use bounded-context projection groups, but the compatibility path avoids full-log scans for existing slice-local projectors while they are migrated.
 
