@@ -48,21 +48,10 @@ jobs:
       - name: Resolve release commit
         run: |
           set -euo pipefail
-          git fetch origin main
-          release_ref="${{ inputs.release_ref }}"
-          git fetch origin "${release_ref}" || true
-          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-            release_commit="$(git rev-parse "${release_ref}^{commit}")"
-          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
-          else
-            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
-            exit 1
-          fi
-
-          git merge-base --is-ancestor "$release_commit" origin/main
-          git checkout --detach "$release_commit"
-          echo "release_commit=$release_commit" >> "$GITHUB_ENV"
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true \
+            --github-env "$GITHUB_ENV"
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
