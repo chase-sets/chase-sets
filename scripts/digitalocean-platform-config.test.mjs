@@ -250,6 +250,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('name                 = "platform-api"');
   });
 
+  it("routes native MCP transport paths to platform-api", () => {
+    expect(platformLocals).toContain("native_mcp_route_prefixes = [");
+    expect(platformLocals).toContain('"/mcp"');
+    expect(platformLocals).toContain("native_mcp_ingress_routes");
+    expect(platformMain).toContain("for_each = local.native_mcp_ingress_routes");
+    expect(platformMain).toContain("prefix = rule.value.path_prefix");
+    expect(platformMain).toContain('name                 = "platform-api"');
+  });
+
   it("wires Google Workspace SSO into production admin-support API", () => {
     expect(platformMain).toContain('name               = "admin-support-api"');
     expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"')).toBe(3);

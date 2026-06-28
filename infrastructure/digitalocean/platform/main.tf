@@ -2095,6 +2095,24 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
+        for_each = local.native_mcp_ingress_routes
+        content {
+          match {
+            authority {
+              exact = rule.value.authority
+            }
+            path {
+              prefix = rule.value.path_prefix
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
         for_each = local.provider_webhook_ingress_routes
         content {
           match {
