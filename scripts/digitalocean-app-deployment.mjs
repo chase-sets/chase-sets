@@ -291,6 +291,55 @@ export function appPlatformChanges(plan) {
   );
 }
 
+function knownTerraformId(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : "";
+}
+
+function postgresClusterResourceId(resource) {
+  if (resource?.type !== "digitalocean_database_cluster" || resource?.name !== "postgres") {
+    return "";
+  }
+
+  return knownTerraformId(resource.values?.id);
+}
+
+function modulePostgresClusterId(module) {
+  for (const resource of module?.resources ?? []) {
+    const id = postgresClusterResourceId(resource);
+    if (id) {
+      return id;
+    }
+  }
+
+  for (const childModule of module?.child_modules ?? []) {
+    const id = modulePostgresClusterId(childModule);
+    if (id) {
+      return id;
+    }
+  }
+
+  return "";
+}
+
+export function postgresClusterIdFromPlan(plan) {
+  for (const resourceChange of plan.resource_changes ?? []) {
+    if (resourceChange.type !== "digitalocean_database_cluster" || resourceChange.name !== "postgres") {
+      continue;
+    }
+
+    const id =
+      knownTerraformId(resourceChange.change?.after?.id) || knownTerraformId(resourceChange.change?.before?.id);
+    if (id) {
+      return id;
+    }
+  }
+
+  return (
+    modulePostgresClusterId(plan.planned_values?.root_module) ||
+    modulePostgresClusterId(plan.prior_state?.values?.root_module)
+  );
+}
+
 export function destructiveResourceChanges(plan) {
   return (plan.resource_changes ?? [])
     .filter((resourceChange) => {
@@ -428,6 +477,11 @@ export function appNotFound(error) {
 export async function planAppChanged(tfplanPath, options = {}) {
   const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return appPlatformChanges(JSON.parse(output));
+}
+
+export async function readPostgresClusterIdFromPlan(tfplanPath, options = {}) {
+  const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
+  return postgresClusterIdFromPlan(JSON.parse(output));
 }
 
 export async function assertTerraformPlanSafe(tfplanPath, options = {}) {
@@ -705,6 +759,21 @@ async function main(argv) {
     return;
   }
 
+  if (command === "postgres-cluster-id") {
+    const [tfplanPath] = args;
+    if (!tfplanPath) {
+      throw new Error("Usage: node ./scripts/digitalocean-app-deployment.mjs postgres-cluster-id <tfplan>");
+    }
+
+    const clusterId = await readPostgresClusterIdFromPlan(tfplanPath);
+    if (!clusterId) {
+      throw new Error("Terraform plan did not expose digitalocean_database_cluster.postgres id.");
+    }
+
+    console.log(clusterId);
+    return;
+  }
+
   if (command === "wait") {
     const [appId, ...options] = args;
     if (!appId) {
@@ -770,7 +839,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|diagnostics|deploy|wait-domains|reset-domain>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|postgres-cluster-id|wait|diagnostics|deploy|wait-domains|reset-domain>",
   );
 }
 

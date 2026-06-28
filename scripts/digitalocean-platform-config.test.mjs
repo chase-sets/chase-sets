@@ -178,6 +178,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(restorePointStep).toContain(`gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)`);
     expect(restorePointStep).toContain(`key == "id"`);
     expect(restorePointStep).toContain(`gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)`);
+    expect(restorePointStep).toContain("[ -f tfplan ]");
+    expect(restorePointStep).toContain(
+      "node ../../../scripts/digitalocean-app-deployment.mjs postgres-cluster-id tfplan",
+    );
+    expect(restorePointStep).toContain("Using production database cluster id from Terraform plan.");
   });
 
   it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
