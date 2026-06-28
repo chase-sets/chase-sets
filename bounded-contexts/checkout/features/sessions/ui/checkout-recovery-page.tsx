@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
+import { LinkButton, LiveRegion, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
 import type { CheckoutRecoveryAction, CheckoutRecoveryKind } from "../api/checkout-recovery";
 import {
   useCheckoutPreparingRevalidation,
@@ -43,9 +43,9 @@ export function CheckoutSessionRecoveryPage({
               {/* Persistent live region: text swaps inside it so screen
                   readers announce both the auto-revalidation start and the
                   degradation back to manual recovery. */}
-              <span role="status">
+              <LiveRegion politeness="polite">
                 {isAutoRevalidating ? t("checkout.routes.checkoutRecovery.checkout.preparing.auto.description") : ""}
-              </span>
+              </LiveRegion>
               {isAutoRevalidating ? null : description}
             </>
           }

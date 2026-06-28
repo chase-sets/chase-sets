@@ -16,6 +16,7 @@ import {
   TextInput,
   Select,
   Inline,
+  Text,
   type DataColumn,
 } from "@chase-sets/design-system";
 import { toCatalogAdminHref } from "./catalog-admin-hrefs";
@@ -182,11 +183,11 @@ export function EntityListPage<T>({
                 <Button tone="secondary" size="sm" onClick={() => onPageChange?.(page - 1)} disabled={page === 0}>
                   {t("catalog.support.shellSupport.ui.entityListPage.previous")}
                 </Button>
-                <span>
+                <Text element="span">
                   {t("catalog.support.shellSupport.ui.entityListPage.page")}
                   {page + 1} {t("catalog.support.shellSupport.ui.entityListPage.of")}
                   {totalPages}
-                </span>
+                </Text>
                 <Button
                   tone="secondary"
                   size="sm"
