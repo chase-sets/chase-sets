@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { catalogAliasEquivalenceSchemaSql } from "./schema";
-import { catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
 
 describe("Catalog Alias schema", () => {
   it("declares the three alias tables with idempotent CREATE statements", () => {
@@ -33,12 +32,6 @@ describe("Catalog Alias schema", () => {
     const indexIndex = catalogAliasEquivalenceSchemaSql.indexOf("catalog_item_aliases_published_idx");
     expect(tableIndex).toBeGreaterThanOrEqual(0);
     expect(indexIndex).toBeGreaterThan(tableIndex);
-  });
-
-  it("is composed into the catalog authoring schema", () => {
-    expect(catalogAuthoringSchemaSql).toContain("catalog_source_observation_alias_candidates");
-    expect(catalogAuthoringSchemaSql).toContain("catalog_item_aliases");
-    expect(catalogAuthoringSchemaSql).toContain("catalog_reference_record_aliases");
   });
 
   it("partial publishable indexes only cover accepted and auto-accepted rows", () => {

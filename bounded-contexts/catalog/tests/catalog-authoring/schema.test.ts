@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
+import { catalogAuthoringSchemaSql } from "../../support/authoring-support/schema";
 
 describe("catalog item schema migrations", () => {
   it("adds compatibility columns before creating indexes that depend on them", () => {
@@ -13,5 +14,13 @@ describe("catalog item schema migrations", () => {
     expect(addLanguageColumnIndex).toBeGreaterThanOrEqual(0);
     expect(languageIndexIndex).toBeGreaterThanOrEqual(0);
     expect(addLanguageColumnIndex).toBeLessThan(languageIndexIndex);
+  });
+});
+
+describe("catalog authoring schema composition", () => {
+  it("includes alias-equivalence persistence tables", () => {
+    expect(catalogAuthoringSchemaSql).toContain("catalog_source_observation_alias_candidates");
+    expect(catalogAuthoringSchemaSql).toContain("catalog_item_aliases");
+    expect(catalogAuthoringSchemaSql).toContain("catalog_reference_record_aliases");
   });
 });
