@@ -381,8 +381,8 @@
       "params": ["cat_beta", null, "2026-06-01T00:17:00.000Z"]
     },
     {
-      "sql": "UPDATE marketplace_catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_alpha", "2026-06-01T00:18:00.000Z"]
+      "sql": "UPDATE marketplace_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "active", "2026-06-01T00:18:00.000Z"]
     },
     {
       "sql": "UPDATE marketplace_catalog_items SET product_measure_snapshots = $2, updated_at = $3 WHERE catalog_item_id = $1",
@@ -417,12 +417,12 @@
       ]
     },
     {
-      "sql": "UPDATE marketplace_catalog_items SET status = 'retired', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_beta", "2026-06-01T00:23:00.000Z"]
+      "sql": "UPDATE marketplace_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", "retired", "2026-06-01T00:23:00.000Z"]
     },
     {
-      "sql": "UPDATE marketplace_catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1",
-      "params": ["cat_alpha", "2026-06-01T00:26:00.000Z"]
+      "sql": "UPDATE marketplace_catalog_items SET status = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "archived", "2026-06-01T00:26:00.000Z"]
     }
   ],
   "finalState": {

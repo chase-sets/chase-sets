@@ -131,16 +131,11 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
       return emptyResult();
     }
 
-    const itemStatusMatch = sql.match(
-      new RegExp(
-        `^UPDATE ${tables.items} SET status = '([a-z0-9_-]+)', updated_at = \\$2 WHERE catalog_item_id = \\$1$`,
-      ),
-    );
-    if (itemStatusMatch) {
+    if (sql.startsWith(`UPDATE ${tables.items} SET status = $2, updated_at = $3 WHERE catalog_item_id = $1`)) {
       const item = items.get(String(values[0]));
       if (item) {
-        item.status = itemStatusMatch[1];
-        item.updated_at = values[1];
+        item.status = values[1];
+        item.updated_at = values[2];
       }
       return emptyResult();
     }
