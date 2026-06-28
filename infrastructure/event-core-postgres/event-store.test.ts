@@ -352,14 +352,14 @@ describe("postgres event store", () => {
 describe("postgres transaction helper", () => {
   it("commits successful work and releases the client", async () => {
     const queries: string[] = [];
-    let released = false;
+    const releaseErrors: unknown[] = [];
     const client = {
       query: async (sql: string) => {
         queries.push(sql);
         return { rows: [], rowCount: 0 };
       },
-      release: () => {
-        released = true;
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
       },
     };
 
@@ -377,19 +377,20 @@ describe("postgres transaction helper", () => {
     ).resolves.toBe("ok");
 
     expect(queries).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
-    expect(released).toBe(true);
+    expect(releaseErrors).toEqual([undefined]);
   });
 
-  it("rolls back failed work and releases the client", async () => {
+  it("rolls back failed work and releases the client with the original error", async () => {
     const queries: string[] = [];
-    let released = false;
+    const releaseErrors: unknown[] = [];
+    const failure = new Error("boom");
     const client = {
       query: async (sql: string) => {
         queries.push(sql);
         return { rows: [], rowCount: 0 };
       },
-      release: () => {
-        released = true;
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
       },
     };
 
@@ -400,13 +401,79 @@ describe("postgres transaction helper", () => {
           connect: async () => client,
         },
         async () => {
-          throw new Error("boom");
+          throw failure;
         },
       ),
     ).rejects.toThrow("boom");
 
     expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
-    expect(released).toBe(true);
+    expect(releaseErrors).toEqual([failure]);
+  });
+
+  it("preserves the original work error when rollback also fails", async () => {
+    const queries: string[] = [];
+    const releaseErrors: unknown[] = [];
+    const failure = new Error("boom");
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        if (sql === "ROLLBACK") {
+          throw new Error("rollback failed");
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+        },
+        async () => {
+          throw failure;
+        },
+      ),
+    ).rejects.toThrow("boom");
+
+    expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(releaseErrors).toEqual([failure]);
+  });
+
+  it("runs afterCommit after committing and before releasing the client", async () => {
+    const queries: string[] = [];
+    const releaseErrors: unknown[] = [];
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+      release: (error?: unknown) => {
+        releaseErrors.push(error);
+        queries.push("RELEASE");
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+        },
+        async () => "ok",
+        {
+          afterCommit: async (tx, result) => {
+            await tx.query(`AFTER ${result}`);
+          },
+        },
+      ),
+    ).resolves.toBe("ok");
+
+    expect(queries).toEqual(["BEGIN", "COMMIT", "AFTER ok", "RELEASE"]);
+    expect(releaseErrors).toEqual([undefined]);
   });
 });
 
