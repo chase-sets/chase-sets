@@ -64,7 +64,7 @@ Checkout write requests must include:
 - `Content-Digest`
 - `Idempotency-Key`
 
-Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. Production platform-api composition wires the Postgres-backed UCP idempotency store and profile/key cache from the platform control database. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key.
+Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. Production platform-api composition must bootstrap `platformUcpRuntimeSchemaSql` and wire the Postgres-backed UCP idempotency store and profile/key cache from the platform control database. Route creation fails outside the test runtime when a UCP REST or MCP mount omits the durable idempotency store. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key.
 
 ## AP2 Merchant Authorization
 
