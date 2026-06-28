@@ -10,6 +10,10 @@ permissions:
   contents: read
   issues: read
 
+concurrency:
+  group: review-cadence-digest
+  cancel-in-progress: false
+
 jobs:
   digest:
     name: Review Cadence Digest
