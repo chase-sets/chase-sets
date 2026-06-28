@@ -37,6 +37,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: platform-emergency-recovery-${{ inputs.mode }}
+  cancel-in-progress: false
+
 jobs:
   guide:
     name: Emergency Recovery Guide

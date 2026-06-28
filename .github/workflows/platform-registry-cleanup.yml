@@ -47,11 +47,12 @@ jobs:
       - name: Cleanup registry tags
         run: |
           set -euo pipefail
-          dry_run="${{ github.event.inputs.dry_run || 'false' }}"
+          dry_run="${{ github.event_name == 'schedule' && 'true' || github.event.inputs.dry_run || 'true' }}"
           dry_run_arg=""
           if [ "$dry_run" = "true" ]; then
             dry_run_arg="--dry-run"
           fi
+          echo "Registry cleanup dry_run=${dry_run}."
 
           node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
             --repository="${PLATFORM_IMAGE_REPOSITORY}" \

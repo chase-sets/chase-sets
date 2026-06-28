@@ -37,6 +37,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: platform-rollback-readiness-${{ inputs.target_commit }}
+  cancel-in-progress: false
+
 jobs:
   readiness:
     name: Rollback Readiness

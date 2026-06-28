@@ -14,7 +14,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   checks: read
 
 concurrency:
