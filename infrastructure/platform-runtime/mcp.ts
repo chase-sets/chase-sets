@@ -126,6 +126,14 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
+function mcpAuthenticationRequiredResponse(id: JsonRpcRequest["id"] = null) {
+  return jsonRpcError(id, -32001, "An authenticated actor is required for native MCP discovery.");
+}
+
+function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
+  return actor ? null : mcpAuthenticationRequiredResponse();
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -731,23 +739,38 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const toolHandlers = options.toolHandlers ?? {};
   const resourceHandlers = options.resourceHandlers ?? {};
 
-  app.get("/services", (c) =>
-    c.json({
+  app.get("/services", (c) => {
+    const actorError = requireMcpDiscoveryActor(c.get("actor"));
+    if (actorError) {
+      return c.json(actorError, 401);
+    }
+
+    return c.json({
       services,
-    }),
-  );
+    });
+  });
 
-  app.get("/tools", (c) =>
-    c.json({
+  app.get("/tools", (c) => {
+    const actorError = requireMcpDiscoveryActor(c.get("actor"));
+    if (actorError) {
+      return c.json(actorError, 401);
+    }
+
+    return c.json({
       tools: flattenAvailableMcpTools(services).map(toToolListItem),
-    }),
-  );
+    });
+  });
 
-  app.get("/resources", (c) =>
-    c.json({
+  app.get("/resources", (c) => {
+    const actorError = requireMcpDiscoveryActor(c.get("actor"));
+    if (actorError) {
+      return c.json(actorError, 401);
+    }
+
+    return c.json({
       resources: flattenAvailableMcpResources(services).map(toResourceListItem),
-    }),
-  );
+    });
+  });
 
   app.post("/", async (c) => {
     const body = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
@@ -758,7 +781,12 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
     const actor = c.get("actor") ?? null;
 
     switch (body.method) {
-      case "initialize":
+      case "initialize": {
+        const actorError = requireMcpDiscoveryActor(actor);
+        if (actorError) {
+          return c.json({ ...actorError, id: body.id ?? null }, 401);
+        }
+
         return c.json(
           jsonRpcResult(body.id, {
             protocolVersion: "2025-03-26",
@@ -772,18 +800,31 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
             },
           }),
         );
-      case "tools/list":
+      }
+      case "tools/list": {
+        const actorError = requireMcpDiscoveryActor(actor);
+        if (actorError) {
+          return c.json({ ...actorError, id: body.id ?? null }, 401);
+        }
+
         return c.json(
           jsonRpcResult(body.id, {
             tools: flattenAvailableMcpTools(services).map(toToolListItem),
           }),
         );
-      case "resources/list":
+      }
+      case "resources/list": {
+        const actorError = requireMcpDiscoveryActor(actor);
+        if (actorError) {
+          return c.json({ ...actorError, id: body.id ?? null }, 401);
+        }
+
         return c.json(
           jsonRpcResult(body.id, {
             resources: flattenAvailableMcpResources(services).map(toResourceListItem),
           }),
         );
+      }
       case "tools/call": {
         const result = await callTool(c.req.raw, actor, (body.params ?? {}) as McpToolCallParams, {
           services,

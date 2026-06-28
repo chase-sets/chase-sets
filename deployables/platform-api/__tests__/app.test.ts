@@ -592,6 +592,29 @@ describe("platform api app wiring", () => {
     );
   });
 
+  it("rejects anonymous native MCP discovery through the composed platform API", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "tools_1",
+        method: "tools/list",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "tools_1",
+      error: {
+        code: -32001,
+        message: "An authenticated actor is required for native MCP discovery.",
+      },
+    });
+  });
+
   it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {
     const searchItems = vi.fn(async () => ({
       items: [

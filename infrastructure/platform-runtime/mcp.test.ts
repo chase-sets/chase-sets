@@ -85,7 +85,7 @@ const accountDefaultedToolServices: readonly McpServiceDescriptor[] = [
 
 describe("MCP runtime routes", () => {
   it("lists only available descriptor-backed tools", async () => {
-    const app = createMcpRoutes();
+    const app = createActorApp(actor);
     const response = await app.request("/tools");
 
     expect(response.status).toBe(200);
@@ -119,7 +119,7 @@ describe("MCP runtime routes", () => {
   });
 
   it("lists only available descriptor-backed resources", async () => {
-    const app = createMcpRoutes();
+    const app = createActorApp(actor);
     const response = await app.request("/resources");
 
     expect(response.status).toBe(200);
@@ -136,8 +136,27 @@ describe("MCP runtime routes", () => {
     });
   });
 
-  it("filters JSON-RPC list methods to available capabilities", async () => {
+  it("requires an authenticated actor for native discovery endpoints", async () => {
     const app = createMcpRoutes();
+    const endpoints = ["/services", "/tools", "/resources"];
+
+    for (const endpoint of endpoints) {
+      const response = await app.request(endpoint);
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32001,
+          message: "An authenticated actor is required for native MCP discovery.",
+        },
+      });
+    }
+  });
+
+  it("filters JSON-RPC list methods to available capabilities", async () => {
+    const app = createActorApp(actor);
     const toolsResponse = await app.request("/", {
       method: "POST",
       body: JSON.stringify(createRequest("tools/list")),
@@ -168,6 +187,27 @@ describe("MCP runtime routes", () => {
         ],
       },
     });
+  });
+
+  it("requires an authenticated actor for JSON-RPC discovery methods", async () => {
+    const app = createMcpRoutes();
+
+    for (const method of ["initialize", "tools/list", "resources/list"]) {
+      const response = await app.request("/", {
+        method: "POST",
+        body: JSON.stringify(createRequest(method)),
+      });
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({
+        jsonrpc: "2.0",
+        id: "request_1",
+        error: {
+          code: -32001,
+          message: "An authenticated actor is required for native MCP discovery.",
+        },
+      });
+    }
   });
 
   it("calls a registered tool handler after authorization", async () => {
