@@ -79,6 +79,12 @@ After restart, verify `/.well-known/ucp` includes `signing_keys` and checkout re
 
 Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys after all AP2 mandate retention windows have expired.
 
+## Forward Readiness Posture
+
+General UCP response signing is deferred for v1. Operators should not promise signed non-checkout UCP responses; protected writes rely on signed requests, digest verification, OAuth scope, durable idempotency, and audit evidence. Checkout responses may carry `ap2.merchant_authorization` when merchant signing keys are configured, but that is checkout-term signing, not a general response-signature contract.
+
+Headless AP2 checkout is closed by default. Enable it only after the production AP2 verifier, merchant signing keys, Stripe shared-payment-token PaymentIntent path, webhook handling, replay behavior, and certification record are complete. Until then, OAuth ChatGPT calls and unsupported signed-agent calls must return trusted checkout handoff continuations instead of creating orders, payments, or AP2 effects.
+
 Check OAuth metadata:
 
 ```powershell

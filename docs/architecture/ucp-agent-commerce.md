@@ -67,6 +67,8 @@ HTTP Message Signature verification belongs in infrastructure. The runtime can v
 
 Business checkout-term signing also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` and Checkout UCP responses include `ap2.merchant_authorization`, a detached JWS over the JCS-canonicalized checkout response excluding the `ap2` field.
 
+General response signing is not part of the v1 production baseline. Non-checkout UCP REST and MCP responses rely on HTTPS transport, OAuth/signed-request enforcement for protected writes, audit, and idempotency evidence. If a future agent profile requires response verification, define one response-signature scheme across REST and MCP before advertising it as a capability.
+
 ## Production Boundaries
 
 UCP OAuth identity linking requires PKCE S256, rotates refresh tokens, supports token introspection, and lets the linked account revoke platform consent. Public non-local HTTP redirect/profile URLs are rejected.
