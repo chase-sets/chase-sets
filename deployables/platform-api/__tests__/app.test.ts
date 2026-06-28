@@ -542,7 +542,7 @@ describe("platform api app wiring", () => {
       method: "POST",
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: "missing_idempotency",
+        id: "mismatched_confirmation",
         method: "tools/call",
         params: {
           name: "inventory.commit-import-batch",
@@ -585,7 +585,7 @@ describe("platform api app wiring", () => {
           outcome: "denied",
           method: "tools/call",
           toolName: "inventory.commit-import-batch",
-          reason: "An idempotency key is required for this MCP tool.",
+          reason: "Confirmation text must exactly match 'Commit Inventory Import Batch.'.",
         }),
       ]),
     );
