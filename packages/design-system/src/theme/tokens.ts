@@ -29,6 +29,12 @@ export type ResponsiveValue<T> =
     };
 
 export type DensityMode = "comfortable" | "compact";
+export type DensityModeAlias = "default" | "regular";
+export type DensityInput = DensityMode | DensityModeAlias;
+
+export function resolveDensityMode(density: DensityInput): DensityMode {
+  return density === "compact" ? "compact" : "comfortable";
+}
 
 export interface ThemeTokens {
   colors: {

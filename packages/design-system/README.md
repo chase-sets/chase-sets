@@ -36,7 +36,7 @@ Design-system props use one vocabulary across the canonical layer:
 - `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
 - `variant` describes structural kind, not semantic intent.
 - `size` describes control scale.
-- `density` describes row scale.
+- `density` describes row scale and uses the canonical `comfortable | compact` vocabulary. Legacy `default` and `regular` inputs resolve to `comfortable`; marketplace components do not define a separate `focused` density.
 - Icon slots use DS Icon registry names. Prefer leading or trailing slot names such as `leadingIcon?: IconName` and `trailingIcon?: IconName`; single icon slots should also accept `IconName` strings and render through the design-system `Icon` component.
 
 ## Spacing Scale

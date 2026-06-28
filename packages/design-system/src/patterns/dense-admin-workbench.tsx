@@ -2,6 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { SectionNavigation, type SectionNavigationGroup } from "../components/actions";
 import { Badge, type BadgeProps } from "../components/feedback";
 import { Form, type FormProps } from "../components/forms";
+import { resolveDensityMode, type DensityInput } from "../theme/tokens";
 import { cx } from "../utils/cx";
 import { resolveSpaceClass, type SpaceToken } from "../utils/system";
 
@@ -371,14 +372,16 @@ export function WorkbenchDataCell({
 
 export interface WorkbenchValueListProps extends FrameProps<HTMLDivElement> {
   children?: ReactNode;
-  density?: "compact" | "regular";
+  density?: DensityInput;
 }
 
 export function WorkbenchValueList({ children, density = "compact", ...rest }: WorkbenchValueListProps) {
+  const resolvedDensity = resolveDensityMode(density);
+
   return (
     <div
       {...rest}
-      className={cx("grid min-w-0 text-xs leading-5 text-secondary", density === "compact" ? "gap-1" : "gap-2")}
+      className={cx("grid min-w-0 text-xs leading-5 text-secondary", resolvedDensity === "compact" ? "gap-1" : "gap-2")}
     >
       {children}
     </div>
@@ -479,7 +482,7 @@ export interface EvidenceListProps extends TitledFrameProps<HTMLDivElement> {
   items: readonly EvidenceListItem[];
   emptyLabel?: ReactNode;
   emptyTone?: BadgeTone;
-  density?: "compact" | "regular";
+  density?: DensityInput;
 }
 
 export function EvidenceList({
@@ -487,9 +490,11 @@ export function EvidenceList({
   items,
   emptyLabel,
   emptyTone = "success",
-  density = "regular",
+  density = "comfortable",
   ...rest
 }: EvidenceListProps) {
+  const resolvedDensity = resolveDensityMode(density);
+
   return (
     <div {...rest} className="grid gap-2">
       <div className="text-sm font-semibold text-foreground">{title}</div>
@@ -500,7 +505,7 @@ export function EvidenceList({
               key={item.key}
               className={cx(
                 "grid gap-1 rounded-tokenMd border border-border-subtle",
-                density === "compact" ? "p-2" : "p-3",
+                resolvedDensity === "compact" ? "p-2" : "p-3",
               )}
             >
               {item.label ? (

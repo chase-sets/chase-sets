@@ -155,6 +155,17 @@ describe("design system marketplace patterns", () => {
     expect(markup).not.toContain("text-right");
   });
 
+  it("treats legacy key-value density aliases as comfortable", () => {
+    const items = [{ key: "Subtotal", value: "$12.00" }];
+    const comfortableMarkup = renderToString(<KeyValueList density="comfortable" items={items} />);
+    const defaultAliasMarkup = renderToString(<KeyValueList density="default" items={items} />);
+    const regularAliasMarkup = renderToString(<KeyValueList density="regular" items={items} />);
+
+    expect(defaultAliasMarkup).toBe(comfortableMarkup);
+    expect(regularAliasMarkup).toBe(comfortableMarkup);
+    expect(comfortableMarkup).toContain("pb-3");
+  });
+
   it("preserves explicit split key-value rows for compact summaries", () => {
     const markup = renderToString(<KeyValueList layout="split" items={[{ key: "Subtotal", value: "$12.00" }]} />);
 
@@ -445,6 +456,23 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Marketing highlights");
     expect(markup).toContain("Seller fee");
     expect(markup).toContain("0% beta listings");
+  });
+
+  it("maps marketing hero legacy default density to comfortable", () => {
+    const defaultAliasMarkup = renderToString(
+      <MarketingImageHero imageSrc="/assets/hero.webp" imageAlt="Cards ready to list" density="default" title="Sell" />,
+    );
+    const comfortableMarkup = renderToString(
+      <MarketingImageHero
+        imageSrc="/assets/hero.webp"
+        imageAlt="Cards ready to list"
+        density="comfortable"
+        title="Sell"
+      />,
+    );
+
+    expect(defaultAliasMarkup).toBe(comfortableMarkup);
+    expect(comfortableMarkup).toContain("min-h-[22rem]");
   });
 
   it("renders conversion-first marketplace listing signals", () => {

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { surfaceSemanticToneClasses } from "../../primitives/layout";
+import type { DensityMode } from "../../theme/tokens";
 
-export type MarketplaceDensity = "compact" | "comfortable" | "focused";
+export type MarketplaceDensity = DensityMode;
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
 export type TrustTone = "verified" | "protection" | "secure" | "policy" | "warning";
 export type StatusTone = "success" | "warning" | "error" | "info" | "neutral";
@@ -9,7 +10,6 @@ export type StatusTone = "success" | "warning" | "error" | "info" | "neutral";
 export const densityClasses: Record<MarketplaceDensity, string> = {
   compact: "p-3",
   comfortable: "p-4",
-  focused: "p-5",
 };
 
 // Status tints reuse the canonical `Surface` semantic tone triple. This context
