@@ -30,6 +30,14 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const marketplaceProviderProofStatusWorkflow = readFileSync(
+  resolve(".github/workflows/marketplace-provider-proof-status.yml"),
+  "utf8",
+);
+const platformStagingWakeDrillsWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-wake-drills.yml"),
+  "utf8",
+);
 const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
@@ -1479,6 +1487,26 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("uses one checked-in script for Terraform-state database URL exports in operational workflows", () => {
+    const wakeDrillsStep = workflowStep(platformStagingWakeDrillsWorkflow, "Export staging database URLs");
+    const representativeStateStep = workflowStep(platformRepresentativeWorkflow, "Export staging database URLs");
+    const providerProofStep = workflowStep(
+      marketplaceProviderProofStatusWorkflow,
+      "Export provider proof database URLs",
+    );
+    const steps = [wakeDrillsStep, representativeStateStep, providerProofStep];
+
+    for (const step of steps) {
+      expect(step).toContain("terraform state pull");
+      expect(step).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+      expect(step).toContain('--state "$state_path"');
+      expect(step).toContain('--github-env "$GITHUB_ENV"');
+      expect(step).not.toContain("node <<'NODE'");
+      expect(step).not.toContain("digitalocean_database_cluster");
+    }
+    expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
+  });
+
   it("provisions the checked-in observability stack behind scoped public endpoints", () => {
     expect(observabilityMain).toContain('resource "digitalocean_droplet" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
@@ -1520,12 +1548,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
     expect(platformRepresentativeWorkflow).toContain('default: "300000"');
     expect(platformRepresentativeWorkflow).toContain("terraform state pull");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_cluster");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_db");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_user");
-    expect(platformRepresentativeWorkflow).toContain("Direct database state is incomplete");
-    expect(platformRepresentativeWorkflow).toContain("PLATFORM_CONTROL_DATABASE_URL");
-    expect(platformRepresentativeWorkflow).toContain("DATABASE_URL_${String(contextName).toUpperCase()");
+    expect(platformRepresentativeWorkflow).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(platformRepresentativeWorkflow).toContain("--environment staging");
+    expect(platformRepresentativeWorkflow).toContain('--github-env "$GITHUB_ENV"');
     expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
