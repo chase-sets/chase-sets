@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TEST_COMMAND_TIMEOUT_MS,
@@ -25,6 +26,16 @@ function buildInvocation(args) {
 }
 
 describe("run-workspaces", () => {
+  it("keeps local verify:test on the same non-DB workspace runner used by CI", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const verifyTest = packageJson.scripts["verify:test"];
+
+    expect(verifyTest).toBe(
+      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 && node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4",
+    );
+    expect(verifyTest).not.toContain("run-vitest-projects.mjs");
+  });
+
   it("preserves serial behavior by default", async () => {
     let active = 0;
     let maxActive = 0;
