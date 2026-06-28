@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateReleaseLock, parseReleaseLockOptions } from "./release-lock.mjs";
+import {
+  evaluateReleaseLock,
+  evaluateReleaseLockWithResolution,
+  normalizeEmergencyReference,
+  parseReleaseLockOptions,
+} from "./release-lock.mjs";
 
 describe("release lock check", () => {
   it("allows normal production deployment when no lock is active", () => {
@@ -48,14 +53,110 @@ describe("release lock check", () => {
       lockReason: "Checkout incident mitigation",
       lockReference: "INC-2026-05-31-002",
       emergencyBypass: "true",
-      emergencyReference: "FIX-FORWARD-PR-123",
+      emergencyReference: "INC-2026-05-31-123",
     });
 
     expect(result).toMatchObject({
       deploymentAllowed: true,
       releaseLocked: true,
       releaseMode: "emergency",
-      emergencyReference: "FIX-FORWARD-PR-123",
+      emergencyReference: "INC-2026-05-31-123",
+      emergencyReferenceKind: "incident",
+      validatedEmergencyReference: "INC-2026-05-31-123",
+    });
+  });
+
+  it("rejects free-text emergency bypass references", () => {
+    const result = evaluateReleaseLock({
+      environmentName: "production",
+      releaseCommit: "c".repeat(40),
+      releaseLocked: "true",
+      lockReason: "Checkout incident mitigation",
+      lockReference: "INC-2026-05-31-002",
+      emergencyBypass: "true",
+      emergencyReference: "fix forward please",
+    });
+
+    expect(result.deploymentAllowed).toBe(false);
+    expect(result.errors).toContain(
+      "EMERGENCY_RELEASE_REFERENCE must be an incident reference or a GitHub issue/PR reference when EMERGENCY_RELEASE_BYPASS=true.",
+    );
+  });
+
+  it("normalizes emergency references to incident or GitHub issue references", () => {
+    expect(normalizeEmergencyReference("inc-2026-05-31-123")).toEqual({
+      kind: "incident",
+      reference: "INC-2026-05-31-123",
+    });
+    expect(normalizeEmergencyReference("#2797")).toEqual({
+      kind: "github",
+      number: 2797,
+      reference: "#2797",
+    });
+    expect(normalizeEmergencyReference("https://github.com/chase-sets/chase-sets/pull/2865")).toEqual({
+      kind: "github",
+      owner: "chase-sets",
+      repo: "chase-sets",
+      number: 2865,
+      reference: "chase-sets/chase-sets#2865",
+    });
+  });
+
+  it("fails closed when a GitHub emergency reference does not resolve", async () => {
+    const result = await evaluateReleaseLockWithResolution(
+      {
+        environmentName: "production",
+        releaseCommit: "c".repeat(40),
+        releaseLocked: "true",
+        lockReason: "Checkout incident mitigation",
+        lockReference: "INC-2026-05-31-002",
+        emergencyBypass: "true",
+        emergencyReference: "#404",
+        githubRepository: "chase-sets/chase-sets",
+        githubToken: "token",
+        githubApiUrl: "https://api.github.test",
+      },
+      {
+        fetch: async () => ({ ok: false, status: 404 }),
+      },
+    );
+
+    expect(result.deploymentAllowed).toBe(false);
+    expect(result.errors).toContain("EMERGENCY_RELEASE_REFERENCE #404 did not resolve to an existing issue or PR.");
+  });
+
+  it("allows emergency bypass when a GitHub reference resolves", async () => {
+    const result = await evaluateReleaseLockWithResolution(
+      {
+        environmentName: "production",
+        releaseCommit: "c".repeat(40),
+        releaseLocked: "true",
+        lockReason: "Checkout incident mitigation",
+        lockReference: "INC-2026-05-31-002",
+        emergencyBypass: "true",
+        emergencyReference: "PR-2797",
+        githubRepository: "chase-sets/chase-sets",
+        githubToken: "token",
+        githubApiUrl: "https://api.github.test",
+      },
+      {
+        fetch: async (url, init) => {
+          expect(url).toBe("https://api.github.test/repos/chase-sets/chase-sets/issues/2797");
+          expect(init.headers.authorization).toBe("Bearer token");
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ html_url: "https://github.com/chase-sets/chase-sets/pull/2797" }),
+          };
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      deploymentAllowed: true,
+      emergencyReferenceKind: "github",
+      validatedEmergencyReference: "chase-sets/chase-sets#2797",
+      emergencyReferenceUrl: "https://github.com/chase-sets/chase-sets/pull/2797",
     });
   });
 
