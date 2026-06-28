@@ -84,6 +84,21 @@ describe("MCP service catalog", () => {
       ),
     ).toBe(true);
   });
+
+  it("classifies PII and financial write inputs as sensitive for redaction", () => {
+    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual(["confirmationText", "email"]);
+    expect(findMcpTool("payments.request-refund")?.audit.sensitiveInputFields).toEqual([
+      "amount",
+      "confirmationText",
+      "reason",
+    ]);
+    expect(findMcpTool("settlement.request-payout")?.audit.sensitiveInputFields).toEqual([
+      "amount",
+      "confirmationText",
+      "reason",
+    ]);
+    expect(findMcpTool("fulfillment.void-label")?.audit.sensitiveInputFields).toEqual(["confirmationText", "reason"]);
+  });
 });
 
 describe("MCP tool authorization", () => {

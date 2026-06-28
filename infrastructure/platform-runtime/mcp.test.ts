@@ -684,6 +684,52 @@ describe("MCP runtime routes", () => {
     });
   });
 
+  it("redacts sensitive write arguments when no handler is registered", async () => {
+    const app = createActorApp(actor);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "settlement.request-payout",
+          arguments: {
+            accountId: "account_1",
+            amount: "25.00",
+            reason: "Seller requested payout.",
+            idempotencyKey: "idem_1",
+            confirmationText: "Request Payout.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Request Payout.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32004,
+        message: "No runtime handler is registered for MCP tool 'settlement.request-payout'.",
+        data: expect.objectContaining({
+          tool: expect.objectContaining({
+            name: "settlement.request-payout",
+          }),
+          redactedArguments: {
+            accountId: "account_1",
+            amount: "[redacted]",
+            reason: "[redacted]",
+            idempotencyKey: "idem_1",
+            confirmationText: "[redacted]",
+          },
+        }),
+      },
+    });
+  });
+
   it("rejects account-scoped resource reads for another account before reaching handlers", async () => {
     const handler = vi.fn();
     const audit = vi.fn();
