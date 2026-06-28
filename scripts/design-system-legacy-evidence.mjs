@@ -302,16 +302,17 @@ const verificationCommands = [
   "pnpm run ops design-system:legacy-evidence --write",
   "pnpm run test:design-system-legacy-inventory",
   "pnpm run test:design-system-legacy-evidence",
+  "pnpm run check:design-system-legacy-evidence",
   "pnpm exec tsc -p ./tsconfig.json --noEmit",
   "pnpm run verify:static",
 ];
 
 export function parseDesignSystemLegacyEvidenceArgs(argv, env = process.env) {
   return {
+    check: argv.includes("--check") || readBooleanEnv("DESIGN_SYSTEM_LEGACY_EVIDENCE_CHECK", env),
     write: argv.includes("--write") || readBooleanEnv("DESIGN_SYSTEM_LEGACY_EVIDENCE_WRITE", env),
     out: readOption(argv, "--out") ?? env.DESIGN_SYSTEM_LEGACY_EVIDENCE_OUT ?? defaultEvidencePath,
-    checkedAt:
-      readOption(argv, "--checked-at") ?? env.DESIGN_SYSTEM_LEGACY_EVIDENCE_CHECKED_AT ?? new Date().toISOString(),
+    checkedAt: readOption(argv, "--checked-at") ?? env.DESIGN_SYSTEM_LEGACY_EVIDENCE_CHECKED_AT,
   };
 }
 
@@ -483,6 +484,95 @@ function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
 }
 
+function stableJsonValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(stableJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableJsonValue(value[key])]),
+    );
+  }
+
+  return value;
+}
+
+export function compareDesignSystemLegacyEvidence(currentReport, committedReport) {
+  return JSON.stringify(stableJsonValue(currentReport)) === JSON.stringify(stableJsonValue(committedReport));
+}
+
+function readEvidenceArtifact(evidencePath, rootDir = repoRoot) {
+  if (!existsSync(evidencePath)) {
+    return {
+      artifact: null,
+      error: `Design-system legacy evidence artifact is missing at ${normalizeRelativePath(evidencePath, rootDir)}.`,
+    };
+  }
+
+  try {
+    return {
+      artifact: readJson(evidencePath),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      artifact: null,
+      error: `Design-system legacy evidence artifact is not valid JSON at ${normalizeRelativePath(
+        evidencePath,
+        rootDir,
+      )}: ${error.message}`,
+    };
+  }
+}
+
+export async function checkDesignSystemLegacyEvidence(options = {}) {
+  const rootDir = options.rootDir ?? repoRoot;
+  const evidencePath = options.out ?? defaultEvidencePath;
+  const artifactResult = readEvidenceArtifact(evidencePath, rootDir);
+  const checkedAt = options.checkedAt ?? artifactResult.artifact?.checkedAt ?? new Date().toISOString();
+  const report = await collectDesignSystemLegacyEvidence({ ...options, rootDir, out: evidencePath, checkedAt });
+  const artifactInSync =
+    artifactResult.artifact !== null && compareDesignSystemLegacyEvidence(report, artifactResult.artifact);
+
+  return {
+    passed: report.passesDesignSystemLegacyEvidence && artifactInSync,
+    report,
+    evidencePath,
+    artifactError: artifactResult.error,
+    artifactInSync,
+  };
+}
+
+export function printDesignSystemLegacyEvidenceCheckResult(result) {
+  const relativeEvidencePath = normalizeRelativePath(result.evidencePath, repoRoot);
+
+  if (!result.report.passesDesignSystemLegacyEvidence) {
+    console.error("Design-system legacy evidence check failed.");
+    for (const error of result.report.errors ?? []) {
+      console.error(`- ${error}`);
+    }
+  }
+
+  if (result.artifactError) {
+    console.error(result.artifactError);
+    console.error("Run pnpm run ops design-system:legacy-evidence --write to regenerate it.");
+  } else if (!result.artifactInSync) {
+    console.error(
+      `Design-system legacy evidence artifact is stale: ${relativeEvidencePath} differs from a fresh scan.`,
+    );
+    console.error("Run pnpm run ops design-system:legacy-evidence --write to regenerate it.");
+  }
+
+  if (result.passed) {
+    console.log(
+      `Design-system legacy evidence check passed: ${result.report.summary.representativeSurfaceCount} representative surface(s), ${result.report.summary.legacyInventoryEntryCount} legacy inventory entries, and ${relativeEvidencePath} is in sync.`,
+    );
+  }
+}
+
 function readBooleanEnv(name, env) {
   return ["1", "true", "yes"].includes(String(env[name] ?? "").toLowerCase());
 }
@@ -493,6 +583,12 @@ function normalizeRelativePath(filePath, rootDir) {
 
 async function main(argv, env = process.env) {
   const options = parseDesignSystemLegacyEvidenceArgs(argv, env);
+  if (options.check) {
+    const result = await checkDesignSystemLegacyEvidence(options);
+    printDesignSystemLegacyEvidenceCheckResult(result);
+    return result.passed ? 0 : 1;
+  }
+
   const report = await collectDesignSystemLegacyEvidence(options);
   if (options.write) {
     writeDesignSystemLegacyEvidence(report, options.out);

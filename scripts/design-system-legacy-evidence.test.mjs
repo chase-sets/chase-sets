@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION,
+  checkDesignSystemLegacyEvidence,
   collectDesignSystemLegacyEvidence,
   parseDesignSystemLegacyEvidenceArgs,
   writeDesignSystemLegacyEvidence,
@@ -73,6 +74,67 @@ describe("design system legacy visual/accessibility evidence", () => {
     expect(written.schemaVersion).toBe(DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION);
     expect(written.retainedArtifact).toContain("evidence.json");
   }, 30000);
+
+  it("passes the committed evidence self-diff when the fresh scan matches the artifact", async () => {
+    const tempDir = await makeTempDir();
+    const out = path.join(tempDir, "evidence.json");
+    const ledgerPath = await writeEmptyLegacyInventory(tempDir);
+    const report = await collectDesignSystemLegacyEvidence({
+      checkedAt: "2026-06-08T00:00:00.000Z",
+      rootDir: tempDir,
+      ledgerPath,
+      out,
+      surfaceChecks: [],
+    });
+    writeDesignSystemLegacyEvidence(report, out);
+
+    await expect(
+      checkDesignSystemLegacyEvidence({
+        rootDir: tempDir,
+        ledgerPath,
+        out,
+        surfaceChecks: [],
+      }),
+    ).resolves.toMatchObject({
+      passed: true,
+      artifactInSync: true,
+    });
+  });
+
+  it("fails the committed evidence self-diff when the artifact is stale", async () => {
+    const tempDir = await makeTempDir();
+    const out = path.join(tempDir, "evidence.json");
+    const ledgerPath = await writeEmptyLegacyInventory(tempDir);
+    const report = await collectDesignSystemLegacyEvidence({
+      checkedAt: "2026-06-08T00:00:00.000Z",
+      rootDir: tempDir,
+      ledgerPath,
+      out,
+      surfaceChecks: [],
+    });
+    writeDesignSystemLegacyEvidence(
+      {
+        ...report,
+        summary: {
+          ...report.summary,
+          representativeSurfaceCount: 99,
+        },
+      },
+      out,
+    );
+
+    await expect(
+      checkDesignSystemLegacyEvidence({
+        rootDir: tempDir,
+        ledgerPath,
+        out,
+        surfaceChecks: [],
+      }),
+    ).resolves.toMatchObject({
+      passed: false,
+      artifactInSync: false,
+    });
+  });
 
   it("fails closed when the fresh legacy inventory scan is not empty", async () => {
     const tempDir = await makeTempDir();
@@ -178,9 +240,17 @@ describe("design system legacy visual/accessibility evidence", () => {
         {},
       ),
     ).toMatchObject({
+      check: false,
       write: true,
       out: "packages/design-system/evidence.json",
       checkedAt: "2026-06-08T00:00:00.000Z",
+    });
+  });
+
+  it("parses check mode arguments", () => {
+    expect(parseDesignSystemLegacyEvidenceArgs(["--check"], {})).toMatchObject({
+      check: true,
+      write: false,
     });
   });
 });

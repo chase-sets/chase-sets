@@ -159,14 +159,14 @@ export function CheckoutActionForm() {
 }
 ```
 
-The router adapter is a separate optional subpath so the core design-system entrypoint stays framework-neutral. `pnpm run check:no-legacy-forms` runs the final blocking guardrail: production code may not render lowercase `<form>` directly or import/use framework `Form` directly outside the approved design-system adapter. The historical migration baseline lives in `scripts/no-legacy-forms.baseline.json` and should remain empty.
+The router adapter is a separate optional subpath so the core design-system entrypoint stays framework-neutral. `pnpm run check:no-legacy-forms` runs the final blocking guardrail: production code may not render lowercase `<form>` directly or import/use framework `Form` directly outside the approved design-system adapter.
 
 Migration cleanup checklist:
 
 - Replace production lowercase `<form>` with `Form` and direct `react-router` `Form` imports with `RouterForm`.
 - Preserve `method`, `action`, `encType`, `target`, refs, hidden fields, external submit controls, and submitted field names.
-- Remove obsolete route-local wrappers, duplicated parsing helpers, temporary compatibility shims, and baseline entries.
-- Run `pnpm run check:no-legacy-forms` before completion; final mode must pass with an empty baseline.
+- Remove obsolete route-local wrappers, duplicated parsing helpers, and temporary compatibility shims.
+- Run `pnpm run check:no-legacy-forms` before completion; final mode must pass with zero legacy form files.
 
 ## Progressive Disclosure
 
