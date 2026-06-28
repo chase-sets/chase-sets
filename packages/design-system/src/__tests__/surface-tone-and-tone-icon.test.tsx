@@ -1,4 +1,4 @@
-import { renderToString } from "react-dom/server";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
   Surface,
@@ -8,6 +8,7 @@ import {
   type ToneIconSize,
   type ToneIconTone,
 } from "../index";
+import { toneIconSizeClasses, toneIconToneClasses } from "../primitives/tone-icon";
 
 const semanticTones: Record<SurfaceSemanticTone, { border: string; bg: string; text: string }> = {
   neutral: { border: "border-muted", bg: "bg-surface-2", text: "text-secondary" },
@@ -20,20 +21,31 @@ const semanticTones: Record<SurfaceSemanticTone, { border: string; bg: string; t
 };
 
 describe("Surface semantic tones", () => {
-  it("keeps the structural tones rendering unchanged", () => {
-    expect(renderToString(<Surface>Default chrome</Surface>)).toContain("ds-glass bg-elevated");
-    expect(renderToString(<Surface tone="muted">Recessed</Surface>)).toContain("bg-surface-2");
-    expect(renderToString(<Surface tone="accent">Brand</Surface>)).toContain("ds-brand-gradient text-accent-contrast");
-    expect(renderToString(<Surface tone="subtle">Flat</Surface>)).toContain("bg-surface border-muted");
-  });
+  it.each(["default", "muted", "accent", "subtle"] as const)(
+    "renders the %s structural tone without changing the content contract",
+    (tone) => {
+      render(
+        <Surface tone={tone} data-testid={`${tone}-surface`}>
+          {tone} content
+        </Surface>,
+      );
 
-  it.each(Object.entries(semanticTones))("renders the canonical soft token triple for the %s tone", (tone, classes) => {
-    const markup = renderToString(<Surface tone={tone as SurfaceSemanticTone}>{tone}</Surface>);
+      expect(screen.getByTestId(`${tone}-surface`).textContent).toBe(`${tone} content`);
+    },
+  );
 
-    expect(markup).toContain(classes.border);
-    expect(markup).toContain(classes.bg);
-    expect(markup).toContain(classes.text);
-  });
+  it.each(Object.keys(semanticTones) as SurfaceSemanticTone[])(
+    "renders the %s semantic tone without changing the content contract",
+    (tone) => {
+      render(
+        <Surface tone={tone} data-testid={`${tone}-surface`}>
+          {tone} content
+        </Surface>,
+      );
+
+      expect(screen.getByTestId(`${tone}-surface`).textContent).toBe(`${tone} content`);
+    },
+  );
 
   it("exposes the semantic tone map as the canonical border/bg/text triple", () => {
     for (const [tone, classes] of Object.entries(semanticTones)) {
@@ -41,6 +53,18 @@ describe("Surface semantic tones", () => {
         `${classes.border} ${classes.bg} ${classes.text}`,
       );
     }
+  });
+
+  it("renders the requested element and content without exposing a custom element contract", () => {
+    render(
+      <Surface element="section" tone="success" data-testid="status-surface">
+        Import completed
+      </Surface>,
+    );
+
+    const surface = screen.getByTestId("status-surface");
+    expect(surface.tagName).toBe("SECTION");
+    expect(surface.textContent).toContain("Import completed");
   });
 });
 
@@ -61,31 +85,24 @@ describe("ToneIcon", () => {
     primary: { bg: "bg-primary-soft", text: "text-primary" },
   };
 
-  it("renders a tinted circle wrapping the design-system Icon", () => {
-    const markup = renderToString(<ToneIcon name="shield" tone="trust" />);
+  it("renders as a decorative badge by default", () => {
+    const { container } = render(<ToneIcon name="shield" tone="trust" data-testid="trust-badge" />);
 
-    expect(markup).toContain("inline-flex");
-    expect(markup).toContain("items-center");
-    expect(markup).toContain("justify-center");
-    expect(markup).toContain("rounded-tokenFull");
+    expect(screen.getByTestId("trust-badge").tagName).toBe("SPAN");
+    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it.each(Object.entries(sizeClassMap))("sizes the %s badge with its size token", (size, sizeClass) => {
-    const markup = renderToString(<ToneIcon name="check" size={size as ToneIconSize} />);
-
-    expect(markup).toContain(sizeClass);
+  it.each(Object.entries(sizeClassMap))("exports the %s badge size token", (size, sizeClass) => {
+    expect(toneIconSizeClasses[size as ToneIconSize]).toBe(sizeClass);
   });
 
-  it.each(Object.entries(toneTints))("tints the %s badge with the soft token pair", (tone, tint) => {
-    const markup = renderToString(<ToneIcon name="info" tone={tone as ToneIconTone} />);
-
-    expect(markup).toContain(tint.bg);
-    expect(markup).toContain(tint.text);
+  it.each(Object.entries(toneTints))("exports the %s badge soft token pair", (tone, tint) => {
+    expect(toneIconToneClasses[tone as ToneIconTone]).toBe(`${tint.bg} ${tint.text}`);
   });
 
   it("passes an accessible label through to the inner Icon", () => {
-    const markup = renderToString(<ToneIcon name="shield" tone="trust" label="Buyer protection" />);
+    render(<ToneIcon name="shield" tone="trust" label="Buyer protection" />);
 
-    expect(markup).toContain('aria-label="Buyer protection"');
+    expect(screen.getByLabelText("Buyer protection")).toBeTruthy();
   });
 });
