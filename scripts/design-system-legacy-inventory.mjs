@@ -191,21 +191,6 @@ const rawStructuralElementTags = new Set([
 
 const inlineStyleAllowList = [
   {
-    path: "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-    markers: ["data-testid", "stripe-connect-embedded-component", "ref"],
-    reason: "Stripe Connect embedded component mount point owns third-party rendering outside the design system.",
-  },
-  {
-    path: "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-    markers: ["ref", "containerRef"],
-    reason: "Stripe confirmation mount point owns third-party rendering outside the design system.",
-  },
-  {
-    path: "bounded-contexts/discovery/features/search/ui/search-page.tsx",
-    markers: ["ref", "loadMoreRef", "aria-hidden"],
-    reason: "IntersectionObserver sentinel is behavior-only and has no design-system visual surface.",
-  },
-  {
     path: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
     markers: ["--step-count"],
     reason: "Dynamic CSS variable bridges runtime step count into an existing design-system layout contract.",
@@ -218,24 +203,6 @@ const inlineStyleAllowList = [
 ];
 
 const rawStructuralElementAllowList = [
-  {
-    path: "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
-    tagName: "div",
-    markers: ["data-testid", "stripe-connect-embedded-component", "ref"],
-    reason: "Stripe Connect embedded component requires a raw ref mount div.",
-  },
-  {
-    path: "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
-    tagName: "div",
-    markers: ["ref", "containerRef"],
-    reason: "Stripe confirmation flow requires a raw ref mount div.",
-  },
-  {
-    path: "bounded-contexts/discovery/features/search/ui/search-page.tsx",
-    tagName: "div",
-    markers: ["ref", "loadMoreRef", "aria-hidden"],
-    reason: "Search pagination uses a behavior-only IntersectionObserver sentinel div.",
-  },
   {
     path: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
     tagName: "main",

@@ -15,6 +15,7 @@ import {
   Grid,
   LinkButton,
   ListingCard,
+  Slot,
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
@@ -861,7 +862,7 @@ export function SearchPage({
             ) : null}
             {canLoadMore || loadingMore || loadMoreError ? (
               <Stack gap={3}>
-                <div ref={loadMoreRef} aria-hidden="true" />
+                <Slot ref={loadMoreRef} purpose="observer" />
                 {loadMoreError ? (
                   <Banner
                     tone="danger"

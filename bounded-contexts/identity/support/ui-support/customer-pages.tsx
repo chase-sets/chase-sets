@@ -1,4 +1,14 @@
-import { HiddenInput, Form, Button, Card, Stack, Text, TextInput, PasswordInput } from "@chase-sets/design-system";
+import {
+  HiddenInput,
+  Form,
+  Button,
+  Card,
+  LiveRegion,
+  Stack,
+  Text,
+  TextInput,
+  PasswordInput,
+} from "@chase-sets/design-system";
 import type { FormEvent, ReactNode } from "react";
 
 export function AuthFormPage({
@@ -70,9 +80,9 @@ export function AuthFormPage({
               ),
             )}
             {errorMessage ? (
-              <div role="alert">
+              <LiveRegion>
                 <Text>{errorMessage}</Text>
-              </div>
+              </LiveRegion>
             ) : null}
             <Button type="submit">{ctaLabel}</Button>
           </Stack>
