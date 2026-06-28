@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import {
   authorizeMcpToolInvocation,
@@ -56,11 +57,27 @@ export type McpAuditRecord = Readonly<{
 
 export type McpAuditSink = (record: McpAuditRecord) => Promise<void> | void;
 
+export type McpIdempotencyRecord = Readonly<{
+  key: string;
+  requestHash: string;
+  response: unknown;
+  createdAt: string;
+  expiresAt?: string | null;
+}>;
+
+export type McpIdempotencyStore = Readonly<{
+  get: (key: string) => Promise<McpIdempotencyRecord | null> | McpIdempotencyRecord | null;
+  put: (record: McpIdempotencyRecord) => Promise<void> | void;
+  pruneExpired?: (now?: Date) => Promise<number> | number;
+}>;
+
 export type CreateMcpRoutesOptions = Readonly<{
   services?: readonly McpServiceDescriptor[];
   toolHandlers?: Readonly<Record<string, McpToolHandler>>;
   resourceHandlers?: Readonly<Record<string, McpResourceHandler>>;
   audit?: McpAuditSink;
+  idempotencyStore?: McpIdempotencyStore;
+  allowInMemoryIdempotencyStoreForTests?: boolean;
 }>;
 
 type JsonRpcRequest = Readonly<{
@@ -311,6 +328,100 @@ function hasRequiredIdempotencyKey(tool: McpToolDescriptor, args: Readonly<Recor
   );
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
+}
+
+function mcpIdempotencyKey(toolName: string, args: Readonly<Record<string, unknown>>, actor: ResolvedActor | null) {
+  const digest = createHash("sha256")
+    .update(
+      stableJson({
+        transport: "native-mcp",
+        toolName,
+        tenantId: actor?.tenantId ?? "anonymous",
+        accountId: actor?.accountId ?? "anonymous",
+        idempotencyKey: typeof args.idempotencyKey === "string" ? args.idempotencyKey.trim() : "",
+      }),
+    )
+    .digest("base64url");
+  return `mcp:${digest}`;
+}
+
+function mcpToolRequestHash(toolName: string, args: Readonly<Record<string, unknown>>) {
+  const { idempotencyKey: _idempotencyKey, ...requestArguments } = args;
+  return createHash("sha256")
+    .update(
+      stableJson({
+        method: "tools/call",
+        name: toolName,
+        arguments: requestArguments,
+      }),
+    )
+    .digest("base64url");
+}
+
+function createMemoryMcpIdempotencyStore(): McpIdempotencyStore {
+  const records = new Map<string, McpIdempotencyRecord>();
+  return {
+    get: (key) => {
+      const record = records.get(key);
+      if (!record) {
+        return null;
+      }
+      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
+        records.delete(key);
+        return null;
+      }
+      return record;
+    },
+    put: (record) => {
+      records.set(record.key, record);
+    },
+    pruneExpired: (now = new Date()) => {
+      let deletedCount = 0;
+      for (const [key, record] of records) {
+        if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) {
+          records.delete(key);
+          deletedCount += 1;
+        }
+      }
+      return deletedCount;
+    },
+  };
+}
+
+function isMcpTestRuntime() {
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
+function resolveMcpIdempotencyStore(options: CreateMcpRoutesOptions): McpIdempotencyStore {
+  if (options.idempotencyStore) {
+    return options.idempotencyStore;
+  }
+
+  if (
+    isMcpTestRuntime() ||
+    (options.allowInMemoryIdempotencyStoreForTests === true && process.env.NODE_ENV !== "production")
+  ) {
+    return createMemoryMcpIdempotencyStore();
+  }
+
+  throw new Error(
+    "Native MCP routes require a durable idempotencyStore. Bootstrap platformUcpRuntimeSchemaSql and pass createPostgresUcpIdempotencyStore(...) for production mounts; allowInMemoryIdempotencyStoreForTests is only for isolated tests.",
+  );
+}
+
 function redactArguments(args: Readonly<Record<string, unknown>>, sensitiveInputFields: readonly string[]) {
   return Object.fromEntries(
     Object.entries(args).map(([key, value]) => [key, sensitiveInputFields.includes(key) ? "[redacted]" : value]),
@@ -429,7 +540,8 @@ async function callTool(
   request: Request,
   actor: ResolvedActor | null,
   params: McpToolCallParams,
-  options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers">> & Pick<CreateMcpRoutesOptions, "audit">,
+  options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
+    Pick<CreateMcpRoutesOptions, "audit">,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -519,6 +631,49 @@ async function callTool(
     return jsonRpcError(null, -32001, reason);
   }
 
+  const idempotency =
+    tool.guardrails.idempotencyKey === "required"
+      ? {
+          key: mcpIdempotencyKey(tool.name, args, actor),
+          requestHash: mcpToolRequestHash(tool.name, args),
+        }
+      : null;
+  if (idempotency) {
+    const existing = await options.idempotencyStore.get(idempotency.key);
+    if (existing) {
+      if (existing.requestHash === idempotency.requestHash) {
+        await audit(options.audit, {
+          outcome: "allowed",
+          method: "tools/call",
+          toolName: tool.name,
+          actorId: actor?.userId ?? null,
+          accountId: actor?.accountId ?? null,
+          auditEventName: tool.audit.eventName,
+          targetType: tool.audit.targetType,
+          reason: "idempotency-replay",
+          sensitiveInputFields: tool.audit.sensitiveInputFields,
+        });
+
+        return existing.response as ReturnType<typeof jsonRpcResult>;
+      }
+
+      const reason = "Idempotency key was already used with different MCP tool arguments.";
+      await audit(options.audit, {
+        outcome: "denied",
+        method: "tools/call",
+        toolName: tool.name,
+        actorId: actor?.userId ?? null,
+        accountId: actor?.accountId ?? null,
+        auditEventName: tool.audit.eventName,
+        targetType: tool.audit.targetType,
+        reason,
+        sensitiveInputFields: tool.audit.sensitiveInputFields,
+      });
+
+      return jsonRpcError(null, -32000, reason);
+    }
+  }
+
   const handler = options.toolHandlers[tool.name];
   if (!handler) {
     const reason = `No runtime handler is registered for MCP tool '${tool.name}'.`;
@@ -558,7 +713,7 @@ async function callTool(
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
-    return jsonRpcResult(null, {
+    const response = jsonRpcResult(null, {
       content: [
         {
           type: "json",
@@ -566,6 +721,16 @@ async function callTool(
         },
       ],
     });
+    if (idempotency) {
+      await options.idempotencyStore.put({
+        key: idempotency.key,
+        requestHash: idempotency.requestHash,
+        response,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return response;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     await audit(options.audit, {
@@ -738,6 +903,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const services = options.services ?? mcpServiceCatalog;
   const toolHandlers = options.toolHandlers ?? {};
   const resourceHandlers = options.resourceHandlers ?? {};
+  const idempotencyStore = resolveMcpIdempotencyStore(options);
 
   app.get("/services", (c) => {
     const actorError = requireMcpDiscoveryActor(c.get("actor"));
@@ -834,6 +1000,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           services,
           toolHandlers,
           audit: options.audit,
+          idempotencyStore,
         });
         return c.json({ ...result, id: request.id ?? null });
       }
