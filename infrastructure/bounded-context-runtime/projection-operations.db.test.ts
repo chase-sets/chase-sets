@@ -2,7 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { defineBoundedContextModule, type BcApiModule } from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { bootstrapContextDatabase, rebuildContextProjectionGroup, retryProjectionBlockedStream } from "./index";
+import {
+  bootstrapContextDatabase,
+  rebuildAllContextProjectionGroups,
+  rebuildContextProjectionGroup,
+  retryProjectionBlockedStream,
+} from "./index";
 import {
   closeMultiContextTestPools,
   createMountedContextTestRuntime,
@@ -174,6 +179,25 @@ describeDb("projection operations Postgres integration", () => {
     await expect(readProjectedItems()).resolves.toEqual([
       { item_id: "item-1", seen_count: 1 },
       { item_id: "item-2", seen_count: 1 },
+    ]);
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-3",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-3" },
+        },
+      ],
+    });
+
+    await expect(rebuildAllContextProjectionGroups(runtime, "target", {}, context)).resolves.toBeUndefined();
+    await expect(readProjectedItems()).resolves.toEqual([
+      { item_id: "item-1", seen_count: 1 },
+      { item_id: "item-2", seen_count: 1 },
+      { item_id: "item-3", seen_count: 1 },
     ]);
   });
 
