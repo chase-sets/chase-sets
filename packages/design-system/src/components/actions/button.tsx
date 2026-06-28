@@ -103,6 +103,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   ref,
 ) {
   const motionSettings = useChaseMotion();
+  const isAriaDisabled = rest["aria-disabled"] === true || rest["aria-disabled"] === "true";
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
@@ -116,7 +117,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       ref={ref}
       type={type}
       aria-label={label}
-      {...interactiveMotion}
+      {...(rest.disabled || isAriaDisabled ? undefined : interactiveMotion)}
       className={cx(buttonBaseClass, buttonToneClasses[tone], controlSquareSizeClasses[size], "p-0")}
     >
       <Icon name={icon} size="sm" tone={iconTone(tone)} />

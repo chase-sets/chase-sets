@@ -11,9 +11,25 @@ export interface BannerProps extends Omit<HTMLAttributes<HTMLDivElement>, "class
   actions?: ReactNode;
 }
 
-export function Banner({ title, description, tone = "info", actions, ...rest }: BannerProps) {
+export function Banner({
+  title,
+  description,
+  tone = "info",
+  actions,
+  role,
+  "aria-live": ariaLive,
+  ...rest
+}: BannerProps) {
+  const liveRole = tone === "danger" || tone === "warning" ? "alert" : "status";
+
   return (
-    <Surface {...rest} tone={toneToSemantic(tone)} element="div">
+    <Surface
+      {...rest}
+      tone={toneToSemantic(tone)}
+      element="div"
+      role={role ?? liveRole}
+      aria-live={ariaLive ?? (liveRole === "alert" ? "assertive" : "polite")}
+    >
       <Stack
         direction={{ base: "column", md: "row" }}
         align={{ base: "stretch", md: "center" }}

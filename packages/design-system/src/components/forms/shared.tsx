@@ -146,7 +146,7 @@ export function FieldChrome({
         </Text>
       ) : null}
       {counter ? (
-        <Text element="div" size="xs" tone="tertiary" id={counterId}>
+        <Text element="div" size="xs" tone="tertiary" id={counterId} aria-live="polite">
           {counter}
         </Text>
       ) : null}

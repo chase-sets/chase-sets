@@ -7,9 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
+  Breadcrumbs,
   CopyButton,
   IconButton,
   NavigationMenu,
+  Pagination,
   SegmentedControl,
   Tabs,
   Toggle,
@@ -25,6 +27,7 @@ import {
   Accordion,
   AccordionOptionTrigger,
   Badge,
+  Banner,
   Dialog,
   LoadingSpinner,
   Menu,
@@ -651,6 +654,77 @@ describe("design system components", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Duplicate listing" }));
 
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps disabled menu items discoverable without firing selections", async () => {
+    const onSelect = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <Menu
+          trigger={<Button>Actions</Button>}
+          items={[{ key: "archive", label: "Archive listing", disabled: true, onSelect }]}
+        />
+      </ChaseRoot>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    const menuItem = await screen.findByRole("menuitem", { name: "Archive listing" });
+
+    expect(menuItem.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(menuItem);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("maps Banner tone to live-region semantics", () => {
+    render(
+      <ChaseRoot>
+        <Banner tone="danger" title="Payment failed" description="Update the card." />
+        <Banner tone="info" title="Sync queued" />
+      </ChaseRoot>,
+    );
+
+    const alert = screen.getByRole("alert");
+    const status = screen.getByRole("status");
+
+    expect(alert.textContent).toContain("Payment failed");
+    expect(alert.getAttribute("aria-live")).toBe("assertive");
+    expect(status.textContent).toContain("Sync queued");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("marks the final breadcrumb as the current page", () => {
+    const markup = renderToString(
+      <Breadcrumbs
+        items={[
+          { label: "Catalog", href: "/catalog" },
+          { label: "Pokemon", href: "/catalog/pokemon" },
+          { label: "Base Set" },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain("Base Set");
+  });
+
+  it("keeps pagination ends keyboard-discoverable with aria-disabled no-ops", () => {
+    const onPageChange = vi.fn();
+
+    render(<Pagination page={1} totalPages={3} onPageChange={onPageChange} />);
+
+    const previous = screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement;
+    const next = screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement;
+
+    expect(previous.disabled).toBe(false);
+    expect(previous.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(previous);
+    expect(onPageChange).not.toHaveBeenCalled();
+
+    expect(next.disabled).toBe(false);
+    expect(next.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(next);
+    expect(onPageChange).toHaveBeenCalledWith(2);
   });
 
   it("updates checkbox and switch state through user interaction", async () => {
@@ -1771,6 +1845,7 @@ describe("design system components", () => {
     const main = screen.getByRole("main");
 
     expect(main.getAttribute("id")).toBe("main-content");
+    expect(main.getAttribute("tabindex")).toBe("-1");
     expect(main.getAttribute("class")).toContain("relative z-0");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
@@ -1784,7 +1859,10 @@ describe("design system components", () => {
       </ChaseRoot>,
     );
 
-    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
+    const main = screen.getByRole("main");
+
+    expect(main.getAttribute("id")).toBe("main-content");
+    expect(main.getAttribute("tabindex")).toBe("-1");
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
