@@ -741,6 +741,8 @@ function buildSurfaceActions(
       eligible: core.promotionPreview.outcomeCounts.eligible,
       reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
       reviewFreshness: core.sourceObservationReview.freshness,
+      mergeCandidateReviewFreshness: core.mergeCandidateReview.freshness,
+      mergeCandidateRows: core.mergeCandidateReview.counts.total,
       activeJobCount: derived.activeJobCount,
       blockers: derived.readinessBlockers,
       activationBlockers: slices.validationReadiness.activationDecision.blockers,
@@ -1281,6 +1283,8 @@ function buildActions(input: {
   eligible: number;
   reviewable: number;
   reviewFreshness: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["freshness"];
+  mergeCandidateReviewFreshness: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"]["freshness"];
+  mergeCandidateRows: number;
   activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   activationBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
@@ -1307,6 +1311,11 @@ function buildActions(input: {
         ? []
         : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
   const reviewDecisionState = actionStateForBlockers(reviewDecisionBlockers, manageState);
+  const mergeCandidateCommandBlockers = mergeCandidateCommandBlockersFor(
+    input.mergeCandidateReviewFreshness,
+    input.mergeCandidateRows,
+  );
+  const mergeCandidateCommandState = actionStateForBlockers(mergeCandidateCommandBlockers, manageState);
   const reapplyBlockers = input.activeProfileReady
     ? []
     : (["profile-version-missing"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
@@ -1406,33 +1415,33 @@ function buildActions(input: {
     },
     {
       key: "promote-merge-candidate",
-      state: reviewDecisionState,
-      blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+      state: mergeCandidateCommandState,
+      blockers: mergeCandidateCommandBlockers,
+      copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
       key: "split-merge-candidate",
-      state: reviewDecisionState,
-      blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+      state: mergeCandidateCommandState,
+      blockers: mergeCandidateCommandBlockers,
+      copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
       key: "update-merge-candidate",
-      state: reviewDecisionState,
-      blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+      state: mergeCandidateCommandState,
+      blockers: mergeCandidateCommandBlockers,
+      copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
       key: "ignore-merge-candidate",
-      state: reviewDecisionState,
-      blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+      state: mergeCandidateCommandState,
+      blockers: mergeCandidateCommandBlockers,
+      copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
       key: "defer-merge-candidate",
-      state: reviewDecisionState,
-      blockers: reviewDecisionBlockers,
-      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
+      state: mergeCandidateCommandState,
+      blockers: mergeCandidateCommandBlockers,
+      copyKey: mergeCandidateCommandBlockers.length > 0 ? "catalog.primary.review.blocked" : null,
     },
     {
       key: "start-reapply",
@@ -1554,6 +1563,17 @@ function reviewReadModelBlockersFor(
     case "partial":
       return [];
   }
+}
+
+function mergeCandidateCommandBlockersFor(
+  freshness: CatalogPrimaryWorkbenchReadModel["mergeCandidateReview"]["freshness"],
+  rowCount: number,
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  if (freshness === "unavailable") {
+    return ["read-model-unavailable"];
+  }
+
+  return rowCount > 0 ? [] : ["selection-empty"];
 }
 
 function isReviewReadModelBlocker(blocker: CatalogPrimaryWorkbenchBlockerCategory): boolean {
