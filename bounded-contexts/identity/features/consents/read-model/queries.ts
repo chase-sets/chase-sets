@@ -44,5 +44,5 @@ export async function listConsents(db: PgQueryable, params: ConsentListParams = 
     extraConditions,
     extraValues,
   );
-  return executeListQuery<ConsentRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<ConsentRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }

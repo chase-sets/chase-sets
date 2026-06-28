@@ -179,7 +179,13 @@ export async function listSourceObservations(
     filter.values,
   );
 
-  return executeListQuery<SourceObservationListRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<SourceObservationListRow>(
+    db,
+    query.countSql,
+    query.listSql,
+    query.countValues,
+    query.listValues,
+  );
 }
 
 export async function listCatalogMergeCandidates(

@@ -68,7 +68,7 @@ export async function listReferenceTypes(
     extraValues,
   );
 
-  return executeListQuery<ReferenceTypeRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<ReferenceTypeRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listReferenceTypeIds(db: PgQueryable, params: ReferenceTypeListParams = {}): Promise<string[]> {
@@ -147,7 +147,7 @@ export async function listReferenceRecords(
     extraValues,
   );
 
-  return executeListQuery<ReferenceRecordRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<ReferenceRecordRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listReferenceRecordIds(

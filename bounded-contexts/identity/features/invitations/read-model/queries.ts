@@ -1,4 +1,9 @@
-import { executeListQuery, type ListParams, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  buildPaginationClause,
+  executeListQuery,
+  type ListParams,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { normalizeEmail } from "../../../support/runtime-support/common";
 
 export type InvitationRow = Readonly<{
@@ -38,14 +43,14 @@ export async function listInvitations(db: PgQueryable, params: ListParams = {}) 
       OR accepted_users.primary_email ILIKE $${paramIndex}
     )`);
     values.push(`%${params.search}%`);
+    paramIndex += 1;
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const from = `FROM identity_invitations AS invitations
      LEFT JOIN identity_accounts AS accounts ON accounts.account_id = invitations.account_id
      LEFT JOIN identity_users AS accepted_users ON accepted_users.user_id = invitations.accepted_by_user_id`;
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
+  const pagination = buildPaginationClause(params, paramIndex);
 
   return executeListQuery<InvitationRow>(
     db,
@@ -65,8 +70,9 @@ export async function listInvitations(db: PgQueryable, params: ListParams = {}) 
      ${from}
      ${where}
      ORDER BY invitations.updated_at DESC
-     LIMIT ${limit} OFFSET ${offset}`,
+     ${pagination.sql}`,
     values,
+    [...values, ...pagination.values],
   );
 }
 

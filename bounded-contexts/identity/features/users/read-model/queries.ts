@@ -28,7 +28,7 @@ export async function listUsers(db: PgQueryable, params: ListParams = {}) {
     ["display_name", "primary_email", "given_name", "family_name"],
     "display_name ASC",
   );
-  return executeListQuery<UserRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<UserRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function getUser(db: PgQueryable, userId: string) {

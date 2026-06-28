@@ -1,4 +1,9 @@
-import { executeListQuery, type ListParams, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  buildPaginationClause,
+  executeListQuery,
+  type ListParams,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 
 export type MembershipRow = Readonly<{
   membership_id: string;
@@ -37,14 +42,14 @@ export async function listMemberships(db: PgQueryable, params: ListParams = {}) 
       OR memberships.role_key ILIKE $${paramIndex}
     )`);
     values.push(`%${params.search}%`);
+    paramIndex += 1;
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const from = `FROM identity_memberships AS memberships
      LEFT JOIN identity_users AS users ON users.user_id = memberships.user_id
      LEFT JOIN identity_accounts AS accounts ON accounts.account_id = memberships.account_id`;
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
+  const pagination = buildPaginationClause(params, paramIndex);
 
   return executeListQuery<MembershipRow>(
     db,
@@ -63,8 +68,9 @@ export async function listMemberships(db: PgQueryable, params: ListParams = {}) 
      ${from}
      ${where}
      ORDER BY memberships.updated_at DESC
-     LIMIT ${limit} OFFSET ${offset}`,
+     ${pagination.sql}`,
     values,
+    [...values, ...pagination.values],
   );
 }
 

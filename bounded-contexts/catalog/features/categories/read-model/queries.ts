@@ -56,7 +56,7 @@ export async function listCategories(
     extraValues,
   );
 
-  return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.values);
+  return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.countValues, query.listValues);
 }
 
 export async function listCategoryIds(db: PgQueryable, params: CategoryListParams = {}): Promise<string[]> {
