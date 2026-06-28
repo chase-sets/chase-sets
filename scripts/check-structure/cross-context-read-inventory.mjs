@@ -512,7 +512,7 @@ function missingBaselineMessage(call) {
     `${currentCallLabel(call)} is a net-new foreign request-path read-client call. ` +
     "Use a view-owned composite projection like bounded-contexts/checkout/features/cart/integrations/*, " +
     "then classify/ratchet scripts/check-structure/cross-context-read-baseline.json and the generated artifacts/cross-context-read-inventory.json. " +
-    "See #2774 and #2776."
+    "See docs/architecture/cross-context-request-path-read-inventory.md, #2774, and #2776."
   );
 }
 
