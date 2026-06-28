@@ -35,6 +35,19 @@ describe("PromoBar", () => {
     expect(screen.queryByLabelText("Next announcement")).toBeNull();
   });
 
+  it("supports danger announcements through the shared tone vocabulary", () => {
+    const { container } = renderPromoBar([
+      {
+        id: "maintenance",
+        title: "Seller payouts are delayed.",
+        tone: "danger",
+      },
+    ]);
+
+    expect(screen.getByText("Seller payouts are delayed.")).toBeTruthy();
+    expect(container.querySelector("section")?.className).toContain("bg-danger-soft");
+  });
+
   it("lets users move through multiple messages", async () => {
     const user = userEvent.setup();
     renderPromoBar([

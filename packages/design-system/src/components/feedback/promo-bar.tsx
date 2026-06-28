@@ -4,8 +4,9 @@ import { Icon } from "../../icons";
 import { FlexItem, IconRow, Inline, Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
+import { type Tone, toneIcon, toneToIconTone } from "./shared";
 
-export type PromoBarTone = "info" | "success" | "warning";
+export type PromoBarTone = Exclude<Tone, "neutral">;
 
 export type PromoBarMessage = Readonly<{
   id: string;
@@ -27,15 +28,11 @@ export interface PromoBarProps extends Omit<HTMLAttributes<HTMLElement>, "classN
 }
 
 const toneClasses: Record<PromoBarTone, string> = {
+  accent: "border-accent-soft bg-accent-soft text-foreground",
   info: "border-info-soft bg-info-soft text-foreground",
   success: "border-success-soft bg-success-soft text-foreground",
   warning: "border-warning-soft bg-warning-soft text-foreground",
-};
-
-const iconTone: Record<PromoBarTone, "info" | "success" | "warning"> = {
-  info: "info",
-  success: "success",
-  warning: "warning",
+  danger: "border-danger-soft bg-danger-soft text-foreground",
 };
 
 function usePrefersReducedMotion() {
@@ -117,7 +114,7 @@ export function PromoBar({
         gap={3}
       >
         <FlexItem grow>
-          <IconRow icon={<Icon name="spark" size="sm" tone={iconTone[tone]} />} align="start" gap={3}>
+          <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="start" gap={3}>
             <Stack gap={1} minWidth="0">
               <Text size="sm" weight="semibold" tone="inherit">
                 {activeMessage.title}

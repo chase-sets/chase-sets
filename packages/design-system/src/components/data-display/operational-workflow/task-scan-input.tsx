@@ -4,6 +4,9 @@ import { Grid } from "../../../primitives/layout";
 import { Button } from "../../actions/button";
 import { Form, type FormProps } from "../../forms/form";
 import { SearchInput } from "../../forms/text-input";
+import type { Tone } from "../../feedback/shared";
+
+type TaskScanInputFeedbackTone = Exclude<Tone, "neutral" | "accent">;
 
 export interface TaskScanInputProps extends Omit<FormProps, "children" | "className" | "onSubmit" | "style"> {
   label: ReactNode;
@@ -14,7 +17,7 @@ export interface TaskScanInputProps extends Omit<FormProps, "children" | "classN
   buttonLabel: ReactNode;
   description?: ReactNode;
   feedback?: ReactNode;
-  feedbackTone?: "info" | "success" | "warning" | "danger";
+  feedbackTone?: TaskScanInputFeedbackTone;
   disabled?: boolean;
 }
 

@@ -4,11 +4,14 @@ import { Stack } from "../../primitives/layout";
 import { Text } from "../../primitives/typography";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import type { Tone } from "./shared";
 import { Dialog, type DialogProps } from "./dialog";
+
+type ReferenceInfoTriggerTone = Extract<Tone, "accent" | "neutral">;
 
 type ReferenceInfoTriggerBaseProps = {
   children?: ReactNode;
-  tone?: "accent" | "subtle";
+  tone?: ReferenceInfoTriggerTone;
 };
 
 type ReferenceInfoAnchorTriggerProps = ReferenceInfoTriggerBaseProps &

@@ -1,10 +1,11 @@
 import { type HTMLAttributes, type ReactNode } from "react";
-import { IconRow, Stack, Surface, type SurfaceSemanticTone } from "../../../primitives/layout";
+import { IconRow, Stack, Surface } from "../../../primitives/layout";
 import { Text } from "../../../primitives/typography";
-import { ToneIcon, type ToneIconTone } from "../../../primitives/tone-icon";
+import { ToneIcon } from "../../../primitives/tone-icon";
 import { type IconName } from "../../../icons";
+import { type Tone, toneToSemantic } from "../../feedback/shared";
 
-export type OperationalStatusBannerTone = "info" | "success" | "warning" | "danger";
+export type OperationalStatusBannerTone = Exclude<Tone, "neutral" | "accent">;
 
 export interface OperationalStatusBannerProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -36,14 +37,14 @@ export function OperationalStatusBanner({
   ...rest
 }: OperationalStatusBannerProps) {
   return (
-    <Surface {...rest} tone={tone as SurfaceSemanticTone}>
+    <Surface {...rest} tone={toneToSemantic(tone)}>
       <Stack
         direction={{ base: "column", sm: "row" }}
         align={{ base: "stretch", sm: "start" }}
         justify={{ base: "start", sm: "between" }}
         gap={3}
       >
-        <IconRow icon={<ToneIcon name={statusBannerIcon[tone]} tone={tone as ToneIconTone} />} gap={3}>
+        <IconRow icon={<ToneIcon name={statusBannerIcon[tone]} tone={toneToSemantic(tone)} />} gap={3}>
           <Stack gap={1}>
             <Text size="sm" weight="semibold">
               {title}

@@ -2,13 +2,14 @@ import { type HTMLAttributes, type ReactNode } from "react";
 import { Cluster, Stack } from "../../../primitives/layout";
 import { Caption, Text } from "../../../primitives/typography";
 import { Progress } from "../../feedback/loading";
+import type { Tone } from "../../feedback/shared";
 
 export interface TaskProgressProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   label: ReactNode;
   value: number;
   valueLabel?: ReactNode;
   description?: ReactNode;
-  tone?: "neutral" | "active" | "success" | "blocked";
+  tone?: Tone;
 }
 
 /**
@@ -16,7 +17,7 @@ export interface TaskProgressProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * numeric value and helper line, used to show how far a workstation checklist
  * has advanced.
  */
-export function TaskProgress({ label, value, valueLabel, description, tone = "active", ...rest }: TaskProgressProps) {
+export function TaskProgress({ label, value, valueLabel, description, tone = "accent", ...rest }: TaskProgressProps) {
   return (
     <Stack {...rest} gap={2}>
       <Cluster justify="between" gap={3}>

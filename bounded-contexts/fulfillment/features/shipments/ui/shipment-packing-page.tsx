@@ -585,7 +585,7 @@ export function FulfillmentShipmentPackingPage({
                       percent: isPackedOrLater ? 100 : progressValue,
                     })}
                     value={isPackedOrLater ? 100 : progressValue}
-                    tone={allLinesChecked || isPackedOrLater ? "success" : "active"}
+                    tone={allLinesChecked || isPackedOrLater ? "success" : "accent"}
                   />
                 ) : null
               }
