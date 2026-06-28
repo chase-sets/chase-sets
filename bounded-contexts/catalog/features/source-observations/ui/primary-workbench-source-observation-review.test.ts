@@ -42,6 +42,72 @@ const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("Catalog primary workbench read model - source observation review", () => {
+  it("uses loaded review rows when the scope summary projection is empty for the selected provider scope", () => {
+    const { review } = sourceObservationReviewCompositionFor({
+      canManage: true,
+      changed: 0,
+      eligible: 0,
+      observed: 0,
+      promoted: 0,
+      readinessBlockers: [],
+      rejected: 0,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            provider_key: "tcgplayer",
+            language_code: "en",
+            status: "observed",
+            normalized: {
+              kind: "provider-product",
+              languageCode: "en",
+              name: "Alakazam",
+              setName: "Base Set",
+              expansionName: "Base Set",
+              cardNumber: null,
+              imageUrls: [],
+              providerProductId: "42365",
+              providerProductName: "Alakazam",
+              productLineName: "Pokemon",
+              productCategoryName: "Cards",
+              externalCatalogItemReferences: [],
+              externalProductReferences: [],
+              skuReferences: [],
+            },
+          }),
+        ],
+        total: 102,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      reviewUnavailable: false,
+      routeContext: {
+        ...slimRowRouteContext,
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+        importScope: "en:3:Base Set",
+        scope: {
+          providerKey: "tcgplayer",
+          languageCode: "en",
+          productLineId: "3",
+          productLineName: "Pokemon",
+          seriesId: null,
+          seriesName: null,
+          expansionId: "Base Set",
+          expansionName: "Base Set",
+          status: null,
+        },
+      },
+      scopeRows: [],
+    });
+
+    expect(review.counts).toMatchObject({ observed: 102, eligible: 102 });
+    expect(review.promotionReadyCount).toBe(102);
+    expect(review.rows[0]?.actions.find((action) => action.key === "preview-promotion")).toMatchObject({
+      state: "available",
+      blockers: [],
+    });
+  });
+
   it("maps Source Observation rows into redaction-safe review evidence with command readiness", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

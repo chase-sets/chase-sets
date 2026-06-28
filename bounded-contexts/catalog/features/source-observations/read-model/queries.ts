@@ -90,6 +90,12 @@ export type CatalogMergeCandidateFilterScope = Readonly<{
   syncRunId?: string;
   identityFingerprint?: string;
   matchedCatalogItemId?: string;
+  provider?: string;
+  language?: string;
+  productLineId?: string;
+  productLineName?: string;
+  expansionId?: string;
+  setId?: string;
 }>;
 
 export type SourceObservationPromotionPreview = Readonly<{
@@ -202,6 +208,10 @@ export async function listCatalogMergeCandidates(
       `(c.candidate_id ILIKE ${param} OR c.identity_fingerprint ILIKE ${param} OR (c.identity_json->>'printedProductName') ILIKE ${param} OR (c.identity_json->>'setName') ILIKE ${param} OR (c.identity_json->>'collectorNumber') ILIKE ${param} OR c.matched_catalog_item_id ILIKE ${param})`,
     );
   }
+  const scopeCondition = buildCatalogMergeCandidateObservationScopeCondition(params, values);
+  if (scopeCondition) {
+    conditions.push(scopeCondition);
+  }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = params.limit ?? 50;
   const offset = params.offset ?? 0;
@@ -275,8 +285,11 @@ export async function listSourceObservationIntegrationScopes(
        coalesce(normalized->>'expansionName', normalized->>'setName', '') AS expansion_name,
        coalesce(normalized->>'seriesId', '') AS series_id,
        coalesce(normalized->>'seriesName', '') AS series_name,
-       coalesce(MIN(source_payload->>'productLineId'), '') AS product_line_id,
-       coalesce(normalized->>'productLineName', normalized->'mergeIdentity'->>'productLineName', '') AS product_line_name,
+       coalesce(MIN(${sourceObservationProductLineIdExpression()}), '') AS product_line_id,
+       coalesce(
+         ${sourceObservationProductLineNameExpression()},
+         ''
+       ) AS product_line_name,
        COUNT(*)::integer AS total_observations,
        (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
        (COUNT(*) FILTER (WHERE status = 'changed'))::integer AS changed_observations,
@@ -294,7 +307,7 @@ export async function listSourceObservationIntegrationScopes(
        coalesce(normalized->>'expansionName', normalized->>'setName', ''),
        coalesce(normalized->>'seriesId', ''),
        coalesce(normalized->>'seriesName', ''),
-       coalesce(normalized->>'productLineName', normalized->'mergeIdentity'->>'productLineName', '')
+       ${sourceObservationProductLineNameExpression()}
      ORDER BY MAX(observed_at) DESC, provider_key ASC, language_code ASC`,
     filter.values,
   );
@@ -766,6 +779,59 @@ function normalizeImpactSampleLimit(value: number | undefined): number {
   return Math.min(100, Math.max(1, Math.trunc(value ?? 25)));
 }
 
+function sourceObservationProductLineIdExpression(alias = ""): string {
+  const prefix = alias ? `${alias}.` : "";
+  return `coalesce(${prefix}source_payload->>'productLineId', ${prefix}source_payload->'detail'->>'productLineId', ${prefix}normalized->>'productLineId', ${prefix}normalized->'mergeIdentity'->>'productLineId')`;
+}
+
+function sourceObservationProductLineNameExpression(alias = ""): string {
+  const prefix = alias ? `${alias}.` : "";
+  return `coalesce(${prefix}source_payload->>'productLineName', ${prefix}source_payload->'detail'->>'productLineName', ${prefix}normalized->>'productLineName', ${prefix}normalized->'mergeIdentity'->>'productLineName')`;
+}
+
+function buildCatalogMergeCandidateObservationScopeCondition(
+  params: CatalogMergeCandidateFilterScope,
+  values: unknown[],
+): string | null {
+  const conditions: string[] = [];
+
+  if (params.provider?.trim()) {
+    values.push(params.provider.trim());
+    conditions.push(`so.provider_key = $${values.length}`);
+  }
+  if (params.language?.trim()) {
+    values.push(params.language.trim());
+    conditions.push(`so.language_code = $${values.length}`);
+  }
+  if (params.productLineId?.trim()) {
+    values.push(params.productLineId.trim());
+    conditions.push(`${sourceObservationProductLineIdExpression("so")} = $${values.length}`);
+  }
+  if (params.productLineName?.trim()) {
+    values.push(params.productLineName.trim());
+    conditions.push(`${sourceObservationProductLineNameExpression("so")} = $${values.length}`);
+  }
+  const expansionId = params.expansionId?.trim() || params.setId?.trim();
+  if (expansionId) {
+    values.push(expansionId);
+    conditions.push(
+      `((so.normalized->>'setId') = $${values.length} OR (so.normalized->>'expansionId') = $${values.length} OR (so.normalized->>'setName') = $${values.length} OR (so.normalized->>'expansionName') = $${values.length})`,
+    );
+  }
+
+  if (conditions.length === 0) {
+    return null;
+  }
+
+  return `EXISTS (
+    SELECT 1
+    FROM catalog_merge_candidate_observations scoped_mco
+    JOIN catalog_source_observations so ON so.observation_id = scoped_mco.observation_id
+    WHERE scoped_mco.candidate_id = c.candidate_id
+      AND ${conditions.join(" AND ")}
+  )`;
+}
+
 function buildSourceObservationFilter(
   params: SourceObservationFilterScope,
   options: { includeListFilters: boolean; statuses?: readonly string[] },
@@ -794,7 +860,7 @@ function buildSourceObservationFilter(
 
   if (scope.productLineId) {
     values.push(scope.productLineId);
-    conditions.push(`source_payload->>'productLineId' = $${values.length}`);
+    conditions.push(`${sourceObservationProductLineIdExpression()} = $${values.length}`);
   }
 
   if (scope.seriesId) {

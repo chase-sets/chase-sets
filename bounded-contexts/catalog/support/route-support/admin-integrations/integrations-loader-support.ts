@@ -654,11 +654,34 @@ function dailyReviewPaginationFor(
   return { limit, offset };
 }
 
-function buildDailyMergeCandidateQuery(routeContext: CatalogPrimaryWorkbenchRouteContext): string {
+export function buildDailyMergeCandidateQuery(routeContext: CatalogPrimaryWorkbenchRouteContext): string {
   const params = new URLSearchParams();
   params.set("limit", String(dailyReviewPageSize));
   params.set("offset", "0");
-  if (routeContext.jobId) {
+  const scope = routeContext.scope;
+  const hasSelectedScope = Boolean(
+    scope?.providerKey || scope?.languageCode || scope?.productLineId || scope?.expansionId || scope?.expansionName,
+  );
+  if (scope?.providerKey) {
+    params.set("provider", scope.providerKey);
+  }
+  if (scope?.languageCode) {
+    params.set("language", scope.languageCode);
+  }
+  if (scope?.productLineId) {
+    params.set("productLineId", scope.productLineId);
+  }
+  if (scope?.productLineName) {
+    params.set("productLineName", scope.productLineName);
+  }
+  if (scope?.expansionId) {
+    params.set("expansionId", scope.expansionId);
+    params.set("setId", scope.expansionId);
+  } else if (scope?.expansionName) {
+    params.set("expansionId", scope.expansionName);
+    params.set("setId", scope.expansionName);
+  }
+  if (routeContext.jobId && !hasSelectedScope) {
     params.set("syncRunId", routeContext.jobId);
   }
   const status = candidateStatusFromReviewStatus(routeContext.sourceObservationFilters.status);
