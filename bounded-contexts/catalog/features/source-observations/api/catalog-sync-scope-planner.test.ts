@@ -11,7 +11,7 @@ import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-i
 describe("Catalog sync scope planner", () => {
   it("plans Pokemon Expansion sync with required TCGdex and optional TCGplayer-style participation", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-tcg-automation-client");
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const tcgdexPlanImport = vi.fn(fakePlanImport(102));
@@ -64,7 +64,7 @@ describe("Catalog sync scope planner", () => {
 
   it("limits participation to an explicitly selected optional provider unit", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-tcg-automation-client");
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const tcgdexPlanImport = vi.fn(fakePlanImport(102));
@@ -148,7 +148,7 @@ describe("Catalog sync scope planner", () => {
 
   it("marks selected optional units ineligible without blocking the required unit", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
-    const tcgplayer = activeProfile("tcgplayer", "pokemon-tcg-automation-client");
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const preview = await previewCatalogSyncProviderParticipation({

@@ -14,7 +14,7 @@ export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION = "2026.06.22";
 export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
-export const TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION = "2026.06.03";
+export const TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION = "2026.06.05";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -327,8 +327,8 @@ const nonGoals = [
 
 export const tcgplayerProviderProductSourceObservationMappingContract = {
   providerKey: "tcgplayer",
-  profileKey: "pokemon-tcg-automation-client",
-  displayName: "TCGplayer Pokemon Provider Product",
+  profileKey: "pokemon-single-card-product-sku",
+  displayName: "TCGplayer Pokemon Single Cards",
   profileVersion: TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
   lifecycle: "active",
   ingestionUnitIdentity: tcgplayerPokemonSingleCardIngestionUnitIdentity,

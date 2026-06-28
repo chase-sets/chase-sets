@@ -574,7 +574,7 @@ describe("Catalog integrations route", () => {
     });
     const tcgplayerProfile = profileReview({
       providerKey: "tcgplayer",
-      profileKey: "pokemon-tcg-automation-client",
+      profileKey: "pokemon-single-card-product-sku",
       profileVersion: "2026.06.03",
       ingestionUnitKey: pokemonUnit,
       displayName: "TCGplayer Pokemon Single Cards",
@@ -749,7 +749,7 @@ describe("Catalog integrations route", () => {
         {
           providerKey: "tcgplayer",
           unitKey: pokemonUnit,
-          profileKey: "pokemon-tcg-automation-client",
+          profileKey: "pokemon-single-card-product-sku",
           profileVersion: "2026.06.03",
           displayName: "TCGplayer Pokemon Single Cards",
           role: "primary-source-observation",
@@ -793,7 +793,7 @@ describe("Catalog integrations route", () => {
         items: [
           profileReview({
             providerKey: "tcgplayer",
-            profileKey: "pokemon-tcg-automation-client",
+            profileKey: "pokemon-single-card-product-sku",
             profileVersion: "2026.06.03",
             ingestionUnitKey: pokemonUnit,
             displayName: "TCGplayer Pokemon Single Cards",

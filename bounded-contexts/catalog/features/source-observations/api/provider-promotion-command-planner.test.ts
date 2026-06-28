@@ -213,8 +213,8 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("blocks provider-product observations until the profile declares a valid promotion plan", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgplayerAutomationClientProviderProfile,
-      profileKey: "pokemon-tcg-automation-client",
-      profileVersion: "2026.06.03",
+      profileKey: "pokemon-single-card-product-sku",
+      profileVersion: "2026.06.05",
       providerKey: "tcgplayer",
       externalKey: "product:12345",
       mode: "create",

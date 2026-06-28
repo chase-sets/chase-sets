@@ -56,7 +56,7 @@ export function createActiveTcgplayerProfileVersions(input: { profileKey?: strin
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
   getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
 } {
-  const activeProfileKey = input.profileKey ?? "pokemon-tcg-automation-client";
+  const activeProfileKey = input.profileKey ?? "pokemon-single-card-product-sku";
   const versions = catalogProviderIntegrationProfileVersions.map((version) =>
     version.providerKey === "tcgplayer"
       ? {

@@ -452,7 +452,7 @@ function normalizeAutomationDetail(input: {
   productReferenceSchema?: TcgplayerProductReferenceSchema | null;
 }) {
   return requireCatalogProviderSourceObservation({
-    contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer", "2026.06.03"),
+    contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer", "2026.06.05"),
     payload: buildTcgplayerAutomationSourceObservationPayload({
       ...input,
       selectedOptionMapping: tcgplayerAutomationClientProviderProfile.selectedOptionMapping,

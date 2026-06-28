@@ -290,7 +290,7 @@ function providerProductObservationRow(
     source_record_hash: `${observationId}-hash`,
     source_updated_at: null,
     observed_at: "2026-06-27T11:59:00.000Z",
-    source_profile_key: "pokemon-tcg-automation-client",
+    source_profile_key: "pokemon-single-card-product-sku",
     source_profile_version: "2026.06.03",
     source_mapping_fingerprint: "tcgplayer-pokemon-mapping",
     normalized,

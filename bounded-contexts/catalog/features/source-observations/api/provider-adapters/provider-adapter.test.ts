@@ -481,7 +481,7 @@ describe("ProviderAdapterRegistry", () => {
         productForm: "single-card",
         ingestionPurpose: "source-observation-import",
         displayName: "TCGplayer Pokemon Single Cards",
-        profileVersion: "2026.06.03",
+        profileVersion: "2026.06.05",
       },
     ]);
     await expect(
@@ -2016,8 +2016,8 @@ function requireTcgdexProfileVersion() {
 }
 
 function requireTcgplayerPokemonProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
-    profileKey: "pokemon-tcg-automation-client",
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
+    profileKey: "pokemon-single-card-product-sku",
   });
   if (!version) {
     throw new Error("Expected TCGplayer Pokemon profile version.");

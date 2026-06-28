@@ -831,9 +831,9 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
     ...providerCases(
       "tcgplayer",
       {
-        profileKey: "pokemon-tcg-automation-client",
+        profileKey: "pokemon-single-card-product-sku",
         ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-        profileVersion: "2026.06.03",
+        profileVersion: "2026.06.05",
       },
       {
         normal: {

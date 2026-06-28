@@ -297,7 +297,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         {
           providerKey: "tcgplayer",
           unitKey: pokemonUnit,
-          profileKey: "pokemon-tcg-automation-client",
+          profileKey: "pokemon-single-card-product-sku",
           profileVersion: "2026.06.03",
           displayName: "TCGplayer Pokemon Single Cards",
           role: "supplemental-marketplace-reference" as const,
@@ -307,7 +307,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
           selected: false,
           childExecutionScope: {
             provider: "tcgplayer",
-            profileKey: "pokemon-tcg-automation-client",
+            profileKey: "pokemon-single-card-product-sku",
             ingestionUnitKey: pokemonUnit,
             language: "en",
             productLineId: "3",
@@ -351,7 +351,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         items: [
           profileReview({
             providerKey: "tcgplayer",
-            profileKey: "pokemon-tcg-automation-client",
+            profileKey: "pokemon-single-card-product-sku",
             profileVersion: "2026.06.03",
             ingestionUnitKey: pokemonUnit,
             displayName: "TCGplayer Pokemon Single Cards",

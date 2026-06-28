@@ -33,6 +33,7 @@ import {
   tcgplayerMtgSealedProductProviderProfile,
   tcgplayerOnePieceSingleCardProviderProfile,
   tcgplayerOnePieceSealedProductProviderProfile,
+  tcgplayerPokemonSingleCardProviderProfile,
   tcgplayerYugiohSingleCardProviderProfile,
   ygojsonYugiohSealedProductReferenceProviderProfile,
   ygojsonYugiohSetReferenceProviderProfile,
@@ -106,16 +107,16 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("keeps the Pokemon TCGplayer automation profile available as an active source-observation unit", () => {
-    const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
-      profileKey: "pokemon-tcg-automation-client",
+  it("keeps the Pokemon TCGplayer single-card profile available as an active provider-product unit", () => {
+    const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
+      profileKey: "pokemon-single-card-product-sku",
     })?.profile;
 
-    expect(profile).toBe(tcgplayerAutomationClientProviderProfile);
+    expect(profile).toBe(tcgplayerPokemonSingleCardProviderProfile);
     expect(profile).toMatchObject({
       providerKey: "tcgplayer",
       status: "active",
-      normalizedObservationMapping: { kind: "pokemon-card" },
+      normalizedObservationMapping: { kind: "provider-product" },
       catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
     });
   });
@@ -691,8 +692,8 @@ describe("catalog provider integration profiles", () => {
     const onePieceSealed = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "one-piece-sealed-product-sku",
     });
-    const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
-      profileKey: "pokemon-tcg-automation-client",
+    const pokemon = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "pokemon-single-card-product-sku",
     });
 
     expect(magic).toMatchObject({
@@ -772,7 +773,7 @@ describe("catalog provider integration profiles", () => {
     });
     expect(pokemon).toMatchObject({
       providerKey: "tcgplayer",
-      profileKey: "pokemon-tcg-automation-client",
+      profileKey: "pokemon-single-card-product-sku",
       lifecycle: "active",
       active: true,
       ingestionUnitIdentity: {
@@ -780,10 +781,11 @@ describe("catalog provider integration profiles", () => {
         productDomain: "pokemon",
       },
       profile: {
-        normalizedObservationMapping: { kind: "pokemon-card" },
+        normalizedObservationMapping: { kind: "provider-product" },
         catalogFieldMapping: { blueprintKey: "pokemon-card-single" },
       },
     });
+    expect(pokemon?.profile).toBe(tcgplayerPokemonSingleCardProviderProfile);
     expect(magic?.profile.selectedOptionMapping?.dimensions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -936,7 +938,7 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "2026.06.20", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
-      ["tcgplayer", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.05", "active"],
       ["ygojson", "2026.06.21", "active"],
       ["ygojson", "2026.06.21", "active"],
       ["ygoprodeck", "2026.06.21", "active"],
@@ -1116,13 +1118,13 @@ describe("catalog provider integration profiles", () => {
       profileKey: "mtg-sealed-product-sku",
     });
     expect(
-      getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
-        profileKey: "pokemon-tcg-automation-client",
+      getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
+        profileKey: "pokemon-single-card-product-sku",
       }),
     ).toMatchObject({
       providerKey: "tcgplayer",
-      profileKey: "pokemon-tcg-automation-client",
-      profileVersion: "2026.06.03",
+      profileKey: "pokemon-single-card-product-sku",
+      profileVersion: "2026.06.05",
       active: true,
       sourceContract: {
         repository: "todd-skelton/tcgplayer-automation-app",
@@ -1132,8 +1134,8 @@ describe("catalog provider integration profiles", () => {
       retirementPlan: null,
       executableMappingContract: expect.objectContaining({
         providerKey: "tcgplayer",
-        profileKey: "pokemon-tcg-automation-client",
-        profileVersion: "2026.06.03",
+        profileKey: "pokemon-single-card-product-sku",
+        profileVersion: "2026.06.05",
         lifecycle: "active",
         sourceObservation: expect.any(Object),
       }),

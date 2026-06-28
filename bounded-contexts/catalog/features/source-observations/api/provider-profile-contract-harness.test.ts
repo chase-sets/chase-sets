@@ -53,7 +53,7 @@ describe("Catalog provider profile contract harness", () => {
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.23",
-      "tcgplayer@2026.06.03",
+      "tcgplayer@2026.06.05",
     ]);
   });
 
@@ -82,7 +82,7 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "tcgplayer", profileKey: "one-piece-sealed-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "lorcana-single-card-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "lorcana-sealed-product-sku", profileVersion: "2026.06.23" },
-      { providerKey: "tcgplayer", profileKey: "pokemon-tcg-automation-client", profileVersion: "2026.06.03" },
+      { providerKey: "tcgplayer", profileKey: "pokemon-single-card-product-sku", profileVersion: "2026.06.05" },
     ];
     const results = await Promise.all(
       identities.map(async (identity) => {

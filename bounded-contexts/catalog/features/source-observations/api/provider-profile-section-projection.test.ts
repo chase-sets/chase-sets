@@ -16,7 +16,7 @@ import {
 
 describe("Catalog provider profile section projection", () => {
   it("projects seeded profile versions into deterministic section rows with fingerprints", () => {
-    const version = requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client");
+    const version = requireSeededVersion("tcgplayer", "pokemon-single-card-product-sku");
     const firstProjection = projectCatalogProviderProfileVersionSections(version);
     const secondProjection = projectCatalogProviderProfileVersionSections(version);
 
@@ -50,7 +50,7 @@ describe("Catalog provider profile section projection", () => {
   });
 
   it("refreshes section and diagnostic rows from a canonical snapshot", async () => {
-    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client"));
+    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-single-card-product-sku"));
     const db = recordingDb();
 
     const projections = await refreshCatalogProviderProfileVersionSectionProjections(db, version);
@@ -69,7 +69,7 @@ describe("Catalog provider profile section projection", () => {
   });
 
   it("loads section metadata and diagnostics without parsing the full profile snapshot", async () => {
-    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client"));
+    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-single-card-product-sku"));
     const db = recordingDb();
     await refreshCatalogProviderProfileVersionSectionProjections(db, version);
 
@@ -91,8 +91,8 @@ describe("Catalog provider profile section projection", () => {
     });
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("FROM catalog_provider_profile_version_sections"), [
       "tcgplayer",
-      "2026.06.03",
-      "pokemon-tcg-automation-client",
+      "2026.06.05",
+      "pokemon-single-card-product-sku",
     ]);
   });
 
