@@ -1,6 +1,8 @@
 import {
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
   DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
+  type EventStoreWakeNotificationFailedEvent,
+  type EventStoreWakeNotificationPayloadRejectedEvent,
   type PostgresEventStoreWakeNotificationConfig,
 } from "@chase-sets/event-core-postgres";
 
@@ -624,7 +626,58 @@ export function createEventStoreWakeNotificationConfigForSourceContext(
     channel: input.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
     source: input.source ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
     ...(input.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: input.maxPayloadBytes }),
+    observer: createEventStoreWakeNotificationObserver(),
   };
+}
+
+function createEventStoreWakeNotificationObserver(): NonNullable<PostgresEventStoreWakeNotificationConfig["observer"]> {
+  return {
+    notificationFailed: (event) => {
+      console.warn("Event-store wake notification failed after commit; projections fall back to bounded polling.", {
+        type: "event_store_wake.notification_failed",
+        channel: event.channel,
+        sourceContextName: event.sourceContextName,
+        streamCategory: event.streamCategory,
+        firstGlobalPosition: event.firstGlobalPosition,
+        lastGlobalPosition: event.lastGlobalPosition,
+        eventCount: event.eventCount,
+        correlationId: event.correlationId,
+        error: eventStoreWakeNotificationErrorSummary(event.error),
+      } satisfies EventStoreWakeNotificationFailedLog);
+    },
+    payloadRejected: (event) => {
+      console.warn("Event-store wake notification payload rejected; projections fall back to bounded polling.", {
+        type: "event_store_wake.payload_rejected",
+        channel: event.channel,
+        sourceContextName: event.sourceContextName,
+        streamCategory: event.streamCategory,
+        firstGlobalPosition: event.firstGlobalPosition,
+        lastGlobalPosition: event.lastGlobalPosition,
+        eventCount: event.eventCount,
+        correlationId: event.correlationId,
+        reason: event.reason,
+      } satisfies EventStoreWakeNotificationPayloadRejectedLog);
+    },
+  };
+}
+
+type EventStoreWakeNotificationFailedLog = Omit<EventStoreWakeNotificationFailedEvent, "error"> &
+  Readonly<{
+    type: "event_store_wake.notification_failed";
+    error: string;
+  }>;
+
+type EventStoreWakeNotificationPayloadRejectedLog = EventStoreWakeNotificationPayloadRejectedEvent &
+  Readonly<{
+    type: "event_store_wake.payload_rejected";
+  }>;
+
+function eventStoreWakeNotificationErrorSummary(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 export function listEventStoreWakeNotificationSourceContexts(
