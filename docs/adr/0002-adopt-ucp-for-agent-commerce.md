@@ -30,7 +30,9 @@ V1 advertises both UCP REST and UCP MCP in the business profile:
 
 REST routes and UCP MCP tools must share protocol DTOs, validation, authorization, signed-request checks, idempotency/replay policy, audit policy, and context-owned handlers. Deployables may mount the routes, but domain decisions stay in the owning bounded context.
 
-Checkout completion requires a trusted UI handoff unless a later AP2 Mandate implementation verifies autonomous purchase authority. OAuth identity linking must be modeled separately from API keys because UCP delegated access is user/account consent, not a generic software credential. UCP OAuth uses Authorization Code with PKCE S256, refresh-token rotation, introspection, and consent revocation.
+Checkout completion requires a trusted UI handoff unless a configured AP2 Mandate verifier and supported payment-handler path verify autonomous purchase authority. OAuth identity linking must be modeled separately from API keys because UCP delegated access is user/account consent, not a generic software credential. UCP OAuth uses Authorization Code with PKCE S256, refresh-token rotation, introspection, and consent revocation.
+
+General UCP response signing is deferred from v1 production readiness. Checkout responses may include AP2 merchant authorization signing for checkout terms, but non-checkout UCP envelopes are not signed until a future compatibility and certification pass defines the response-signature scheme agents are expected to verify.
 
 ## Consequences
 
@@ -50,4 +52,6 @@ Initial verification covers:
 - Idempotency-key requirements for checkout completion and cancellation.
 - Platform API mounts for `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp`.
 
-Order reads, OAuth scope enforcement, PKCE, refresh rotation, token introspection, linked-platform consent revocation, durable replay storage with retention/pruning, production profile/key caching, AP2 guarded continuation, UCP runtime observer events, and staging smoke checks are now part of the hardening baseline. Response signing and real AP2 mandate/payment-handler funds transfer remain future work. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, replay conflict behavior, OAuth token lifecycle behavior, and AP2 guardrails have focused automated coverage.
+Order reads, OAuth scope enforcement, PKCE, refresh rotation, token introspection, linked-platform consent revocation, durable replay storage with retention/pruning, production profile/key caching, AP2 guarded continuation, UCP runtime observer events, and staging smoke checks are now part of the hardening baseline. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, replay conflict behavior, OAuth token lifecycle behavior, and AP2 guardrails have focused automated coverage.
+
+Forward-readiness decision for v1: general UCP response signing is explicitly deferred, and headless AP2 mandate/payment-handler funds transfer remains off by default. A production AP2 verifier, merchant signing keys, Stripe shared-payment-token support, and certification evidence are required before autonomous checkout completion is treated as launch-ready.
