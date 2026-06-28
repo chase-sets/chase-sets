@@ -68,25 +68,11 @@ jobs:
         id: release
         run: |
           set -euo pipefail
-
-          git fetch origin main
-          if [ "${{ github.event_name }}" = "push" ]; then
-            release_commit="${{ github.sha }}"
-          else
-            release_ref="${{ inputs.release_ref }}"
-            git fetch origin "${release_ref}" || true
-            if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-              release_commit="$(git rev-parse "${release_ref}^{commit}")"
-            elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-              release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
-            else
-              echo "Release ref '${release_ref}' does not resolve to a commit." >&2
-              exit 1
-            fi
-          fi
-
-          git merge-base --is-ancestor "$release_commit" origin/main
-          echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
+          node ./scripts/resolve-release-commit.mjs \
+            --event-name "${{ github.event_name }}" \
+            --push-commit "${{ github.sha }}" \
+            --release-ref "${{ inputs.release_ref }}" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Validate release checks
         env:
