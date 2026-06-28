@@ -2,6 +2,8 @@ import { Client } from "pg";
 import process from "node:process";
 import { loadTestEnvironment } from "./run-workspaces.mjs";
 
+export const TEST_DATABASE_CONNECTION_TIMEOUT_MS = 10_000;
+
 export function dbPreflightRemediationMessage(errorMessage) {
   return [
     "DB test preflight failed: TEST_DATABASE_URL is not reachable.",
@@ -15,12 +17,16 @@ export function dbPreflightRemediationMessage(errorMessage) {
   ].join("\n");
 }
 
-export async function checkTestDatabase({ databaseUrl = process.env.TEST_DATABASE_URL, ClientCtor = Client } = {}) {
+export async function checkTestDatabase({
+  databaseUrl = process.env.TEST_DATABASE_URL,
+  ClientCtor = Client,
+  connectionTimeoutMillis = TEST_DATABASE_CONNECTION_TIMEOUT_MS,
+} = {}) {
   if (!databaseUrl) {
     throw new Error("TEST_DATABASE_URL is not set.");
   }
 
-  const client = new ClientCtor({ connectionString: databaseUrl });
+  const client = new ClientCtor({ connectionString: databaseUrl, connectionTimeoutMillis });
   try {
     await client.connect();
     await client.query("select 1");

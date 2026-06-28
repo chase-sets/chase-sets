@@ -1,6 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
-import { loadTestEnvironment, parseRunWorkspacesArgs, runWorkspaceScripts } from "./run-workspaces.mjs";
+import {
+  DEFAULT_TEST_COMMAND_TIMEOUT_MS,
+  loadTestEnvironment,
+  parseRunWorkspacesArgs,
+  runWorkspaceScripts,
+} from "./run-workspaces.mjs";
 
 function workspace(name, scripts, testProfile) {
   return {
@@ -147,7 +152,53 @@ describe("run-workspaces", () => {
       excludeTestProfile: undefined,
       workspaceNames: new Set(),
       concurrency: 4,
+      commandTimeoutMs: undefined,
     });
+  });
+
+  it("parses an explicit per-command timeout without passing it to workspace scripts", async () => {
+    expect(parseRunWorkspacesArgs(["build", "--command-timeout-ms=2500"])).toEqual({
+      scriptName: "build",
+      passthroughArgs: [],
+      includeTestProfile: undefined,
+      excludeTestProfile: undefined,
+      workspaceNames: new Set(),
+      concurrency: 1,
+      commandTimeoutMs: 2500,
+    });
+
+    const runCalls = [];
+    await runWorkspaceScripts({
+      argv: ["build", "--command-timeout-ms=2500", "--workspace=@test/a"],
+      buildInvocation,
+      listWorkspaces: () => [workspace("@test/a", { build: "build" })],
+      run: async (_command, args, options) => {
+        runCalls.push({ args, options });
+      },
+    });
+
+    expect(runCalls).toEqual([
+      {
+        args: ["--filter", "@test/a", "run", "build"],
+        options: { stdio: "inherit", timeoutMs: 2500 },
+      },
+    ]);
+  });
+
+  it("bounds test workspace commands by default", async () => {
+    const runOptions = [];
+
+    await runWorkspaceScripts({
+      argv: ["test:db", "--workspace=@test/db"],
+      buildInvocation,
+      listWorkspaces: () => [workspace("@test/db", { "test:db": "test:db" }, "db")],
+      loadEnvironment: () => {},
+      run: async (_command, _args, options) => {
+        runOptions.push(options);
+      },
+    });
+
+    expect(runOptions).toEqual([{ stdio: "inherit", timeoutMs: DEFAULT_TEST_COMMAND_TIMEOUT_MS }]);
   });
 
   it("forwards passthrough arguments to the workspace script without a literal separator", async () => {
