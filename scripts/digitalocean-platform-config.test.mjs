@@ -64,6 +64,29 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function workflowSteps(source, stepName) {
+  const steps = [];
+  const stepPattern = new RegExp(`- name: ${stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "gm");
+  let match = stepPattern.exec(source);
+  while (match) {
+    const start = match.index;
+    const next = source.indexOf("\n      - name:", start + 1);
+    steps.push(next === -1 ? source.slice(start) : source.slice(start, next));
+    match = stepPattern.exec(source);
+  }
+  expect(steps.length).toBeGreaterThan(0);
+  return steps;
+}
+
+function workflowJob(source, jobName) {
+  const start = source.indexOf(`  ${jobName}:`);
+  expect(start).not.toBe(-1);
+
+  const rest = source.slice(start + 1);
+  const next = rest.search(/\n  [A-Za-z0-9_-]+:/);
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
+}
+
 function terraformServiceBlock(source, serviceName) {
   const start = source.indexOf(`name               = "${serviceName}"`);
   expect(start).not.toBe(-1);
@@ -1505,6 +1528,45 @@ describe("DigitalOcean platform configuration", () => {
       expect(step).not.toContain("digitalocean_database_cluster");
     }
     expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
+  });
+
+  it("defines platform Terraform deployment inputs once per job instead of per plan/apply step", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const resetJob = workflowJob(platformStagingResetWorkflow, "reset-staging");
+
+    for (const job of [stagingJob, productionJob, resetJob]) {
+      expect(job).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(job).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(job).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(job).toContain("TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
+      expect(job).toContain("TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+      expect(job).toContain("TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
+      expect(job).toContain("TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}");
+      expect(job).toContain("TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}");
+      expect(job).toContain("TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}");
+    }
+
+    expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
+    expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
+    expect(productionJob).toContain(
+      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+    );
+    expect(productionJob).toContain(
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+    );
+    expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
+
+    const platformPlanApplySteps = [
+      ...workflowSteps(platformProductionWorkflow, "Terraform plan"),
+      ...workflowSteps(platformProductionWorkflow, "Terraform apply"),
+      ...workflowSteps(platformStagingResetWorkflow, "Terraform plan staging recreate"),
+      ...workflowSteps(platformStagingResetWorkflow, "Terraform apply staging recreate"),
+    ];
+
+    for (const step of platformPlanApplySteps) {
+      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+    }
   });
 
   it("provisions the checked-in observability stack behind scoped public endpoints", () => {
