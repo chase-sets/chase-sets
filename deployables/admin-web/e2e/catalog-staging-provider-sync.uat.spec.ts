@@ -1020,10 +1020,7 @@ function mergeCandidateReviewModule(page: Page): Locator {
 }
 
 async function firstMergeCandidateRowWithEnabledPromotion(reviewModule: Locator): Promise<Locator | null> {
-  const rows = reviewModule.getByRole("row").filter({
-    has: reviewModule.getByRole("button", { name: /^Promote:/ }),
-    hasText: /tcgplayer/i,
-  });
+  const rows = reviewModule.getByRole("row").filter({ hasText: /tcgplayer/i });
   const deadline = Date.now() + sourceOptionTimeoutMs;
   while (Date.now() < deadline) {
     const count = await rows.count();

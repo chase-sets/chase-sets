@@ -492,6 +492,40 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("keeps scoped TCGplayer Pokemon merge candidates visible when candidate identity uses TCG wording", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Asingle-card%3Asource-observation-import&languageCode=en&productLineId=3&productLineName=Pokemon&expansionName=Base+Set&profileVersion=2026.06.05",
+      scopes: { items: [sourceObservationScope({ provider_key: "tcgplayer" })], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem({ provider_key: "tcgplayer" })], total: 1, count: 1 },
+      mergeCandidates: {
+        items: [
+          catalogMergeCandidateListItem({
+            identity_json: {
+              ...catalogMergeCandidateListItem().identity_json,
+              productLineName: "Pokemon TCG",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Merged candidate review" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Promote: Charizard/ }).length).toBeGreaterThan(0);
+  });
+
   it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
