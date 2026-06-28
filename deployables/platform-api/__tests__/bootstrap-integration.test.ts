@@ -4,7 +4,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  refreshProjectionReplaySummary,
+  SCHEMA_MIGRATIONS_TABLE,
+} from "@chase-sets/bounded-context-runtime";
 import {
   getApiHostContextNames,
   getApiHostSeedOrder,
@@ -143,6 +147,29 @@ describe("platform api bootstrap", () => {
     expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
   }, 300_000);
+
+  it("records context schema migrations once during concurrent bootstrap", async () => {
+    const catalogContext = apiContextRegistry.find((context) => context.contextName === "catalog");
+    if (!catalogContext) {
+      throw new Error("Expected catalog context in platform-api registry.");
+    }
+
+    await Promise.all([
+      bootstrapContextDatabase(catalogContext.module, pools.catalog),
+      bootstrapContextDatabase(catalogContext.module, pools.catalog),
+    ]);
+
+    const migrations = await pools.catalog.query<Readonly<{ migration_id: string }>>(
+      `SELECT migration_id
+       FROM ${SCHEMA_MIGRATIONS_TABLE}
+       ORDER BY migration_id ASC`,
+    );
+
+    expect(migrations.rows.map((row) => row.migration_id)).toEqual([
+      "20260628_event_store_context_columns_backfill",
+      "20260628_event_store_events_concurrent_indexes",
+    ]);
+  }, 120_000);
 
   it("limits long-lived environment bootstrap to critical and integration data", async () => {
     const runtime = createPlatformApiHost({

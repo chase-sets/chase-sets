@@ -5,6 +5,7 @@ export {
   composeModuleSchemaSql,
   composeSchemaSql,
   eventSubscriptionSchemaSql,
+  SCHEMA_MIGRATIONS_TABLE,
   waitForDatabase,
 } from "./schema";
 export {
@@ -65,7 +66,7 @@ export {
 import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createProjectionAwarePool } from "./projection-transactions";
-import { composeModuleSchemaSql, waitForDatabase } from "./schema";
+import { bootstrapContextDatabase } from "./schema";
 import { seedApiModuleIfEmpty } from "./seeding";
 import { drainContextProcesses, resolveModuleSubscriptions, type MountedContextRuntimeEntry } from "./subscriptions";
 
@@ -123,8 +124,13 @@ export async function bootstrapApiModule<TServices, TPool extends PgTransactiona
   }> = {},
 ): Promise<TServices> {
   const completionLabel = options.completionLabel ?? module.contextName;
-  await waitForDatabase(pool, options.databaseLabel ?? completionLabel);
-  await pool.query(composeModuleSchemaSql(module));
+  await bootstrapContextDatabase(
+    {
+      contextName: options.databaseLabel ?? completionLabel,
+      schemaSql: module.schemaSql,
+    },
+    pool,
+  );
   await seedApiModuleIfEmpty(module, pool);
   const services = module.createServices(createProjectionAwarePool(pool), ports);
   const mountedContext: MountedContextRuntimeEntry = {
