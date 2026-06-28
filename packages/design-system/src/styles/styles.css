@@ -29,8 +29,8 @@
     --secondary-foreground: #334155;
     --muted: #e2e8f0;
     --muted-foreground: #64748b;
-    --accent: #475569;
-    --accent-foreground: #ffffff;
+    --accent: var(--primary);
+    --accent-foreground: var(--primary-foreground);
     --border: #e2e8f0;
     --border-strong: #cbd5e1;
     --input: #cbd5e1;
@@ -54,7 +54,6 @@
     --danger-contrast: #ffffff;
     --destructive: var(--danger);
     --destructive-foreground: var(--danger-contrast);
-    --error-soft: var(--danger-soft);
     --info: #0369a1;
     --info-soft: #e0f2fe;
     --info-hover: #075985;
@@ -168,8 +167,8 @@
     --dark-secondary-foreground: #cbd5e1;
     --dark-muted: #334155;
     --dark-muted-foreground: #94a3b8;
-    --dark-accent: #cbd5e1;
-    --dark-accent-foreground: #0f172a;
+    --dark-accent: var(--dark-primary);
+    --dark-accent-foreground: var(--dark-primary-foreground);
     --dark-border: #334155;
     --dark-border-strong: #475569;
     --dark-input: #475569;
@@ -193,7 +192,6 @@
     --dark-danger-contrast: #1f0808;
     --dark-destructive: var(--dark-danger);
     --dark-destructive-foreground: var(--dark-danger-contrast);
-    --dark-error-soft: var(--dark-danger-soft);
     --dark-info: #38bdf8;
     --dark-info-soft: #082f49;
     --dark-info-hover: #7dd3fc;
@@ -250,8 +248,6 @@
     --muted-foreground: var(--dark-muted-foreground);
     --accent: var(--dark-accent);
     --accent-foreground: var(--dark-accent-foreground);
-    --destructive: var(--dark-destructive);
-    --destructive-foreground: var(--dark-destructive-foreground);
     --border: var(--dark-border);
     --border-strong: var(--dark-border-strong);
     --input: var(--dark-input);
@@ -273,7 +269,6 @@
     --danger-contrast: var(--dark-danger-contrast);
     --destructive: var(--dark-destructive);
     --destructive-foreground: var(--dark-destructive-foreground);
-    --error-soft: var(--dark-error-soft);
     --info: var(--dark-info);
     --info-soft: var(--dark-info-soft);
     --info-hover: var(--dark-info-hover);
@@ -328,8 +323,6 @@
       --muted-foreground: var(--dark-muted-foreground);
       --accent: var(--dark-accent);
       --accent-foreground: var(--dark-accent-foreground);
-      --destructive: var(--dark-destructive);
-      --destructive-foreground: var(--dark-destructive-foreground);
       --border: var(--dark-border);
       --border-strong: var(--dark-border-strong);
       --input: var(--dark-input);
@@ -351,7 +344,6 @@
       --danger-contrast: var(--dark-danger-contrast);
       --destructive: var(--dark-destructive);
       --destructive-foreground: var(--dark-destructive-foreground);
-      --error-soft: var(--dark-error-soft);
       --info: var(--dark-info);
       --info-soft: var(--dark-info-soft);
       --info-hover: var(--dark-info-hover);
@@ -408,7 +400,7 @@
     --color-primary: var(--primary);
     --color-primary-soft: var(--primary-soft);
     --color-overlay: var(--overlay);
-    --color-accent: var(--primary);
+    --color-accent: var(--accent);
     --color-accent-2: var(--trust);
     --color-accent-soft: var(--primary-soft);
     --color-accent-contrast: var(--primary-foreground);
@@ -422,7 +414,7 @@
     --color-warning-hover: var(--warning-hover);
     --color-warning-active: var(--warning-active);
     --color-warning-contrast: var(--warning-contrast);
-    --color-danger: var(--destructive);
+    --color-danger: var(--danger);
     --color-danger-soft: var(--danger-soft);
     --color-danger-hover: var(--danger-hover);
     --color-danger-active: var(--danger-active);
@@ -579,8 +571,7 @@
       var(--shadow-sm);
   }
 
-  .ds-glass,
-  .glass-surface {
+  .ds-glass {
     background-color: var(--card);
     border-color: var(--border);
     box-shadow: var(--shadow-sm);
@@ -613,14 +604,12 @@
       radial-gradient(circle at 8% 6%, var(--page-spotlight-b), transparent 28rem);
   }
 
-  .ds-brand-gradient,
-  .brand-gradient {
+  .ds-brand-gradient {
     background-color: var(--primary);
     background-image: none;
   }
 
-  .ds-glow,
-  .glow-accent {
+  .ds-glow {
     box-shadow: var(--shadow-md);
   }
 
@@ -678,10 +667,6 @@
     box-shadow:
       inset 0 1px 0 var(--surface-line),
       inset 0 0 0 1px color-mix(in srgb, var(--background) 28%, transparent);
-  }
-
-  .neon-text {
-    color: var(--foreground);
   }
 
   @media (prefers-reduced-motion: reduce) {

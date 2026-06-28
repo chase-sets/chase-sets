@@ -187,6 +187,7 @@ describe("design system components", () => {
       colors: {
         accent: "#000000",
         successHover: "#166534",
+        dangerSoft: "#fee2e2",
         dangerHover: "#991b1b",
         trust: "#0f766e",
         ratingSoft: "#fef3c7",
@@ -200,7 +201,11 @@ describe("design system components", () => {
       },
     });
 
+    expect(style["--accent" as never]).toBe("#000000");
     expect(style["--color-accent" as never]).toBe("#000000");
+    expect(style["--danger-soft" as never]).toBe("#fee2e2");
+    expect(style["--color-danger-soft" as never]).toBe("#fee2e2");
+    expect(style["--error-soft" as never]).toBeUndefined();
     expect(style["--success-hover" as never]).toBe("#166534");
     expect(style["--color-danger-hover" as never]).toBe("#991b1b");
     expect(style["--trust" as never]).toBe("#0f766e");
@@ -212,6 +217,9 @@ describe("design system components", () => {
 
   it("keeps the TypeScript theme contract aligned to CSS variables", () => {
     expect(chaseTheme.colors.brandPrimary).toBe("var(--primary)");
+    expect(chaseTheme.colors.accent).toBe("var(--primary)");
+    expect(chaseTheme.colors.danger).toBe("var(--danger)");
+    expect(chaseTheme.colors.dangerSoft).toBe("var(--danger-soft)");
     expect(chaseTheme.typography.body).toContain("--body-font");
     expect(chaseTheme.typography.body).toContain("IBM Plex Sans");
     expect(chaseTheme.typography.fontSize["2xs"]).toBe("var(--font-size-2xs, 0.6875rem)");
@@ -1719,7 +1727,7 @@ describe("design system components", () => {
     expect(facetMarkup).toContain("Show more");
     expect(facetMarkup).toContain("<section");
     expect(facetMarkup).not.toContain(
-      "glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2",
+      "ds-glass overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2",
     );
     expect(facetMarkup).not.toContain("overflow-y-auto");
     expect(facetStripMarkup).toContain("Condition");
