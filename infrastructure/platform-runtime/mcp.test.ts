@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createMcpRoutes, type McpAuditRecord } from "./mcp";
-import { MCP_PROTOCOL_VERSION } from "./mcp-protocol";
+import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import type { McpServiceDescriptor } from "./mcp-contracts";
 
@@ -214,7 +214,12 @@ describe("MCP runtime routes", () => {
       method: "POST",
       body: JSON.stringify(createRequest("initialize", { protocolVersion: "2025-03-26" })),
     });
+    const futureRevisionResponse = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(createRequest("initialize", { protocolVersion: "2025-11-25" })),
+    });
 
+    expect(SUPPORTED_MCP_PROTOCOL_VERSIONS).toEqual([MCP_PROTOCOL_VERSION]);
     expect(supportedResponse.status).toBe(200);
     await expect(supportedResponse.json()).resolves.toMatchObject({
       result: {
@@ -226,6 +231,12 @@ describe("MCP runtime routes", () => {
     });
     expect(unsupportedResponse.status).toBe(200);
     await expect(unsupportedResponse.json()).resolves.toMatchObject({
+      result: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+      },
+    });
+    expect(futureRevisionResponse.status).toBe(200);
+    await expect(futureRevisionResponse.json()).resolves.toMatchObject({
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
       },
