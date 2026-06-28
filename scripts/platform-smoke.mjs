@@ -4,6 +4,7 @@ import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { ADMIN_DEPLOYED_API_SMOKE_PROBES, ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
+import { isNativeMcpAnonymousDiscoveryRejected } from "./platform-smoke-native-mcp.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -362,7 +363,7 @@ async function expectNativeMcpAuthenticationBoundary(origin) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
     },
-    (candidate) => candidate.status === 401,
+    isNativeMcpAnonymousDiscoveryRejected,
   );
 }
 
