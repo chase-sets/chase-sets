@@ -89,6 +89,11 @@ type McpInputValidationIssue = Readonly<{
   actual?: string;
 }>;
 
+type ResourceUriMatch = Readonly<{
+  resource: McpResourceDescriptor;
+  variables: Readonly<Record<string, string>>;
+}>;
+
 function toMcpActor(actor: ResolvedActor | null): McpActor | null {
   if (!actor) {
     return null;
@@ -345,10 +350,67 @@ function toResourceListItem(resource: McpResourceDescriptor) {
   };
 }
 
-function isResourceMatch(resource: McpResourceDescriptor, uri: string) {
-  const expression = resource.uriTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\{[^}]+\\\}/g, "[^/]+");
+function matchResourceUri(resource: McpResourceDescriptor, uri: string): ResourceUriMatch | null {
+  const templateSegments = resource.uriTemplate.split("/");
+  const uriSegments = uri.split("/");
 
-  return new RegExp(`^${expression}$`).test(uri);
+  if (templateSegments.length !== uriSegments.length) {
+    return null;
+  }
+
+  const variables: Record<string, string> = {};
+
+  for (let index = 0; index < templateSegments.length; index += 1) {
+    const templateSegment = templateSegments[index];
+    const uriSegment = uriSegments[index];
+    const variableMatch = /^\{([^}]+)\}$/.exec(templateSegment);
+
+    if (variableMatch) {
+      variables[variableMatch[1]] = decodeURIComponent(uriSegment);
+      continue;
+    }
+
+    if (templateSegment !== uriSegment) {
+      return null;
+    }
+  }
+
+  return {
+    resource,
+    variables,
+  };
+}
+
+function validateToolAccountOwnership(
+  tool: McpToolDescriptor,
+  actor: ResolvedActor | null,
+  args: Readonly<Record<string, unknown>>,
+) {
+  if (!tool.permissionBoundary.accountScoped || typeof args.accountId !== "string") {
+    return null;
+  }
+
+  if (args.accountId === actor?.accountId) {
+    return null;
+  }
+
+  return "MCP tool accountId must match the authenticated actor account.";
+}
+
+function validateResourceAccountOwnership(
+  resource: McpResourceDescriptor,
+  actor: ResolvedActor | null,
+  variables: Readonly<Record<string, string>>,
+) {
+  if (!resource.permissionBoundary.accountScoped || !variables.accountId) {
+    return null;
+  }
+
+  if (variables.accountId === actor?.accountId) {
+    return null;
+  }
+
+  return "MCP resource accountId must match the authenticated actor account.";
 }
 
 async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
@@ -413,6 +475,23 @@ async function callTool(
     });
 
     return jsonRpcError(null, -32001, authorization.reason);
+  }
+
+  const accountOwnershipReason = validateToolAccountOwnership(tool, actor, args);
+  if (accountOwnershipReason) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason: accountOwnershipReason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+    });
+
+    return jsonRpcError(null, -32001, accountOwnershipReason);
   }
 
   if (!hasRequiredIdempotencyKey(tool, args)) {
@@ -508,14 +587,16 @@ async function readResource(
     return jsonRpcError(null, -32602, "Resource URI is required.");
   }
 
-  const resource = flattenMcpResources(options.services).find((candidate) =>
-    isResourceMatch(candidate, params.uri as string),
-  );
+  const resourceMatch =
+    flattenMcpResources(options.services)
+      .map((candidate) => matchResourceUri(candidate, params.uri as string))
+      .find((candidate) => candidate !== null) ?? null;
 
-  if (!resource) {
+  if (!resourceMatch) {
     return jsonRpcError(null, -32602, `Unknown MCP resource '${params.uri}'.`);
   }
 
+  const { resource, variables } = resourceMatch;
   const pseudoTool: McpToolDescriptor = {
     name: `resources/read:${resource.uriTemplate}`,
     title: resource.title,
@@ -564,6 +645,22 @@ async function readResource(
     });
 
     return jsonRpcError(null, -32001, authorization.reason);
+  }
+
+  const accountOwnershipReason = validateResourceAccountOwnership(resource, actor, variables);
+  if (accountOwnershipReason) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "resources/read",
+      resourceUri: params.uri,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: pseudoTool.audit.eventName,
+      targetType: pseudoTool.audit.targetType,
+      reason: accountOwnershipReason,
+    });
+
+    return jsonRpcError(null, -32001, accountOwnershipReason);
   }
 
   const handler = options.resourceHandlers[resource.uriTemplate];
