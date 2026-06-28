@@ -1612,6 +1612,18 @@ export const tcgplayerAutomationClientProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerPokemonSingleCardProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Pokemon Single Cards",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Pokemon Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const tcgplayerMtgSingleCardProviderProfile = {
   ...tcgplayerAutomationClientProviderProfile,
   displayName: "TCGplayer Magic Single Cards",
@@ -4556,12 +4568,12 @@ export const catalogProviderIntegrationProfileVersions = [
   },
   {
     providerKey: "tcgplayer",
-    profileKey: "pokemon-tcg-automation-client",
+    profileKey: "pokemon-single-card-product-sku",
     profileVersion: TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION,
     ingestionUnitIdentity: tcgplayerProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
     lifecycle: "active",
     active: true,
-    profile: tcgplayerAutomationClientProviderProfile,
+    profile: tcgplayerPokemonSingleCardProviderProfile,
     sourceContract: tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
     fixtures: tcgplayerProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,

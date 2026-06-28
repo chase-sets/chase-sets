@@ -962,7 +962,7 @@ describe("Catalog primary workbench source options", () => {
     const staleTcgdexProfile = profileReview({ active: true, lifecycle: "active" });
     const selectedTcgplayerProfile = profileReview({
       providerKey: "tcgplayer",
-      profileKey: "pokemon-tcg-automation-client",
+      profileKey: "pokemon-single-card-product-sku",
       profileVersion: "2026.06.05",
       displayName: "TCGplayer automation client",
       connectorKind: "tcgplayer-automation-client",

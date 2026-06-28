@@ -60,7 +60,7 @@ describe("source observation runtime: provider integration jobs", () => {
         action: "import",
         scope: {
           provider: "tcgplayer",
-          profileKey: "pokemon-tcg-automation-client",
+          profileKey: "pokemon-single-card-product-sku",
           ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
           productLineId: "3",
           setName: "Prismatic Evolutions",
@@ -334,10 +334,11 @@ describe("source observation runtime: provider integration jobs", () => {
         expect.objectContaining({
           providerKey: "tcgplayer",
           unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
-          profileKey: "pokemon-tcg-automation-client",
+          profileKey: "pokemon-single-card-product-sku",
+          profileVersion: "2026.06.05",
           childExecutionScope: {
             provider: "tcgplayer",
-            profileKey: "pokemon-tcg-automation-client",
+            profileKey: "pokemon-single-card-product-sku",
             ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
             language: "en",
             productLineId: "3",
@@ -1391,6 +1392,13 @@ describe("source observation runtime: provider integration jobs", () => {
           payload: expect.objectContaining({
             snapshot: expect.objectContaining({
               syncRunIds: ["job_sync_tcgplayer"],
+              membership: expect.arrayContaining([
+                expect.objectContaining({
+                  providerKey: "tcgplayer",
+                  sourceProfileKey: "pokemon-single-card-product-sku",
+                  sourceProfileVersion: "2026.06.05",
+                }),
+              ]),
             }),
           }),
         }),

@@ -300,7 +300,7 @@ const yugiohProviderUnitProfiles = [
 const tcgplayerProviderUnitProfiles = [
   {
     providerKey: "tcgplayer",
-    profileKey: "pokemon-tcg-automation-client",
+    profileKey: "pokemon-single-card-product-sku",
     displayName: "TCGplayer Pokemon single cards",
     ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
     supportedScopes: ["product-line/category", "set-name", "product", "sku"],
