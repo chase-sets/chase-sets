@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable, PgQueryResult } from "./types";
-import { catalogMirrorTables } from "./catalog-mirror";
+import { asArray, asStringArray, catalogMirrorTables } from "./catalog-mirror";
 
 /**
  * Golden parity replay harness for catalog mirror projections.
@@ -37,6 +37,17 @@ function sortedRecord(map: Map<string, Record<string, unknown>>): Record<string,
   return Object.fromEntries([...map.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
+type DimensionRule = Readonly<{
+  dimensionId?: unknown;
+  allowedOptionIds?: unknown;
+  appliesWhen?: unknown;
+}>;
+
+type AppliesWhenClause = Readonly<{
+  dimensionId?: unknown;
+  optionIds?: unknown;
+}>;
+
 type ReplayDb = Readonly<{
   db: PgQueryable;
   effects: CatalogMirrorReplayEffect[];
@@ -57,6 +68,34 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
 
   function emptyResult<Row>(): PgQueryResult<Row> {
     return { rows: [], rowCount: 0 };
+  }
+
+  function blueprintReferencesDimension(blueprint: Record<string, unknown>, dimensionId: string): boolean {
+    const dimensionRules = asArray<DimensionRule>(blueprint.dimension_rules);
+    const canonicalDimensionOrder = asStringArray(blueprint.canonical_dimension_order);
+
+    return (
+      canonicalDimensionOrder.includes(dimensionId) ||
+      dimensionRules.some((rule) => {
+        if (rule.dimensionId === dimensionId) {
+          return true;
+        }
+
+        return asArray<AppliesWhenClause>(rule.appliesWhen).some((clause) => clause.dimensionId === dimensionId);
+      })
+    );
+  }
+
+  function blueprintReferencesOption(blueprint: Record<string, unknown>, optionId: string): boolean {
+    return asArray<DimensionRule>(blueprint.dimension_rules).some((rule) => {
+      if (asStringArray(rule.allowedOptionIds).includes(optionId)) {
+        return true;
+      }
+
+      return asArray<AppliesWhenClause>(rule.appliesWhen).some((clause) =>
+        asStringArray(clause.optionIds).includes(optionId),
+      );
+    });
   }
 
   async function query<Row = Record<string, unknown>>(
@@ -147,13 +186,6 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
       return rowsResult(rows as Row[]);
     }
 
-    if (sql.startsWith(`SELECT catalog_item_id FROM ${tables.items} ORDER BY catalog_item_id ASC`)) {
-      const rows = [...items.values()]
-        .map((item) => ({ catalog_item_id: String(item.catalog_item_id) }))
-        .sort((left, right) => left.catalog_item_id.localeCompare(right.catalog_item_id));
-      return rowsResult(rows as Row[]);
-    }
-
     // Blueprints.
     if (sql.startsWith(`INSERT INTO ${tables.blueprints} (`)) {
       const [blueprintId, name, updatedAt] = values as [string, string, string];
@@ -177,6 +209,32 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
     if (sql.startsWith(`SELECT * FROM ${tables.blueprints} WHERE blueprint_id = $1`)) {
       const blueprint = blueprints.get(String(values[0]));
       return rowsResult(blueprint ? [blueprint as Row] : []);
+    }
+
+    if (
+      sql.startsWith(
+        `SELECT blueprint_id FROM ${tables.blueprints} WHERE dimension_rules @> $1::jsonb OR canonical_dimension_order @> $2::jsonb`,
+      )
+    ) {
+      const dimensionId = String(values[2]);
+      const rows = [...blueprints.values()]
+        .filter((blueprint) => blueprintReferencesDimension(blueprint, dimensionId))
+        .map((blueprint) => ({ blueprint_id: String(blueprint.blueprint_id) }))
+        .sort((left, right) => left.blueprint_id.localeCompare(right.blueprint_id));
+      return rowsResult(rows as Row[]);
+    }
+
+    if (
+      sql.startsWith(
+        `SELECT blueprint_id FROM ${tables.blueprints} WHERE EXISTS ( SELECT 1 FROM jsonb_array_elements(dimension_rules) AS rule WHERE (rule->'allowedOptionIds') @> to_jsonb(ARRAY[$1]::text[])`,
+      )
+    ) {
+      const optionId = String(values[0]);
+      const rows = [...blueprints.values()]
+        .filter((blueprint) => blueprintReferencesOption(blueprint, optionId))
+        .map((blueprint) => ({ blueprint_id: String(blueprint.blueprint_id) }))
+        .sort((left, right) => left.blueprint_id.localeCompare(right.blueprint_id));
+      return rowsResult(rows as Row[]);
     }
 
     if (
