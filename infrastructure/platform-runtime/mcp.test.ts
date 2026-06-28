@@ -291,6 +291,92 @@ describe("MCP runtime routes", () => {
     });
   });
 
+  it("limits native MCP tool calls before invoking handlers and records audit evidence", async () => {
+    const handler = vi.fn();
+    const auditRecords: McpAuditRecord[] = [];
+    const app = createActorApp(actor, {
+      services: accountDefaultedToolServices,
+      toolHandlers: {
+        "inventory.account-defaulted-summary": handler,
+      },
+      toolCallLimiter: {
+        acquire: vi.fn(async () => ({
+          allowed: false as const,
+          reason: "Too many MCP tool calls are already running for this principal.",
+        })),
+      },
+      audit: (record) => {
+        auditRecords.push(record);
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.account-defaulted-summary",
+          arguments: {},
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: -32029,
+        message: "Too many MCP tool calls are already running for this principal.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditRecords).toEqual([
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "inventory.account-defaulted-summary",
+        reason: "Too many MCP tool calls are already running for this principal.",
+        limitKind: "read",
+      }),
+    ]);
+  });
+
+  it("releases native MCP tool call limiter leases after handlers complete", async () => {
+    const release = vi.fn();
+    const app = createActorApp(actor, {
+      services: accountDefaultedToolServices,
+      toolHandlers: {
+        "inventory.account-defaulted-summary": vi.fn(async () => ({ ok: true })),
+      },
+      toolCallLimiter: {
+        acquire: vi.fn(async () => ({
+          allowed: true as const,
+          lease: { release },
+        })),
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "inventory.account-defaulted-summary",
+          arguments: {},
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        content: [
+          {
+            json: { ok: true },
+          },
+        ],
+      },
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it("calls a registered tool handler after authorization", async () => {
     const auditRecords: McpAuditRecord[] = [];
     const app = createActorApp(actor, {

@@ -16,6 +16,7 @@ import {
   type McpServiceDescriptor,
   type McpToolDescriptor,
 } from "./mcp-contracts";
+import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
 import { negotiateMcpProtocolVersion } from "./mcp-protocol";
 
@@ -54,6 +55,7 @@ export type McpAuditRecord = Readonly<{
   targetType?: string;
   reason?: string;
   sensitiveInputFields?: readonly string[];
+  limitKind?: McpToolCallLimitKind;
 }>;
 
 export type McpAuditSink = (record: McpAuditRecord) => Promise<void> | void;
@@ -78,6 +80,7 @@ export type CreateMcpRoutesOptions = Readonly<{
   resourceHandlers?: Readonly<Record<string, McpResourceHandler>>;
   audit?: McpAuditSink;
   idempotencyStore?: McpIdempotencyStore;
+  toolCallLimiter?: McpToolCallLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
 }>;
 
@@ -537,12 +540,60 @@ async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
   await sink?.(record);
 }
 
+function mcpToolLimitKind(tool: McpToolDescriptor, services: readonly McpServiceDescriptor[]): McpToolCallLimitKind {
+  const service = services.find((candidate) => candidate.serviceId === tool.serviceId);
+  if (service?.kind === "external-provider") {
+    return "external-provider";
+  }
+
+  return tool.risk === "read" ? "read" : "write";
+}
+
+async function acquireMcpToolCallLease(
+  limiter: McpToolCallLimiter | undefined,
+  tool: McpToolDescriptor,
+  actor: ResolvedActor | null,
+  services: readonly McpServiceDescriptor[],
+): Promise<
+  | Readonly<{
+      allowed: true;
+      lease?: McpToolCallLease;
+      limitKind: McpToolCallLimitKind;
+    }>
+  | Readonly<{
+      allowed: false;
+      reason: string;
+      limitKind: McpToolCallLimitKind;
+    }>
+> {
+  const limitKind = mcpToolLimitKind(tool, services);
+  if (!limiter) {
+    return { allowed: true, limitKind };
+  }
+
+  try {
+    const result = await limiter.acquire({
+      transport: "native-mcp",
+      toolName: tool.name,
+      limitKind,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+    });
+
+    return result.allowed
+      ? { allowed: true, lease: result.lease, limitKind }
+      : { allowed: false, reason: result.reason, limitKind };
+  } catch {
+    return { allowed: false, reason: "MCP tool call limiter is unavailable.", limitKind };
+  }
+}
+
 async function callTool(
   request: Request,
   actor: ResolvedActor | null,
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
-    Pick<CreateMcpRoutesOptions, "audit">,
+    Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter">,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -696,6 +747,24 @@ async function callTool(
     });
   }
 
+  const limit = await acquireMcpToolCallLease(options.toolCallLimiter, tool, actor, options.services);
+  if (!limit.allowed) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason: limit.reason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+      limitKind: limit.limitKind,
+    });
+
+    return jsonRpcError(null, -32029, limit.reason);
+  }
+
   try {
     const result = await handler({
       actor,
@@ -747,6 +816,8 @@ async function callTool(
     });
 
     return jsonRpcError(null, -32000, reason);
+  } finally {
+    await Promise.resolve(limit.lease?.release()).catch(() => undefined);
   }
 }
 
@@ -1002,6 +1073,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           toolHandlers,
           audit: options.audit,
           idempotencyStore,
+          toolCallLimiter: options.toolCallLimiter,
         });
         return c.json({ ...result, id: request.id ?? null });
       }

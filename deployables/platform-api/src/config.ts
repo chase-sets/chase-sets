@@ -76,6 +76,7 @@ export type PlatformApiBaseConfig = Readonly<{
   port: number;
   internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
+  mcpToolCallLimits?: PlatformApiMcpToolCallLimitsConfig;
   readConsistency?: PlatformApiReadConsistencyConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
@@ -114,6 +115,13 @@ export type PlatformApiRealtimeConfig = Readonly<{
   cursorSigningSecret?: string;
   previousCursorSigningSecrets: readonly string[];
   streamLimiter: PlatformApiRealtimeStreamLimiterConfig;
+}>;
+
+export type PlatformApiMcpToolCallLimitsConfig = Readonly<{
+  maxConcurrentToolCalls: number;
+  maxConcurrentToolCallsPerPrincipal: number;
+  maxConcurrentWriteToolCallsPerPrincipal: number;
+  maxConcurrentExternalProviderToolCallsPerPrincipal: number;
 }>;
 
 export type PlatformApiReadConsistencyConfig = Readonly<{
@@ -527,6 +535,18 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       cursorSigningSecret: getOptionalEnv("REALTIME_CURSOR_SIGNING_SECRET") ?? undefined,
       previousCursorSigningSecrets: getOptionalCsvEnv("REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS"),
       streamLimiter: loadRealtimeStreamLimiterConfig(),
+    },
+    mcpToolCallLimits: {
+      maxConcurrentToolCalls: getPositiveNumberEnv("MCP_MAX_CONCURRENT_TOOL_CALLS", 100),
+      maxConcurrentToolCallsPerPrincipal: getPositiveNumberEnv("MCP_MAX_CONCURRENT_TOOL_CALLS_PER_PRINCIPAL", 8),
+      maxConcurrentWriteToolCallsPerPrincipal: getPositiveNumberEnv(
+        "MCP_MAX_CONCURRENT_WRITE_TOOL_CALLS_PER_PRINCIPAL",
+        2,
+      ),
+      maxConcurrentExternalProviderToolCallsPerPrincipal: getPositiveNumberEnv(
+        "MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL",
+        2,
+      ),
     },
     readConsistency: {
       timeoutMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_TIMEOUT_MS", 2_500),
