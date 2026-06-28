@@ -352,7 +352,7 @@ export function Sidebar({
       aria-labelledby={!isNavigation && !label && title ? titleId : undefined}
       className={cx("min-h-0 w-full", sidebarWidthClasses[width], sticky && "sticky top-20 self-start")}
     >
-      <div className="glass-surface flex h-full min-h-0 flex-col gap-4 rounded-tokenLg border border-muted p-3 shadow-tokenSm">
+      <div className="ds-glass flex h-full min-h-0 flex-col gap-4 rounded-tokenLg border border-muted p-3 shadow-tokenSm">
         {title || description ? (
           <Box paddingX={1}>
             <Stack gap={1}>

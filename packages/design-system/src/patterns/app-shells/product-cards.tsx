@@ -120,7 +120,7 @@ export function ProductCard({
   );
 
   const interactiveClassName = cx(
-    "focus-ring glass-surface block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd",
+    "focus-ring ds-glass block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd",
   );
 
   if (href) {
@@ -293,10 +293,10 @@ export function PromoStrip({ icon = "spark", title, description, action, ...rest
   return (
     <div
       {...rest}
-      className="glass-surface glow-accent flex flex-col gap-4 rounded-tokenLg border border-accent-soft p-5 md:flex-row md:items-center md:justify-between"
+      className="ds-glass ds-glow flex flex-col gap-4 rounded-tokenLg border border-accent-soft p-5 md:flex-row md:items-center md:justify-between"
     >
       <div className="flex items-center gap-4">
-        <div className="brand-gradient rounded-tokenLg p-3 text-accent-contrast shadow-tokenMd">
+        <div className="ds-brand-gradient rounded-tokenLg p-3 text-accent-contrast shadow-tokenMd">
           <Icon name={icon} size="lg" tone="inverse" />
         </div>
         <div>

@@ -100,7 +100,7 @@ describe("item detail commerce panel purchase workflows and offers", () => {
 
     expect(await screen.findByText("Selected product")).toBeTruthy();
     const commercePanel = screen.getByRole("complementary", { name: "Commerce options" });
-    expect(commercePanel.querySelectorAll(".glass-surface")).toHaveLength(1);
+    expect(commercePanel.querySelectorAll(".ds-glass")).toHaveLength(1);
     expect(commercePanel.querySelector('[class*="-mx-3"]')).toBeTruthy();
     expect(commercePanel.querySelector(".modern-surface")).toBeNull();
     expect(screen.queryByText("Offer details")).toBeNull();

@@ -38,13 +38,13 @@ function CardSurface({
       {...nativeProps}
       {...interactiveMotion}
       className={cx(
-        "glass-surface rounded-tokenLg border border-muted shadow-tokenSm",
+        "ds-glass rounded-tokenLg border border-muted shadow-tokenSm",
         overflow === "visible" ? "overflow-visible" : "overflow-hidden",
         variant === "product" && "bg-surface",
         variant === "feature" && "bg-surface-2",
         variant === "stat" && "bg-surface-2",
         interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
-        glow && "glow-accent",
+        glow && "ds-glow",
         !media && "p-4",
       )}
     >

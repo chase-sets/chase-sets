@@ -762,9 +762,9 @@ export const surfaceSemanticToneClasses: Record<SurfaceSemanticTone, string> = {
 };
 
 const surfaceToneClasses: Record<SurfaceTone, string> = {
-  default: "glass-surface bg-elevated",
+  default: "ds-glass bg-elevated",
   muted: "bg-surface-2",
-  accent: "brand-gradient text-accent-contrast",
+  accent: "ds-brand-gradient text-accent-contrast",
   subtle: "bg-surface border-muted",
   ...surfaceSemanticToneClasses,
 };
@@ -804,7 +804,7 @@ export const Surface = forwardRef(function Surface(
           textAlign,
         }),
         elevated ? "shadow-tokenLg" : "shadow-tokenSm",
-        glow && "glow-accent",
+        glow && "ds-glow",
       )}
     >
       {children}

@@ -85,7 +85,7 @@ Three structural depths, no more:
   `radius.lg`. Cart line, summary panel, saved-info group.
 - **Active / emphasis surface** — `Surface elevated` (`shadow-tokenLg`,
   `shadows.lg`) for the step the customer is acting in; add `glow`
-  (`glow-accent`) sparingly, only on the single focused input section (contact /
+  (`ds-glow`) sparingly, only on the single focused input section (contact /
   payment), never on more than one section at once.
 
 Borders are `--border` (hairline). Semantic surfaces use the canonical tonal map

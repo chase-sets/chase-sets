@@ -21,9 +21,9 @@ const semanticTones: Record<SurfaceSemanticTone, { border: string; bg: string; t
 
 describe("Surface semantic tones", () => {
   it("keeps the structural tones rendering unchanged", () => {
-    expect(renderToString(<Surface>Default chrome</Surface>)).toContain("glass-surface bg-elevated");
+    expect(renderToString(<Surface>Default chrome</Surface>)).toContain("ds-glass bg-elevated");
     expect(renderToString(<Surface tone="muted">Recessed</Surface>)).toContain("bg-surface-2");
-    expect(renderToString(<Surface tone="accent">Brand</Surface>)).toContain("brand-gradient text-accent-contrast");
+    expect(renderToString(<Surface tone="accent">Brand</Surface>)).toContain("ds-brand-gradient text-accent-contrast");
     expect(renderToString(<Surface tone="subtle">Flat</Surface>)).toContain("bg-surface border-muted");
   });
 

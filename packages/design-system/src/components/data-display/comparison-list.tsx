@@ -43,7 +43,7 @@ export function ComparisonListRow({ children, selected = false, ...rest }: Compa
     <article
       {...rest}
       className={cx(
-        "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
+        "ds-glass relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
         selected ? "border-accent bg-surface-2 shadow-tokenMd" : "border-muted",
       )}
     >

@@ -551,7 +551,7 @@ export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
   return (
     <nav
       {...rest}
-      className="glass-surface flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
+      className="ds-glass flex h-full flex-col gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm"
     >
       {renderActivePillGroup(
         groupId,
@@ -634,7 +634,7 @@ export function NavRail({ items, activeKey, onSelect, ...rest }: NavRailProps) {
   return (
     <nav
       {...rest}
-      className="glass-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
+      className="ds-glass hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
     >
       {renderActivePillGroup(
         groupId,
