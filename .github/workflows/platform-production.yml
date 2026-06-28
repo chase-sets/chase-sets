@@ -1826,6 +1826,13 @@ jobs:
         run: |
           set -euo pipefail
           source_cluster_id="$(terraform output -raw postgres_cluster_id 2>/dev/null || true)"
+          if [ -z "$source_cluster_id" ]; then
+            source_cluster_id="$(
+              terraform state show -no-color digitalocean_database_cluster.postgres 2>/dev/null \
+                | awk -F ' = ' '$1 == "id" { gsub(/"/, "", $2); print $2; exit }' \
+                || true
+            )"
+          fi
           if [ -z "$source_cluster_id" ] && [ "$PRODUCTION_DB_RESTORE_POINT_BYPASS" != "true" ]; then
             echo "Production Terraform state did not expose postgres_cluster_id; refusing to continue without a pre-migrate restore point." >&2
             exit 1
