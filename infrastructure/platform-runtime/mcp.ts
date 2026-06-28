@@ -17,6 +17,7 @@ import {
   type McpToolDescriptor,
 } from "./mcp-contracts";
 import type { ResolvedActor } from "./auth";
+import { negotiateMcpProtocolVersion } from "./mcp-protocol";
 
 export type McpRuntimeEnv = {
   Variables: {
@@ -959,7 +960,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
         return c.json(
           jsonRpcResult(request.id, {
-            protocolVersion: "2025-03-26",
+            protocolVersion: negotiateMcpProtocolVersion(request.params),
             serverInfo: {
               name: "chase-sets-platform",
               version: "0.1.0",

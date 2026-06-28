@@ -43,6 +43,7 @@ ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed c
 REST and MCP must remain behavior-equivalent:
 
 - Same UCP version and capability declarations.
+- Native `/mcp` and UCP `/ucp/mcp` negotiate the same MCP protocol baseline, currently `2025-06-18`; unsupported client proposals fall back to that baseline instead of fragmenting the surfaces.
 - Same validation and UCP envelope/message shape.
 - Same actor/scope checks for OAuth-linked bearer tokens.
 - Same signed-request and `Content-Digest` checks for checkout writes.

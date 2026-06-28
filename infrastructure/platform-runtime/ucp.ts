@@ -9,6 +9,7 @@ import {
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { negotiateMcpProtocolVersion } from "./mcp-protocol";
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
@@ -1326,7 +1327,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     if (request.method === "initialize") {
       return c.json(
         jsonRpcResult(request.id, {
-          protocolVersion: "2025-06-18",
+          protocolVersion: negotiateMcpProtocolVersion(request.params),
           serverInfo: {
             name: "chase-sets-ucp",
             title: "Chase Sets UCP",
