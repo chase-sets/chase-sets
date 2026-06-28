@@ -126,6 +126,16 @@ Each DB-backed test suite should continue using
 `@chase-sets/bounded-context-runtime/test-support` so it creates owned,
 per-context test databases from the sandbox admin URL.
 
+## Database TLS Modes
+
+Production-like database URLs should verify the server certificate with
+`sslmode=verify-full` or `sslmode=verify-ca`. Provide a root CA bundle with the
+connection-string `sslrootcert` parameter or the `PGSSLROOTCERT` environment
+variable. `sslmode=require` is accepted only as an explicit loose mode for
+local/dev connections that need encryption without certificate verification.
+Plain local URLs such as `postgresql://localhost/...` remain non-TLS unless they
+set an `sslmode`.
+
 ## Stripe Webhooks
 
 The Stripe listener uses the sandbox platform API URL by default:

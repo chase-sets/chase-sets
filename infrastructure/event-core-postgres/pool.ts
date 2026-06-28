@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import pg from "pg";
 import type { PgTransactionalPool } from "./types";
 
@@ -12,13 +13,35 @@ export type PgPoolIdleClientErrorEvent = Readonly<{
   error: unknown;
 }>;
 
+export type PgPoolSslConfig = boolean | { rejectUnauthorized: boolean; ca?: string };
+type PgPoolSslEnv = Readonly<{ PGSSLROOTCERT?: string }>;
+
 export function resolvePgPoolSslConfig(
   connectionString: string,
-): boolean | { rejectUnauthorized: boolean } | undefined {
-  const sslMode = readConnectionStringParam(connectionString, "sslmode");
+  env: PgPoolSslEnv = process.env,
+): PgPoolSslConfig | undefined {
+  const parsed = parseConnectionString(connectionString);
+
+  if (!parsed) {
+    return undefined;
+  }
+
+  const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+
+  if (sslMode === "disable") {
+    return undefined;
+  }
 
   if (sslMode === "require") {
     return { rejectUnauthorized: false };
+  }
+
+  if (sslMode === "verify-ca" || sslMode === "verify-full") {
+    return verifyingSslConfig(parsed, env);
+  }
+
+  if (!isLocalDatabaseHost(parsed.hostname)) {
+    return verifyingSslConfig(parsed, env);
   }
 
   return undefined;
@@ -27,7 +50,8 @@ export function resolvePgPoolSslConfig(
 export function normalizePgPoolConnectionString(connectionString: string): string {
   try {
     const url = new URL(connectionString);
-    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
+    const sslMode = url.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode && sslMode !== "disable" && !url.searchParams.has("uselibpqcompat")) {
       url.searchParams.set("uselibpqcompat", "true");
       return url.toString();
     }
@@ -60,9 +84,21 @@ export function createPgPool(connectionString: string, options: PgPoolOptions = 
   return pool as unknown as PgTransactionalPool;
 }
 
-function readConnectionStringParam(connectionString: string, param: string) {
+function verifyingSslConfig(connectionString: URL, env: PgPoolSslEnv): Extract<PgPoolSslConfig, object> {
+  const caPath = connectionString.searchParams.get("sslrootcert") ?? env.PGSSLROOTCERT;
+  const ca = caPath ? readFileSync(caPath, "utf8") : undefined;
+
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
+}
+
+function isLocalDatabaseHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function parseConnectionString(connectionString: string): URL | null {
   try {
-    return new URL(connectionString).searchParams.get(param);
+    return new URL(connectionString);
   } catch {
     return null;
   }
