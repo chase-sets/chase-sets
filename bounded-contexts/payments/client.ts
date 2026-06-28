@@ -6,6 +6,7 @@ import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
   PaymentsCheckoutRecoveryOptions,
+  PaymentsAccountOrderInput,
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
 } from "./features/payments/api/contracts";
@@ -135,6 +136,18 @@ export function createPaymentsApiClient({
       return parseJsonResponse(
         await client.account.payments[":id"].$get({
           param: { id: paymentId },
+          header: headers,
+        }),
+      );
+    },
+    async listAccountOrderInputs(params: Readonly<{ orderIds: readonly string[] }>): Promise<{
+      orders: readonly PaymentsAccountOrderInput[];
+    }> {
+      return parseJsonResponse(
+        await client.account["order-inputs"].$get({
+          query: {
+            orderIds: params.orderIds.join(","),
+          },
           header: headers,
         }),
       );
@@ -286,6 +299,7 @@ export function createPaymentsApiClient({
 export type {
   PaymentsCheckoutStatus,
   PaymentsCheckoutRecoveryOptions,
+  PaymentsAccountOrderInput,
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
 } from "./features/payments/api/contracts";

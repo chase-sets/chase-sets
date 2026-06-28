@@ -11,7 +11,7 @@ const {
   mockCreatePaymentsRequestApiClient,
   mockGetAccountPayment,
   mockGetCheckoutStatus,
-  mockGetPurchase,
+  mockListAccountOrderInputs,
   mockRecoverCheckoutPayment,
   mockRequireActorFromAuthApi,
   mockRequestGuestCheckoutClaimLink,
@@ -31,7 +31,7 @@ const {
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockGetAccountPayment: vi.fn(),
   mockGetCheckoutStatus: vi.fn(),
-  mockGetPurchase: vi.fn(),
+  mockListAccountOrderInputs: vi.fn(),
   mockRecoverCheckoutPayment: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
   mockRequestGuestCheckoutClaimLink: vi.fn(),
@@ -63,12 +63,6 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
     resolveActorFromAuthApi: mockResolveActorFromAuthApi,
   };
 });
-
-vi.mock("@chase-sets/ordering/server", () => ({
-  createOrderingRequestApiClient: vi.fn(() => ({
-    getPurchase: mockGetPurchase,
-  })),
-}));
 
 vi.mock("../support/request-support/api-client", () => ({
   createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
@@ -124,11 +118,16 @@ describe("guest payment claim action", () => {
       payment_id: "pay_1",
       status: "captured",
     });
-    mockGetPurchase.mockResolvedValue({
-      order_id: "ord_1",
-      status: "paid",
-      total_amount: "10.00",
-      seller_payout_amount: "8.00",
+    mockListAccountOrderInputs.mockResolvedValue({
+      orders: [
+        {
+          order_id: "ord_1",
+          buyer_email: "buyer@example.com",
+          status: "paid",
+          total_amount: "10.00",
+          seller_payout_amount: "8.00",
+        },
+      ],
     });
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockRequireActorFromAuthApi.mockResolvedValue({
@@ -139,6 +138,7 @@ describe("guest payment claim action", () => {
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       getAccountPayment: mockGetAccountPayment,
       getCheckoutStatus: mockGetCheckoutStatus,
+      listAccountOrderInputs: mockListAccountOrderInputs,
       recoverCheckoutPayment: mockRecoverCheckoutPayment,
     });
   });
@@ -160,20 +160,16 @@ describe("guest payment claim action", () => {
       balance_credit_amount: "0.00",
       payment_method_category: "card",
     });
-    mockGetPurchase.mockResolvedValue({
-      order_id: "ord_guest_1",
-      status: "paid",
-      total_amount: "27.10",
-      seller_payout_amount: "25.00",
-      shipping_destination_snapshot: {
-        name: "Jane Smith",
-        line1: "100 Market Street",
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-        email: "jane@example.com",
-      },
+    mockListAccountOrderInputs.mockResolvedValue({
+      orders: [
+        {
+          order_id: "ord_guest_1",
+          buyer_email: "jane@example.com",
+          status: "paid",
+          total_amount: "27.10",
+          seller_payout_amount: "25.00",
+        },
+      ],
     });
     mockResolveActorFromAuthApi.mockResolvedValue(null);
 
@@ -187,7 +183,7 @@ describe("guest payment claim action", () => {
 
     expect(mockResolveActorFromAuthApi).toHaveBeenCalled();
     expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_guest_1");
-    expect(mockGetPurchase).toHaveBeenCalledWith("ord_guest_1");
+    expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_guest_1"] });
     expect(getGuestCheckoutClaimContext).toHaveBeenCalledWith({ paymentId: "pay_guest_1" });
     expect(result).toEqual(
       expect.objectContaining({
@@ -232,22 +228,17 @@ describe("guest payment claim action", () => {
       balance_credit_amount: "0.00",
       payment_method_category: "card",
     });
-    mockGetPurchase.mockResolvedValue({
-      order_id: "ord_signed_in_1",
-      buyer_account_id: "acc_buyer",
-      status: "paid",
-      total_amount: "27.29",
-      seller_payout_amount: "25.00",
-      source_reference_id: "chk_signed_in",
-      shipping_destination_snapshot: {
-        name: "Jane Smith",
-        line1: "100 Market Street",
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-        email: "jane@example.com",
-      },
+    mockListAccountOrderInputs.mockResolvedValue({
+      orders: [
+        {
+          order_id: "ord_signed_in_1",
+          buyer_account_id: "acc_buyer",
+          buyer_email: "jane@example.com",
+          status: "paid",
+          total_amount: "27.29",
+          seller_payout_amount: "25.00",
+        },
+      ],
     });
 
     const result = await loader({
@@ -262,7 +253,7 @@ describe("guest payment claim action", () => {
     });
     expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_signed_in_1");
-    expect(mockGetPurchase).toHaveBeenCalledWith("ord_signed_in_1");
+    expect(mockListAccountOrderInputs).toHaveBeenCalledWith({ orderIds: ["ord_signed_in_1"] });
     expect(mockCreateInternalAuthRequestApiClient).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
@@ -304,15 +295,17 @@ describe("guest payment claim action", () => {
       balance_credit_amount: "0.00",
       payment_method_category: "card",
     });
-    mockGetPurchase.mockResolvedValue({
-      order_id: "ord_signed_in_1",
-      buyer_account_id: "acc_support",
-      status: "paid",
-      total_amount: "27.29",
-      seller_payout_amount: "25.00",
-      shipping_destination_snapshot: {
-        email: "operator-view@example.com",
-      },
+    mockListAccountOrderInputs.mockResolvedValue({
+      orders: [
+        {
+          order_id: "ord_signed_in_1",
+          buyer_account_id: "acc_support",
+          buyer_email: "operator-view@example.com",
+          status: "paid",
+          total_amount: "27.29",
+          seller_payout_amount: "25.00",
+        },
+      ],
     });
 
     const result = await loader({
@@ -347,21 +340,17 @@ describe("guest payment claim action", () => {
       payment_method_category: "card",
       processor_payment_kind: "checkout-session",
     });
-    mockGetPurchase.mockResolvedValue({
-      order_id: "ord_checkout_session",
-      buyer_account_id: "acc_buyer",
-      status: "pending-payment",
-      total_amount: "27.29",
-      seller_payout_amount: "25.00",
-      shipping_destination_snapshot: {
-        name: "Jane Smith",
-        line1: "100 Market Street",
-        city: "Chicago",
-        state: "IL",
-        postalCode: "60601",
-        country: "US",
-        email: "jane@example.com",
-      },
+    mockListAccountOrderInputs.mockResolvedValue({
+      orders: [
+        {
+          order_id: "ord_checkout_session",
+          buyer_account_id: "acc_buyer",
+          buyer_email: "jane@example.com",
+          status: "pending-payment",
+          total_amount: "27.29",
+          seller_payout_amount: "25.00",
+        },
+      ],
     });
 
     const result = await loader({

@@ -34,8 +34,8 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createPaymentsRequestApiClient,
   normalizeRequestedBalanceCreditAmount,
+  type PaymentsAccountOrderInput,
 } from "../../support/request-support/api-client";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 
 function parseOrderIds(value: string | null) {
   return (value ?? "")
@@ -108,11 +108,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect("/account/purchases");
   }
 
-  const orderingApi = createOrderingRequestApiClient(request);
   const paymentsApi = createPaymentsRequestApiClient(request);
 
   try {
-    const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getPurchase(orderId)));
+    const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds });
     const wallet = await loadWalletBalance(request);
     const totalAmount = orders.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0).toFixed(2);
     const requestedBalanceCreditAmount = decimalMoney(
@@ -439,7 +438,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
 
           <PageSection title={t("payments.routes.marketplace.accountPaymentNew.purchases.2")}>
             <Stack gap={3}>
-              {data.orders.map((order) => (
+              {data.orders.map((order: PaymentsAccountOrderInput) => (
                 <Surface key={order.order_id} elevated>
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>

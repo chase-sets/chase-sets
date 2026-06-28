@@ -36,8 +36,8 @@ import {
   PlatformFeedbackPrompt,
   shouldShowCheckoutPaymentFeedbackPrompt,
 } from "@chase-sets/platform-operations/server";
-import { createOrderingRequestApiClient, type PurchaseDetail } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
+import type { PaymentsAccountOrderInput } from "../../support/request-support/api-client";
 import type {
   AccountPaymentOrderView,
   GuestCheckoutClaimContext,
@@ -84,7 +84,7 @@ function isInternalPaymentSupportActor(
   return actor?.roleKey === "platform-admin" && actor.permissions.includes("support.manage");
 }
 
-function orderView(order: PurchaseDetail): AccountPaymentOrderView {
+function orderView(order: PaymentsAccountOrderInput): AccountPaymentOrderView {
   return {
     order_id: order.order_id,
     status: order.status,
@@ -93,9 +93,9 @@ function orderView(order: PurchaseDetail): AccountPaymentOrderView {
   };
 }
 
-function resolveBuyerEmail(orders: readonly PurchaseDetail[]) {
+function resolveBuyerEmail(orders: readonly PaymentsAccountOrderInput[]) {
   for (const order of orders) {
-    const email = order.shipping_destination_snapshot.email?.trim();
+    const email = order.buyer_email?.trim();
     if (email) {
       return email;
     }
@@ -122,7 +122,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/payments/${params.paymentId}`);
   }
   const paymentsApi = createPaymentsRequestApiClient(resolvedRequest);
-  const orderingApi = createOrderingRequestApiClient(resolvedRequest);
 
   try {
     const paymentRead = await loadAfterWrite({
@@ -140,7 +139,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     const payment = paymentRead.data;
-    const orders = await Promise.all(payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)));
+    const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds: payment.order_ids });
     const guestClaimContext =
       isGuestCheckoutPayment && isClaimablePayment(payment)
         ? await createInternalAuthRequestApiClient(

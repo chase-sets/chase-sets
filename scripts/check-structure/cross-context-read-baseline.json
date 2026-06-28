@@ -361,32 +361,6 @@
       "sourceWakePosture": "wave-1-listened",
       "issue": "#2780",
       "migration": "Project review opportunity summaries from Marketplace into Ordering account sale views."
-    },
-    {
-      "id": "bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:ordering:createOrderingRequestApiClient.getPurchase#1",
-      "consumerContextName": "payments",
-      "sourceContextName": "ordering",
-      "file": "bounded-contexts/payments/routes/marketplace/account-payment-new.tsx",
-      "line": 115,
-      "clientFactory": "createOrderingRequestApiClient",
-      "methodName": "getPurchase",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2780",
-      "migration": "Mirror order context into Payments account payment creation views."
-    },
-    {
-      "id": "bounded-contexts/payments/routes/marketplace/account-payment.tsx:ordering:createOrderingRequestApiClient.getPurchase#1",
-      "consumerContextName": "payments",
-      "sourceContextName": "ordering",
-      "file": "bounded-contexts/payments/routes/marketplace/account-payment.tsx",
-      "line": 140,
-      "clientFactory": "createOrderingRequestApiClient",
-      "methodName": "getPurchase",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2780",
-      "migration": "Mirror order context into Payments account payment views."
     }
   ]
 }

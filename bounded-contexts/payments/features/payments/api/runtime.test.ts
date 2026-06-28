@@ -175,7 +175,9 @@ function createOrderInputDb(
             {
               order_id: "ord_1",
               buyer_account_id: "acc_buyer",
+              buyer_email: "buyer@example.com",
               seller_account_id: "acc_seller",
+              sales_tax_amount: "1.57",
               total_amount: "24.99",
               marketplace_sales_fee_amount: "1.00",
               marketplace_checkout_fee_amount: "0.50",
@@ -209,6 +211,30 @@ const context = {
 };
 
 describe("payment runtime", () => {
+  it("returns account order overlays from Payments order inputs", async () => {
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway: createProcessorGateway(),
+    });
+
+    const orders = await services.listAccountOrderInputs({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+    });
+
+    expect(orders).toEqual([
+      expect.objectContaining({
+        order_id: "ord_1",
+        buyer_email: "buyer@example.com",
+        sales_tax_amount: "1.57",
+        total_amount: "24.99",
+        seller_payout_amount: "24.49",
+      }),
+    ]);
+  });
+
   it("reuses checkout-sourced payments by checkout session id", async () => {
     const processorGateway = {
       getPublicConfiguration: vi.fn(() => ({

@@ -212,18 +212,14 @@ describe("marketplace account payment start route", () => {
     expect(submit.mock.calls[0]?.[0]).toBeInstanceOf(HTMLFormElement);
   });
 
-  it("loads checkout-created purchases from the ordering API", async () => {
+  it("loads checkout-created purchases from Payments order inputs", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
         const url = requestUrl(input);
 
-        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
-          return Promise.resolve(jsonResponse(buildPurchase("ord_1")));
-        }
-
-        if (url.includes("/api/marketplace/account/purchases/ord_2")) {
-          return Promise.resolve(jsonResponse(buildPurchase("ord_2")));
+        if (url.includes("/api/marketplace/account/order-inputs")) {
+          return Promise.resolve(jsonResponse({ orders: [buildPurchase("ord_1"), buildPurchase("ord_2")] }));
         }
 
         if (url.includes("/api/settlement/wallet")) {

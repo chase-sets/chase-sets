@@ -11,6 +11,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
         buyerAccountId: string;
         sellerAccountId: string;
         shippingDestinationSnapshot?: { email?: string | null } | null;
+        salesTaxAmount?: string;
         totalAmount: string;
         shippingAllowanceAmount?: string;
         shippingOverageAmount?: string;
@@ -36,6 +37,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            buyer_account_id,
            buyer_email,
            seller_account_id,
+           sales_tax_amount,
            total_amount,
            marketplace_sales_fee_amount,
            marketplace_checkout_fee_amount,
@@ -54,13 +56,14 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending-reservation', $20, $20, NULL, NULL)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'pending-reservation', $21, $21, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              buyer_email = EXCLUDED.buyer_email,
              seller_account_id = EXCLUDED.seller_account_id,
+             sales_tax_amount = EXCLUDED.sales_tax_amount,
              total_amount = EXCLUDED.total_amount,
              marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
              marketplace_checkout_fee_amount = EXCLUDED.marketplace_checkout_fee_amount,
@@ -85,6 +88,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.buyerAccountId,
           data.shippingDestinationSnapshot?.email?.trim() || null,
           data.sellerAccountId,
+          data.salesTaxAmount ?? "0.00",
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
           // Marketplace Checkout Fee is payment-level; order inputs stay explicit at zero.

@@ -28,7 +28,7 @@ import type {
   PaymentProcessorPublicConfig,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
-import { listPaymentOrderInputs } from "../integrations/order-input/order-input-queries";
+import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
   buildPaymentTransactionalEmailProjectionHandlers,
   PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -645,6 +645,9 @@ export type PaymentServices = Readonly<{
   reconcileSavedCheckoutInstruments: (
     params: Readonly<{ accountId: AccountId }>,
   ) => Promise<Readonly<{ checked: number; updated: number; removed: number }>>;
+  listAccountOrderInputs: (
+    params: Readonly<{ accountId: AccountId; orderIds: readonly OrderId[] }>,
+  ) => Promise<readonly PaymentOrderInputRow[]>;
   getAccountPayment: (
     paymentId: string,
     accountId: string,
@@ -747,6 +750,19 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         currencyCode: params.currencyCode ?? "usd",
         requestedBalanceCreditAmount: params.requestedBalanceCreditAmount,
         paymentMethodCategory: params.paymentMethodCategory,
+      });
+    },
+    async listAccountOrderInputs(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const orderIds = normalizeOrderIds(params.orderIds);
+      const orders = await listPaymentOrderInputs(deps.db, orderIds, accountId);
+      const ordersById = new Map(orders.map((order) => [order.order_id, order]));
+      return orderIds.map((orderId) => {
+        const order = ordersById.get(orderId);
+        if (!order) {
+          throw new PaymentsDomainError(`Order ${orderId} was not found.`, "order_input_not_ready");
+        }
+        return order;
       });
     },
     async previewCheckoutStatus(params) {

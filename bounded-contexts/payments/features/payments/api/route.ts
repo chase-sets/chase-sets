@@ -115,6 +115,7 @@ function canStorePaymentMethod(actor: NonNullable<PaymentsApiEnv["Variables"]["a
 
 type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
 type SavedCheckoutSetupSessionForApi = Awaited<ReturnType<PaymentServices["createSavedCheckoutSetupSession"]>>;
+type AccountOrderInputForApi = Awaited<ReturnType<PaymentServices["listAccountOrderInputs"]>>[number];
 
 function savedCheckoutSetupSessionSnapshot(setup: SavedCheckoutSetupSessionForApi) {
   return {
@@ -123,6 +124,30 @@ function savedCheckoutSetupSessionSnapshot(setup: SavedCheckoutSetupSessionForAp
     processor_client_secret: setup.processor_client_secret,
     processor_redirect_url: setup.processor_redirect_url,
     processor_status: setup.processor_status,
+  };
+}
+
+function accountOrderInputSnapshot(order: AccountOrderInputForApi) {
+  return {
+    order_id: order.order_id,
+    buyer_account_id: order.buyer_account_id,
+    buyer_email: order.buyer_email,
+    seller_account_id: order.seller_account_id,
+    sales_tax_amount: order.sales_tax_amount,
+    total_amount: order.total_amount,
+    marketplace_sales_fee_amount: order.marketplace_sales_fee_amount,
+    marketplace_checkout_fee_amount: order.marketplace_checkout_fee_amount,
+    seller_net_amount: order.seller_net_amount,
+    seller_item_net_amount: order.seller_item_net_amount,
+    shipping_allowance_amount: order.shipping_allowance_amount,
+    shipping_overage_amount: order.shipping_overage_amount,
+    seller_shipping_payout_amount: order.seller_shipping_payout_amount,
+    seller_payout_amount: order.seller_payout_amount,
+    shipping_allowance_percentage_bps: order.shipping_allowance_percentage_bps,
+    terms_schedule_id: order.terms_schedule_id,
+    terms_agreement_id: order.terms_agreement_id,
+    terms_resolved_at: order.terms_resolved_at,
+    status: order.status,
   };
 }
 
@@ -260,6 +285,33 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return c.json(status);
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.get("/order-inputs", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const orderIds =
+        c.req.queries("orderId") ??
+        c.req
+          .query("orderIds")
+          ?.split(",")
+          .map((value) => value.trim()) ??
+        [];
+      const orders = await services.listAccountOrderInputs({
+        accountId: access.actor.accountId as AccountId,
+        orderIds: orderIds.filter(Boolean) as OrderId[],
+      });
+
+      return c.json({ orders: orders.map(accountOrderInputSnapshot) });
+    } catch (error) {
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 404);
     }
   });
 
