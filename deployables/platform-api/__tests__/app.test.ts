@@ -458,11 +458,11 @@ describe("platform api app wiring", () => {
           quantityMode: "add",
           csvText: "title,quantity\nCharizard,1",
           idempotencyKey: "idem_create_batch",
-          confirmationText: "Create inventory import batch.",
+          confirmationText: "Create Inventory Import Batch.",
         },
         confirmation: {
           confirmed: true,
-          text: "Create inventory import batch.",
+          text: "Create Inventory Import Batch.",
         },
       },
       {
@@ -479,11 +479,11 @@ describe("platform api app wiring", () => {
           batchId: "batch_1",
           reason: "Commit reviewed rows.",
           idempotencyKey: "idem_commit_batch",
-          confirmationText: "Commit inventory import batch.",
+          confirmationText: "Commit Inventory Import Batch.",
         },
         confirmation: {
           confirmed: true,
-          text: "Commit inventory import batch.",
+          text: "Commit Inventory Import Batch.",
         },
       },
     ];
@@ -542,7 +542,7 @@ describe("platform api app wiring", () => {
       method: "POST",
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: "missing_idempotency",
+        id: "mismatched_confirmation",
         method: "tools/call",
         params: {
           name: "inventory.commit-import-batch",
@@ -585,7 +585,7 @@ describe("platform api app wiring", () => {
           outcome: "denied",
           method: "tools/call",
           toolName: "inventory.commit-import-batch",
-          reason: "An idempotency key is required for this MCP tool.",
+          reason: "Confirmation text must exactly match 'Commit Inventory Import Batch.'.",
         }),
       ]),
     );

@@ -7,6 +7,7 @@ import {
   flattenAvailableMcpResources,
   flattenAvailableMcpTools,
   flattenMcpTools,
+  getMcpToolConfirmationExpectedValue,
   mcpServiceCatalog,
   validateMcpServiceCatalog,
   type McpActor,
@@ -121,15 +122,79 @@ describe("MCP tool authorization", () => {
     });
   });
 
-  it("allows sensitive tools with permission and confirmation", () => {
-    const tool = findMcpTool("settlement.request-payout");
+  it.each([
+    {
+      toolName: "settlement.request-payout",
+      expectedValue: "Request Payout.",
+      input: {
+        accountId: "acct_1",
+        amount: "25.00",
+        reason: "Seller requested payout.",
+        idempotencyKey: "idem_payout_1",
+      },
+    },
+    {
+      toolName: "fulfillment.void-label",
+      expectedValue: "Void Label.",
+      input: {
+        accountId: "acct_1",
+        shipmentId: "ship_1",
+        reason: "Unused label should be voided.",
+        idempotencyKey: "idem_void_1",
+      },
+    },
+  ])("requires $toolName confirmation text to match the expected value", ({ toolName, expectedValue, input }) => {
+    const tool = findMcpTool(toolName);
 
     expect(tool).not.toBeNull();
+    expect(getMcpToolConfirmationExpectedValue(tool!)).toBe(expectedValue);
+
     expect(
-      authorizeMcpToolInvocation(tool!, accountActor, {
-        confirmed: true,
-        text: "Request payout from available balance.",
-      }),
+      authorizeMcpToolInvocation(
+        tool!,
+        accountActor,
+        {
+          confirmed: true,
+          text: null,
+        },
+        input,
+      ),
+    ).toEqual({
+      allowed: false,
+      reason: "Confirmation text is required for this MCP tool.",
+    });
+
+    expect(
+      authorizeMcpToolInvocation(
+        tool!,
+        accountActor,
+        {
+          confirmed: true,
+          text: "Confirmed by policy.",
+        },
+        {
+          ...input,
+          confirmationText: "Confirmed by policy.",
+        },
+      ),
+    ).toEqual({
+      allowed: false,
+      reason: `Confirmation text must exactly match '${expectedValue}'.`,
+    });
+
+    expect(
+      authorizeMcpToolInvocation(
+        tool!,
+        accountActor,
+        {
+          confirmed: true,
+          text: expectedValue,
+        },
+        {
+          ...input,
+          confirmationText: expectedValue,
+        },
+      ),
     ).toEqual({
       allowed: true,
     });
