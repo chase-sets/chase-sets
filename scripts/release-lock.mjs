@@ -21,6 +21,9 @@ export function parseReleaseLockOptions(argv, env = process.env) {
       "EMERGENCY_RELEASE_BYPASS",
     ),
     emergencyReference: readOption(argv, "--emergency-reference") ?? readEnv("EMERGENCY_RELEASE_REFERENCE", env) ?? "",
+    githubRepository: readOption(argv, "--github-repository") ?? readEnv("GITHUB_REPOSITORY", env) ?? "",
+    githubToken: readOption(argv, "--github-token") ?? readEnv("GITHUB_TOKEN", env) ?? readEnv("GH_TOKEN", env) ?? "",
+    githubApiUrl: readOption(argv, "--github-api-url") ?? readEnv("GITHUB_API_URL", env) ?? "https://api.github.com",
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env) ?? "",
   };
 }
@@ -38,6 +41,13 @@ export function evaluateReleaseLock(options) {
     errors.push("EMERGENCY_RELEASE_REFERENCE is required when EMERGENCY_RELEASE_BYPASS=true.");
   }
 
+  const emergencyReference = normalizeEmergencyReference(options.emergencyReference);
+  if (emergencyBypass && isNonEmptyString(options.emergencyReference) && !emergencyReference) {
+    errors.push(
+      "EMERGENCY_RELEASE_REFERENCE must be an incident reference or a GitHub issue/PR reference when EMERGENCY_RELEASE_BYPASS=true.",
+    );
+  }
+
   const deploymentAllowed = errors.length === 0 && (!locked || emergencyBypass);
   const releaseMode = emergencyBypass ? "emergency" : "normal";
 
@@ -51,20 +61,139 @@ export function evaluateReleaseLock(options) {
     ...(isNonEmptyString(options.lockReason) ? { lockReason: options.lockReason.trim() } : {}),
     ...(isNonEmptyString(options.lockReference) ? { lockReference: options.lockReference.trim() } : {}),
     ...(isNonEmptyString(options.emergencyReference) ? { emergencyReference: options.emergencyReference.trim() } : {}),
+    ...(emergencyReference
+      ? { validatedEmergencyReference: emergencyReference.reference, emergencyReferenceKind: emergencyReference.kind }
+      : {}),
     ...(errors.length > 0 ? { errors } : {}),
   };
 }
 
 export async function runReleaseLockCheck(options) {
-  const result = evaluateReleaseLock(options);
+  const result = await evaluateReleaseLockWithResolution(options);
   if (isNonEmptyString(options.githubOutputPath)) {
     await appendGitHubOutputs(options.githubOutputPath, {
       deployment_allowed: String(result.deploymentAllowed),
       release_mode: result.releaseMode,
       release_locked: String(result.releaseLocked),
+      emergency_reference: result.validatedEmergencyReference ?? "",
+      emergency_reference_kind: result.emergencyReferenceKind ?? "",
     });
   }
   return result;
+}
+
+export async function evaluateReleaseLockWithResolution(options, dependencies = {}) {
+  const result = evaluateReleaseLock(options);
+  if (result.errors?.length || options.emergencyBypass !== "true" || !result.validatedEmergencyReference) {
+    return result;
+  }
+
+  if (result.emergencyReferenceKind !== "github") {
+    return result;
+  }
+
+  const resolution = await resolveGitHubIssueOrPullRequestReference(
+    result.validatedEmergencyReference,
+    options,
+    dependencies,
+  );
+  if (resolution.ok) {
+    return {
+      ...result,
+      validatedEmergencyReference: resolution.reference,
+      emergencyReferenceUrl: resolution.url,
+    };
+  }
+
+  return {
+    ...result,
+    deploymentAllowed: false,
+    errors: [resolution.error],
+  };
+}
+
+export function normalizeEmergencyReference(value) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (/^INC-(?:\d+|\d{4}-\d{2}-\d{2}-\d{3,})$/i.test(trimmed)) {
+    return { kind: "incident", reference: trimmed.toUpperCase() };
+  }
+
+  const urlMatch = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/(?:issues|pull)\/(\d+)(?:[/?#].*)?$/i.exec(trimmed);
+  if (urlMatch) {
+    return {
+      kind: "github",
+      owner: urlMatch[1],
+      repo: urlMatch[2],
+      number: Number(urlMatch[3]),
+      reference: `${urlMatch[1]}/${urlMatch[2]}#${urlMatch[3]}`,
+    };
+  }
+
+  const numberMatch =
+    /^(?:#|GH-|ISSUE-|PR-|PULL-)(\d+)$/i.exec(trimmed) ?? /\b(?:ISSUE|PR|PULL)-(\d+)\b/i.exec(trimmed);
+  if (numberMatch) {
+    return {
+      kind: "github",
+      number: Number(numberMatch[1]),
+      reference: `#${numberMatch[1]}`,
+    };
+  }
+
+  return null;
+}
+
+async function resolveGitHubIssueOrPullRequestReference(reference, options, dependencies) {
+  const parsed = normalizeEmergencyReference(reference);
+  const repository = parsed?.owner && parsed?.repo ? `${parsed.owner}/${parsed.repo}` : options.githubRepository;
+  const token = options.githubToken;
+
+  if (!parsed || parsed.kind !== "github" || !Number.isInteger(parsed.number)) {
+    return { ok: false, error: "EMERGENCY_RELEASE_REFERENCE could not be parsed as a GitHub issue or PR reference." };
+  }
+  if (!isNonEmptyString(repository)) {
+    return { ok: false, error: "GITHUB_REPOSITORY is required to validate GitHub emergency references." };
+  }
+  if (!isNonEmptyString(token)) {
+    return { ok: false, error: "GITHUB_TOKEN is required to validate GitHub emergency references." };
+  }
+
+  const fetchImpl = dependencies.fetch ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    return { ok: false, error: "fetch is unavailable for GitHub emergency reference validation." };
+  }
+
+  const apiUrl = String(options.githubApiUrl ?? "https://api.github.com").replace(/\/+$/, "");
+  const response = await fetchImpl(`${apiUrl}/repos/${repository}/issues/${parsed.number}`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+
+  if (response.status === 404) {
+    return { ok: false, error: `EMERGENCY_RELEASE_REFERENCE ${reference} did not resolve to an existing issue or PR.` };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: `GitHub emergency reference validation failed with status ${response.status}.`,
+    };
+  }
+
+  const payload = await response.json();
+  return {
+    ok: true,
+    reference: `${repository}#${parsed.number}`,
+    url:
+      typeof payload.html_url === "string"
+        ? payload.html_url
+        : `https://github.com/${repository}/issues/${parsed.number}`,
+  };
 }
 
 async function main(argv, env = process.env) {

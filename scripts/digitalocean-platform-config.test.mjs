@@ -847,6 +847,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Record staging completion");
     expect(platformProductionWorkflow).toContain("- name: Record production start");
     expect(platformProductionWorkflow).toContain("- name: Evaluate production release lock");
+    expect(workflowStep(platformProductionWorkflow, "Evaluate production release lock")).toContain(
+      "GITHUB_TOKEN: ${{ github.token }}",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Evaluate production release lock")).toContain(
+      "GITHUB_REPOSITORY: ${{ github.repository }}",
+    );
     expect(platformProductionWorkflow).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
     expect(platformProductionWorkflow).toContain(
       "EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}",
@@ -855,6 +861,12 @@ describe("DigitalOcean platform configuration", () => {
       "EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}",
     );
     expect(platformProductionWorkflow).toContain("run: node ./scripts/release-lock.mjs");
+    expect(workflowStep(platformProductionWorkflow, "Write release health summary")).toContain(
+      "EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Write release health summary")).toContain(
+      "RECOVERY_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
+    );
     expect(platformProductionWorkflow.indexOf("- name: Evaluate production release lock")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Validate production configuration"),
     );

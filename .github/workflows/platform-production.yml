@@ -1405,8 +1405,11 @@ jobs:
         run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate production release lock
+        id: release_lock
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_ENVIRONMENT: production
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
@@ -2330,9 +2333,9 @@ jobs:
           CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
-          EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}
           RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
-          RECOVERY_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          RECOVERY_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}
           ROLLBACK_READINESS_RESULT: unknown
         run: node ./scripts/release-health.mjs
 
