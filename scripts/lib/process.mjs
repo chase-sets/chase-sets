@@ -114,10 +114,61 @@ export function spawnCommand(command, args, options = {}) {
   return child;
 }
 
+function formatTimeout(timeoutMs) {
+  return timeoutMs % 1000 === 0 ? `${timeoutMs / 1000}s` : `${timeoutMs}ms`;
+}
+
+function parseTimeoutMs(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error("Command timeout must be a positive integer number of milliseconds.");
+  }
+
+  return value;
+}
+
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnCommand(command, args, options);
+    const timeoutMs = parseTimeoutMs(options.timeoutMs);
+    const timeoutKillGraceMs = parseTimeoutMs(options.timeoutKillGraceMs) ?? 1_000;
     let settled = false;
+    let timedOut = false;
+    let timeoutId;
+    let forceKillId;
+
+    function clearTimers() {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (forceKillId) {
+        clearTimeout(forceKillId);
+      }
+    }
+
+    function timeoutError() {
+      return new Error(`${command} ${args.join(" ")} timed out after ${formatTimeout(timeoutMs)}.`);
+    }
+
+    if (timeoutMs) {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        const killed = child.kill("SIGTERM");
+        if (!killed && !settled) {
+          settled = true;
+          clearTimers();
+          reject(timeoutError());
+          return;
+        }
+
+        forceKillId = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, timeoutKillGraceMs);
+      }, timeoutMs);
+    }
 
     child.on("error", (error) => {
       if (settled) {
@@ -125,6 +176,7 @@ export function runCommand(command, args, options = {}) {
       }
 
       settled = true;
+      clearTimers();
       reject(error);
     });
 
@@ -134,6 +186,12 @@ export function runCommand(command, args, options = {}) {
       }
 
       settled = true;
+      clearTimers();
+      if (timedOut) {
+        reject(timeoutError());
+        return;
+      }
+
       if (code === 0) {
         resolve();
         return;

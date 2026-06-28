@@ -79,4 +79,13 @@ describe("process helpers", () => {
 
     expect(consoleLog).toHaveBeenCalledWith("[child] buffered failure");
   });
+
+  it("fails a hung child with a clear timeout error", async () => {
+    await expect(
+      runCommand(process.execPath, ["--input-type=module", "--eval", "setInterval(() => {}, 1000);"], {
+        timeoutMs: 50,
+        timeoutKillGraceMs: 10,
+      }),
+    ).rejects.toThrow("timed out after 50ms");
+  });
 });

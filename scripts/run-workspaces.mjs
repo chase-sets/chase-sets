@@ -10,6 +10,7 @@ import { syncLocalEnvFiles } from "./local-env.mjs";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
 const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
+export const DEFAULT_TEST_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 
 export function loadTestEnvironment({
   env = process.env,
@@ -59,7 +60,9 @@ export function parseRunWorkspacesArgs(argv) {
   const [scriptName, ...rawArgs] = argv;
 
   if (!scriptName) {
-    throw new Error("Usage: node ./scripts/run-workspaces.mjs <script-name>");
+    throw new Error(
+      "Usage: node ./scripts/run-workspaces.mjs <script-name> [--concurrency=N] [--command-timeout-ms=N] [-- ...args]",
+    );
   }
 
   const passthroughSeparatorIndex = rawArgs.indexOf("--");
@@ -68,6 +71,10 @@ export function parseRunWorkspacesArgs(argv) {
 
   const concurrencyArg = runnerArgs.find((arg) => arg.startsWith("--concurrency="));
   const concurrency = concurrencyArg ? parsePositiveInteger(concurrencyArg.split("=")[1] ?? "", "--concurrency") : 1;
+  const commandTimeoutArg = runnerArgs.find((arg) => arg.startsWith("--command-timeout-ms="));
+  const commandTimeoutMs = commandTimeoutArg
+    ? parsePositiveInteger(commandTimeoutArg.split("=")[1] ?? "", "--command-timeout-ms")
+    : undefined;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
   const workspaceNames = new Set(
@@ -91,7 +98,12 @@ export function parseRunWorkspacesArgs(argv) {
     excludeTestProfile,
     workspaceNames,
     concurrency,
+    commandTimeoutMs,
   };
+}
+
+function defaultCommandTimeoutMs(scriptName) {
+  return scriptName.startsWith("test") ? DEFAULT_TEST_COMMAND_TIMEOUT_MS : undefined;
 }
 
 function filterWorkspaces(workspaces, options) {
@@ -120,12 +132,13 @@ function filterWorkspaces(workspaces, options) {
 }
 
 async function runWorkspace(workspace, options) {
-  const { buildInvocation, passthroughArgs, run, scriptName, usePrefixedLogs } = options;
+  const { buildInvocation, commandTimeoutMs, passthroughArgs, run, scriptName, usePrefixedLogs } = options;
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
   const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
   await run(invocation.command, invocation.args, {
     ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+    ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
   });
 }
 
@@ -192,6 +205,7 @@ export async function runWorkspaceScripts(options) {
   await runConcurrent(workspaces, {
     ...parsed,
     buildInvocation,
+    commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
     run,
     usePrefixedLogs: parsed.concurrency > 1,
   });
