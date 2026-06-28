@@ -97,8 +97,18 @@ export function sourceObservationReviewCompositionFor(input: {
   const promotionReadyRowCount = rows.filter((row) => row.promotionReadiness.state === "eligible").length;
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedRows = rows.filter((row) => selectedObservationIds.includes(row.observationId));
+  const summaryMissingButReviewLoaded =
+    input.scopeRows.length === 0 && Boolean(input.reviewObservations) && input.reviewUnavailable !== true;
+  const effectiveEligible =
+    summaryMissingButReviewLoaded && promotionReadyRowCount > 0
+      ? (input.reviewObservations?.total ?? promotionReadyRowCount)
+      : input.eligible;
+  const effectiveObserved =
+    summaryMissingButReviewLoaded && input.observed === 0 && promotionReadyRowCount > 0
+      ? (input.reviewObservations?.total ?? rows.length)
+      : input.observed;
   const promotionReadyCount = promotionReadyCountFor({
-    eligible: input.eligible,
+    eligible: effectiveEligible,
     promotionReadyRowCount,
     reviewObservations: input.reviewObservations,
     reviewUnavailable: input.reviewUnavailable,
@@ -109,12 +119,12 @@ export function sourceObservationReviewCompositionFor(input: {
     review: {
       freshness: input.reviewUnavailable ? "unavailable" : input.scopeRows.length > 0 ? "fresh" : "partial",
       counts: {
-        observed: input.observed,
+        observed: effectiveObserved,
         changed: input.changed,
         promoted: input.promoted,
         rejected: input.rejected,
         blocked: input.readinessBlockers.length,
-        eligible: input.eligible,
+        eligible: effectiveEligible,
       },
       cursor: offset > 0 ? `offset:${offset}` : null,
       selectedObservationIds,
@@ -123,9 +133,9 @@ export function sourceObservationReviewCompositionFor(input: {
       promotionReadyCount,
       filters: reviewFiltersFor(input.routeContext),
       savedFilters: savedReviewFiltersFor(input.routeContext, {
-        eligible: input.eligible,
+        eligible: effectiveEligible,
         changed: input.changed,
-        observed: input.observed,
+        observed: effectiveObserved,
         rejected: input.rejected,
       }),
       pagination: {

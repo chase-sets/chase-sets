@@ -26,6 +26,12 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       syncRunId: c.req.query("syncRunId") ?? undefined,
       identityFingerprint: c.req.query("identityFingerprint") ?? undefined,
       matchedCatalogItemId: c.req.query("matchedCatalogItemId") ?? undefined,
+      provider: c.req.query("provider") ?? undefined,
+      language: c.req.query("language") ?? undefined,
+      productLineId: c.req.query("productLineId") ?? undefined,
+      productLineName: c.req.query("productLineName") ?? undefined,
+      expansionId: c.req.query("expansionId") ?? undefined,
+      setId: c.req.query("setId") ?? undefined,
       limit: positiveIntegerQuery(c.req.query("limit")),
       offset: nonNegativeIntegerQuery(c.req.query("offset")),
     });

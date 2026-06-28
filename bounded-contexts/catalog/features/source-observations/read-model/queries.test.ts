@@ -94,6 +94,40 @@ describe("source observation read-model queries", () => {
     ]);
   });
 
+  it("lists merge candidates by operator-selected provider scope without requiring the current parent sync run", async () => {
+    const db = queryableSequence([[{ count: "1" }], [{ candidate_id: "cand_base", observation_count: 102 }]]);
+
+    const result = await listCatalogMergeCandidates(db, {
+      provider: "tcgplayer",
+      language: "en",
+      productLineId: "3",
+      productLineName: "Pokemon",
+      expansionId: "Base Set",
+      limit: 25,
+    });
+
+    expect(result).toEqual({ items: [{ candidate_id: "cand_base", observation_count: 102 }], total: 1 });
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("EXISTS"), [
+      "tcgplayer",
+      "en",
+      "3",
+      "Pokemon",
+      "Base Set",
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("catalog_merge_candidate_observations scoped_mco"),
+      ["tcgplayer", "en", "3", "Pokemon", "Base Set"],
+    );
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("so.normalized->>'setName'"), [
+      "tcgplayer",
+      "en",
+      "3",
+      "Pokemon",
+      "Base Set",
+    ]);
+  });
+
   it("lists only changed IDs when the current status filter is changed", async () => {
     const db = queryable([{ observation_id: "obs_changed" }]);
 
@@ -117,6 +151,7 @@ describe("source observation read-model queries", () => {
     });
 
     expect(ids).toEqual(["obs_sv8", "obs_sv1"]);
+    expect(String(vi.mocked(db.query).mock.calls[0]?.[0])).toContain("source_payload->'detail'->>'productLineId'");
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), [
       "tcgdex",
       "ja",
