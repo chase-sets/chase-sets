@@ -4,6 +4,7 @@ UCP is a standards-facing protocol facade. It translates between external agent/
 
 ## Surfaces
 
+- `/mcp`: Chase Sets-native MCP bridge for first-party and operator agent tooling.
 - `/.well-known/ucp`: public UCP business profile.
 - `/ucp/v1`: UCP REST transport.
 - `/ucp/mcp`: UCP MCP transport using UCP tool names.
@@ -11,7 +12,13 @@ UCP is a standards-facing protocol facade. It translates between external agent/
 - `/ucp/oauth/authorize`, `/ucp/oauth/token`, `/ucp/oauth/introspect`, `/ucp/oauth/revoke`: Auth-owned OAuth authorization-code-with-PKCE runtime backed by Identity-owned Linked Platform Authorization records.
 - `/ucp/oauth/authorizations`: account consent-management surface for listing and revoking Linked Platform Authorizations.
 
-Deployables mount these surfaces only. Protocol constants, envelopes, tool metadata, profile construction, and transport guardrails live in `infrastructure/platform-runtime/ucp`. Domain handlers stay in owning bounded contexts.
+Deployables mount these surfaces only. Native MCP contracts and runtime guardrails live in `infrastructure/platform-runtime/mcp`; UCP protocol constants, envelopes, tool metadata, profile construction, and transport guardrails live in `infrastructure/platform-runtime/ucp`. Domain handlers stay in owning bounded contexts.
+
+## Native MCP Bridge
+
+The native `/mcp` bridge is an authenticated internal surface. It uses Chase Sets-owned tool names and resource URIs, currently limited to Inventory import-batch operations that have runtime handlers. Discovery requires an authenticated actor, and tool calls enforce permission, account ownership, input schema, confirmation text, durable idempotency for writes, and audit records before and after handler execution.
+
+The native bridge is not a third-party commerce profile. External agent commerce should use `/.well-known/ucp` and `/ucp/mcp`; native `/mcp` exists for first-party automation where Chase Sets controls the agent host and can bind the request to a platform session or operator principal.
 
 ## ChatGPT Apps Compatibility
 
@@ -51,6 +58,8 @@ REST and MCP must remain behavior-equivalent:
 - Same handler path into the owning bounded context.
 
 The runtime exposes guardrails and handler seams. Concrete Discovery, Checkout, Ordering, Payments, Auth, and Identity adapters must own commercial behavior before a capability is treated as commercially ready.
+
+The native `/mcp` bridge is intentionally narrower than UCP. Its production contract is capability honesty rather than UCP equivalence: `tools/list` and `resources/list` advertise only callable native capabilities, and every advertised native capability must have composed-platform integration coverage before it is exposed.
 
 ## Trusted Checkout
 

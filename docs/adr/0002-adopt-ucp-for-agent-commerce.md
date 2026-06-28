@@ -39,7 +39,7 @@ General UCP response signing is deferred from v1 production readiness. Checkout 
 - UCP terms are boundary DTOs. Internal ubiquitous language remains Catalog Item/Product, Listing, Offer, Cart, Checkout Session, Order/Purchase/Sale, Payment, and Shipment.
 - `@chase-sets/platform-runtime/ucp` owns protocol constants, profile declarations, envelopes, transport-neutral contract helpers, generic profile routes, REST transport, MCP transport, signature-header, digest, cryptographic HTTP Message Signature verification through UCP key resolution, Postgres-backed profile/key caching, and durable idempotency guardrails.
 - Discovery, Checkout, Ordering, Payments, Auth, and Identity will provide concrete handlers through their existing context-owned services.
-- The existing Chase Sets-native `/mcp` bridge remains available for internal agent tooling; `/ucp/mcp` is the standards-facing UCP profile with UCP tool names.
+- The existing Chase Sets-native `/mcp` bridge remains available for internal agent tooling; `/ucp/mcp` is the standards-facing UCP profile with UCP tool names. Native `/mcp` must stay authenticated, capability-honest, audited, account-owned, and limited to tools/resources that have runtime handlers.
 - Product code must not add a generic `ai-commerce` or `ucp` bounded context.
 
 ## Verification
@@ -52,6 +52,6 @@ Initial verification covers:
 - Idempotency-key requirements for checkout completion and cancellation.
 - Platform API mounts for `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp`.
 
-Order reads, OAuth scope enforcement, PKCE, refresh rotation, token introspection, linked-platform consent revocation, durable replay storage with retention/pruning, production profile/key caching, AP2 guarded continuation, UCP runtime observer events, and staging smoke checks are now part of the hardening baseline. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, replay conflict behavior, OAuth token lifecycle behavior, and AP2 guardrails have focused automated coverage.
+Order reads, OAuth scope enforcement, PKCE, refresh rotation, token introspection, linked-platform consent revocation, durable replay storage with retention/pruning, production profile/key caching, AP2 guarded continuation, native MCP authenticated discovery, UCP runtime observer events, and staging smoke checks are now part of the hardening baseline. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, replay conflict behavior, OAuth token lifecycle behavior, native MCP Inventory import-handler composition, and AP2 guardrails have focused automated coverage.
 
 Forward-readiness decision for v1: general UCP response signing is explicitly deferred, and headless AP2 mandate/payment-handler funds transfer remains off by default. A production AP2 verifier, merchant signing keys, Stripe shared-payment-token support, and certification evidence are required before autonomous checkout completion is treated as launch-ready.

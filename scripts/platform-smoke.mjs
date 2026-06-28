@@ -40,6 +40,7 @@ const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
 const smokeUtmContent = getSmokeEnv("SMOKE_UTM_CONTENT") || null;
 const smokeUtmTerm = getSmokeEnv("SMOKE_UTM_TERM") || null;
 const adminGoogleWorkspaceHostedDomain = getSmokeEnv("SMOKE_ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAIN") || "chasesets.com";
+const nativeMcpAccountId = getSmokeEnv("SMOKE_NATIVE_MCP_ACCOUNT_ID") || null;
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
 
@@ -352,6 +353,60 @@ async function expectUcpEndpoints(origin) {
   }
 }
 
+async function expectNativeMcpAuthenticationBoundary(origin) {
+  await fetchWithRetry(
+    "native MCP anonymous discovery rejection",
+    `${origin}/mcp`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    },
+    (candidate) => candidate.status === 401,
+  );
+}
+
+async function expectNativeMcpInventoryRead({ origin, sessionToken, accountId }) {
+  const commonHeaders = {
+    Authorization: `Bearer ${sessionToken}`,
+    "Content-Type": "application/json",
+  };
+  const toolsResponse = await expectOk("native MCP authenticated tools", `${origin}/mcp`, {
+    method: "POST",
+    headers: commonHeaders,
+    body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+  });
+  const toolsBody = await toolsResponse.json();
+  const toolNames = new Set(
+    Array.isArray(toolsBody.result?.tools) ? toolsBody.result.tools.map((tool) => tool?.name) : [],
+  );
+  if (!toolNames.has("inventory.list-import-sources")) {
+    throw new Error("Native MCP tools did not include inventory.list-import-sources.");
+  }
+
+  const listSourcesResponse = await expectOk("native MCP inventory source read", `${origin}/mcp`, {
+    method: "POST",
+    headers: commonHeaders,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "list-import-sources",
+      method: "tools/call",
+      params: {
+        name: "inventory.list-import-sources",
+        arguments: { accountId },
+      },
+    }),
+  });
+  const listSourcesBody = await listSourcesResponse.json();
+  if (listSourcesBody.error) {
+    throw new Error(`Native MCP inventory source read returned JSON-RPC error: ${listSourcesBody.error.message}.`);
+  }
+  const items = listSourcesBody.result?.content?.find((entry) => entry?.type === "json")?.json?.items;
+  if (!Array.isArray(items) || !items.some((item) => item?.sourceKey === "tcgplayer-csv")) {
+    throw new Error("Native MCP inventory source read did not include the TCGplayer CSV source.");
+  }
+}
+
 async function expectMarketplaceSurface(label, origin) {
   await expectOk(`${label} home`, `${origin}/`);
   await expectOk(`${label} search`, `${origin}/search`);
@@ -427,6 +482,7 @@ async function main() {
 
   await expectOk("landing home", `${landingUrl}/`);
   await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
+  await expectNativeMcpAuthenticationBoundary(landingUrl);
   await expectOk("admin home", `${adminUrl}/`);
   await expectOk("platform API health through admin", `${adminUrl}/api/health/ready`);
   if (requireAdminGoogleWorkspaceSso) {
@@ -493,6 +549,16 @@ async function main() {
     const authBody = await authResponse.json();
     if (authBody.type !== "session-started" || !authBody.sessionToken) {
       throw new Error("Admin sign-in did not return a session token.");
+    }
+    const authenticatedMcpAccountId = nativeMcpAccountId || authBody.session?.account_id || null;
+    if (authenticatedMcpAccountId) {
+      await expectNativeMcpInventoryRead({
+        origin: adminUrl,
+        sessionToken: authBody.sessionToken,
+        accountId: authenticatedMcpAccountId,
+      });
+    } else {
+      console.warn("Skipping authenticated native MCP smoke; no account id was available.");
     }
 
     if (writeWaitlist) {
