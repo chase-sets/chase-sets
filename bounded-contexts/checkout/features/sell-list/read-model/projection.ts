@@ -213,5 +213,36 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         [data.sellerAccountId, data.offerId],
       );
     },
+    "settlement.payout-readiness.recorded": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        status: string;
+        missingRequirements?: unknown;
+        recordedAt?: string;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_sell_payout_readiness_pages (
+           account_id,
+           status,
+           missing_requirements,
+           updated_at,
+           last_stream_version
+         ) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (account_id) DO UPDATE
+         SET status = EXCLUDED.status,
+             missing_requirements = EXCLUDED.missing_requirements,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE checkout_sell_payout_readiness_pages.last_stream_version < EXCLUDED.last_stream_version`,
+        [
+          data.accountId,
+          data.status,
+          JSON.stringify(Array.isArray(data.missingRequirements) ? data.missingRequirements : []),
+          data.recordedAt ?? event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
   };
 }

@@ -74,6 +74,12 @@ function createServices(): CheckoutSellListServices {
     })),
     getLatestConfirmation: vi.fn(async () => null),
     getConfirmation: vi.fn(async () => null),
+    getPayoutReadiness: vi.fn(async () => ({
+      account_id: "acc_seller",
+      status: "ready",
+      missing_requirements: [],
+      updated_at: "2026-05-30T00:00:00.000Z",
+    })),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     createReadinessSnapshot: vi.fn(async () => ({
       schemaVersion: "checkout.sell-list-readiness.v1",
@@ -220,6 +226,28 @@ describe("checkout sell list routes", () => {
         confirmation_id: "slc_1",
         handoff_summary: { acceptedOfferCount: 1 },
       },
+    });
+  });
+
+  it("returns Checkout-owned payout readiness for the signed-in seller", async () => {
+    const services = createServices();
+    vi.mocked(services.getPayoutReadiness).mockResolvedValue({
+      account_id: "acc_seller",
+      status: "restricted",
+      missing_requirements: ["external_account"],
+      updated_at: "2026-05-30T00:00:00.000Z",
+    });
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/payout-readiness"));
+
+    expect(response.status).toBe(200);
+    expect(services.getPayoutReadiness).toHaveBeenCalledWith("acc_seller");
+    await expect(response.json()).resolves.toEqual({
+      account_id: "acc_seller",
+      status: "restricted",
+      missing_requirements: ["external_account"],
+      updated_at: "2026-05-30T00:00:00.000Z",
     });
   });
 

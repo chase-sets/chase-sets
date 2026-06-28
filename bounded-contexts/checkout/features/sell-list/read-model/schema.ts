@@ -44,4 +44,15 @@ CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_seller_latest_i
 
 CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_reference_idx
   ON checkout_sell_list_confirmation_pages (confirmation_id, confirmed_at DESC);
+
+CREATE TABLE IF NOT EXISTS checkout_sell_payout_readiness_pages (
+  account_id text PRIMARY KEY,
+  status text NOT NULL,
+  missing_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS checkout_sell_payout_readiness_pages_status_idx
+  ON checkout_sell_payout_readiness_pages (status, updated_at DESC, account_id DESC);
 `;

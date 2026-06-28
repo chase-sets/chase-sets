@@ -36,9 +36,11 @@ import { buildCheckoutSellListProjectionHandlers } from "../read-model/projectio
 import {
   getLatestSellListConfirmation,
   getSellListConfirmation,
+  getSellPayoutReadiness,
   listSellListLines,
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListLineRow,
+  type CheckoutSellPayoutReadinessRow,
 } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
@@ -214,6 +216,7 @@ export type CheckoutSellListServices = Readonly<{
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
   getLatestConfirmation: (sellerAccountId: string) => ReturnType<typeof getLatestSellListConfirmation>;
   getConfirmation: (sellerAccountId: string, confirmationId: string) => ReturnType<typeof getSellListConfirmation>;
+  getPayoutReadiness: (sellerAccountId: string) => Promise<CheckoutSellPayoutReadinessRow>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -472,6 +475,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     getLatestConfirmation: (sellerAccountId) => getLatestSellListConfirmation(deps.db, sellerAccountId),
     getConfirmation: (sellerAccountId, confirmationId) =>
       getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
+    getPayoutReadiness: (sellerAccountId) => getSellPayoutReadiness(deps.db, sellerAccountId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listAggregateSellListLines(params.sourceOwnerId);
       let targetAggregate = await repository.load(sellListStreamId(params.targetAccountId));

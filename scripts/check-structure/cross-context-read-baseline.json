@@ -64,19 +64,6 @@
       "migration": "Project seller listing inventory rows required by the Checkout sell rail into Checkout."
     },
     {
-      "id": "bounded-contexts/checkout/routes/account-sell-list.tsx:settlement:createSettlementRequestApiClient.getPayoutReadiness#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "settlement",
-      "file": "bounded-contexts/checkout/routes/account-sell-list.tsx",
-      "line": 772,
-      "clientFactory": "createSettlementRequestApiClient",
-      "methodName": "getPayoutReadiness",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "poll-only",
-      "issue": "#2777",
-      "migration": "Mirror seller payout readiness into the Checkout sell rail; Settlement remains poll-only until #1364 expands push coverage."
-    },
-    {
       "id": "bounded-contexts/checkout/routes/account-sell-list.tsx:marketplace:createMarketplaceRequestApiClient.previewOfferAcceptanceTerms#3",
       "consumerContextName": "checkout",
       "sourceContextName": "marketplace",
@@ -218,19 +205,6 @@
       "sourceWakePosture": "poll-only",
       "issue": "#2777",
       "migration": "Mirror shipping address summaries into the Checkout sell-session projection; Identity remains poll-only until #1364 expands push coverage."
-    },
-    {
-      "id": "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-loader.ts:settlement:createSettlementRequestApiClient.getPayoutReadiness#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "settlement",
-      "file": "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-loader.ts",
-      "line": 71,
-      "clientFactory": "createSettlementRequestApiClient",
-      "methodName": "getPayoutReadiness",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "poll-only",
-      "issue": "#2777",
-      "migration": "Mirror seller payout readiness into the Checkout sell-session projection; Settlement remains poll-only until #1364 expands push coverage."
     },
     {
       "id": "bounded-contexts/discovery/support/route-support/item-detail/action.ts:marketplace:createMarketplaceRequestApiClient.previewListingTerms#1",

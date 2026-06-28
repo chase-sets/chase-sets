@@ -12,6 +12,7 @@ export type {
   AddCheckoutSellListLineRequest,
   CheckoutSellListLineRow,
   CheckoutSellListConfirmationRow,
+  CheckoutSellPayoutReadinessRow,
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
 } from "../../client";

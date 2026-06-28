@@ -11,8 +11,17 @@ type SellListLineRow = {
   quantity: number;
 };
 
+type PayoutReadinessRow = {
+  account_id: string;
+  status: string;
+  missing_requirements: unknown;
+  updated_at: string | null;
+  last_stream_version: number;
+};
+
 class SellListProjectionDb implements PgQueryable {
   public readonly lines = new Map<string, SellListLineRow>();
+  public readonly payoutReadiness = new Map<string, PayoutReadinessRow>();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -39,6 +48,23 @@ class SellListProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO checkout_sell_list_confirmation_pages")) {
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("INSERT INTO checkout_sell_payout_readiness_pages")) {
+      const accountId = String(values[0]);
+      const existing = this.payoutReadiness.get(accountId);
+      const nextVersion = Number(values[4]);
+      if (existing && existing.last_stream_version >= nextVersion) {
+        return { rows: [], rowCount: 0 };
+      }
+      this.payoutReadiness.set(accountId, {
+        account_id: accountId,
+        status: String(values[1]),
+        missing_requirements: JSON.parse(String(values[2] ?? "[]")),
+        updated_at: values[3] === null ? null : String(values[3]),
+        last_stream_version: nextVersion,
+      });
       return { rows: [], rowCount: 1 };
     }
 
@@ -107,6 +133,10 @@ class SellListProjectionDb implements PgQueryable {
 
   getLine(sellerAccountId: string, lineId: string) {
     return this.lines.get(this.key(sellerAccountId, lineId));
+  }
+
+  getPayoutReadiness(accountId: string) {
+    return this.payoutReadiness.get(accountId);
   }
 
   private key(sellerAccountId: string, lineId: string) {
@@ -277,6 +307,28 @@ describe("checkout Sell List projection", () => {
       line_type: "selected-offer",
       offer_id: "off_duplicate",
       quantity: 1,
+    });
+  });
+
+  it("mirrors Settlement payout readiness into the Checkout sell projection", async () => {
+    const db = new SellListProjectionDb();
+    const handlers = buildCheckoutSellListProjectionHandlers(db);
+
+    await handlers["settlement.payout-readiness.recorded"]!(
+      event("settlement.payout-readiness.recorded", "settlement.payout-readiness-acc_seller", {
+        accountId: "acc_seller",
+        status: "restricted",
+        missingRequirements: ["external_account"],
+        recordedAt: "2026-06-22T00:02:00.000Z",
+      }),
+    );
+
+    expect(db.getPayoutReadiness("acc_seller")).toEqual({
+      account_id: "acc_seller",
+      status: "restricted",
+      missing_requirements: ["external_account"],
+      updated_at: "2026-06-22T00:02:00.000Z",
+      last_stream_version: 1,
     });
   });
 

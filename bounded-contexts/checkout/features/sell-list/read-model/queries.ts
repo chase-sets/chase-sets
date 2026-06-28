@@ -50,6 +50,13 @@ export type CheckoutSellListConfirmationRow = Readonly<{
   }>;
 }>;
 
+export type CheckoutSellPayoutReadinessRow = Readonly<{
+  account_id: string;
+  status: "not-started" | "pending" | "ready" | "restricted";
+  missing_requirements: readonly string[];
+  updated_at: string | null;
+}>;
+
 type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
   selected_options: unknown;
   line_type: string;
@@ -60,12 +67,47 @@ type SellListConfirmationPageRow = Omit<CheckoutSellListConfirmationRow, "handof
   handoff_summary: unknown;
 };
 
+type SellPayoutReadinessPageRow = Omit<CheckoutSellPayoutReadinessRow, "status" | "missing_requirements"> & {
+  status: string;
+  missing_requirements: unknown;
+};
+
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
     ...row,
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
     fallback_mode: row.fallback_mode === "create-listing" ? "create-listing" : "none",
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
+  };
+}
+
+function normalizePayoutReadinessStatus(status: string): CheckoutSellPayoutReadinessRow["status"] {
+  switch (status) {
+    case "pending":
+    case "ready":
+    case "restricted":
+      return status;
+    default:
+      return "not-started";
+  }
+}
+
+function mapPayoutReadiness(row: SellPayoutReadinessPageRow): CheckoutSellPayoutReadinessRow {
+  return {
+    ...row,
+    status: normalizePayoutReadinessStatus(row.status),
+    missing_requirements: Array.isArray(row.missing_requirements)
+      ? row.missing_requirements.filter((value): value is string => typeof value === "string")
+      : [],
+  };
+}
+
+export function createEmptySellPayoutReadiness(accountId: string): CheckoutSellPayoutReadinessRow {
+  return {
+    account_id: accountId,
+    status: "not-started",
+    missing_requirements: ["provider-onboarding", "seller-agreement"],
+    updated_at: null,
   };
 }
 
@@ -158,4 +200,23 @@ export async function getSellListConfirmation(
 
   const row = result.rows[0];
   return row ? mapSellListConfirmation(row) : null;
+}
+
+export async function getSellPayoutReadiness(
+  db: PgQueryable,
+  accountId: string,
+): Promise<CheckoutSellPayoutReadinessRow> {
+  const result = await db.query<SellPayoutReadinessPageRow>(
+    `SELECT
+       account_id,
+       status,
+       missing_requirements,
+       updated_at
+     FROM checkout_sell_payout_readiness_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapPayoutReadiness(row) : createEmptySellPayoutReadiness(accountId);
 }

@@ -1,10 +1,13 @@
 import { t } from "@chase-sets/localization";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
-import { createSettlementRequestApiClient, type SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { createCheckoutRequestApiClient, type SellListReadinessDecisionInput } from "../../request-support/api-client";
+import {
+  createCheckoutRequestApiClient,
+  type CheckoutSellPayoutReadinessRow,
+  type SellListReadinessDecisionInput,
+} from "../../request-support/api-client";
 import { readAnonymousSellListId } from "../../request-support/guest-checkout";
 import { signedInSellCheckoutDefaultValues } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import type {
@@ -66,9 +69,9 @@ export async function loadSavedShipFromAddresses(
 }
 
 export async function loadPayoutSummary(request: Request): Promise<SignedInSellCheckoutPayoutSummary> {
-  let readiness: SettlementPayoutReadinessRow;
+  let readiness: CheckoutSellPayoutReadinessRow;
   try {
-    readiness = await createSettlementRequestApiClient(request).getPayoutReadiness();
+    readiness = await createCheckoutRequestApiClient(request).getSellListPayoutReadiness();
   } catch {
     return {
       status: "unavailable",
