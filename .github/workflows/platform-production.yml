@@ -1168,7 +1168,8 @@ jobs:
     needs:
       - resolve-release
       - deploy-staging
-    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.deployed != 'true'
+      - deploy-production
+    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && (needs.deploy-staging.outputs.deployed != 'true' || needs.deploy-production.outputs.superseded == 'true')
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -1326,6 +1327,9 @@ jobs:
       - deploy-staging
     if: needs.deploy-staging.outputs.deployed == 'true'
     environment: production
+    outputs:
+      superseded: ${{ steps.latest_main.outputs.superseded || 'false' }}
+      superseded_by_commit: ${{ steps.latest_main.outputs.latest_main }}
     concurrency:
       group: platform-deploy-production
       cancel-in-progress: false
@@ -1392,12 +1396,35 @@ jobs:
           latest_main="$(git rev-parse origin/main)"
           if [ "$release_commit" != "$latest_main" ]; then
             echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale production deployment."
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "should_deploy=false"
+              echo "superseded=true"
+              echo "latest_main=${latest_main}"
+            } >> "$GITHUB_OUTPUT"
             echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
             exit 0
           fi
-          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "should_deploy=true"
+            echo "superseded=false"
+            echo "latest_main=${latest_main}"
+          } >> "$GITHUB_OUTPUT"
           echo "SHOULD_DEPLOY=true" >> "$GITHUB_ENV"
+
+      - name: Record superseded production deployment
+        if: env.SHOULD_DEPLOY == 'false'
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          latest_main="${{ steps.latest_main.outputs.latest_main }}"
+          {
+            echo "## Production deployment superseded"
+            echo
+            echo "Production intentionally skipped because a newer main commit owns deployment."
+            echo
+            echo "- Release commit: ${release_commit}"
+            echo "- Superseding commit: ${latest_main}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record production start
         id: production_started
@@ -2225,7 +2252,7 @@ jobs:
 
       - name: Resolve release health metadata
         id: release_health_metadata
-        if: always() && env.SHOULD_DEPLOY != 'false'
+        if: always()
         env:
           SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
           GH_TOKEN: ${{ github.token }}
@@ -2275,7 +2302,7 @@ jobs:
 
       - name: Resolve CI retry metadata
         id: ci_metadata
-        if: always() && env.SHOULD_DEPLOY != 'false'
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -2292,7 +2319,7 @@ jobs:
           fi
 
       - name: Write release health summary
-        if: always() && env.SHOULD_DEPLOY != 'false'
+        if: always()
         env:
           RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
@@ -2314,19 +2341,20 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
           CANARY_COMPLETED_AT: ${{ steps.settlement_probe.outputs.completed_at || steps.proof_probe.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
-          CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
+          CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
-          PRODUCTION_RESULT: ${{ job.status }}
+          CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
-          RELEASE_ATTEMPT_RESULT: ${{ job.status }}
+          RELEASE_ATTEMPT_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
           RELEASE_ATTEMPT_PHASE: production
-          RELEASE_ATTEMPT_REASON: production-release
+          RELEASE_ATTEMPT_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || 'production-release' }}
+          RELEASE_ATTEMPT_SUPERSEDED_BY_COMMIT: ${{ env.SHOULD_DEPLOY == 'false' && steps.latest_main.outputs.latest_main || '' }}
           RELEASE_ATTEMPT_WORKFLOW_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
           CI_FLAKY_FAILURE_COUNT: ${{ steps.ci_metadata.outputs.ci_flaky_failure_count }}
@@ -2340,7 +2368,7 @@ jobs:
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary
-        if: always() && env.SHOULD_DEPLOY != 'false'
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-release-health
