@@ -183,7 +183,8 @@ describe("cross-context request-path read inventory guard", () => {
     expect(localResult.violations).toEqual([]);
     expect(localResult.warnings[0]).toContain("net-new foreign request-path read-client call");
     expect(localResult.warnings[0]).toContain("bounded-contexts/checkout/features/cart/integrations/*");
-    expect(localResult.warnings[0]).toContain("#2774 and #2776");
+    expect(localResult.warnings[0]).toContain("docs/architecture/cross-context-request-path-read-inventory.md");
+    expect(localResult.warnings[0]).toContain("#2774, and #2776");
 
     const ciResult = await validate(root, { failOnNewReads: true });
     expect(ciResult.warnings).toEqual([]);

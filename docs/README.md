@@ -37,6 +37,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ### Post-write consistency and projection freshness
 
 - [Post-Write Consistency Policy](./architecture/post-write-consistency.md): product-wide strategy taxonomy and default-safe route path for `navigateAfterWrite`, `loadAfterWrite`, recovery boundaries, lag-vs-readiness classification, and realtime as a bounded correction channel.
+- [Cross-Context Request-Path Read Inventory](./architecture/cross-context-request-path-read-inventory.md): #2776 classification guide, decision flow, wake posture rule, and guardrail artifact for eliminating request-path foreign read fan-out.
 - [Advanced Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): advanced/bespoke exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Semantic Post-Write Handoffs](./architecture/semantic-post-write-handoffs.md): lightweight `postWriteHandoff` query metadata paired with `navigateAfterWrite`/`loadAfterWrite` for `fresh-read` routes where stale `200` empty, stale resource, or `404` responses can hide a successful command.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
