@@ -37,6 +37,20 @@ $body = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolV
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $body
 ```
 
+Verify native `/mcp` and UCP `/ucp/mcp` negotiate the same protocol baseline:
+
+```powershell
+$init20250618 = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.1.0"}}}'
+Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Body $init20250618
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $init20250618
+
+$init20251125 = '{"jsonrpc":"2.0","id":"future","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.1.0"}}}'
+Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Body $init20251125
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $init20251125
+```
+
+Expected result for all four initialize calls: `result.protocolVersion` is `2025-06-18`.
+
 Verify ChatGPT-compatible tool metadata:
 
 ```powershell
@@ -51,6 +65,24 @@ Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "appli
 ```
 
 JSON-RPC MCP transport status convention: `/ucp/mcp` and the native `/mcp` endpoint return HTTP 200 with an in-band JSON-RPC `error` object for protocol/application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, and authentication failures that prevent discovery from producing a normal JSON-RPC response. Both MCP surfaces negotiate the `2025-06-18` protocol baseline and fall back to it for unsupported client proposals; batch arrays are rejected explicitly instead of being partially executed.
+
+MCP protocol revision decision, 2026-06-28: Chase Sets intentionally supports only the `2025-06-18` MCP protocol revision. The official `2025-11-25` changelog adds contract surfaces that are not yet wired in both Chase Sets MCP transports, including authorization discovery and incremental consent changes, icon metadata for tools/resources/prompts, guidance around tool names, elicitation and sampling additions, task polling/deferred-result support, and JSON Schema 2020-12 defaults for schemas. Native `/mcp` and UCP `/ucp/mcp` therefore continue to negotiate `2025-06-18` and fall back to it when a client proposes `2025-11-25`. Do not add `2025-11-25` to `SUPPORTED_MCP_PROTOCOL_VERSIONS` until both surfaces expose the same lifecycle, tools, resources, authentication, metadata, batching, and smoke-test behavior for that revision.
+
+| Area | `2025-11-25` delta | Chase Sets posture |
+| --- | --- | --- |
+| Lifecycle | New clients may propose `2025-11-25` during `initialize`. | Both MCP surfaces negotiate only `2025-06-18` and return that baseline for `2025-11-25` proposals. |
+| Tools | Tool-name guidance, sampling tool calls, and JSON Schema 2020-12 schema defaults need contract review. | Keep current tool descriptors and `outputSchema` behavior on `2025-06-18`; do not advertise the newer revision. |
+| Resources | Resource, resource-template, and prompt metadata can expose icons. | Keep existing resource list shape until native `/mcp` and UCP `/ucp/mcp` can expose the same metadata. |
+| Batching | Chase Sets already rejects JSON-RPC batch arrays on both transports. | Preserve explicit batch rejection; do not claim a revision upgrade without rechecking batching semantics. |
+| Authentication | Protected Resource Metadata discovery and incremental scope consent through `WWW-Authenticate` need end-to-end OAuth posture. | Keep current OAuth/UCP auth posture and do not advertise `2025-11-25` until discovery/challenge behavior is reviewed. |
+| Metadata | Icons, titles, task metadata, and schema dialect defaults expand the advertised contract. | Keep `2025-06-18` metadata until both surfaces and smoke tests prove parity. |
+
+Primary references:
+
+- `2025-11-25` changelog: https://modelcontextprotocol.io/specification/2025-11-25/changelog
+- `2025-11-25` lifecycle: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
+- `2025-11-25` authorization: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+- `2025-06-18` baseline: https://modelcontextprotocol.io/specification/2025-06-18
 
 MCP tool calls are concurrency-limited before handler execution by the platform realtime limiter. Production-like deployments should keep `REALTIME_STREAM_LIMITER=postgres` or `redis`; local mode uses in-memory process limits. Tune `MCP_MAX_CONCURRENT_TOOL_CALLS`, `MCP_MAX_CONCURRENT_TOOL_CALLS_PER_PRINCIPAL`, `MCP_MAX_CONCURRENT_WRITE_TOOL_CALLS_PER_PRINCIPAL`, and `MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL` when staging evidence shows legitimate agent fan-out needs more headroom. Limit rejections return a clear MCP error and are logged through native MCP audit or the UCP observer.
 

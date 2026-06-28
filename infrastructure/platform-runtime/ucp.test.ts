@@ -2,7 +2,7 @@ import { createHash, createSign, generateKeyPairSync, type KeyObject } from "nod
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "./ucp";
-import { MCP_PROTOCOL_VERSION } from "./mcp-protocol";
+import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 import {
@@ -463,7 +463,17 @@ describe("UCP MCP routes", () => {
         params: { protocolVersion: "2025-03-26" },
       }),
     });
+    const futureRevisionResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "future-revision",
+        method: "initialize",
+        params: { protocolVersion: "2025-11-25" },
+      }),
+    });
 
+    expect(SUPPORTED_MCP_PROTOCOL_VERSIONS).toEqual([MCP_PROTOCOL_VERSION]);
     expect(supportedResponse.status).toBe(200);
     await expect(supportedResponse.json()).resolves.toMatchObject({
       id: "supported",
@@ -477,6 +487,13 @@ describe("UCP MCP routes", () => {
     expect(unsupportedResponse.status).toBe(200);
     await expect(unsupportedResponse.json()).resolves.toMatchObject({
       id: "unsupported",
+      result: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+      },
+    });
+    expect(futureRevisionResponse.status).toBe(200);
+    await expect(futureRevisionResponse.json()).resolves.toMatchObject({
+      id: "future-revision",
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
       },
