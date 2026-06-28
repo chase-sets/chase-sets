@@ -1,6 +1,6 @@
 {
   "contextName": "notifications",
-  "packageName": "@chase-sets/notification-center",
+  "packageName": "@chase-sets/notifications",
   "ownedNouns": ["notification-center", "notification-feed-item", "notification-preference"],
   "streamPrefix": "notifications.",
   "apiBasePath": "/api/notifications",

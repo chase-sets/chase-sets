@@ -3,7 +3,7 @@ import type {
   ClaimedNotificationDelivery,
   NotificationMessage,
   NotificationOutboxStore,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import {
   createNotificationOutboxDispatcher,
   createPostgresNotificationOutbox,

@@ -6,13 +6,13 @@ import type {
   TransactionalEmailGateway,
   TransactionalEmailMessage,
   TransactionalEmailTemplateRenderer,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import type {
   EmailNotificationChannel,
   NotificationChannelAdapter,
   NotificationDelivery,
   SentNotificationReceipt,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 
 export type LocalEmailCaptureSource = "transactional-email" | "notification-channel";
 

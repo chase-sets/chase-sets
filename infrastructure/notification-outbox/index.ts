@@ -13,7 +13,7 @@ import {
   type NotificationChannelAdapter,
   type NotificationMessage,
   type NotificationOutboxStore,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 
 const DEFAULT_TABLE_NAME = "notification_outbox";
 const DEFAULT_MAX_ATTEMPTS = 5;

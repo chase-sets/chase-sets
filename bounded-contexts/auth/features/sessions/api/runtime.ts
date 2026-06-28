@@ -2,7 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AuthRuntimeDeps } from "./runtime-deps";
 import {
   decideSession,

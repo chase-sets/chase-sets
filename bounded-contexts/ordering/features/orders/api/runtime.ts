@@ -7,7 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
-import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
   buildPackagePlan,
   defaultPostagePolicy,

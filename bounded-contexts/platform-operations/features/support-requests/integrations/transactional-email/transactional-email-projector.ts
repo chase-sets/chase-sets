@@ -1,4 +1,4 @@
-import type { NotificationOutbox } from "@chase-sets/notifications";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";

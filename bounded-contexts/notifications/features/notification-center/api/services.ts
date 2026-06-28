@@ -7,7 +7,7 @@ import {
   type EmailWebhookGateway,
   type MobileMessageProviderWebhookEvent,
   type MobileMessageWebhookGateway,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
   defaultNotificationPreferences,

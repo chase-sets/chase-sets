@@ -7,7 +7,7 @@ import type {
   RcsNotificationChannel,
   SentNotificationReceipt,
   SmsNotificationChannel,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { NotificationMessage } from "@chase-sets/notifications";
+import type { NotificationMessage } from "@chase-sets/outbound-messaging";
 import {
   createPostgresWebNotificationFeed,
   createPostgresWebNotificationAdapter,

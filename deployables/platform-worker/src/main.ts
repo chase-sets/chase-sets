@@ -1,7 +1,7 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/notifications";
+import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/outbound-messaging";
 import {
   createPostgresTcgplayerAutomationHttpConfigStore,
   createTcgplayerAutomationCatalogClient,

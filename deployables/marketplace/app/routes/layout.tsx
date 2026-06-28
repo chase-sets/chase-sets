@@ -5,7 +5,7 @@ import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } 
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
-import { NotificationCenterShell } from "@chase-sets/notification-center/web";
+import { NotificationCenterShell } from "@chase-sets/notifications/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";

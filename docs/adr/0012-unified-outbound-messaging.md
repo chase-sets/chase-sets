@@ -8,7 +8,7 @@ Accepted.
 
 Outbound customer and operator messaging currently has two durable outbox implementations and two contract packages for the same event-driven delivery pattern:
 
-- `contracts/notifications` defines multi-channel notification messages, delivery receipts, channel adapters, email/mobile webhooks, channel preferences, and a notification outbox port.
+- `contracts/outbound-messaging` defines multi-channel notification messages, delivery receipts, channel adapters, email/mobile webhooks, channel preferences, and a notification outbox port.
 - `contracts/communications-email` defines transactional email messages, rendering, a transactional email gateway, and a second transactional email outbox port.
 - `infrastructure/notification-outbox` stores one delivery row per notification channel with worker-safe claiming, retry scheduling, sent preservation, and per-channel delivery adapters.
 - `infrastructure/transactional-email-outbox` stores one email row per idempotency key with the same worker-safe claiming, retry scheduling, sent preservation, and provider receipt behavior.
@@ -26,17 +26,17 @@ The two outboxes preserve the same delivery semantics: source-event metadata, or
 
 ## Decision
 
-Use `contracts/notifications` as the outbound messaging contract for transactional customer communications and notification-center messages.
+Use `contracts/outbound-messaging` as the outbound messaging contract for transactional customer communications and notification-center messages.
 
 The target package shape is:
 
-- `contracts/notifications` owns the shared outbound message contract: message intent, email/SMS/RCS/web/push channel payloads, delivery receipts, channel adapter registry, webhook gateway contracts, template rendering, and no-op test adapters.
-- `contracts/communications-email` is retired. Transactional email is represented as a `NotificationMessage` with one `email` channel. The transactional email template renderer and provider gateway types move into `contracts/notifications` because SES and local capture still render and send email payloads.
+- `contracts/outbound-messaging` owns the shared outbound message contract: message intent, email/SMS/RCS/web/push channel payloads, delivery receipts, channel adapter registry, webhook gateway contracts, template rendering, and no-op test adapters.
+- `contracts/communications-email` is retired. Transactional email is represented as a `NotificationMessage` with one `email` channel. The transactional email template renderer and provider gateway types move into `contracts/outbound-messaging` because SES and local capture still render and send email payloads.
 - `infrastructure/notification-outbox` is the single durable outbox implementation. It stores one row per channel delivery, preserves the existing claim/retry/idempotency semantics, and dispatches through `NotificationChannelAdapter`.
 - `infrastructure/transactional-email-outbox` is retired. Consumers enqueue `NotificationMessage` values through `NotificationOutbox`.
 - `infrastructure/ses-email`, `infrastructure/local-email-capture`, `infrastructure/twilio-messaging`, and `infrastructure/web-notifications` remain provider/channel adapters behind `NotificationChannelAdapter`. SES and local capture may keep a low-level email gateway for direct adapter composition and tests, but application contexts should not depend on it.
 
-The Notifications bounded context still owns notification-center policy, preferences, feed read models, and web notification settings. Source bounded contexts continue to own their business facts and may enqueue outbound messages for their own facts when no notification-center policy decision is required. The shared contract name remains `notifications` for now because it already carries the channel-neutral delivery vocabulary used by adapters; introducing a third `outbound-messaging` contract would add churn without improving the behavioral boundary.
+The Notifications bounded context still owns notification-center policy, preferences, feed read models, and web notification settings. Source bounded contexts continue to own their business facts and may enqueue outbound messages for their own facts when no notification-center policy decision is required. The shared contract uses the `outbound-messaging` package name so `@chase-sets/notifications` can unambiguously identify the Notifications bounded context package.
 
 ## Alternatives Considered
 
@@ -44,9 +44,9 @@ The Notifications bounded context still owns notification-center policy, prefere
 
 Rejected. The current transactional email consumers do not need a separate delivery model; they need a single email channel delivery with the same source-event, retry, idempotency, and provider receipt semantics already present in `notification-outbox`. Keeping the package would preserve the package-graph smell and continue forcing deployables to compose two outbox dispatchers.
 
-### Create new `contracts/outbound-messaging` and `infrastructure/outbound-message-outbox`
+### Rename only the contract to `contracts/outbound-messaging`
 
-Deferred. `outbound messaging` is the accurate umbrella term, but the existing `notifications` contract already contains the general channel and webhook surfaces. A rename can be handled later if terminology becomes more important than migration cost. This phase optimizes for one implementation and fewer package homes.
+Accepted for the contract package. `outbound messaging` is the accurate umbrella term for channel/provider contracts, and the rename removes the package-name collision with the Notifications bounded context. The durable infrastructure package and database table keep the notification-outbox name in this phase because renaming those would add runtime and migration churn without improving the behavioral boundary.
 
 ### Route all transactional emails through the Notifications bounded context
 

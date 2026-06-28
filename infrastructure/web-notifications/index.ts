@@ -4,7 +4,7 @@ import type {
   NotificationDelivery,
   SentNotificationReceipt,
   WebNotificationChannel,
-} from "@chase-sets/notifications";
+} from "@chase-sets/outbound-messaging";
 
 const DEFAULT_TABLE_NAME = "web_notifications";
 

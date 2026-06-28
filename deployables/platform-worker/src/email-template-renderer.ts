@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage, TransactionalEmailTemplateRenderer } from "@chase-sets/notifications";
+import type { TransactionalEmailMessage, TransactionalEmailTemplateRenderer } from "@chase-sets/outbound-messaging";
 
 export const platformEmailTemplateRenderer: TransactionalEmailTemplateRenderer = {
   render(message) {

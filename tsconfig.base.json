@@ -463,26 +463,23 @@
       "@chase-sets/money-movement/test-support": [
         "./contracts/money-movement/test-support.ts"
       ],
-      "@chase-sets/notification-center": [
-        "./bounded-contexts/notifications/index.ts"
-      ],
-      "@chase-sets/notification-center/context": [
-        "./bounded-contexts/notifications/context.json"
-      ],
-      "@chase-sets/notification-center/routes/*": [
-        "./bounded-contexts/notifications/routes/*.tsx"
-      ],
-      "@chase-sets/notification-center/server": [
-        "./bounded-contexts/notifications/server.ts"
-      ],
-      "@chase-sets/notification-center/web": [
-        "./bounded-contexts/notifications/web.ts"
-      ],
       "@chase-sets/notification-outbox": [
         "./infrastructure/notification-outbox/index.ts"
       ],
       "@chase-sets/notifications": [
-        "./contracts/notifications/index.ts"
+        "./bounded-contexts/notifications/index.ts"
+      ],
+      "@chase-sets/notifications/context": [
+        "./bounded-contexts/notifications/context.json"
+      ],
+      "@chase-sets/notifications/routes/*": [
+        "./bounded-contexts/notifications/routes/*.tsx"
+      ],
+      "@chase-sets/notifications/server": [
+        "./bounded-contexts/notifications/server.ts"
+      ],
+      "@chase-sets/notifications/web": [
+        "./bounded-contexts/notifications/web.ts"
       ],
       "@chase-sets/object-storage": [
         "./infrastructure/object-storage/index.ts"
@@ -504,6 +501,9 @@
       ],
       "@chase-sets/ordering/server": [
         "./bounded-contexts/ordering/server.ts"
+      ],
+      "@chase-sets/outbound-messaging": [
+        "./contracts/outbound-messaging/index.ts"
       ],
       "@chase-sets/payment-processing": [
         "./contracts/payment-processing/index.ts"

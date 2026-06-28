@@ -1,5 +1,9 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { EmailNotificationChannel, NotificationMessage, WebNotificationChannel } from "@chase-sets/notifications";
+import type {
+  EmailNotificationChannel,
+  NotificationMessage,
+  WebNotificationChannel,
+} from "@chase-sets/outbound-messaging";
 
 export type OrderCreatedNotificationInput = Readonly<{
   buyerAccountId: AccountId;

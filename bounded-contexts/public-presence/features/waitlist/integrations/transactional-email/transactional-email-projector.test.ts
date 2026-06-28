@@ -1,4 +1,4 @@
-import type { EnqueueNotificationInput } from "@chase-sets/notifications";
+import type { EnqueueNotificationInput } from "@chase-sets/outbound-messaging";
 import { describe, expect, it, vi } from "vitest";
 import { projectWaitlistEventToTransactionalEmail } from "./transactional-email-projector";
 

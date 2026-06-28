@@ -5,7 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import type { NotificationOutbox } from "@chase-sets/notifications";
+import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
