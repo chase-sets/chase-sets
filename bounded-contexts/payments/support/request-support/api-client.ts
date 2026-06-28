@@ -8,7 +8,12 @@ import {
   type SourceCommitPosition,
 } from "@chase-sets/http/responses";
 export { createPaymentsApiClient, PaymentsApiError, paymentsApi } from "../../client";
-export type { PaymentsApiClientOptions, PaymentsPaymentDetail, PaymentsSavedCheckoutInstrument } from "../../client";
+export type {
+  PaymentsAccountOrderInput,
+  PaymentsApiClientOptions,
+  PaymentsPaymentDetail,
+  PaymentsSavedCheckoutInstrument,
+} from "../../client";
 export { normalizeRequestedBalanceCreditAmount } from "../../features/payments/api/balance-credit-request";
 import { createPaymentsApiClient } from "../../client";
 

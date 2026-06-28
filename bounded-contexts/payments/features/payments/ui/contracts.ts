@@ -88,6 +88,28 @@ export interface PaymentsCheckoutRecoveryOptions {
   checkout_status: PaymentsCheckoutStatus;
 }
 
+export interface PaymentsAccountOrderInput {
+  order_id: string;
+  buyer_account_id: string;
+  buyer_email: string | null;
+  seller_account_id: string;
+  sales_tax_amount: string;
+  total_amount: string;
+  marketplace_sales_fee_amount: string;
+  marketplace_checkout_fee_amount: string;
+  seller_net_amount: string;
+  seller_item_net_amount: string;
+  shipping_allowance_amount: string;
+  shipping_overage_amount: string;
+  seller_shipping_payout_amount: string;
+  seller_payout_amount: string;
+  shipping_allowance_percentage_bps: number;
+  terms_schedule_id: string | null;
+  terms_agreement_id: string | null;
+  terms_resolved_at: string;
+  status: string;
+}
+
 export interface PaymentsMarketplaceCheckoutFeePolicy {
   policy_version: string;
   effective_at: string;

@@ -210,6 +210,29 @@ function createServices(): PaymentServices {
       unavailable_reasons: [],
       unavailable_reason_details: [],
     })),
+    listAccountOrderInputs: vi.fn(async () => [
+      {
+        order_id: "ord_1",
+        buyer_account_id: "acc_buyer",
+        buyer_email: "buyer@example.com",
+        seller_account_id: "acc_seller",
+        sales_tax_amount: "0.00",
+        total_amount: "24.99",
+        marketplace_sales_fee_amount: "1.00",
+        marketplace_checkout_fee_amount: "0.50",
+        seller_net_amount: "23.49",
+        seller_item_net_amount: "23.49",
+        shipping_allowance_amount: "1.00",
+        shipping_overage_amount: "3.99",
+        seller_shipping_payout_amount: "1.00",
+        seller_payout_amount: "24.49",
+        shipping_allowance_percentage_bps: 500,
+        terms_schedule_id: null,
+        terms_agreement_id: null,
+        terms_resolved_at: "2026-04-29T00:00:00.000Z",
+        status: "pending-payment",
+      },
+    ]),
     getCheckoutRecoveryOptions: vi.fn(async () => ({
       recovery_reference_id: "acc_buyer:ord_1:usd:0.00",
       can_recover: true,
@@ -798,6 +821,42 @@ describe("payments routes", () => {
       currencyCode: "usd",
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: null,
+    });
+  });
+
+  it("returns Payments-owned order inputs for account payment routes", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://payments.test/account/order-inputs?orderIds=ord_1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      orders: [
+        {
+          order_id: "ord_1",
+          buyer_email: "buyer@example.com",
+          sales_tax_amount: "0.00",
+          total_amount: "24.99",
+          seller_payout_amount: "24.49",
+          status: "pending-payment",
+        },
+      ],
+    });
+    expect(services.listAccountOrderInputs).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      orderIds: ["ord_1"],
     });
   });
 

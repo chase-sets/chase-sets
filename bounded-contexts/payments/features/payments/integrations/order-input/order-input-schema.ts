@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   buyer_account_id text NOT NULL,
   buyer_email text NULL,
   seller_account_id text NOT NULL DEFAULT '',
+  sales_tax_amount numeric(12, 2) NOT NULL DEFAULT 0,
   total_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
   marketplace_checkout_fee_amount numeric(12, 2) NOT NULL,
