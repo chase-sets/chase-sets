@@ -495,6 +495,21 @@ locals {
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
   ucp_route_domains    = local.marketplace_public_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  native_mcp_route_prefixes = [
+    "/mcp",
+  ]
+  native_mcp_route_domains = local.marketplace_platform_enabled ? distinct(concat(
+    local.public_domains,
+    [local.admin_domain],
+    local.all_marketplace_domains,
+  )) : []
+  native_mcp_ingress_routes = {
+    for route in setproduct(local.native_mcp_route_domains, local.native_mcp_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
   provider_webhook_route_prefixes = [
     "/api/payments/provider/webhooks",
     "/api/settlement/provider/money-movement/webhooks",
