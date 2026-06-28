@@ -181,6 +181,10 @@ On pushes to `main`, the deployment workflow starts directly from the `push` eve
 
 Production promotion also evaluates `PRODUCTION_RELEASE_LOCKED` before production configuration validation or Terraform work. Set `PRODUCTION_RELEASE_LOCKED=true`, `PRODUCTION_RELEASE_LOCK_REASON`, and preferably `PRODUCTION_RELEASE_LOCK_REFERENCE` in the production GitHub Environment to pause normal promotion during an incident or maintenance window. A manual workflow dispatch may pass the lock only when `emergency_release=true` and `emergency_reference` points to the audited fix-forward, revert, incident, or rollback evidence record. See [Release Process Evolution](./release-process-evolution.md).
 
+Production deploy failures, cancelled deploy jobs, and superseded-before-production outcomes create or update a GitHub issue titled `Incident: Platform Deploy ...` with the workflow run URL, release commit, superseding commit when present, and per-job results. Treat that issue as the operator-visible notification channel: attach fix-forward, rollback-readiness, or accepted no-op evidence there before closing it.
+
+The production readiness gate remains warn-and-proceed by design: it records cold-start projection readiness in release-health and step summary evidence, while the proof canary remains the promotion gate. Keep `fetch-depth: 0` in this workflow until the production marker, release-health drift, and exact release-commit checks are split into a targeted fetch helper. Keep the synthetic staging Stripe seller password deterministic until the smoke registration path can receive a generated secret without losing reproducible rerun support; those accounts are staging/test-mode only and should not be used outside smoke evidence.
+
 As of June 1, 2026, repository evidence shows `main` protected by strict `PR Required`, required conversation resolution, linear history, admin enforcement, and active GitHub native merge queue ruleset `17097957`, `Require merge queue for main`. The `production` marker remains protected by the `Protect production deployed marker` ruleset.
 
 ## One-Time State Bootstrap

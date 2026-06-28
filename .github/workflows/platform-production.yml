@@ -2379,3 +2379,93 @@ jobs:
             artifacts/release-health/production-readiness-gate.json
           if-no-files-found: ignore
           retention-days: 30
+
+  notify-production-deploy-incident:
+    name: Notify Production Deploy Incident
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - resolve-release
+      - build-image
+      - deploy-staging
+      - deploy-production
+      - record-staging-release-health
+    if: >
+      always() &&
+      (
+        contains(fromJSON('["failure", "cancelled"]'), needs.resolve-release.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.build-image.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.deploy-staging.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.deploy-production.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result) ||
+        needs.deploy-production.outputs.superseded == 'true'
+      )
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit || github.sha }}
+          BUILD_IMAGE_RESULT: ${{ needs.build-image.result }}
+          DEPLOY_STAGING_RESULT: ${{ needs.deploy-staging.result }}
+          DEPLOY_PRODUCTION_RESULT: ${{ needs.deploy-production.result }}
+          RECORD_STAGING_HEALTH_RESULT: ${{ needs.record-staging-release-health.result }}
+          RESOLVE_RELEASE_RESULT: ${{ needs.resolve-release.result }}
+          SUPERSEDED: ${{ needs.deploy-production.outputs.superseded || 'false' }}
+          SUPERSEDED_BY_COMMIT: ${{ needs.deploy-production.outputs.superseded_by_commit }}
+        run: |
+          set -euo pipefail
+
+          release_commit="${RELEASE_COMMIT:-${GITHUB_SHA}}"
+          release_short="${release_commit:0:12}"
+          if [ "${SUPERSEDED}" = "true" ]; then
+            title="Incident: Platform Deploy superseded before production for ${release_short}"
+            incident_kind="production-superseded"
+          else
+            title="Incident: Platform Deploy failed for ${release_short}"
+            incident_kind="production-deploy-failure"
+          fi
+
+          body="$(cat <<EOF
+          Automated production deploy incident signal.
+
+          - Kind: ${incident_kind}
+          - Workflow run: ${RUN_URL}
+          - Release commit: ${release_commit}
+          - Superseded by commit: ${SUPERSEDED_BY_COMMIT:-none}
+          - Resolve Release: ${RESOLVE_RELEASE_RESULT}
+          - Build Release Image: ${BUILD_IMAGE_RESULT}
+          - Deploy Staging: ${DEPLOY_STAGING_RESULT}
+          - Deploy Production: ${DEPLOY_PRODUCTION_RESULT}
+          - Record Staging Release Health: ${RECORD_STAGING_HEALTH_RESULT}
+
+          Next steps:
+          1. Inspect the failed job logs and uploaded release-health artifacts.
+          2. Link the fix-forward PR, rollback-readiness evidence, or emergency release reference here.
+          3. Close this issue only after the replacement deploy or accepted no-op signal is documented.
+          EOF
+          )"
+
+          existing_issue="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"${title}\" in:title" \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [ -n "${existing_issue}" ]; then
+            gh issue comment "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+            echo "Updated incident issue #${existing_issue}."
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}" \
+              --label "kind:ops" \
+              --label "area:infrastructure"
+          fi

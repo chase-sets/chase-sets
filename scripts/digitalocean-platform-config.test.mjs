@@ -934,6 +934,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}");
     expect(platformProductionWorkflow).toContain('RELEASE_ATTEMPT_PHASE="staging"');
     expect(platformProductionWorkflow).toContain("name: staging-release-health");
+    expect(platformProductionWorkflow).toContain("notify-production-deploy-incident:");
+    expect(platformProductionWorkflow).toContain("name: Notify Production Deploy Incident");
+    expect(platformProductionWorkflow).toContain("issues: write");
+    expect(platformProductionWorkflow).toContain("gh issue create");
+    expect(platformProductionWorkflow).toContain("Incident: Platform Deploy failed for");
+    expect(platformProductionWorkflow).toContain("Incident: Platform Deploy superseded before production for");
+    expect(platformProductionWorkflow).toContain("needs.deploy-production.outputs.superseded == 'true'");
+    expect(platformProductionWorkflow).toContain(
+      'contains(fromJSON(\'["failure", "cancelled"]\'), needs.deploy-production.result)',
+    );
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness probe"),
