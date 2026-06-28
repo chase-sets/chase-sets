@@ -4,7 +4,7 @@
     "title": "Chase Sets UCP REST API",
     "version": "0.1.0",
     "summary": "UCP REST transport mounted at /ucp/v1. Domain behavior is owned by bounded-context handlers.",
-    "description": "UCP command and status flows use signed requests, idempotency, envelopes, durable status, and trusted checkout handoffs where required. Browser-only postWriteHandoff query metadata belongs to marketplace-web afterWrite routes and is not a UCP header or signed-write field."
+    "description": "UCP command and status flows use signed requests, idempotency, envelopes, durable status, and trusted checkout handoffs where required. Browser-only postWriteHandoff query metadata belongs to marketplace-web afterWrite routes and is not a UCP header or signed-write field. The `/ucp/mcp` transport is advertised through the UCP business profile and uses the MCP JSON-RPC contract, so it is intentionally documented outside this REST OpenAPI document."
   },
   "servers": [
     {

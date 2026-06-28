@@ -20,6 +20,20 @@ Check MCP tool listing:
 Invoke-RestMethod http://localhost:7712/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"tools","method":"tools/list"}'
 ```
 
+Check the native Chase Sets MCP bridge. Anonymous discovery should be rejected:
+
+```powershell
+Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"tools","method":"tools/list"}'
+```
+
+With a platform session token and the session account id, discovery should list the serviceable Inventory import tools and the safe source read should return import-source profiles:
+
+```powershell
+$headers = @{ Authorization = "Bearer <session-token>" }
+Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "application/json" -Headers $headers -Body '{"jsonrpc":"2.0","id":"tools","method":"tools/list"}'
+Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "application/json" -Headers $headers -Body '{"jsonrpc":"2.0","id":"sources","method":"tools/call","params":{"name":"inventory.list-import-sources","arguments":{"accountId":"<account-id>"}}}'
+```
+
 ## ChatGPT App Connector
 
 ChatGPT now calls connectors "apps." Configure Chase Sets as a data-and-action ChatGPT app from the remote MCP endpoint:
@@ -85,6 +99,8 @@ Primary references:
 - `2025-06-18` baseline: https://modelcontextprotocol.io/specification/2025-06-18
 
 MCP tool calls are concurrency-limited before handler execution by the platform realtime limiter. Production-like deployments should keep `REALTIME_STREAM_LIMITER=postgres` or `redis`; local mode uses in-memory process limits. Tune `MCP_MAX_CONCURRENT_TOOL_CALLS`, `MCP_MAX_CONCURRENT_TOOL_CALLS_PER_PRINCIPAL`, `MCP_MAX_CONCURRENT_WRITE_TOOL_CALLS_PER_PRINCIPAL`, and `MCP_MAX_CONCURRENT_EXTERNAL_PROVIDER_TOOL_CALLS_PER_PRINCIPAL` when staging evidence shows legitimate agent fan-out needs more headroom. Limit rejections return a clear MCP error and are logged through native MCP audit or the UCP observer.
+
+The platform smoke script checks native `/mcp` anonymous discovery on every run. When admin credentials produce a session with an account id, or `SMOKE_NATIVE_MCP_ACCOUNT_ID` is supplied, it also performs authenticated native discovery and the safe `inventory.list-import-sources` read with that account.
 
 Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
 
@@ -159,7 +175,7 @@ For suspected replay or agent abuse:
 - Idempotency records are durable, survive process restarts, carry a retention expiry, and can be pruned.
 - AP2/payment-handler support is guarded: Payments declares trusted and Stripe shared-payment-token handlers, but headless completion is enabled only when a production AP2 verifier, business signing key, and provider-backed Stripe SPT PaymentIntent path are configured.
 - Stripe webhook configuration includes `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` alongside PaymentIntent, Checkout Session, refund, dispute, Connect, and payout events.
-- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, and linked-account order reads on the marketplace host.
+- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, native `/mcp` discovery/authentication posture, and linked-account order reads on the marketplace host.
 
 ## Marketing Certification Gate
 

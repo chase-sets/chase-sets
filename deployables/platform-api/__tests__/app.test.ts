@@ -7,7 +7,7 @@ import {
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
-import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
 function signedUcpHeaders(body: string) {
@@ -750,6 +750,237 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toMatchObject({
       ucp: { status: "ok" },
       checkout: { id: "chk_1" },
+    });
+  });
+
+  it("exercises UCP MCP discovery, tool calls, resources, and idempotency through the composed platform API", async () => {
+    const searchItems = vi.fn(async () => ({
+      items: [
+        {
+          catalog_item_id: "cat_1",
+          slug: "charizard-cat_1",
+          language_code: "en",
+          title_i18n: {},
+          title: "Charizard",
+          subtitle_i18n: {},
+          subtitle: null,
+          description_i18n: {},
+          description: "A card.",
+          blueprint_id: null,
+          blueprint_name: null,
+          status: "active",
+          category_names: [],
+          category_slugs: [],
+          tags: [],
+          image_urls: [],
+          product_asset_sets: [],
+          image_fallback: null,
+          market_summary: null,
+          updated_at: "2026-05-16T00:00:00.000Z",
+        },
+      ],
+      total: 1,
+      nextCursor: null,
+    }));
+    const completeCheckout = vi.fn(async () =>
+      createUcpEnvelope("ok", {
+        checkout: { id: `chk_${completeCheckout.mock.calls.length}` },
+      }),
+    );
+    const checkoutSessions = {
+      commandHandler: vi.fn(),
+      createFromCart: vi.fn(),
+      createBuyNow: vi.fn(),
+      createOfferIntent: vi.fn(),
+      selectShippingOption: vi.fn(),
+      selectOptimizationGoal: vi.fn(),
+      recordFulfillmentPreview: vi.fn(),
+      setShippingAddress: vi.fn(),
+      recordOrdersCreated: vi.fn(),
+      recordPaymentStarted: vi.fn(),
+      recordOfferSubmitted: vi.fn(),
+      getSession: vi.fn(),
+      projectionHandlerSets: [],
+    };
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({
+        discovery: {
+          items: {
+            search: {
+              searchItems,
+              rebuildSearchIndex: vi.fn(),
+              projectionHandlerSets: [],
+            },
+            detail: {
+              getItemDetail: vi.fn(),
+              projectionHandlerSets: [],
+            },
+            market: {},
+            projectionHandlerSets: [],
+          },
+        },
+        checkout: {
+          sessions: checkoutSessions,
+        },
+      }),
+      {
+        ucp: {
+          mcpToolHandlers: {
+            complete_checkout: completeCheckout,
+          },
+        },
+      },
+    );
+
+    const toolsResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    });
+    const resourcesResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "resources", method: "resources/list" }),
+    });
+    const resourceReadResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "resource-read",
+        method: "resources/read",
+        params: { uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI },
+      }),
+    });
+    const searchResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "search",
+        method: "tools/call",
+        params: {
+          name: "search_catalog",
+          arguments: { query: "charizard", limit: 3 },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const unauthorizedResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "checkout-read",
+        method: "tools/call",
+        params: {
+          name: "get_checkout",
+          arguments: { id: "chk_1" },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const firstCompleteBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "complete-1",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_1" },
+      },
+    });
+    const replayCompleteBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "complete-2",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_1" },
+      },
+    });
+    const conflictCompleteBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "complete-3",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_2" },
+      },
+    });
+    const firstCompleteResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: firstCompleteBody,
+      headers: signedUcpHeaders(firstCompleteBody),
+    });
+    const replayCompleteResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: replayCompleteBody,
+      headers: signedUcpHeaders(replayCompleteBody),
+    });
+    const conflictCompleteResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: conflictCompleteBody,
+      headers: signedUcpHeaders(conflictCompleteBody),
+    });
+
+    expect(toolsResponse.status).toBe(200);
+    const toolsBody = await toolsResponse.json();
+    expect(toolsBody.result.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "search_catalog" }),
+        expect.objectContaining({ name: "complete_checkout" }),
+      ]),
+    );
+    expect(resourcesResponse.status).toBe(200);
+    await expect(resourcesResponse.json()).resolves.toMatchObject({
+      result: {
+        resources: [
+          expect.objectContaining({
+            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+          }),
+        ],
+      },
+    });
+    expect(resourceReadResponse.status).toBe(200);
+    await expect(resourceReadResponse.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          expect.objectContaining({
+            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+            text: expect.stringContaining("Chase Sets Marketplace Results"),
+          }),
+        ],
+      },
+    });
+    expect(searchResponse.status).toBe(200);
+    expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard", limit: 3 }));
+    await expect(searchResponse.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          ucp: { status: "ok" },
+          products: [{ id: "cat_1", title: "Charizard" }],
+        },
+      },
+    });
+    expect(unauthorizedResponse.status).toBe(200);
+    await expect(unauthorizedResponse.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          ucp: { status: "error" },
+          messages: [{ code: "authentication_required" }],
+        },
+        _meta: {
+          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+        },
+      },
+    });
+    expect(completeCheckout).toHaveBeenCalledTimes(1);
+    await expect(firstCompleteResponse.json()).resolves.toMatchObject({
+      result: { structuredContent: { checkout: { id: "chk_1" } } },
+    });
+    await expect(replayCompleteResponse.json()).resolves.toMatchObject({
+      result: { structuredContent: { checkout: { id: "chk_1" } } },
+    });
+    expect(conflictCompleteResponse.status).toBe(200);
+    await expect(conflictCompleteResponse.json()).resolves.toMatchObject({
+      error: {
+        message: "Idempotency-Key was already used with different request parameters.",
+      },
     });
   });
 
