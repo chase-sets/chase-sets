@@ -99,6 +99,7 @@ const CANDIDATE_FIELD_SPECS: readonly CandidateFieldSpec[] = [
     fieldPath: "catalogItem.productForm",
     read: (row, identity) =>
       stringFact(valueAt(row.normalized, "sealedProductForm")) ??
+      stringFact(valueAt(row.normalized, "productForm")) ??
       stringFact(row.normalized.kind) ??
       identity.productForm ??
       undefined,
@@ -343,7 +344,10 @@ function candidateIdentityFor(normalized: SourceObservationNormalized): CatalogM
     printedProductName: normalized.name,
     collectorNumber: normalized.cardNumber ?? null,
     languageCode: normalized.languageCode,
-    productForm: stringFact(valueAt(normalized, "sealedProductForm")) ?? normalized.kind,
+    productForm:
+      stringFact(valueAt(normalized, "sealedProductForm")) ??
+      stringFact(valueAt(normalized, "productForm")) ??
+      normalized.kind,
     barcode: stringFact(valueAt(normalized, "barcode")) ?? null,
   };
 
@@ -364,7 +368,11 @@ function candidateIdentityFor(normalized: SourceObservationNormalized): CatalogM
     printedProductName,
     collectorNumber: stringFact(identity.collectorNumber),
     languageCode: languageCode.toLowerCase(),
-    productForm: stringFact(identity.productForm) ?? stringFact(normalized.kind),
+    productForm:
+      stringFact(identity.productForm) ??
+      stringFact(valueAt(normalized, "sealedProductForm")) ??
+      stringFact(valueAt(normalized, "productForm")) ??
+      stringFact(normalized.kind),
     variantKey: stringFact(valueAt(normalized, "cardVariantKey")),
     barcode: stringFact(identity.barcode) ?? stringFact(valueAt(normalized, "barcode")),
   };

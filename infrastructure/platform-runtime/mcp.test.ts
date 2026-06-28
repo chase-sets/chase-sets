@@ -55,6 +55,14 @@ describe("MCP runtime routes", () => {
             requiredPermissions: ["inventory.view"],
           }),
         }),
+        expect.objectContaining({
+          name: "inventory.create-import-batch",
+          annotations: expect.objectContaining({
+            confirmationRequired: true,
+            confirmationMatchInputField: "confirmationText",
+            confirmationExpectedValue: "Create Inventory Import Batch.",
+          }),
+        }),
       ]),
     );
   });
@@ -187,11 +195,11 @@ describe("MCP runtime routes", () => {
             amount: "25.00",
             reason: "Seller requested payout.",
             idempotencyKey: "idem_1",
-            confirmationText: "Request payout.",
+            confirmationText: "Request Payout.",
           },
           confirmation: {
             confirmed: true,
-            text: "Request payout.",
+            text: "Request Payout.",
           },
         }),
       ),
@@ -250,6 +258,46 @@ describe("MCP runtime routes", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("rejects sensitive tools when confirmation text does not match the expected value", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
+      },
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(
+        createRequest("tools/call", {
+          name: "settlement.request-payout",
+          arguments: {
+            accountId: "account_1",
+            amount: "25.00",
+            reason: "Seller requested payout.",
+            idempotencyKey: "idem_1",
+            confirmationText: "Request payout.",
+          },
+          confirmation: {
+            confirmed: true,
+            text: "Request payout.",
+          },
+        }),
+      ),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32001,
+        message: "Confirmation text must exactly match 'Request Payout.'.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("rejects sensitive tools without idempotency after confirmation", async () => {
     const app = createActorApp(actor, {
       toolHandlers: {
@@ -266,11 +314,11 @@ describe("MCP runtime routes", () => {
             accountId: "account_1",
             amount: "25.00",
             reason: "Seller requested payout.",
-            confirmationText: "Request payout.",
+            confirmationText: "Request Payout.",
           },
           confirmation: {
             confirmed: true,
-            text: "Request payout.",
+            text: "Request Payout.",
           },
         }),
       ),

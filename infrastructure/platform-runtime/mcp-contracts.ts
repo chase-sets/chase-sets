@@ -1512,6 +1512,23 @@ export function isAvailableMcpCapability(capability: Pick<McpToolDescriptor | Mc
   return getMcpCapabilityAvailability(capability) === "available";
 }
 
+function toConfirmationExpectedValue(title: string) {
+  const normalizedTitle = title.trim().replaceAll(/\s+/g, " ");
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  return normalizedTitle.endsWith(".") ? normalizedTitle : `${normalizedTitle}.`;
+}
+
+export function getMcpToolConfirmationExpectedValue(tool: McpToolDescriptor): string | null {
+  if (!tool.guardrails.confirmation.required || !tool.guardrails.confirmation.matchInputField) {
+    return null;
+  }
+
+  return toConfirmationExpectedValue(tool.title);
+}
+
 export function flattenAvailableMcpTools(
   services: readonly McpServiceDescriptor[] = mcpServiceCatalog,
 ): McpToolDescriptor[] {
@@ -1537,6 +1554,7 @@ export function authorizeMcpToolInvocation(
   confirmation: Readonly<{ confirmed: boolean; text?: string | null }> = {
     confirmed: false,
   },
+  input?: Readonly<Record<string, unknown>>,
 ): McpToolInvocationAuthorization {
   if (tool.permissionBoundary.scope !== "public" && actor === null) {
     return { allowed: false, reason: "An authenticated actor is required." };
@@ -1570,6 +1588,35 @@ export function authorizeMcpToolInvocation(
       allowed: false,
       reason: "Confirmation text is required for this MCP tool.",
     };
+  }
+
+  const confirmationExpectedValue = getMcpToolConfirmationExpectedValue(tool);
+  const matchInputField = tool.guardrails.confirmation.matchInputField;
+
+  if (confirmationExpectedValue && matchInputField) {
+    const confirmationText = confirmation.text?.trim() ?? "";
+    const inputConfirmationText = input?.[matchInputField];
+
+    if (confirmationText !== confirmationExpectedValue) {
+      return {
+        allowed: false,
+        reason: `Confirmation text must exactly match '${confirmationExpectedValue}'.`,
+      };
+    }
+
+    if (input && typeof inputConfirmationText !== "string") {
+      return {
+        allowed: false,
+        reason: `Confirmation input field '${matchInputField}' is required for this MCP tool.`,
+      };
+    }
+
+    if (typeof inputConfirmationText === "string" && inputConfirmationText.trim() !== confirmationExpectedValue) {
+      return {
+        allowed: false,
+        reason: `Confirmation input field '${matchInputField}' must exactly match '${confirmationExpectedValue}'.`,
+      };
+    }
   }
 
   return { allowed: true };
@@ -1626,6 +1673,15 @@ export function validateMcpServiceCatalog(
 
         if (!tool.guardrails.confirmation.required) {
           errors.push(`${tool.name} must require confirmation.`);
+        }
+
+        if (
+          tool.guardrails.confirmation.matchInputField &&
+          !(tool.guardrails.confirmation.matchInputField in tool.inputSchema.properties)
+        ) {
+          errors.push(
+            `${tool.name} confirmation match field '${tool.guardrails.confirmation.matchInputField}' must exist in the input schema.`,
+          );
         }
 
         if (tool.guardrails.idempotencyKey !== "required") {
