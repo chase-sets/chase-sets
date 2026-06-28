@@ -975,8 +975,8 @@ async function promoteTcgplayerPokemonMergeCandidateFromReview(
     [await visibleLocatorText(reviewModule)],
   );
 
-  const row = await firstMergeCandidateRowWithEnabledPromotion(reviewModule);
-  if (!row) {
+  const candidate = await firstMergeCandidateRowWithEnabledPromotion(reviewModule);
+  if (!candidate) {
     const reviewText = await reviewModule
       .innerText({ timeout: 2_000 })
       .then(normalizeWhitespace)
@@ -988,6 +988,7 @@ async function promoteTcgplayerPokemonMergeCandidateFromReview(
     );
   }
 
+  const { row, promoteButton } = candidate;
   await expect(row.getByText(/tcgplayer/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
   recordTargetedTcgplayerPokemonProgress(
     progress,
@@ -1001,7 +1002,6 @@ async function promoteTcgplayerPokemonMergeCandidateFromReview(
     "merge-candidate evidence sheet is visible",
     "submit the Promote action and observe command queued feedback",
   );
-  const promoteButton = row.getByRole("button", { name: /^Promote:/ }).first();
   await expect(promoteButton).toBeEnabled({ timeout: sourceOptionTimeoutMs });
   await promoteButton.click();
   await expectCommandQueued(page);
@@ -1019,16 +1019,31 @@ function mergeCandidateReviewModule(page: Page): Locator {
     .first();
 }
 
-async function firstMergeCandidateRowWithEnabledPromotion(reviewModule: Locator): Promise<Locator | null> {
-  const rows = reviewModule.getByRole("row").filter({ hasText: /tcgplayer/i });
+type MergeCandidatePromoteTarget = Readonly<{
+  row: Locator;
+  promoteButton: Locator;
+}>;
+
+async function firstMergeCandidateRowWithEnabledPromotion(
+  reviewModule: Locator,
+): Promise<MergeCandidatePromoteTarget | null> {
+  const promoteButtons = reviewModule.getByRole("button", { name: /^Promote\b/i });
   const deadline = Date.now() + sourceOptionTimeoutMs;
   while (Date.now() < deadline) {
-    const count = await rows.count();
+    const count = await promoteButtons.count();
     for (let index = 0; index < count; index += 1) {
-      const row = rows.nth(index);
-      const promote = row.getByRole("button", { name: /^Promote:/ }).first();
-      if (await promote.isEnabled().catch(() => false)) {
-        return row;
+      const promoteButton = promoteButtons.nth(index);
+      if (await promoteButton.isEnabled({ timeout: 500 }).catch(() => false)) {
+        const row = promoteButton.locator("xpath=ancestor::tr[1]");
+        if (
+          await row
+            .getByText(/tcgplayer/i)
+            .first()
+            .isVisible({ timeout: 500 })
+            .catch(() => false)
+        ) {
+          return { row, promoteButton };
+        }
       }
     }
     await reviewModule.page().waitForTimeout(1_000);
