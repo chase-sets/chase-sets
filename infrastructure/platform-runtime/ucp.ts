@@ -86,19 +86,25 @@ export type UcpOperationHandlerInput = Readonly<{
 
 export type UcpOperationHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope> | UcpEnvelope;
 
-export type UcpIdempotencyRecord = Readonly<{
+export type PlatformIdempotencyRecord<TResponse = unknown> = Readonly<{
   key: string;
   requestHash: string;
-  response: UcpEnvelope;
+  response: TResponse;
   createdAt: string;
   expiresAt?: string | null;
 }>;
 
-export type UcpIdempotencyStore = Readonly<{
-  get: (key: string) => Promise<UcpIdempotencyRecord | null> | UcpIdempotencyRecord | null;
-  put: (record: UcpIdempotencyRecord) => Promise<void> | void;
+export type PlatformIdempotencyStore<TResponse = unknown> = Readonly<{
+  get: (
+    key: string,
+  ) => Promise<PlatformIdempotencyRecord<TResponse> | null> | PlatformIdempotencyRecord<TResponse> | null;
+  put: (record: PlatformIdempotencyRecord<TResponse>) => Promise<void> | void;
   pruneExpired?: (now?: Date) => Promise<number> | number;
 }>;
+
+export type UcpIdempotencyRecord = PlatformIdempotencyRecord<UcpEnvelope>;
+
+export type UcpIdempotencyStore = PlatformIdempotencyStore<UcpEnvelope>;
 
 export type UcpSignatureKeyResolver = (
   profileUrl: string,
@@ -958,13 +964,13 @@ function resolveUcpIdempotencyStore(options: CreateUcpRoutesOptions, transport: 
   );
 }
 
-export function createPostgresUcpIdempotencyStore(
+export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
   db: PgQueryable,
   options: Readonly<{
     retentionMs?: number;
     now?: () => Date;
   }> = {},
-): UcpIdempotencyStore {
+): PlatformIdempotencyStore<TResponse> {
   return {
     get: async (key) => {
       const result = await db.query<{
@@ -985,7 +991,7 @@ export function createPostgresUcpIdempotencyStore(
         ? {
             key: row.key,
             requestHash: row.request_hash,
-            response: row.response,
+            response: row.response as TResponse,
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
             expiresAt:
               row.expires_at instanceof Date

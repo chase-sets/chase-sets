@@ -84,6 +84,19 @@ const accountDefaultedToolServices: readonly McpServiceDescriptor[] = [
 ];
 
 describe("MCP runtime routes", () => {
+  it("requires a durable idempotency store outside the test runtime", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "false");
+
+    try {
+      expect(() => createMcpRoutes()).toThrow(
+        "Native MCP routes require a durable idempotencyStore. Bootstrap platformUcpRuntimeSchemaSql",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("lists only available descriptor-backed tools", async () => {
     const app = createActorApp(actor);
     const response = await app.request("/tools");
@@ -686,6 +699,117 @@ describe("MCP runtime routes", () => {
         message: "An idempotency key is required for this MCP tool.",
       },
     });
+  });
+
+  it("replays duplicate idempotent tool calls without invoking the handler again", async () => {
+    const handler = vi.fn(async () => ({ payoutId: "payout_1", status: "requested" }));
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
+      },
+    });
+    const request = createRequest("tools/call", {
+      name: "settlement.request-payout",
+      arguments: {
+        accountId: "account_1",
+        amount: "25.00",
+        reason: "Seller requested payout.",
+        idempotencyKey: "idem_replay",
+        confirmationText: "Request Payout.",
+      },
+      confirmation: {
+        confirmed: true,
+        text: "Request Payout.",
+      },
+    });
+
+    const first = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    const replay = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    await expect(first.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      result: {
+        content: [
+          {
+            type: "json",
+            json: {
+              payoutId: "payout_1",
+              status: "requested",
+            },
+          },
+        ],
+      },
+    });
+    await expect(replay.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      result: {
+        content: [
+          {
+            type: "json",
+            json: {
+              payoutId: "payout_1",
+              status: "requested",
+            },
+          },
+        ],
+      },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects idempotency-key reuse with different tool arguments", async () => {
+    const handler = vi.fn(async () => ({ payoutId: "payout_1", status: "requested" }));
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
+      },
+    });
+    const request = (amount: string) =>
+      createRequest("tools/call", {
+        name: "settlement.request-payout",
+        arguments: {
+          accountId: "account_1",
+          amount,
+          reason: "Seller requested payout.",
+          idempotencyKey: "idem_conflict",
+          confirmationText: "Request Payout.",
+        },
+        confirmation: {
+          confirmed: true,
+          text: "Request Payout.",
+        },
+      });
+
+    const first = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request("25.00")),
+    });
+    const conflict = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request("30.00")),
+    });
+
+    expect(first.status).toBe(200);
+    expect(conflict.status).toBe(200);
+    await expect(conflict.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: {
+        code: -32000,
+        message: "Idempotency key was already used with different MCP tool arguments.",
+      },
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it("returns an auditable safe boundary when no handler is registered", async () => {

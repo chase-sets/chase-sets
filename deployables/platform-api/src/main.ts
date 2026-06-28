@@ -483,6 +483,9 @@ const app = buildPlatformApiApp(runtime, {
   },
   mcp: {
     audit: mcpAudit,
+    idempotencyStore: createPostgresUcpIdempotencyStore<unknown>(pools.control, {
+      retentionMs: 7 * 24 * 60 * 60 * 1000,
+    }),
   },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
