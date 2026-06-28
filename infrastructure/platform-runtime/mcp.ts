@@ -8,6 +8,8 @@ import {
   getMcpCapabilityAvailability,
   getMcpToolConfirmationExpectedValue,
   mcpServiceCatalog,
+  type McpJsonSchema,
+  type McpJsonSchemaProperty,
   type McpActor,
   type McpResourceDescriptor,
   type McpServiceDescriptor,
@@ -80,6 +82,13 @@ type McpResourceReadParams = Readonly<{
 
 const JSON_RPC_VERSION = "2.0";
 
+type McpInputValidationIssue = Readonly<{
+  path: string;
+  message: string;
+  expected?: string;
+  actual?: string;
+}>;
+
 function toMcpActor(actor: ResolvedActor | null): McpActor | null {
   if (!actor) {
     return null;
@@ -112,12 +121,154 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
-function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
+    return false;
   }
 
-  return value as Readonly<Record<string, unknown>>;
+  return true;
+}
+
+function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
+  return isRecord(value) ? value : {};
+}
+
+function typeName(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+
+  if (Array.isArray(value)) {
+    return "array";
+  }
+
+  return typeof value;
+}
+
+function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+  switch (expected) {
+    case "array":
+      return Array.isArray(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "object":
+      return isRecord(value);
+    case "boolean":
+    case "string":
+      return typeof value === expected;
+  }
+}
+
+function validateSchemaProperty(
+  value: unknown,
+  schema: McpJsonSchemaProperty,
+  path: string,
+): McpInputValidationIssue[] {
+  if (!validatePrimitiveType(value, schema.type)) {
+    return [
+      {
+        path,
+        message: `Expected ${schema.type}.`,
+        expected: schema.type,
+        actual: typeName(value),
+      },
+    ];
+  }
+
+  const issues: McpInputValidationIssue[] = [];
+
+  if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
+    issues.push({
+      path,
+      message: `Expected one of: ${schema.enum.join(", ")}.`,
+      expected: schema.enum.join(" | "),
+      actual: value,
+    });
+  }
+
+  if (schema.type === "array" && schema.items) {
+    (value as readonly unknown[]).forEach((item, index) => {
+      issues.push(...validateSchemaProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
+    });
+  }
+
+  if (schema.type === "object" && schema.properties) {
+    issues.push(
+      ...validateObjectProperties(
+        value as Readonly<Record<string, unknown>>,
+        {
+          additionalProperties: schema.additionalProperties,
+          properties: schema.properties,
+          required: schema.required,
+        },
+        path,
+      ),
+    );
+  }
+
+  return issues;
+}
+
+function validateObjectProperties(
+  value: Readonly<Record<string, unknown>>,
+  schema: Pick<McpJsonSchema, "additionalProperties" | "properties" | "required">,
+  basePath = "",
+): McpInputValidationIssue[] {
+  const issues: McpInputValidationIssue[] = [];
+  const properties = schema.properties;
+
+  for (const field of schema.required ?? []) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      issues.push({
+        path: basePath ? `${basePath}.${field}` : field,
+        message: "Required field is missing.",
+        expected: "present",
+        actual: "missing",
+      });
+    }
+  }
+
+  if (schema.additionalProperties === false) {
+    for (const field of Object.keys(value)) {
+      if (!Object.prototype.hasOwnProperty.call(properties, field)) {
+        issues.push({
+          path: basePath ? `${basePath}.${field}` : field,
+          message: "Unexpected field.",
+        });
+      }
+    }
+  }
+
+  for (const [field, propertySchema] of Object.entries(properties)) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) {
+      continue;
+    }
+
+    issues.push(...validateSchemaProperty(value[field], propertySchema, basePath ? `${basePath}.${field}` : field));
+  }
+
+  return issues;
+}
+
+function validateToolArguments(schema: McpJsonSchema, value: unknown): McpInputValidationIssue[] {
+  if (value === undefined) {
+    return validateObjectProperties({}, schema);
+  }
+
+  if (!isRecord(value)) {
+    return [
+      {
+        path: "$",
+        message: "Expected object.",
+        expected: "object",
+        actual: typeName(value),
+      },
+    ];
+  }
+
+  return validateObjectProperties(value, schema);
 }
 
 function normalizeConfirmation(value: unknown) {
@@ -217,6 +368,26 @@ async function callTool(
   const tool = findMcpTool(params.name, options.services);
   if (!tool) {
     return jsonRpcError(null, -32602, `Unknown MCP tool '${params.name}'.`);
+  }
+
+  const validationIssues = validateToolArguments(tool.inputSchema, params.arguments);
+  if (validationIssues.length > 0) {
+    const reason = "Invalid MCP tool arguments.";
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      actorId: actor?.userId ?? null,
+      accountId: actor?.accountId ?? null,
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+    });
+
+    return jsonRpcError(null, -32602, reason, {
+      issues: validationIssues,
+    });
   }
 
   const args = normalizeArguments(params.arguments);
