@@ -5,7 +5,10 @@ import { type ListResponse } from "@chase-sets/http/responses";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
+import {
+  PlatformFeedbackPrompt,
+  platformFeedbackWorkflowFromSearchParams,
+} from "@chase-sets/platform-operations/server";
 import {
   InventoryApiError,
   type InventoryItemListItem,
@@ -144,7 +147,7 @@ export default function MarketplaceInventoryRoute() {
   const actionData = useActionData<typeof action>();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "inventory-create";
+  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("inventory-list", searchParams);
   const feedbackEntityId = searchParams.get("feedbackEntityId");
 
   return (
@@ -155,9 +158,9 @@ export default function MarketplaceInventoryRoute() {
       currentPath={`${location.pathname}${location.search}`}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
-        shouldShowFeedback ? (
+        feedbackWorkflow ? (
           <PlatformFeedbackPrompt
-            workflow="inventory-create"
+            workflow={feedbackWorkflow}
             sourceRoutePath="/account/inventory"
             relatedEntities={feedbackEntityId ? [{ type: "inventory-item", id: feedbackEntityId }] : []}
             title={t("inventory.routes.marketplace.accountInventory.feedback.title")}

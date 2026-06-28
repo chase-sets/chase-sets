@@ -8,8 +8,10 @@ import {
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
-import type { PlatformFeedbackWorkflow } from "@chase-sets/platform-operations/server";
+import {
+  PlatformFeedbackPrompt,
+  platformFeedbackWorkflowFromSearchParams,
+} from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -234,9 +236,7 @@ export default function MarketplaceAccountListingRoute() {
     return <ListingDetailRecoveryPage currentPath={`${location.pathname}${location.search}`} />;
   }
 
-  const feedbackWorkflow = searchParams.get("feedbackWorkflow");
-  const listingFeedbackWorkflow: PlatformFeedbackWorkflow | null =
-    feedbackWorkflow === "listing-publish" || feedbackWorkflow === "listing-update" ? feedbackWorkflow : null;
+  const listingFeedbackWorkflow = platformFeedbackWorkflowFromSearchParams("seller-listing-detail", searchParams);
 
   return (
     <MarketplaceListingDetailPage
