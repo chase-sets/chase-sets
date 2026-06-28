@@ -45,6 +45,13 @@ describe("release health summary", () => {
       recoveryReference: "",
       recoveryTargetCommit: "",
       rollbackReadinessResult: "skipped",
+      productionRestorePointResult: "success",
+      productionRestorePointType: "digitalocean-database-fork",
+      productionRestorePointClusterId: "db-fork-1",
+      productionRestorePointName: "cs-prod-rp-aaaaaaaa-123456-2",
+      productionRestorePointStatus: "online",
+      productionRestorePointCreatedAt: "2026-05-31T12:05:45.000Z",
+      productionRestorePointBypassed: false,
       ciRetryCount: 1,
       ciFlakyFailureCount: 1,
       ciTopFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
@@ -90,7 +97,21 @@ describe("release health summary", () => {
         result: "success",
       },
       releaseLock: { locked: false, bypassed: false, reference: null },
-      recovery: { mode: "none", reference: null, targetCommit: null, rollbackReadinessResult: "skipped" },
+      recovery: {
+        mode: "none",
+        reference: null,
+        targetCommit: null,
+        rollbackReadinessResult: "skipped",
+        productionRestorePoint: {
+          result: "success",
+          type: "digitalocean-database-fork",
+          clusterId: "db-fork-1",
+          name: "cs-prod-rp-aaaaaaaa-123456-2",
+          status: "online",
+          createdAt: "2026-05-31T12:05:45.000Z",
+          bypassed: false,
+        },
+      },
       ci: {
         retryCount: 1,
         flakyFailureCount: 1,
@@ -142,6 +163,8 @@ describe("release health summary", () => {
       recoveryReference: "FIX-FORWARD-PR-123",
       recoveryTargetCommit: "b".repeat(40),
       rollbackReadinessResult: "success",
+      productionRestorePointResult: "bypassed",
+      productionRestorePointBypassed: true,
     });
 
     expect(result.record.releaseLock).toMatchObject({
@@ -155,6 +178,10 @@ describe("release health summary", () => {
       mode: "fix-forward",
       reference: "FIX-FORWARD-PR-123",
       rollbackReadinessResult: "success",
+      productionRestorePoint: {
+        result: "bypassed",
+        bypassed: true,
+      },
     });
   });
 
@@ -305,7 +332,7 @@ describe("release health summary", () => {
       queue: { batchSize: 1 },
       releaseCategory: { primary: "ordinary-deploy", exposurePostureCategories: [] },
       canary: { cohort: { size: null } },
-      recovery: { mode: "none" },
+      recovery: { mode: "none", productionRestorePoint: { result: "unknown", bypassed: false } },
     });
   });
 
@@ -358,6 +385,13 @@ describe("release health summary", () => {
       RECOVERY_REFERENCE: "ROLLBACK-1",
       RECOVERY_TARGET_COMMIT: "c".repeat(40),
       ROLLBACK_READINESS_RESULT: "success",
+      PRODUCTION_RESTORE_POINT_RESULT: "success",
+      PRODUCTION_RESTORE_POINT_TYPE: "digitalocean-database-fork",
+      PRODUCTION_RESTORE_POINT_CLUSTER_ID: "db-fork-2",
+      PRODUCTION_RESTORE_POINT_NAME: "cs-prod-rp-cccccccc-456-3",
+      PRODUCTION_RESTORE_POINT_STATUS: "online",
+      PRODUCTION_RESTORE_POINT_CREATED_AT: "2026-05-31T11:20:30.000Z",
+      PRODUCTION_RESTORE_POINT_BYPASSED: "false",
     });
 
     expect(options).toMatchObject({
@@ -405,6 +439,13 @@ describe("release health summary", () => {
       recoveryReference: "ROLLBACK-1",
       recoveryTargetCommit: "c".repeat(40),
       rollbackReadinessResult: "success",
+      productionRestorePointResult: "success",
+      productionRestorePointType: "digitalocean-database-fork",
+      productionRestorePointClusterId: "db-fork-2",
+      productionRestorePointName: "cs-prod-rp-cccccccc-456-3",
+      productionRestorePointStatus: "online",
+      productionRestorePointCreatedAt: "2026-05-31T11:20:30.000Z",
+      productionRestorePointBypassed: false,
     });
   });
 

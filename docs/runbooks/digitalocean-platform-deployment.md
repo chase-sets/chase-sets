@@ -183,6 +183,20 @@ Production promotion also evaluates `PRODUCTION_RELEASE_LOCKED` before productio
 
 Production deploy failures, cancelled deploy jobs, and superseded-before-production outcomes create or update a GitHub issue titled `Incident: Platform Deploy ...` with the workflow run URL, release commit, superseding commit when present, and per-job results. Treat that issue as the operator-visible notification channel: attach fix-forward, rollback-readiness, or accepted no-op evidence there before closing it.
 
+## Production Database Restore Points
+
+Before production Terraform apply or App Platform deployment can trigger `PRE_DEPLOY` bootstrap migrations, the production workflow creates a DigitalOcean managed-database fork from the current production Postgres cluster. DigitalOcean exposes this as `doctl databases fork <name> --restore-from-cluster-id <cluster-id> --wait`; the forked cluster contains source data from the original cluster at fork creation time. The workflow fails closed if the fork cannot be created or if Terraform state does not expose `postgres_cluster_id`.
+
+The restore-point record is written to `artifacts/release-health/production-db-restore-point.json` and summarized in `production-release.json` under `recovery.productionRestorePoint`. Keep the forked cluster until the release is either known good or the rollback/fix-forward window has closed. If production recovery needs the restore point, use the recorded fork cluster id as the source of truth for data inspection or restore planning.
+
+Emergency workflow dispatches may bypass restore-point creation only through the same audited emergency path used for the production release lock: `emergency_release=true` plus an `emergency_reference`. The bypass is recorded as `result: "bypassed"` in release health. Do not use this for ordinary releases.
+
+After the release window closes, delete the forked restore-point cluster to stop ongoing database charges:
+
+```bash
+doctl databases delete <restore-point-cluster-id> --force
+```
+
 The production readiness gate remains warn-and-proceed by design: it records cold-start projection readiness in release-health and step summary evidence, while the proof canary remains the promotion gate. Keep `fetch-depth: 0` in this workflow until the production marker, release-health drift, and exact release-commit checks are split into a targeted fetch helper. Keep the synthetic staging Stripe seller password deterministic until the smoke registration path can receive a generated secret without losing reproducible rerun support; those accounts are staging/test-mode only and should not be used outside smoke evidence.
 
 As of June 1, 2026, repository evidence shows `main` protected by strict `PR Required`, required conversation resolution, linear history, admin enforcement, and active GitHub native merge queue ruleset `17097957`, `Require merge queue for main`. The `production` marker remains protected by the `Protect production deployed marker` ruleset.
