@@ -62,7 +62,7 @@ export function SignInPage() {
     ]);
   });
 
-  it("blocks counts above the baseline while reporting stale baseline entries separately", async () => {
+  it("rejects every legacy form without a migration baseline", async () => {
     const rootDir = createRepo();
     writeSource(
       rootDir,
@@ -79,27 +79,7 @@ export function Layout() {
 `,
     );
 
-    const result = await checkLegacyForms({
-      rootDir,
-      baseline: {
-        entries: [
-          {
-            file: "deployables/marketplace/app/routes/layout.tsx",
-            rawJsxForm: 1,
-            rawCreateElementForm: 0,
-            frameworkFormImport: 0,
-            frameworkFormUsage: 0,
-          },
-          {
-            file: "bounded-contexts/identity/features/users/ui/user-detail-page.tsx",
-            rawJsxForm: 1,
-            rawCreateElementForm: 0,
-            frameworkFormImport: 0,
-            frameworkFormUsage: 0,
-          },
-        ],
-      },
-    });
+    const result = await checkLegacyForms({ rootDir });
 
     expect(result.passed).toBe(false);
     expect(result.newViolations).toEqual([
@@ -107,15 +87,7 @@ export function Layout() {
         file: "deployables/marketplace/app/routes/layout.tsx",
         kind: "rawJsxForm",
         currentCount: 2,
-        allowedCount: 1,
-      },
-    ]);
-    expect(result.staleBaselineEntries).toEqual([
-      {
-        file: "bounded-contexts/identity/features/users/ui/user-detail-page.tsx",
-        kind: "rawJsxForm",
-        currentCount: 0,
-        allowedCount: 1,
+        allowedCount: 0,
       },
     ]);
   });
@@ -232,7 +204,7 @@ export function CheckoutStart() {
 `,
     );
 
-    const result = await checkLegacyForms({ rootDir, mode: "final" });
+    const result = await checkLegacyForms({ rootDir });
 
     expect(result.passed).toBe(false);
     expect(result.newViolations).toEqual([

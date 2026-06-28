@@ -36,7 +36,7 @@ Milestone #10 requires:
 | #909 | Form accessibility and behavior acceptance matrix | the form matrix in this document, `form-system.test.tsx`, route smoke scripts wired into `verify:static` | Matrix must stay updated if PR review changes scope |
 | #910 | Documentation, recipes, migration guidance, no-legacy-form rule | `README.md`, the form matrix in this document, guardrail script/tests | None known before PR review |
 | #911 | Representative product adoption slice | Auth sign-in, experience GET filter, marketplace listing multipart, public waitlist, marketplace shell smoke tests | Representative coverage only; full migration proof relies on #913/#924 |
-| #912 | Final audit and legacy code removal proof | This audit file, `check:no-legacy-forms` final mode, empty baseline, verification commands below | PR/CI/merge/deploy pending |
+| #912 | Final audit and legacy code removal proof | This audit file, `check:no-legacy-forms` final mode, verification commands below | PR/CI/merge/deploy pending |
 | #913 | Track migration of every production form surface | Production migrations across bounded contexts/deployables/design-system, final guardrail inventory | Any future form additions before merge must pass the guardrail |
 | #914 | AST guardrail baseline for raw forms and direct framework Form | `scripts/check-no-legacy-forms.mjs`, `scripts/check-no-legacy-forms.test.mjs` | None known before PR review |
 | #916 | Shared Form primitive and native/router adapter boundaries | `form.tsx`, `router-form.tsx`, package subpath export, `tsconfig` path mapping | None known before PR review |
@@ -47,7 +47,7 @@ Milestone #10 requires:
 | #921 | Public presence, settlement, pricing, commercial terms, reputation, experience migration | Public/settlement/pricing/commercial/reputation/experience migrated components, waitlist and feedback smoke tests | Representative smoke only |
 | #922 | Browser smoke or equivalent route-contract coverage | `test:form-migration-smoke` wired into `verify:static` | Product owners may request deeper full-browser coverage after PR review |
 | #923 | Design-system internal form renderer migration | `operational-workflow.tsx` migrated to shared `Form`, design-system tests | None known before PR review |
-| #924 | Final blocking no-legacy-form guardrail | `pnpm run check:no-legacy-forms` final mode passes with 0 baseline entries | None known before PR review |
+| #924 | Final blocking no-legacy-form guardrail | `pnpm run check:no-legacy-forms` final mode passes with zero legacy form files | None known before PR review |
 
 ### Primitive Coverage
 
@@ -123,7 +123,7 @@ This matrix is the design-system acceptance checklist for form primitives. Keep 
 
 - Production code must use `Form` or an approved design-system adapter instead of lowercase JSX/HTML `<form>`.
 - React Router route actions must use `RouterForm` from `@chase-sets/design-system/react-router`.
-- `pnpm run check:no-legacy-forms` must pass in final mode with an empty `scripts/no-legacy-forms.baseline.json`.
+- `pnpm run check:no-legacy-forms` must pass in final mode with zero legacy form files.
 - Migration slices must preserve submitted field names, hidden fields, multipart uploads, GET filters, destructive actions, and external submit controls.
 
 ### Legacy Removal and Guardrails
@@ -132,7 +132,7 @@ Final blocking guardrail evidence:
 
 ```text
 pnpm run check:no-legacy-forms
-Legacy form guardrail passed in final mode for 0 file(s) with baseline entries.
+Legacy form guardrail passed in final mode with zero legacy form file(s).
 ```
 
 The guardrail detects:
@@ -141,13 +141,7 @@ The guardrail detects:
 - Imperative `React.createElement("form")` and `createElement("form")`.
 - Direct framework `Form` imports from React Router/Remix.
 - Framework `Form` aliases, namespace member usage, and re-exports.
-- Broad allowlists and stale baseline entries.
-
-The checked-in baseline file is intentionally empty:
-
-```text
-scripts/no-legacy-forms.baseline.json
-```
+- Broad allowlists that would bypass the shared design-system form contract.
 
 ### Verification Commands
 
@@ -228,6 +222,7 @@ Validate evidence behavior with:
 
 ```powershell
 pnpm run test:design-system-legacy-evidence
+pnpm run check:design-system-legacy-evidence
 ```
 
 Current generated ledger:
@@ -278,7 +273,7 @@ Owner assignment remains `unassigned until scheduled by #960` until implementati
 - Public `Ui*` compatibility exports were removed from `packages/design-system/src/index.ts`, and design-system tests now use canonical component names. The generated ledger now reports zero `legacyUiEntrypointExport`, `legacyAliasImport`, and `legacyAliasJsxUsage` findings.
 - App hidden fields now render through design-system-owned `HiddenInput`/`HoneypotInput` primitives, clearing all `hiddenInput` findings from the generated inventory.
 - Catalog source-observation authoring controls, Discovery commerce comparison rows, public waitlist sticky layout/discount value, account badges, payment method auto grids, and support/detail wrap-safe text now consume design-system primitives instead of route-local class names. The generated ledger now reports zero `routeLocalClassName`, `rawControl`, and `rawTable` findings.
-- Representative visual/accessibility evidence is retained in `DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json` and is guarded by `pnpm run test:design-system-legacy-evidence`.
+- Representative visual/accessibility evidence is retained in `DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json` and is guarded by `pnpm run check:design-system-legacy-evidence`.
 
 ### Evidence Requirements
 

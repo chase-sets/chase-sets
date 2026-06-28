@@ -1,13 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 import { normalizeRelative, repoRoot } from "./lib/repo.mjs";
-
-export const baselineFileName = "no-legacy-forms.baseline.json";
-export const baselinePath = path.join(repoRoot, "scripts", baselineFileName);
 
 export const checkedRoots = ["bounded-contexts", "deployables", "packages"];
 export const frameworkFormModules = new Set(["react-router", "@remix-run/react"]);
@@ -246,126 +242,29 @@ export function summarizeViolations(violations) {
   return [...entriesByFile.values()].sort((left, right) => left.file.localeCompare(right.file));
 }
 
-function baselineCount(entry, kind) {
+function violationCount(entry, kind) {
   return typeof entry?.[kind] === "number" ? entry[kind] : 0;
 }
 
-export function compareToBaseline(currentEntries, baseline) {
-  const baselineByFile = new Map((baseline?.entries ?? []).map((entry) => [entry.file, entry]));
-  const currentByFile = new Map(currentEntries.map((entry) => [entry.file, entry]));
-  const newViolations = [];
-  const staleBaselineEntries = [];
-
-  for (const currentEntry of currentEntries) {
-    const baselineEntry = baselineByFile.get(currentEntry.file);
-
-    for (const kind of violationKinds) {
-      const currentCount = baselineCount(currentEntry, kind);
-      const allowedCount = baselineCount(baselineEntry, kind);
-
-      if (currentCount > allowedCount) {
-        newViolations.push({
-          file: currentEntry.file,
-          kind,
-          currentCount,
-          allowedCount,
-        });
-      }
-    }
-  }
-
-  for (const baselineEntry of baselineByFile.values()) {
-    const currentEntry = currentByFile.get(baselineEntry.file);
-
-    for (const kind of violationKinds) {
-      const currentCount = baselineCount(currentEntry, kind);
-      const allowedCount = baselineCount(baselineEntry, kind);
-
-      if (allowedCount > currentCount) {
-        staleBaselineEntries.push({
-          file: baselineEntry.file,
-          kind,
-          currentCount,
-          allowedCount,
-        });
-      }
-    }
-  }
-
-  return {
-    passed: newViolations.length === 0,
-    newViolations,
-    staleBaselineEntries,
-  };
-}
-
-export function readBaseline(filePath = baselinePath) {
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
-  return JSON.parse(readFileSync(filePath, "utf8"));
-}
-
 export async function checkLegacyForms(options = {}) {
-  const mode = options.mode ?? "baseline";
+  const mode = "final";
   const violations = await collectLegacyFormViolations(options);
   const entries = summarizeViolations(violations);
 
-  if (mode === "final") {
-    return {
-      mode,
-      passed: entries.length === 0,
-      entries,
-      newViolations: entries.flatMap((entry) =>
-        violationKinds
-          .filter((kind) => baselineCount(entry, kind) > 0)
-          .map((kind) => ({
-            file: entry.file,
-            kind,
-            currentCount: baselineCount(entry, kind),
-            allowedCount: 0,
-          })),
-      ),
-      staleBaselineEntries: [],
-    };
-  }
-
-  const baseline = options.baseline ?? readBaseline(options.baselinePath);
-
-  if (!baseline) {
-    return {
-      mode,
-      passed: false,
-      entries,
-      newViolations: [
-        {
-          file: baselineFileName,
-          kind: "baseline",
-          currentCount: entries.length,
-          allowedCount: 0,
-        },
-      ],
-      staleBaselineEntries: [],
-    };
-  }
-
   return {
     mode,
+    passed: entries.length === 0,
     entries,
-    ...compareToBaseline(entries, baseline),
-  };
-}
-
-function baselineDocument(entries) {
-  return {
-    version: 1,
-    mode: "baseline",
-    description:
-      "Temporary baseline for milestone #10. Counts must decrease as forms migrate to the shared design-system Form pattern.",
-    allowedRawFormImplementationFiles: [...approvedRawFormImplementationFiles].sort(),
-    approvedFrameworkFormAdapterFiles: [...approvedFrameworkFormAdapterFiles].sort(),
-    entries,
+    newViolations: entries.flatMap((entry) =>
+      violationKinds
+        .filter((kind) => violationCount(entry, kind) > 0)
+        .map((kind) => ({
+          file: entry.file,
+          kind,
+          currentCount: violationCount(entry, kind),
+          allowedCount: 0,
+        })),
+    ),
   };
 }
 
@@ -375,7 +274,6 @@ function formatCount(kind, count) {
     rawCreateElementForm: 'createElement("form")',
     frameworkFormImport: "framework Form import",
     frameworkFormUsage: "framework Form usage",
-    baseline: "baseline",
   };
   return `${count} ${labels[kind] ?? kind}`;
 }
@@ -391,34 +289,19 @@ function printCheckResult(result) {
     }
   }
 
-  if (result.staleBaselineEntries.length > 0) {
-    console.warn("Legacy form baseline can be reduced:");
-    for (const entry of result.staleBaselineEntries) {
-      console.warn(
-        `- ${entry.file}: ${formatCount(entry.kind, entry.allowedCount)} baseline, ${entry.currentCount} current`,
-      );
-    }
-  }
-
   if (result.passed) {
-    console.log(
-      `Legacy form guardrail passed in ${result.mode} mode for ${result.entries.length} file(s) with baseline entries.`,
-    );
+    console.log(`Legacy form guardrail passed in ${result.mode} mode with zero legacy form file(s).`);
   }
 }
 
 async function main() {
   const args = new Set(process.argv.slice(2));
-  const mode = args.has("--final") ? "final" : "baseline";
-
-  if (args.has("--update-baseline")) {
-    const entries = summarizeViolations(await collectLegacyFormViolations());
-    await writeFile(baselinePath, `${JSON.stringify(baselineDocument(entries), null, 2)}\n`, "utf8");
-    console.log(`Updated ${path.relative(repoRoot, baselinePath)} with ${entries.length} file(s).`);
-    return;
+  const unsupportedArgs = [...args].filter((arg) => arg !== "--final");
+  if (unsupportedArgs.length > 0) {
+    throw new Error("Usage: node ./scripts/check-no-legacy-forms.mjs [--final]");
   }
 
-  const result = await checkLegacyForms({ mode });
+  const result = await checkLegacyForms();
   printCheckResult(result);
 
   if (!result.passed) {
