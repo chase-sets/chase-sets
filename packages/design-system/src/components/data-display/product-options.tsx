@@ -103,7 +103,7 @@ export function ProductOptions({
 
   if (options.length === 0) {
     return (
-      <span className={cx("text-[var(--text-secondary)]", className)} aria-label={label}>
+      <span className={cx("text-secondary", className)} aria-label={label}>
         {emptyLabel}
       </span>
     );
@@ -116,7 +116,7 @@ export function ProductOptions({
           <span
             key={`${textFromNode(option.dimensionLabel)}-${textFromNode(option.optionLabel)}-${index}`}
             aria-hidden="true"
-            className="inline-flex min-h-7 max-w-full items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold leading-4 text-[var(--foreground)]"
+            className="inline-flex min-h-7 max-w-full items-center rounded-tokenSm border border-border bg-surface-2 px-2.5 py-1 text-xs font-semibold leading-4 text-foreground"
           >
             <span className="truncate">{option.optionLabel}</span>
           </span>
@@ -130,10 +130,10 @@ export function ProductOptions({
       className={cx(
         variant === "compact"
           ? cx(
-              "inline min-w-0 font-semibold text-[var(--foreground)]",
+              "inline min-w-0 font-semibold text-foreground",
               size === "sm" ? "text-sm leading-5" : "text-xs leading-4",
             )
-          : "inline min-w-0 text-sm font-semibold leading-5 text-[var(--foreground)]",
+          : "inline min-w-0 text-sm font-semibold leading-5 text-foreground",
         truncate && "block max-w-full truncate",
         className,
       )}

@@ -135,7 +135,7 @@ export function MarketingImageHero({
   return (
     <section
       className={cx(
-        "relative overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg",
+        "relative overflow-hidden rounded-tokenLg border border-border bg-surface shadow-tokenLg",
         isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]",
       )}
     >
@@ -161,11 +161,11 @@ export function MarketingImageHero({
         <div className={cx("flex max-w-3xl flex-col justify-start lg:justify-center", isCompact ? "gap-3" : "gap-4")}>
           <div className={cx("grid", isCompact ? "gap-2" : "gap-3")}>
             {eyebrow ? (
-              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">{eyebrow}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-primary">{eyebrow}</div>
             ) : null}
             <h1
               className={cx(
-                "max-w-2xl font-display font-semibold leading-tight text-[var(--foreground)] md:leading-hero",
+                "max-w-2xl font-display font-semibold leading-tight text-foreground md:leading-hero",
                 isCompact ? "text-3xl sm:text-4xl md:text-5xl" : "text-3xl sm:text-4xl md:text-5xl",
               )}
             >
@@ -174,7 +174,7 @@ export function MarketingImageHero({
             {description ? (
               <p
                 className={cx(
-                  "max-w-2xl text-[var(--text-secondary)]",
+                  "max-w-2xl text-secondary",
                   isCompact
                     ? "text-sm leading-6 sm:text-base md:text-lg md:leading-7"
                     : "text-base leading-7 md:text-lg",
@@ -192,12 +192,10 @@ export function MarketingImageHero({
                   key={index}
                   className="min-w-0 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur"
                 >
-                  <div className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                  <div className="truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
                     {highlight.label}
                   </div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-[var(--foreground)]">
-                    {highlight.value}
-                  </div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{highlight.value}</div>
                 </div>
               ))}
             </div>
@@ -212,12 +210,8 @@ export function MarketingImageHero({
                 key={index}
                 className="max-w-sm rounded-tokenLg border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_88%,transparent)] p-4 shadow-tokenSm backdrop-blur"
               >
-                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
-                  {highlight.label}
-                </div>
-                <div className="mt-1 font-heading text-lg font-semibold text-[var(--foreground)]">
-                  {highlight.value}
-                </div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">{highlight.label}</div>
+                <div className="mt-1 font-heading text-lg font-semibold text-foreground">{highlight.value}</div>
               </div>
             ))}
           </div>
@@ -269,7 +263,7 @@ export function MarketingVisualCard({
   return (
     <article
       {...rest}
-      className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg"
+      className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-border bg-surface shadow-tokenLg"
     >
       <img
         src={imageSrc}

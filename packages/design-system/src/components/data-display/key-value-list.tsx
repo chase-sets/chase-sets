@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { resolveDensityMode, type DensityInput, type DensityMode } from "../../theme/tokens";
+import { cx } from "../../utils/cx";
 
 export interface KeyValueItem {
   key: ReactNode;
@@ -45,10 +46,10 @@ function listClassName(variant: NonNullable<KeyValueListProps["variant"]>, layou
   const rowLayoutClass = "grid gap-0";
 
   if (variant === "surface") {
-    return [
+    return cx(
       "inset-surface rounded-tokenMd border border-muted p-4",
       layout === "grid" ? gridLayoutClass : rowLayoutClass,
-    ].join(" ");
+    );
   }
 
   return layout === "grid" ? gridLayoutClass : rowLayoutClass;
@@ -61,28 +62,25 @@ function rowClassName(density: DensityMode, layout: KeyValueListLayout) {
       : "border-b border-muted pb-3 last:border-b-0 last:pb-0";
 
   if (layout === "split") {
-    return ["flex items-start justify-between gap-4", spacingClass].join(" ");
+    return cx("flex items-start justify-between gap-4", spacingClass);
   }
 
   if (layout === "grid") {
-    return ["grid gap-1", spacingClass].join(" ");
+    return cx("grid gap-1", spacingClass);
   }
 
-  return ["grid grid-cols-1 gap-1 sm:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)] sm:gap-3", spacingClass].join(" ");
+  return cx("grid grid-cols-1 gap-1 sm:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)] sm:gap-3", spacingClass);
 }
 
 function labelClassName(layout: KeyValueListLayout) {
-  return ["text-xs font-semibold uppercase text-secondary", layout === "split" ? "shrink-0" : ""]
-    .filter(Boolean)
-    .join(" ");
+  return cx("text-xs font-semibold uppercase text-secondary", layout === "split" && "shrink-0");
 }
 
 function valueClassName(valueAlign: KeyValueListValueAlign, layout: KeyValueListLayout) {
-  return [
+  return cx(
     "min-w-0 text-sm text-foreground",
-    valueAlign === "end" ? "text-right" : "text-left",
-    layout === "split" ? "" : "break-words",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    valueAlign === "end" && "text-right",
+    valueAlign !== "end" && "text-left",
+    layout !== "split" && "break-words",
+  );
 }
