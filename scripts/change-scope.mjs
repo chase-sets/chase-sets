@@ -318,9 +318,17 @@ export function classifyChanges({
   };
 }
 
-function listChangedFiles(base, head, options = {}) {
-  const output = (options.execFileSync ?? execFileSync)("git", ["diff", "--name-only", `${base}..${head}`], {
-    cwd: options.cwd ?? repoRoot,
+export function listChangedFiles(base, head, options = {}) {
+  const exec = options.execFileSync ?? execFileSync;
+  const cwd = options.cwd ?? repoRoot;
+  const mergeBase =
+    options.mergeBase ??
+    exec("git", ["merge-base", base, head], {
+      cwd,
+      encoding: "utf8",
+    }).trim();
+  const output = exec("git", ["diff", "--name-only", `${mergeBase}...${head}`], {
+    cwd,
     encoding: "utf8",
   });
   return output
