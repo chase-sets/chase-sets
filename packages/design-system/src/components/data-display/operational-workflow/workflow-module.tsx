@@ -1,6 +1,7 @@
 import { useId, type HTMLAttributes, type ReactNode } from "react";
 import { Inline, Stack, Surface } from "../../../primitives/layout";
 import { Subheading, Text } from "../../../primitives/typography";
+import { resolveDensityMode, type DensityInput } from "../../../theme/tokens";
 import { WorkflowActionBar } from "./workflow-action-bar";
 
 export interface WorkflowModuleProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
@@ -10,7 +11,7 @@ export interface WorkflowModuleProps extends Omit<HTMLAttributes<HTMLElement>, "
   actions?: ReactNode;
   children: ReactNode;
   headingLevel?: 2 | 3 | 4;
-  density?: "regular" | "compact";
+  density?: DensityInput;
 }
 
 /**
@@ -25,13 +26,20 @@ export function WorkflowModule({
   actions,
   children,
   headingLevel = 3,
-  density = "regular",
+  density = "comfortable",
   ...rest
 }: WorkflowModuleProps) {
   const titleId = useId();
+  const resolvedDensity = resolveDensityMode(density);
 
   return (
-    <Surface {...rest} element="section" aria-labelledby={titleId} padding={density === "compact" ? 3 : 4} gap={3}>
+    <Surface
+      {...rest}
+      element="section"
+      aria-labelledby={titleId}
+      padding={resolvedDensity === "compact" ? 3 : 4}
+      gap={3}
+    >
       <Stack
         direction={{ base: "column", md: "row" }}
         align={{ base: "stretch", md: "start" }}

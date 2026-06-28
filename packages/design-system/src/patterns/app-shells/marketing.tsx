@@ -1,8 +1,9 @@
 import type { HTMLAttributes, ImgHTMLAttributes, ReactNode } from "react";
 import { Button } from "../../components/actions";
-import { cx } from "../../utils/cx";
 import { Card, Stat, StatGrid } from "../../components/data-display";
 import { Badge, type BadgeProps } from "../../components/feedback";
+import { resolveDensityMode, type DensityInput } from "../../theme/tokens";
+import { cx } from "../../utils/cx";
 
 export interface MarketplaceFilterAction {
   id: string;
@@ -107,7 +108,7 @@ export interface MarketingImageHeroProps {
   actions?: ReactNode;
   conversionPanel?: ReactNode;
   highlights?: MarketingHeroHighlight[];
-  density?: "default" | "compact";
+  density?: DensityInput;
 }
 
 export function MarketingImageHero({
@@ -125,11 +126,11 @@ export function MarketingImageHero({
   actions,
   conversionPanel,
   highlights = [],
-  density = "default",
+  density = "comfortable",
 }: MarketingImageHeroProps) {
   const imagePositionClass =
     imagePosition === "left" ? "object-left" : imagePosition === "right" ? "object-right" : "object-[18%_72%]";
-  const isCompact = density === "compact";
+  const isCompact = resolveDensityMode(density) === "compact";
 
   return (
     <section

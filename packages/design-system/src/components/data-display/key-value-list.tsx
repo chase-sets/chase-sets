@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { resolveDensityMode, type DensityInput, type DensityMode } from "../../theme/tokens";
 
 export interface KeyValueItem {
   key: ReactNode;
@@ -10,7 +11,7 @@ export type KeyValueListValueAlign = "start" | "end";
 
 export interface KeyValueListProps extends Omit<HTMLAttributes<HTMLDListElement>, "className" | "style"> {
   items: KeyValueItem[];
-  density?: "default" | "compact";
+  density?: DensityInput;
   variant?: "surface" | "plain";
   layout?: KeyValueListLayout;
   valueAlign?: KeyValueListValueAlign;
@@ -18,18 +19,19 @@ export interface KeyValueListProps extends Omit<HTMLAttributes<HTMLDListElement>
 
 export function KeyValueList({
   items,
-  density = "default",
+  density = "comfortable",
   variant = "plain",
   layout = "paired",
   valueAlign,
   ...rest
 }: KeyValueListProps) {
   const resolvedValueAlign = valueAlign ?? (layout === "split" ? "end" : "start");
+  const resolvedDensity = resolveDensityMode(density);
 
   return (
     <dl {...rest} className={listClassName(variant, layout)}>
       {items.map((item, index) => (
-        <div key={index} className={rowClassName(density, layout)}>
+        <div key={index} className={rowClassName(resolvedDensity, layout)}>
           <dt className={labelClassName(layout)}>{item.key}</dt>
           <dd className={valueClassName(resolvedValueAlign, layout)}>{item.value}</dd>
         </div>
@@ -52,7 +54,7 @@ function listClassName(variant: NonNullable<KeyValueListProps["variant"]>, layou
   return layout === "grid" ? gridLayoutClass : rowLayoutClass;
 }
 
-function rowClassName(density: NonNullable<KeyValueListProps["density"]>, layout: KeyValueListLayout) {
+function rowClassName(density: DensityMode, layout: KeyValueListLayout) {
   const spacingClass =
     density === "compact"
       ? "border-b border-muted py-2 first:pt-0 last:border-b-0 last:pb-0"

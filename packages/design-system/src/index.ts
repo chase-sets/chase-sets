@@ -18,7 +18,25 @@ export * from "./primitives/typography";
 export * from "./theme/provider";
 export * from "./theme/stripe-appearance";
 export { ThemePreferenceControl, type ThemePreference, type ThemePreferenceControlProps } from "./theme/theme-toggle";
-export * from "./theme/tokens";
+export {
+  chaseDarkTheme,
+  chaseTheme,
+  resolveTheme,
+  resolveThemeOverrideStyle,
+  resolveThemeStyle,
+  type BreakpointKey,
+  type ColorMode,
+  type DensityInput,
+  type DensityMode,
+  type DensityModeAlias,
+  type FontSizeToken,
+  type LetterSpacingToken,
+  type LineHeightToken,
+  type ResponsiveValue,
+  type SpaceToken,
+  type ThemeOverrides,
+  type ThemeTokens,
+} from "./theme/tokens";
 export * from "./utils/cx";
 export * from "./utils/system";
 

@@ -392,6 +392,22 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("sm:justify-end");
   });
 
+  it("maps workflow module regular density alias to comfortable", () => {
+    const regularAliasMarkup = renderToString(
+      <WorkflowModule title="Import operations" density="regular">
+        <div>Body</div>
+      </WorkflowModule>,
+    );
+    const comfortableMarkup = renderToString(
+      <WorkflowModule title="Import operations" density="comfortable">
+        <div>Body</div>
+      </WorkflowModule>,
+    );
+
+    expect(regularAliasMarkup).toBe(comfortableMarkup);
+    expect(comfortableMarkup).toContain("p-4");
+  });
+
   it("renders mobile product commerce as an in-flow sticky action area", () => {
     const markup = renderToString(
       <MarketplaceProductDetailLayout

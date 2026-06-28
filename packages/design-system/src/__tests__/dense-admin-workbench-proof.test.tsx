@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DenseAdminWorkbenchProof, WorkbenchGrid, WorkbenchStack } from "../index";
+import { DenseAdminWorkbenchProof, EvidenceList, WorkbenchGrid, WorkbenchStack, WorkbenchValueList } from "../index";
 
 describe("DenseAdminWorkbenchProof", () => {
   it("keeps provider import to Source Observation promotion as the primary workflow", () => {
@@ -132,5 +132,25 @@ describe("DenseAdminWorkbenchProof", () => {
     expect(renderToString(<WorkbenchStack gap="lg">Roomy</WorkbenchStack>)).toContain("gap-5");
     expect(renderToString(<WorkbenchGrid>Default grid</WorkbenchGrid>)).toContain("gap-4");
     expect(renderToString(<WorkbenchGrid gap="lg">Roomy grid</WorkbenchGrid>)).toContain("gap-5");
+  });
+
+  it("maps dense workbench regular density alias to comfortable", () => {
+    const comfortableValues = renderToString(
+      <WorkbenchValueList density="comfortable">
+        <span>Fact</span>
+      </WorkbenchValueList>,
+    );
+    const regularValues = renderToString(
+      <WorkbenchValueList density="regular">
+        <span>Fact</span>
+      </WorkbenchValueList>,
+    );
+    const regularEvidence = renderToString(
+      <EvidenceList title="Evidence" density="regular" items={[{ key: "proof", description: "Covered" }]} />,
+    );
+
+    expect(regularValues).toBe(comfortableValues);
+    expect(comfortableValues).toContain("gap-2");
+    expect(regularEvidence).toContain("p-3");
   });
 });
