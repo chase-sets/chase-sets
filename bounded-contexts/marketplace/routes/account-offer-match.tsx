@@ -5,7 +5,10 @@ import { classifyPostWriteDestinationResult } from "@chase-sets/http/responses";
 import { loadAfterWrite, navigateAfterWrite, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
+import {
+  PlatformFeedbackPrompt,
+  platformFeedbackWorkflowFromSearchParams,
+} from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -148,7 +151,7 @@ export default function MarketplaceAccountOfferMatchRoute() {
     );
   }
 
-  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "offer-accept";
+  const feedbackWorkflow = platformFeedbackWorkflowFromSearchParams("offer-match-detail", searchParams);
 
   return (
     <MarketplaceOfferMatchDetailPage
@@ -160,9 +163,9 @@ export default function MarketplaceAccountOfferMatchRoute() {
       canAccept
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
-        shouldShowFeedback ? (
+        feedbackWorkflow ? (
           <PlatformFeedbackPrompt
-            workflow="offer-accept"
+            workflow={feedbackWorkflow}
             sourceRoutePath={`/account/offers/matches/${data.offerMatch.offer_id}`}
             relatedEntities={[
               { type: "offer", id: data.offerMatch.offer_id },

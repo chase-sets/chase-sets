@@ -52,6 +52,7 @@ type PaymentsPaymentDetail = Readonly<{
   processor_name: string;
   processor_payment_kind: "checkout-session" | "payment-intent" | "balance-credit";
   processor_payment_reference: string;
+  processor_amount: string;
   processor_client_secret: string | null;
   processor_redirect_url: string | null;
   processor_status: string;
@@ -106,6 +107,10 @@ const { mockUseActionData, mockUseLoaderData, mockUseRevalidator } = vi.hoisted(
   mockUseRevalidator: vi.fn(),
 }));
 
+const platformFeedbackPromptProps = vi.hoisted(() => ({
+  calls: [] as unknown[],
+}));
+
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   const React = await vi.importActual<typeof import("react")>("react");
@@ -116,6 +121,21 @@ vi.mock("react-router", async () => {
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useRevalidator: mockUseRevalidator,
+  };
+});
+
+vi.mock("@chase-sets/platform-operations/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/platform-operations/server")>(
+    "@chase-sets/platform-operations/server",
+  );
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  return {
+    ...actual,
+    PlatformFeedbackPrompt: (props: unknown) => {
+      platformFeedbackPromptProps.calls.push(props);
+      return React.createElement("section", { "data-testid": "platform-feedback-prompt" });
+    },
   };
 });
 
@@ -171,6 +191,7 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
     processor_name: "stripe",
     processor_payment_kind: "payment-intent",
     processor_payment_reference: "pi_123",
+    processor_amount: "11.00",
     processor_client_secret: null,
     processor_redirect_url: null,
     processor_status: "requires_payment_method",
@@ -214,6 +235,7 @@ describe("marketplace account payment route", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    platformFeedbackPromptProps.calls = [];
     delete (window as StripeWindow).Stripe;
     document.head.innerHTML = "";
   });
@@ -245,6 +267,64 @@ describe("marketplace account payment route", () => {
     expect(screen.getByText("ready-for-fulfillment")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open purchase" })).toBeTruthy();
     expect(screen.queryByText("Confirm payment")).toBeNull();
+    expect(screen.getByTestId("platform-feedback-prompt")).toBeTruthy();
+    expect(platformFeedbackPromptProps.calls[0]).toMatchObject({
+      workflow: "checkout-payment",
+      sourceRoutePath: "/account/payments/pay_1",
+      relatedEntities: [
+        { type: "payment", id: "pay_1" },
+        { type: "order", id: "ord_1" },
+      ],
+    });
+  });
+
+  it("shows checkout feedback for zero-dollar completed outcomes but not unresolved or failed statuses", () => {
+    for (const status of ["pending-confirmation", "failed", "cancelled"]) {
+      cleanup();
+      platformFeedbackPromptProps.calls = [];
+      mockUseLoaderData.mockReturnValue({
+        payment: buildPayment({
+          status,
+          processor_amount: "0.00",
+        }),
+        orders: [buildPurchase()],
+        isGuestCheckoutPayment: false,
+        showSupportDetails: false,
+      });
+
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPaymentRoute />
+        </ChaseRoot>,
+      );
+
+      expect(screen.queryByTestId("platform-feedback-prompt")).toBeNull();
+      expect(platformFeedbackPromptProps.calls).toHaveLength(0);
+    }
+
+    cleanup();
+    platformFeedbackPromptProps.calls = [];
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "captured",
+        processor_amount: "0.00",
+      }),
+      orders: [buildPurchase()],
+      isGuestCheckoutPayment: false,
+      showSupportDetails: false,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByTestId("platform-feedback-prompt")).toBeTruthy();
+    expect(platformFeedbackPromptProps.calls[0]).toMatchObject({
+      workflow: "checkout-payment",
+      sourceRoutePath: "/account/payments/pay_1",
+    });
   });
 
   it("hydrates payment timelines without locale-dependent timestamp text", async () => {
