@@ -166,6 +166,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
+  it("parses the production Postgres cluster id from indented Terraform state fallback output", () => {
+    const restorePointStep = workflowStep(platformProductionWorkflow, "Create production database restore point");
+
+    expect(restorePointStep).toContain("terraform output -raw postgres_cluster_id");
+    expect(restorePointStep).toContain("terraform state show -no-color digitalocean_database_cluster.postgres");
+    expect(restorePointStep).toContain(`$1 ~ /^[[:space:]]*id$/`);
+  });
+
   it("wires shared Catalog provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
     expect(platformVariables).toContain('variable "tcgplayer_automation_tcg_auth_cookie"');
     expect(platformVariables).toContain('variable "scrydex_api_key"');
