@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { useControllableValue } from "../controllable";
 import { controlIconButtonSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
@@ -47,8 +48,7 @@ export function Autocomplete({
   const listboxId = useId();
   const { overlayNode } = usePortalRoots();
   const values = items.map((item) => item.value);
-  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
-  const selectedValue = value ?? uncontrolledValue;
+  const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
 
   return (
     <FieldChrome
@@ -64,12 +64,10 @@ export function Autocomplete({
       {name ? <input type="hidden" name={name} form={form} value={selectedValue} /> : null}
       <AutocompletePrimitive.Root
         items={values}
-        value={value}
-        defaultValue={defaultValue}
+        value={selectedValue}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
-            setUncontrolledValue(nextValue);
-            onValueChange?.(nextValue);
+            setSelectedValue(nextValue);
           }
         }}
         itemToStringValue={(itemValue) => items.find((item) => item.value === itemValue)?.label ?? String(itemValue)}

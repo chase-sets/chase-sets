@@ -304,6 +304,33 @@ describe("design system marketplace patterns", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("respects controlled account menu open state", async () => {
+    const onOpenChange = vi.fn();
+
+    render(
+      <div>
+        <form id="account-menu-sign-out" action="/sign-out" method="post" />
+        <AccountMenu
+          open={false}
+          onOpenChange={onOpenChange}
+          accountName="Card Vault"
+          roleName="Manager"
+          userName="Alex Clerk"
+          items={[{ key: "account", label: "Account", href: "/account", icon: "user" }]}
+          signOutFormId="account-menu-sign-out"
+          signOutLabel="Sign Out"
+        />
+      </div>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Account menu" });
+    fireEvent.click(trigger);
+
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("menuitem", { name: "Account" })).toBeNull();
+  });
+
   it.each([
     ["desktop menu", true],
     ["mobile sheet", false],

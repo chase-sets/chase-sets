@@ -3,6 +3,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { useControllableValue } from "../controllable";
 import { controlIconButtonSizeClasses } from "../control-sizing";
 import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
@@ -39,12 +40,11 @@ export function Combobox({
   disabled = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
-  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
+  const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
   const [query, setQuery] = useState("");
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
   const listboxId = useId();
-  const selectedValue = value ?? uncontrolledValue;
   const selected = items.find((item) => item.value === selectedValue);
   const selectedLabel = selected?.label ?? "";
   const itemValues = useMemo(() => items.map((item) => item.value), [items]);
@@ -85,8 +85,7 @@ export function Combobox({
         onInputValueChange={setQuery}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
-            setUncontrolledValue(nextValue);
-            onValueChange?.(nextValue);
+            setSelectedValue(nextValue);
             setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
           }
         }}

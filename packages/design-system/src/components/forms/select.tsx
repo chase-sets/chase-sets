@@ -1,8 +1,9 @@
-import { useId, useMemo, useState, type SelectHTMLAttributes } from "react";
+import { useId, useMemo, type SelectHTMLAttributes } from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { useControllableValue } from "../controllable";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SelectItem {
@@ -106,8 +107,7 @@ export function Select({
   const inputId = id ?? fallbackId;
   const { overlayNode } = usePortalRoots();
   const itemLabels = useMemo(() => Object.fromEntries(items.map((item) => [item.value, item.label])), [items]);
-  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
-  const selectedValue = value ?? uncontrolledValue;
+  const [selectedValue, setSelectedValue] = useControllableValue(value, defaultValue ?? "", onValueChange);
 
   return (
     <FieldChrome
@@ -123,12 +123,10 @@ export function Select({
       {name ? <input type="hidden" name={name} form={form} value={selectedValue} disabled={disabled} /> : null}
       <SelectPrimitive.Root
         items={itemLabels}
-        value={value}
-        defaultValue={defaultValue}
+        value={selectedValue}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
-            setUncontrolledValue(nextValue);
-            onValueChange?.(nextValue);
+            setSelectedValue(nextValue);
           }
         }}
         disabled={disabled}
