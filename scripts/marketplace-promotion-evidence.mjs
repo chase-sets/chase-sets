@@ -19,6 +19,13 @@ const MAX_PROMOTION_REVIEW_AGE_DAYS = 30;
 
 export const REQUIRED_MARKETPLACE_PROMOTION_PROOFS = [
   "finalLaunchReviewApproved",
+  "checkoutLaunchEvidenceApproved",
+  "checkoutLaunchBuyNowBuyCartSellListReviewed",
+  "checkoutLaunchGuestAndSignedInReviewed",
+  "checkoutLaunchDesktopMobileAccessibilityReviewed",
+  "checkoutLaunchNoPreConfirmationSideEffects",
+  "checkoutLaunchFreshStateCleanupReviewed",
+  "checkoutLaunchNoLegacyCompatibilityPaths",
   "publicPresenceLaunchCopyReviewed",
   "futureOnlyLaunchCopyRemoved",
   "policyPagesReviewed",
@@ -26,6 +33,7 @@ export const REQUIRED_MARKETPLACE_PROMOTION_PROOFS = [
 ];
 
 const REQUIRED_MARKETPLACE_PROMOTION_REFERENCES = [
+  "checkoutLaunchEvidenceReference",
   "publicPresenceReviewReference",
   "publicPresenceCopyAuditReference",
   "policyPagesReviewReference",
@@ -65,6 +73,7 @@ export function buildPromotionEvidence(input) {
       stagingWorkflowRunReference: review.stagingWorkflowRunReference,
       productionWorkflowRunReference: review.productionWorkflowRunReference,
       ...Object.fromEntries(REQUIRED_MARKETPLACE_PROMOTION_REFERENCES.map((key) => [key, review[key]])),
+      checkoutLaunchEvidenceCompletedAt: review.checkoutLaunchEvidenceCompletedAt,
       publicPresenceCopyAuditVersion: review.publicPresenceCopyAuditVersion,
       publicPresenceCopyAuditBaseUrl: review.publicPresenceCopyAuditBaseUrl,
       publicPresenceCopyAuditCompletedAt: review.publicPresenceCopyAuditCompletedAt,
@@ -139,6 +148,10 @@ function normalizePromotionReview(review) {
         key,
         requireString(review[key], `Marketplace promotion ${key}`),
       ]),
+    ),
+    checkoutLaunchEvidenceCompletedAt: requireString(
+      review.checkoutLaunchEvidenceCompletedAt,
+      "Marketplace promotion checkoutLaunchEvidenceCompletedAt",
     ),
     publicPresenceCopyAuditMode: requireString(
       review.publicPresenceCopyAuditMode,
@@ -227,6 +240,12 @@ function validatePromotionReview(review, checkedAt) {
     errors.push("Marketplace promotion review must be production-scoped before marketplace launch.");
   }
   validateCompletedAt("Marketplace promotion reviewCompletedAt", review.reviewCompletedAt, checkedAt, errors);
+  validateCompletedAt(
+    "Marketplace promotion checkoutLaunchEvidenceCompletedAt",
+    review.checkoutLaunchEvidenceCompletedAt,
+    checkedAt,
+    errors,
+  );
   validateCompletedAt(
     "Marketplace promotion publicPresenceCopyAuditCompletedAt",
     review.publicPresenceCopyAuditCompletedAt,

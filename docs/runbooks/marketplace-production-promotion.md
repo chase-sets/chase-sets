@@ -45,9 +45,9 @@ Build the redacted Marketplace promotion and UCP/AP2 marketing approval records 
 pnpm run ops marketplace:promotion-evidence --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
-The final launch review record must include `reviewCompletedAt` and a launch-mode Public Presence copy audit with `publicPresenceCopyAuditCompletedAt`. Rerun launch review and copy audit when either timestamp is older than 30 days at promotion review.
+The final launch review record must include `reviewCompletedAt`, `checkoutLaunchEvidenceReference`, `checkoutLaunchEvidenceCompletedAt`, and a launch-mode Public Presence copy audit with `publicPresenceCopyAuditCompletedAt`. Rerun launch review, Checkout launch evidence, and copy audit when any timestamp is older than 30 days at promotion review.
 
-The command fails unless the review is production-scoped, includes staging and production workflow run references, carries the launch-mode Public Presence copy audit reference, proves launch-mode public copy and policy-page review, assigns a rollback owner, and either keeps UCP/AP2 public claims disabled with uncertified claims absent or supplies a separate certification reference.
+The command fails unless the review is production-scoped, includes staging and production workflow run references, carries the Checkout launch evidence and launch-mode Public Presence copy audit references, proves Checkout buy-now/buy-cart/Sell List coverage, guest and signed-in coverage, desktop/mobile accessibility coverage, no pre-confirmation side effects, fresh-state cleanup, no legacy compatibility paths, launch-mode public copy and policy-page review, assigns a rollback owner, and either keeps UCP/AP2 public claims disabled with uncertified claims absent or supplies a separate certification reference.
 
 Marketplace Checkout Fee evidence is carried by `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED` and `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` in the production GitHub Environment. Keep approval unset until Payments has a counsel/provider-reviewed record covering buyer-facing fee copy, fee labels, refund handling language, state-specific disclosures, and Stripe live-mode configuration.
 
