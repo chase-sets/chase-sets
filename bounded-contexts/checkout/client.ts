@@ -6,10 +6,14 @@ import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
 import type {
+  CheckoutSellListCompositeReview,
   CheckoutSellListConfirmationRow,
   CheckoutSellListLineRow,
+  CheckoutSellOfferMatch,
+  CheckoutSellListOfferReview,
   CheckoutSellPayoutReadinessRow,
 } from "./features/sell-list/read-model/queries";
+import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
 import type {
   SellListConfirmationSummary,
   SellListReadinessDecisionInput,
@@ -405,11 +409,44 @@ export function createCheckoutApiClient({
     async getSellListPayoutReadiness(): Promise<CheckoutSellPayoutReadinessRow> {
       return parseJsonResponse(await client.account["sell-list"]["payout-readiness"].$get({ header: headers }));
     },
+    async listSellListShipFromAddresses(): Promise<{ items: readonly CheckoutShipFromAddressRow[] }> {
+      return parseJsonResponse(await client.account["sell-list"]["ship-from-addresses"].$get({ header: headers }));
+    },
+    async getSellListCompositeReview(
+      options: Readonly<{ includeStandardComparison?: boolean }> = {},
+    ): Promise<CheckoutSellListCompositeReview> {
+      return parseJsonResponse(
+        await client.account["sell-list"]["composite-review"].$get({
+          query: options.includeStandardComparison ? { includeStandardComparison: "true" } : {},
+          header: headers,
+        }),
+      );
+    },
+    async getSellListOfferMatch(offerId: string): Promise<CheckoutSellOfferMatch> {
+      return parseJsonResponse(
+        await client.account["sell-list"]["offer-matches"][":offerId"].$get({
+          param: { offerId },
+          header: headers,
+        }),
+      );
+    },
     async getGuestSellList(
       anonymousSellListId: string | null,
     ): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
       return parseJsonResponse(
         await client.guest["sell-list"].$get({
+          header: mergeHeaders(
+            headers,
+            anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
+          ),
+        }),
+      );
+    },
+    async getGuestSellListOfferReviews(
+      anonymousSellListId: string | null,
+    ): Promise<{ offerReviews: readonly CheckoutSellListOfferReview[] }> {
+      return parseJsonResponse(
+        await client.guest["sell-list"]["offer-reviews"].$get({
           header: mergeHeaders(
             headers,
             anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
@@ -690,9 +727,13 @@ export function createCheckoutApiClient({
 
 export type {
   CheckoutCartLine,
+  CheckoutSellListCompositeReview,
   CheckoutSellListConfirmationRow,
   CheckoutSellListLineRow,
+  CheckoutSellListOfferReview,
+  CheckoutSellOfferMatch,
   CheckoutSellPayoutReadinessRow,
+  CheckoutShipFromAddressRow,
   CheckoutSessionRow,
 };
 export const checkoutApi = createCheckoutApiClient();

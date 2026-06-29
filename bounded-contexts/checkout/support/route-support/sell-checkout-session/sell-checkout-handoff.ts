@@ -13,7 +13,6 @@ import type {
 import { objectValue, stringValue } from "./sell-checkout-form";
 import { reviewedListingId } from "./sell-checkout-readiness";
 import {
-  staleReviewPlanError,
   type MarketplaceRequestApiClient,
   type SellListMarketplaceHandoff,
   type SellListReviewedLine,
@@ -90,49 +89,6 @@ export function buildSellerEvidence(
     provider: { status: "ready" },
     freshness: { status: "current" },
   };
-}
-
-export async function assertMarketplaceOfferTermsFresh(
-  marketplaceApi: MarketplaceRequestApiClient,
-  reviewedLines: readonly SellListReviewedLine[],
-) {
-  const plannedOffers = new Map<string, { feeQuoteFingerprint: string; itemTitle: string }>();
-
-  for (const { line, review, readinessAction } of reviewedLines) {
-    if (readinessAction === "selected-offer" && review.selectedOffer) {
-      plannedOffers.set(review.selectedOffer.offerId, {
-        feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
-        itemTitle: line.item_title,
-      });
-      continue;
-    }
-
-    if (readinessAction === "smart-match") {
-      for (const target of review.productOfferTargets) {
-        const existing = plannedOffers.get(target.offerId);
-        if (existing && existing.feeQuoteFingerprint !== target.feeQuoteFingerprint) {
-          throw staleReviewPlanError(line.item_title);
-        }
-        plannedOffers.set(target.offerId, {
-          feeQuoteFingerprint: target.feeQuoteFingerprint,
-          itemTitle: line.item_title,
-        });
-      }
-    }
-  }
-
-  for (const [offerId, planned] of plannedOffers) {
-    let currentTerms: Awaited<ReturnType<MarketplaceRequestApiClient["previewOfferAcceptanceTerms"]>>;
-    try {
-      currentTerms = await marketplaceApi.previewOfferAcceptanceTerms(offerId);
-    } catch {
-      throw staleReviewPlanError(planned.itemTitle);
-    }
-
-    if (currentTerms.fee_quote_fingerprint !== planned.feeQuoteFingerprint) {
-      throw staleReviewPlanError(planned.itemTitle);
-    }
-  }
 }
 
 function responseString(value: unknown, ...keys: string[]) {

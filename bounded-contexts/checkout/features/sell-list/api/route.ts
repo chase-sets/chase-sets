@@ -345,6 +345,50 @@ export function createAccountSellListRoutes(
     return c.json(await services.getPayoutReadiness(access.actor.accountId));
   });
 
+  app.get("/sell-list/ship-from-addresses", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json({ items: await services.listShipFromAddresses(access.actor.accountId) });
+  });
+
+  app.get("/sell-list/composite-review", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(
+      await services.loadCompositeReview(access.actor.accountId, {
+        includeStandardComparison: c.req.query("includeStandardComparison") === "true",
+      }),
+    );
+  });
+
+  app.get("/sell-list/offer-matches/:offerId", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const offer = await services.getOfferMatch(access.actor.accountId, c.req.param("offerId"));
+    if (!offer) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("checkout.features.sellList.api.route.offer.match.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(offer);
+  });
+
   app.post("/sell-list/readiness", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {
@@ -563,6 +607,15 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
     });
+  });
+
+  app.get("/sell-list/offer-reviews", async (c) => {
+    const ownerId = requireAnonymousSellListId(c);
+    if (!ownerId) {
+      return c.json({ offerReviews: [] });
+    }
+
+    return c.json({ offerReviews: await services.loadGuestOfferReviews(ownerId) });
   });
 
   app.post("/sell-list/readiness", async (c) => {

@@ -338,6 +338,7 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved for seller acceptance.",
   "checkout.features.sessions.ui.checkoutPage.your.cart.is.empty": "Your buy cart is empty",
   "checkout.features.sellList.api.route.sell.list.request.failed": "Sell List request failed.",
+  "checkout.features.sellList.api.route.offer.match.not.found": "Offer match not found.",
   "checkout.features.sellList.api.route.sell.list.confirmation.not.found": "Sell List confirmation not found.",
   "checkout.features.sellList.api.route.sell.list.confirmation.evidence.required":
     "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
