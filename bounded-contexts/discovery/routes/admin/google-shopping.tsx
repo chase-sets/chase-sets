@@ -63,6 +63,10 @@ export async function action({ request }: ActionFunctionArgs) {
   const currentUrl = new URL(request.url);
 
   try {
+    if (intent === "live-full-sync" || intent === "live-maintenance-sync" || intent === "targeted-retry") {
+      return { error: t(`${routeKey}.liveGateError`) };
+    }
+
     if (intent === "dry-run-full-sync") {
       const job = await api.enqueueFullSyncJob({
         mode: "dry-run",
