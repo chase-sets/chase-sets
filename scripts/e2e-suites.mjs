@@ -45,7 +45,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_growth",
     label: "Admin Growth",
     deployable: "admin-web",
-    journeys: ["promo bar management"],
+    journeys: ["Google Shopping operations", "waitlist review", "promo bar management"],
     grep: "@admin-growth",
   },
   {
@@ -172,6 +172,22 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/ordering\/features\/postage-policies\/(?:api|ui)\//,
     suites: ["admin_commerce"],
+  },
+  {
+    pattern: /^bounded-contexts\/discovery\/routes\/admin\/google-shopping\./,
+    suites: ["admin_growth"],
+  },
+  {
+    pattern: /^bounded-contexts\/discovery\/features\/google-shopping-operations\/(?:api|ui)\//,
+    suites: ["admin_growth"],
+  },
+  {
+    pattern: /^bounded-contexts\/public-presence\/routes\/admin\/waitlist\./,
+    suites: ["admin_growth"],
+  },
+  {
+    pattern: /^bounded-contexts\/public-presence\/features\/waitlist\/(?:api|ui)\//,
+    suites: ["admin_growth"],
   },
   {
     pattern: /^bounded-contexts\/public-presence\/routes\/admin\/promo-bar\./,

@@ -90,6 +90,23 @@ describe("run e2e suite", () => {
     ]);
   });
 
+  it("routes Google Shopping and waitlist admin routes to growth admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/discovery/routes/admin/google-shopping.tsx")).toEqual([
+      "admin_growth",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx",
+      ),
+    ).toEqual(["admin_growth"]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/public-presence/routes/admin/waitlist.tsx")).toEqual([
+      "admin_growth",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/public-presence/features/waitlist/ui/admin-pages.tsx")).toEqual([
+      "admin_growth",
+    ]);
+  });
+
   it("routes postage policy admin routes to commerce admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/ordering/routes/admin/postage-policies.tsx")).toEqual([
       "admin_commerce",
