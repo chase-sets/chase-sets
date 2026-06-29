@@ -129,6 +129,7 @@ export function createAgreementRoutes(services: AgreementServices) {
         {
           ...agreementCommandBody(body),
           accountId: String(body.accountId ?? ""),
+          createdByUserId: access.actor.userId,
         },
         context,
       );
@@ -160,7 +161,14 @@ export function createAgreementRoutes(services: AgreementServices) {
     const body = await c.req.json();
 
     try {
-      const result = await services.reviseAgreement(c.req.param("id"), agreementCommandBody(body), context);
+      const result = await services.reviseAgreement(
+        c.req.param("id"),
+        {
+          ...agreementCommandBody(body),
+          revisedByUserId: access.actor.userId,
+        },
+        context,
+      );
       return c.json({ id: result.agreementId, version: result.version });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);

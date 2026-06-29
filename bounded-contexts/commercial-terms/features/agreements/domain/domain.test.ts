@@ -13,8 +13,14 @@ describe("commercial terms agreements", () => {
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: "2027-04-30T00:00:00.000Z",
+      createdByUserId: " usr_admin ",
     });
 
+    expect(event).toMatchObject({
+      data: {
+        createdByUserId: "usr_admin",
+      },
+    });
     expect(evolveCommercialAgreement(initialCommercialAgreementState, event!)).toMatchObject({
       agreementId: "agreement-1",
       accountId: "acc_1",
@@ -36,6 +42,7 @@ describe("commercial terms agreements", () => {
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: null,
+      createdByUserId: "usr_admin",
     });
     const createdState = evolveCommercialAgreement(initialCommercialAgreementState, created!);
 
@@ -48,6 +55,7 @@ describe("commercial terms agreements", () => {
       status: "active",
       effectiveFrom: "2026-05-01T00:00:00.000Z",
       effectiveUntil: "2027-05-01T00:00:00.000Z",
+      revisedByUserId: " usr_reviser ",
     });
 
     expect(revised).toMatchObject({
@@ -57,6 +65,7 @@ describe("commercial terms agreements", () => {
         label: "Preferred Seller Renewal",
         marketplaceSalesFeeFixedAmount: "0.00",
         shippingAllowancePercentageBps: 800,
+        revisedByUserId: "usr_reviser",
       },
     });
     expect(evolveCommercialAgreement(createdState, revised!)).toMatchObject({

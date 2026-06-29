@@ -36,14 +36,14 @@
     {
       "projectionName": "commercial-terms-schedule-projection",
       "sourceContextNames": ["commercial-terms"],
-      "ownedTables": ["commercial_terms_schedule_pages"],
+      "ownedTables": ["commercial_terms_schedule_pages", "commercial_terms_schedule_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "commercial-terms-agreement-projection",
       "sourceContextNames": ["commercial-terms"],
-      "ownedTables": ["commercial_terms_agreement_pages"],
+      "ownedTables": ["commercial_terms_agreement_pages", "commercial_terms_agreement_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     }
@@ -71,6 +71,9 @@
           "dependencies": [
             {
               "readModelTable": "commercial_terms_schedule_pages"
+            },
+            {
+              "readModelTable": "commercial_terms_schedule_history"
             }
           ]
         },
@@ -89,6 +92,9 @@
           "dependencies": [
             {
               "readModelTable": "commercial_terms_agreement_pages"
+            },
+            {
+              "readModelTable": "commercial_terms_agreement_history"
             }
           ]
         }
@@ -142,11 +148,11 @@
         "routeId": "commercial-terms-schedules-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
-        "readModelTables": ["commercial_terms_schedule_pages"],
+        "readModelTables": ["commercial_terms_schedule_pages", "commercial_terms_schedule_history"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule detail waits on the schedule page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Schedule detail waits on the schedule page and history projections after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
         }
       }
     },
@@ -196,11 +202,11 @@
         "routeId": "commercial-terms-agreements-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
-        "readModelTables": ["commercial_terms_agreement_pages"],
+        "readModelTables": ["commercial_terms_agreement_pages", "commercial_terms_agreement_history"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement detail waits on the agreement page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+          "behavior": "Agreement detail waits on the agreement page and history projections after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
         }
       }
     }
@@ -285,10 +291,10 @@
         "routeId": "commercial-terms-schedules-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/schedules/:id",
-        "readModelTables": ["commercial_terms_schedule_pages"],
+        "readModelTables": ["commercial_terms_schedule_pages", "commercial_terms_schedule_history"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page projection before showing the edited schedule."
+          "behavior": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page and history projections before showing the edited schedule."
         }
       },
       "proof": {
@@ -331,10 +337,10 @@
         "routeId": "commercial-terms-agreements-detail",
         "apiContextName": "commercial-terms",
         "apiRoutePath": "/agreements/:id",
-        "readModelTables": ["commercial_terms_agreement_pages"],
+        "readModelTables": ["commercial_terms_agreement_pages", "commercial_terms_agreement_history"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page projection before showing the edited agreement."
+          "behavior": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page and history projections before showing the edited agreement."
         }
       },
       "proof": {

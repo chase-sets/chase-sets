@@ -74,6 +74,7 @@ export async function seedCommercialTermsDatabase(
         status: "active",
         effectiveFrom,
         effectiveUntil: null,
+        createdByUserId: identitySeedIds.support.userId,
       },
       context,
     });
@@ -118,6 +119,7 @@ async function seedDefaultScheduleIfMissing(
       status: "active",
       effectiveFrom: input.effectiveFrom,
       effectiveUntil: null,
+      createdByUserId: identitySeedIds.support.userId,
     },
     context,
   });

@@ -46,6 +46,7 @@ export type CreateAgreementCommand = Readonly<{
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
+  createdByUserId: string;
 }>;
 
 export type ReviseAgreementCommand = Readonly<{
@@ -57,6 +58,7 @@ export type ReviseAgreementCommand = Readonly<{
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
+  revisedByUserId: string;
 }>;
 
 export type CommercialAgreementCommand = CreateAgreementCommand | ReviseAgreementCommand;
@@ -73,6 +75,7 @@ export type AgreementCreatedEvent = DomainEvent<
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
+    createdByUserId: string;
   }>
 >;
 
@@ -87,6 +90,7 @@ export type AgreementRevisedEvent = DomainEvent<
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
+    revisedByUserId: string;
   }>
 >;
 
@@ -130,6 +134,7 @@ export const decideCommercialAgreement: AggregateDecider<
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: createWindow.effectiveFrom,
             effectiveUntil: createWindow.effectiveUntil,
+            createdByUserId: normalizeLabel(command.createdByUserId, "Creator user id"),
           },
         },
       ];
@@ -157,6 +162,7 @@ export const decideCommercialAgreement: AggregateDecider<
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: reviseWindow.effectiveFrom,
             effectiveUntil: reviseWindow.effectiveUntil,
+            revisedByUserId: normalizeLabel(command.revisedByUserId, "Reviser user id"),
           },
         },
       ];

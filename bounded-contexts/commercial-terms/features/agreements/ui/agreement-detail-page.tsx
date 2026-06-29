@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  DataTable,
   LinkButton,
   NativeSelect,
   NumberInput,
@@ -18,6 +19,10 @@ import type { CommercialAgreementViewModel } from "./contracts";
 
 function statusTone(status: string) {
   return status === "active" ? "accent" : "warning";
+}
+
+function formatWindow(from: string, until: string | null) {
+  return `${from} - ${until ?? t("commercialTerms.features.agreements.ui.agreementDetailPage.open.ended")}`;
 }
 
 export function AgreementDetailPage({
@@ -82,6 +87,42 @@ export function AgreementDetailPage({
             </Text>
           </Stack>
         </Card>
+      </PageSection>
+
+      <PageSection title={t("commercialTerms.features.agreements.ui.agreementDetailPage.history")}>
+        <DataTable
+          rows={[...(agreement.history ?? [])]}
+          getRowId={(row) => row.history_id}
+          columns={[
+            {
+              key: "event_type",
+              header: t("commercialTerms.features.agreements.ui.agreementDetailPage.history.event"),
+              cell: (row) => row.event_type,
+            },
+            {
+              key: "actor_user_id",
+              header: t("commercialTerms.features.agreements.ui.agreementDetailPage.history.actor"),
+              cell: (row) => row.actor_user_id,
+            },
+            {
+              key: "status",
+              header: t("commercialTerms.features.agreements.ui.agreementDetailPage.status"),
+              cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
+            },
+            {
+              key: "window",
+              header: t("commercialTerms.features.agreements.ui.agreementDetailPage.history.window"),
+              cell: (row) => formatWindow(row.effective_from, row.effective_until),
+            },
+            {
+              key: "recorded_at",
+              header: t("commercialTerms.features.agreements.ui.agreementDetailPage.history.recorded"),
+              cell: (row) => row.recorded_at,
+            },
+          ]}
+          emptyTitle={t("commercialTerms.features.agreements.ui.agreementDetailPage.history.empty")}
+          emptyDescription={t("commercialTerms.features.agreements.ui.agreementDetailPage.history.description")}
+        />
       </PageSection>
 
       <PageSection title={t("commercialTerms.features.agreements.ui.agreementDetailPage.revise.agreement")}>

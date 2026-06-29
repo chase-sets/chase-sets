@@ -15,6 +15,14 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.agreements.ui.agreementDetailPage.active": "Active",
   "commercialTerms.features.agreements.ui.agreementDetailPage.effective.from": "Effective From: ",
   "commercialTerms.features.agreements.ui.agreementDetailPage.effective.until": "Effective Until: ",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history": "History",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.actor": "Actor",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.description":
+    "Create and revise events will appear here after projection replay.",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.empty": "No agreement history yet",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.event": "Event",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.recorded": "Recorded",
+  "commercialTerms.features.agreements.ui.agreementDetailPage.history.window": "Effective window",
   "commercialTerms.features.agreements.ui.agreementDetailPage.inactive": "Inactive",
   "commercialTerms.features.agreements.ui.agreementDetailPage.inspect.the.account.specific.commercial.fee":
     "Inspect the account-specific commercial fee override.",
@@ -85,6 +93,14 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.schedules.ui.scheduleDetailPage.active": "Active",
   "commercialTerms.features.schedules.ui.scheduleDetailPage.effective.from": "Effective From: ",
   "commercialTerms.features.schedules.ui.scheduleDetailPage.effective.until": "Effective Until: ",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history": "History",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.actor": "Actor",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.description":
+    "Create and revise events will appear here after projection replay.",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.empty": "No schedule history yet",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.event": "Event",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.recorded": "Recorded",
+  "commercialTerms.features.schedules.ui.scheduleDetailPage.history.window": "Effective window",
   "commercialTerms.features.schedules.ui.scheduleDetailPage.inactive": "Inactive",
   "commercialTerms.features.schedules.ui.scheduleDetailPage.inspect.the.default.commercial.terms.for":
     "Inspect the default commercial terms for an account type.",

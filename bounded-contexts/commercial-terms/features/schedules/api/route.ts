@@ -131,6 +131,7 @@ export function createScheduleRoutes(services: ScheduleServices, resolutions: Re
         {
           ...scheduleCommandBody(body),
           accountType: normalizeCommercialAccountType(String(body.accountType ?? "")),
+          createdByUserId: access.actor.userId,
         },
         context,
       );
@@ -173,7 +174,14 @@ export function createScheduleRoutes(services: ScheduleServices, resolutions: Re
     const body = await c.req.json();
 
     try {
-      const result = await services.reviseSchedule(c.req.param("id"), scheduleCommandBody(body), context);
+      const result = await services.reviseSchedule(
+        c.req.param("id"),
+        {
+          ...scheduleCommandBody(body),
+          revisedByUserId: access.actor.userId,
+        },
+        context,
+      );
       return c.json({ id: result.scheduleId, version: result.version });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
