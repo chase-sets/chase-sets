@@ -15,8 +15,8 @@ function productMeasureSnapshotFromUnknown(value: unknown) {
  * MARKETPLACE events (price / quantity-cap / lifecycle status +
  * seller-listing availability gating); holds-accurate supply quantity is
  * maintained by the sibling inventory handler set
- * (`integrations/inventory/inventory-projection.ts`) feeding the SAME
- * projection through the reserved-nullable supply counters. On
+ * (`integrations/inventory/inventory-projection.ts`) through the
+ * reserved-nullable supply counters. On
  * `marketplace.listing.created` we backfill those counters so a listing
  * created after its inventory item already has supply/holds is immediately
  * accurate. Seller identity (identity) is added in a later wave.

@@ -33,22 +33,17 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       manifest: contextManifest,
       handlers: {
         "catalog.checkout-catalog-item-projection": () => buildCheckoutCatalogProjectionHandlers(services.db),
-        "catalog.checkout-marketplace-seller-options-projection": {
+        "catalog.checkout-marketplace-listing-options-projection": {
           filterToEventTypes: true,
           buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
         },
-        // The marketplace subscription feeds this projection both the listing
-        // lifecycle handlers and the seller-review reputation handlers,
-        // composed under the single marketplace -> projection key the manifest
-        // builder allows. The event-type keys are disjoint (`listing.*` vs
-        // `review.*` under the Marketplace namespace), so the spread cannot
-        // collide.
-        "marketplace.checkout-marketplace-seller-options-projection": {
+        "marketplace.checkout-marketplace-listing-options-projection": {
           filterToEventTypes: true,
-          buildHandlers: () => ({
-            ...buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
-            ...buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
-          }),
+          buildHandlers: () => buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+        },
+        "marketplace.checkout-seller-accounts-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
         },
         "marketplace.checkout.sell-list-projection": {
           filterToEventTypes: true,
@@ -62,12 +57,10 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
           filterToEventTypes: true,
           buildHandlers: () => buildCheckoutSellListProjectionHandlers(services.db),
         },
-        "inventory.checkout-marketplace-seller-options-projection": {
-          subscriptionName: "checkout.inventory-seller-options-supply-projection",
+        "inventory.checkout-inventory-supply-projection": {
           buildHandlers: () => buildCheckoutInventorySupplyProjectionHandlers(services.db),
         },
-        "identity.checkout-marketplace-seller-options-projection": {
-          subscriptionName: "checkout.identity-seller-options-accounts-projection",
+        "identity.checkout-seller-accounts-projection": {
           buildHandlers: () => buildCheckoutIdentitySellerAccountsProjectionHandlers(services.db),
         },
         "payments.checkout.payment-summary-projection": {

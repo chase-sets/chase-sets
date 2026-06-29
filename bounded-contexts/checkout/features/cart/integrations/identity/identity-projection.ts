@@ -66,12 +66,10 @@ export function createSellerSlug(displayName: string, accountId: string): string
 }
 
 /**
- * Checkout-local identity handler set feeding the SAME
- * `checkout-marketplace-seller-options-projection` as the marketplace listing
- * and inventory supply handlers. It maintains a small auxiliary
- * `checkout_seller_accounts` table keyed by `account_id` so the seller-options
- * read model can LEFT JOIN seller display name / slug onto each option by
- * `seller_account_id`.
+ * Checkout-local identity handler set feeding the seller account projection. It
+ * maintains a small auxiliary `checkout_seller_accounts` table keyed by
+ * `account_id` so the seller-options read model can LEFT JOIN seller display
+ * name / slug onto each option by `seller_account_id`.
  *
  * The join table (rather than denormalizing the name onto every seller-options
  * row) keeps profile-name changes a single-row update and stays correct when an
