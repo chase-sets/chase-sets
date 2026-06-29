@@ -127,7 +127,7 @@ The report must show `activeSnapshotCoverageComplete: true` before the cleanup g
 
 For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support.
 
-Run `pnpm run ops marketplace:production-proof-readiness` before EasyPost dashboard setup and use `operatorSetup.easyPostWebhookSetup` from its JSON output as the canonical production setup checklist. The checklist carries the exact production webhook destination, the required GitHub secret name, provider-event kinds expected in Fulfillment proof, and the launch evidence fields that must be backed by the resulting EasyPost records. Do not hand-enter alternate callback URLs.
+Use `https://chasesets.com/api/fulfillment/provider/postage/webhooks` as the EasyPost production webhook destination in this posture, store the signing secret as `EASYPOST_WEBHOOK_SECRET`, and back the Fulfillment launch evidence fields with the resulting EasyPost records. Do not hand-enter alternate callback URLs.
 
 ## Production EasyPost Proof
 

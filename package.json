@@ -92,7 +92,6 @@
     "test:marketplace-production-env-commands": "vitest run scripts/marketplace-production-env-commands.test.mjs",
     "test:marketplace-production-env-snapshot": "vitest run scripts/marketplace-production-env-snapshot.test.mjs",
     "test:marketplace-production-launch-readiness": "vitest run scripts/marketplace-production-launch-readiness.test.mjs",
-    "test:marketplace-production-proof-readiness": "vitest run scripts/marketplace-production-proof-readiness.test.mjs",
     "test:marketplace-production-proof-topology-evidence": "vitest run scripts/marketplace-production-proof-topology-evidence.test.mjs",
     "test:google-shopping-crawl-posture-evidence": "vitest run scripts/google-shopping-crawl-posture-evidence.test.mjs",
     "test:google-shopping-launch-readiness-evidence": "vitest run scripts/google-shopping-launch-readiness-evidence.test.mjs",
