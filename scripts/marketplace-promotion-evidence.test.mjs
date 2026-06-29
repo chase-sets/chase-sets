@@ -18,6 +18,8 @@ function review(overrides = {}) {
     releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
     stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
     productionWorkflowRunReference: "platform-deploy-production-26688444710",
+    checkoutLaunchEvidenceReference: "CHECKOUT-LAUNCH-2026-05-30",
+    checkoutLaunchEvidenceCompletedAt: "2026-05-30T13:20:00.000Z",
     publicPresenceReviewReference: "PUBLIC-PRESENCE-2026-05-30",
     publicPresenceCopyAuditReference: "PUBLIC-PRESENCE-COPY-AUDIT-2026-05-30",
     publicPresenceCopyAuditVersion: MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
@@ -32,6 +34,13 @@ function review(overrides = {}) {
     policyPagesReviewReference: "PUBLIC-POLICIES-2026-05-30",
     rollbackOwnerReference: "ROLLBACK-OWNER-2026-05-30",
     finalLaunchReviewApproved: true,
+    checkoutLaunchEvidenceApproved: true,
+    checkoutLaunchBuyNowBuyCartSellListReviewed: true,
+    checkoutLaunchGuestAndSignedInReviewed: true,
+    checkoutLaunchDesktopMobileAccessibilityReviewed: true,
+    checkoutLaunchNoPreConfirmationSideEffects: true,
+    checkoutLaunchFreshStateCleanupReviewed: true,
+    checkoutLaunchNoLegacyCompatibilityPaths: true,
     publicPresenceLaunchCopyReviewed: true,
     futureOnlyLaunchCopyRemoved: true,
     policyPagesReviewed: true,
@@ -72,6 +81,8 @@ describe("marketplace promotion evidence", () => {
         releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
         stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
         productionWorkflowRunReference: "platform-deploy-production-26688444710",
+        checkoutLaunchEvidenceReference: "CHECKOUT-LAUNCH-2026-05-30",
+        checkoutLaunchEvidenceCompletedAt: "2026-05-30T13:20:00.000Z",
         publicPresenceReviewReference: "PUBLIC-PRESENCE-2026-05-30",
         publicPresenceCopyAuditReference: "PUBLIC-PRESENCE-COPY-AUDIT-2026-05-30",
         publicPresenceCopyAuditVersion: MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
@@ -86,6 +97,13 @@ describe("marketplace promotion evidence", () => {
         policyPagesReviewReference: "PUBLIC-POLICIES-2026-05-30",
         rollbackOwnerReference: "ROLLBACK-OWNER-2026-05-30",
         finalLaunchReviewApproved: true,
+        checkoutLaunchEvidenceApproved: true,
+        checkoutLaunchBuyNowBuyCartSellListReviewed: true,
+        checkoutLaunchGuestAndSignedInReviewed: true,
+        checkoutLaunchDesktopMobileAccessibilityReviewed: true,
+        checkoutLaunchNoPreConfirmationSideEffects: true,
+        checkoutLaunchFreshStateCleanupReviewed: true,
+        checkoutLaunchNoLegacyCompatibilityPaths: true,
         publicPresenceLaunchCopyReviewed: true,
         futureOnlyLaunchCopyRemoved: true,
         policyPagesReviewed: true,
@@ -127,6 +145,47 @@ describe("marketplace promotion evidence", () => {
     expect(evidence.passesPromotionGate).toBe(false);
     expect(evidence.errors).toContain(
       "Marketplace promotion publicPresenceReviewReference must point to a real external evidence record, not a placeholder.",
+    );
+  });
+
+  it("fails when checkout launch evidence is missing from the final promotion review", () => {
+    const evidence = buildPromotionEvidence(
+      input({
+        review: review({
+          checkoutLaunchEvidenceApproved: false,
+          checkoutLaunchEvidenceReference: "todo",
+          checkoutLaunchBuyNowBuyCartSellListReviewed: false,
+          checkoutLaunchGuestAndSignedInReviewed: false,
+          checkoutLaunchDesktopMobileAccessibilityReviewed: false,
+          checkoutLaunchNoPreConfirmationSideEffects: false,
+          checkoutLaunchFreshStateCleanupReviewed: false,
+          checkoutLaunchNoLegacyCompatibilityPaths: false,
+        }),
+      }),
+    );
+
+    expect(evidence.passesPromotionGate).toBe(false);
+    expect(evidence.errors).toContain("Marketplace promotion review must prove checkoutLaunchEvidenceApproved=true.");
+    expect(evidence.errors).toContain(
+      "Marketplace promotion checkoutLaunchEvidenceReference must point to a real external evidence record, not a placeholder.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchBuyNowBuyCartSellListReviewed=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchGuestAndSignedInReviewed=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchDesktopMobileAccessibilityReviewed=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchNoPreConfirmationSideEffects=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchFreshStateCleanupReviewed=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Marketplace promotion review must prove checkoutLaunchNoLegacyCompatibilityPaths=true.",
     );
   });
 
@@ -215,6 +274,7 @@ describe("marketplace promotion evidence", () => {
       input({
         review: review({
           reviewCompletedAt: "2026-04-15T13:45:00.000Z",
+          checkoutLaunchEvidenceCompletedAt: "2026-04-15T13:20:00.000Z",
           publicPresenceCopyAuditCompletedAt: "2026-04-15T13:30:00.000Z",
         }),
       }),
@@ -222,6 +282,9 @@ describe("marketplace promotion evidence", () => {
 
     expect(evidence.marketplacePromotion.approved).toBe(false);
     expect(evidence.errors).toContain("Marketplace promotion reviewCompletedAt cannot be older than 30 days.");
+    expect(evidence.errors).toContain(
+      "Marketplace promotion checkoutLaunchEvidenceCompletedAt cannot be older than 30 days.",
+    );
     expect(evidence.errors).toContain(
       "Marketplace promotion publicPresenceCopyAuditCompletedAt cannot be older than 30 days.",
     );
@@ -246,7 +309,18 @@ describe("marketplace promotion evidence", () => {
 
     expect(reviewCompletedOnly.passesPromotionGate).toBe(false);
     expect(reviewCompletedOnly.errors).toContain("Marketplace promotion reviewCompletedAt must be an ISO timestamp.");
+    const checkoutEvidenceCompletedOnly = buildPromotionEvidence(
+      input({
+        review: review({
+          checkoutLaunchEvidenceCompletedAt: "2026-05-30",
+        }),
+      }),
+    );
     expect(auditCompletedOnly.passesPromotionGate).toBe(false);
+    expect(checkoutEvidenceCompletedOnly.passesPromotionGate).toBe(false);
+    expect(checkoutEvidenceCompletedOnly.errors).toContain(
+      "Marketplace promotion checkoutLaunchEvidenceCompletedAt must be an ISO timestamp.",
+    );
     expect(auditCompletedOnly.errors).toContain(
       "Marketplace promotion publicPresenceCopyAuditCompletedAt must be an ISO timestamp.",
     );
@@ -309,6 +383,13 @@ describe("marketplace promotion evidence", () => {
   it("keeps the required proof list aligned with the launch evidence verifier", () => {
     expect(REQUIRED_MARKETPLACE_PROMOTION_PROOFS).toEqual([
       "finalLaunchReviewApproved",
+      "checkoutLaunchEvidenceApproved",
+      "checkoutLaunchBuyNowBuyCartSellListReviewed",
+      "checkoutLaunchGuestAndSignedInReviewed",
+      "checkoutLaunchDesktopMobileAccessibilityReviewed",
+      "checkoutLaunchNoPreConfirmationSideEffects",
+      "checkoutLaunchFreshStateCleanupReviewed",
+      "checkoutLaunchNoLegacyCompatibilityPaths",
       "publicPresenceLaunchCopyReviewed",
       "futureOnlyLaunchCopyRemoved",
       "policyPagesReviewed",
