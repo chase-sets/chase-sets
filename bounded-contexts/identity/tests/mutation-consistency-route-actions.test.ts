@@ -11,7 +11,7 @@ import {
 import { action as accountDetailAction, loader as accountDetailLoader } from "../routes/admin/accounts-detail";
 import { action as apiKeyDetailAction } from "../routes/admin/api-keys-detail";
 import { action as apiKeysAction } from "../routes/admin/api-keys";
-import { action as invitationDetailAction } from "../routes/admin/invitations-detail";
+import { action as invitationDetailAction, loader as invitationDetailLoader } from "../routes/admin/invitations-detail";
 import { action as invitationsAction } from "../routes/admin/invitations";
 import { action as membershipDetailAction } from "../routes/admin/memberships-detail";
 import { action as userDetailAction } from "../routes/admin/users-detail";
@@ -299,6 +299,58 @@ describe("Identity mutation consistency route actions", () => {
       sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "88" })],
     });
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
+  });
+
+  it("recovers invitation detail after post-write freshness timeout by retrying without freshness", async () => {
+    const observedHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/invitations/ivt_1")) {
+          observedHeaders.push(new Headers(init?.headers));
+          if (observedHeaders.length === 1) {
+            return jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection read model did not catch up before the freshness timeout.",
+                },
+              },
+              503,
+            );
+          }
+
+          return jsonResponse({
+            invitation_id: "ivt_1",
+            account_id: actor.accountId,
+            email: "invitee@example.com",
+            role_key: "viewer",
+            status: "cancelled",
+            expires_at: "2026-07-01T00:00:00.000Z",
+            accepted_by_user_id: null,
+            updated_at: "",
+          });
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const path = appendFreshWriteToken("/access/invitations/ivt_1", identityCommit("92"));
+    const data = await invitationDetailLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: { id: "ivt_1" },
+      context: undefined,
+    } as never);
+
+    expect(data.data.status).toBe("cancelled");
+    expect(observedHeaders).toHaveLength(2);
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
   });
 
   it("forwards shipping-address fresh-read receipts into the address-book API read", async () => {
