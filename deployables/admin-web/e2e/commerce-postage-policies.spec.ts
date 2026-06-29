@@ -1,0 +1,75 @@
+import { expect, test, type Page } from "@playwright/test";
+import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+
+test.describe("commerce admin postage policies", () => {
+  test("operator creates, previews, and activates a postage policy @admin-commerce", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/commerce/postage-policies", "/access/sign-in");
+    await expectPageOk(page, "/commerce/postage-policies");
+    await expect(page).toHaveURL(/\/commerce\/postage-policies$/);
+    await expectAdminPageReady(page, { heading: "Postage Policies" });
+
+    const uniqueSuffix = Date.now().toString(36);
+    const label = `E2E postage policy ${uniqueSuffix}`;
+    const policyVersion = `e2e-${uniqueSuffix}`;
+    const createForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Create draft" }) });
+
+    await createForm.getByLabel("Label", { exact: true }).fill(label);
+    await createForm.getByLabel("Policy version", { exact: true }).fill(policyVersion);
+    await expect(createForm.getByLabel("Label", { exact: true })).toHaveValue(label);
+    await expect(createForm.getByLabel("Policy version", { exact: true })).toHaveValue(policyVersion);
+    await createForm.getByRole("button", { name: "Create draft" }).click();
+    await page.waitForURL(
+      (url) => url.pathname.startsWith("/commerce/postage-policies/") && url.search.includes("afterWrite"),
+      {
+        timeout: 30_000,
+      },
+    );
+    await expectAdminPageReady(page, { heading: label });
+    await expect(page.getByRole("textbox", { name: "Policy version" }).first()).toHaveValue(policyVersion);
+
+    await page.getByRole("button", { name: "Preview result" }).click();
+    await expect(page.getByText("Preview Result").last()).toBeVisible();
+    await expect(page.getByText(/Packages:/)).toBeVisible();
+    await expect(page.getByText(/Mailpiece:/)).toBeVisible();
+    await expect(page.getByText(/Parcel required:/)).toBeVisible();
+
+    const activationForm = page.locator("form").filter({ has: page.getByLabel("Activation reason", { exact: true }) });
+    const activationReason = `E2E activation ${uniqueSuffix}`;
+    await activationForm.getByLabel("Activation reason", { exact: true }).fill(activationReason);
+    await expect(activationForm.getByLabel("Activation reason", { exact: true })).toHaveValue(activationReason);
+    await activationForm.getByRole("button", { name: "Activate" }).click();
+    await page.waitForURL(
+      (url) => url.pathname.startsWith("/commerce/postage-policies/") && url.search.includes("afterWrite"),
+      {
+        timeout: 30_000,
+      },
+    );
+    await expectActivatedPolicy(page, label, activationReason);
+    await expect(page.getByRole("row").filter({ hasText: "activated" })).toBeVisible();
+  });
+});
+
+async function expectActivatedPolicy(page: Page, label: string, activationReason: string) {
+  await expect(async () => {
+    await expectAdminPageReady(page, { heading: label }, { timeoutMs: 15_000 });
+    const activeVisible = await page
+      .getByText("active")
+      .first()
+      .isVisible({ timeout: 1_000 })
+      .catch(() => false);
+    const reasonVisible = await page
+      .getByText(`Activation reason: ${activationReason}`)
+      .isVisible({ timeout: 1_000 })
+      .catch(() => false);
+    if (!activeVisible || !reasonVisible) {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+    }
+    expect(activeVisible && reasonVisible).toBe(true);
+  }).toPass({ intervals: [1_000, 2_000, 5_000], timeout: 90_000 });
+}

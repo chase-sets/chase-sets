@@ -350,6 +350,7 @@ describe("change-scope", () => {
       "marketplace_seller",
       "catalog_admin_integrations",
       "admin_growth",
+      "admin_commerce",
     ]);
   });
 
@@ -438,6 +439,7 @@ describe("change-scope", () => {
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
+      "admin_commerce",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -452,16 +454,23 @@ describe("change-scope", () => {
         "bounded-contexts/discovery/features/search/ui/search-page.tsx",
         "bounded-contexts/checkout/features/cart/api/cart-routes.ts",
         "bounded-contexts/inventory/features/inventory/ui/account-inventory.tsx",
+        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
       ],
       workspaces: [
         workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery"),
         workspace(baseDir, "bounded-contexts", "checkout", "@test/checkout"),
         workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
+        workspace(baseDir, "bounded-contexts", "ordering", "@test/ordering"),
       ],
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout", "marketplace_seller"]);
+    expect(scope.e2eSuiteIds).toEqual([
+      "marketplace_browse",
+      "marketplace_checkout",
+      "marketplace_seller",
+      "admin_commerce",
+    ]);
   });
 
   it("routes catalog admin integration routes to admin E2E", () => {
@@ -479,7 +488,7 @@ describe("change-scope", () => {
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations", "admin_growth"]);
+    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations", "admin_growth", "admin_commerce"]);
   });
 
   it("keeps current non-marketplace bounded-context routes out of marketplace E2E", () => {

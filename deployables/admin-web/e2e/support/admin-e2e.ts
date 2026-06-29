@@ -65,7 +65,79 @@ export async function expectVisibleText(page: Page, text: string) {
 }
 
 export async function expectAdminWebHydrated(page: Page) {
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+  const deadline = Date.now() + pageReadyTimeoutMs;
+  let lastError: Error | null = null;
+
+  while (Date.now() < deadline) {
+    await recoverAdminError(page, { timeoutMs: 5_000 });
+    try {
+      await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 10_000 });
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+  }
+
+  throw lastError ?? new Error("Admin web did not hydrate.");
+}
+
+export async function recoverAdminError(page: Page, options: { timeoutMs?: number } = {}) {
+  const deadline = Date.now() + (options.timeoutMs ?? pageReadyTimeoutMs);
+  let recovered = false;
+
+  while (Date.now() < deadline) {
+    const retryableAdminErrorVisible =
+      (await page
+        .getByRole("heading", { name: "Admin Error" })
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false)) ||
+      (await page
+        .getByRole("heading", { name: "Admin page not found" })
+        .isVisible({ timeout: 1_000 })
+        .catch(() => false));
+    if (!retryableAdminErrorVisible) {
+      return recovered;
+    }
+
+    recovered = true;
+    const retry = page.getByRole("link", { name: "Retry" }).first();
+    if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await retry.click();
+    } else {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+    }
+    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+    await page.waitForTimeout(1_000);
+  }
+
+  return recovered;
+}
+
+export async function expectAdminPageReady(
+  page: Page,
+  expected: { heading: string | RegExp },
+  options: { timeoutMs?: number } = {},
+) {
+  const deadline = Date.now() + (options.timeoutMs ?? pageReadyTimeoutMs);
+  let lastError: Error | null = null;
+
+  while (Date.now() < deadline) {
+    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+    await recoverAdminError(page, { timeoutMs: 5_000 });
+
+    try {
+      await expectAdminWebHydrated(page);
+      await expect(page.getByRole("heading", { name: expected.heading })).toBeVisible({ timeout: 5_000 });
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      await page.waitForTimeout(1_000);
+    }
+  }
+
+  throw lastError ?? new Error("Admin page did not become ready.");
 }
 
 async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
