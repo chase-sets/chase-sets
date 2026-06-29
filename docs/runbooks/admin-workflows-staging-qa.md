@@ -1,0 +1,77 @@
+# Admin Workflows Staging QA
+
+This runbook defines the support-safe actor matrix, evidence rules, and state checks for milestone #65 Admin Workflows Staging QA. Use it before manual deployed admin-web QA so missing credentials, missing account state, and private evidence do not get mixed with product bugs.
+
+## Scope
+
+Use the deployed staging admin interface only. Do not use direct database reads, hidden routes, browser console mutations, provider dashboards, Postman, or ad hoc API calls as replacement evidence for the manual QA checklist. Local tests and smoke probes can support diagnosis, but deployed browser evidence is required for final checklist closure unless a row is explicitly marked controlled-unavailable.
+
+## Actor Matrix
+
+Record only the actor alias in GitHub evidence. Keep emails, passwords, user ids, account ids, session cookies, provider references, and one-time codes private.
+
+| Alias | Intended permission shape | Sign-in host | Primary QA purpose | Account-select expectation |
+| --- | --- | --- | --- | --- |
+| `admin-qa-platform-admin` | `platform-admin` role | `/access/sign-in` | Full Access, Commerce, Growth, Support, and Platform workflows. | If multiple accounts are visible, select the operator-owned QA account and record only the account alias. |
+| `admin-qa-owner` | `owner` account role | `/access/sign-in` | Account-scoped Access and membership visibility. | Lands on or selects the owned representative account alias. |
+| `admin-qa-manager` | `manager` account role | `/access/sign-in` | Manager-level account operations and restricted security behavior. | Lands on or selects the managed representative account alias. |
+| `admin-qa-fulfillment` | `fulfillment` account role | `/access/sign-in` | Fulfillment-limited Access and commerce/support visibility. | Lands on or selects the fulfillment representative account alias. |
+| `admin-qa-viewer` | `viewer` account role | `/access/sign-in` | Read-only account-scoped navigation and denied writes. | Lands on or selects the viewer representative account alias. |
+| `admin-qa-security-manage` | `security.manage` only | `/access/sign-in` | Access and Platform section entry without unrelated section shortcuts. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-memberships-view` | `memberships.view` only | `/access/sign-in` | Access membership route visibility and denied writes. | Selects the memberships fixture account alias when prompted. |
+| `admin-qa-postage-policies-view` | `postage-policies.view` only | `/access/sign-in` | Commerce postage-policy read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-public-presence-view` | `public-presence.view` only | `/access/sign-in` | Growth waitlist and promo-bar read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-platform-feedback-view` | `platform-feedback.view` only | `/access/sign-in` | Support platform-feedback read-only route visibility. | No account selector unless the permission grant is intentionally account-scoped. |
+| `admin-qa-catalog-admin` | Catalog admin permission set | `/catalog/sign-in` | Catalog modeling and integrations workbench QA. | Catalog routes must not require the Access sign-in host. |
+
+The partial-actor rows mirror the local evidence rows in [Admin Shell Smoke Matrix](./admin-shell-smoke-matrix.md). Those local tests are regression guardrails only; #65 still needs deployed browser confirmation for the staging actor aliases above.
+
+## Evidence Rules
+
+Each GitHub issue comment should use this shape:
+
+```text
+Environment: staging admin-web
+Actor alias: admin-qa-...
+Sign-in host: /access/sign-in or /catalog/sign-in
+Route or workflow: ...
+Expected: ...
+Observed: ...
+Evidence artifact: <artifact folder or GitHub Actions run/artifact link>
+Redaction review: passed / controlled-unavailable
+Follow-up issue: #... or none
+```
+
+Evidence is support-safe only when it excludes:
+
+- Emails, passwords, passkeys, one-time codes, session cookies, CSRF tokens, and raw authorization headers.
+- User ids, account ids, membership ids, invitation tokens, API keys, provider account ids, provider tokens, provider raw payloads, and webhook signatures.
+- Raw `afterWrite`, `postWriteToken`, event ids, checkout session ids, payment ids, payout ids, order ids, sale ids, inventory ids, listing ids, and offer ids.
+- Full URLs when they contain ids or recovery tokens. Prefer route templates such as `/commerce/postage-policies/:policyId`.
+- Screenshots that show private customer, seller, provider, or account identity details.
+
+If an artifact accidentally contains private material, do not attach it to GitHub. Replace it with a redacted screenshot, a support-safe transcript, or a new run.
+
+## Representative State Checks
+
+Before section QA starts, confirm state exists for these visible workflows:
+
+| Section | Required representative state | Missing-state action |
+| --- | --- | --- |
+| Access | Users, memberships, invitations, API keys, and sessions visible for the actor aliases. | File a narrow #65 setup issue with the alias and route template. |
+| Catalog | Catalog modeling data plus a safe provider/import workbench fixture. | File a catalog setup issue; do not use direct provider URLs as substitute evidence. |
+| Commerce | Fee schedules, agreements, and postage policies available for read/write and read-only actor checks. | File a commerce setup issue, or refresh staging data if the row is controlled-empty. |
+| Growth | Google Shopping, waitlist, and promo-bar state available without production provider side effects. | File a growth setup issue; production Merchant Center actions remain gated by launch approval. |
+| Support | Support requests and platform feedback records available for review/archive flows. | File a support setup issue or create feedback through the public product UI when the workflow requires fresh state. |
+| Platform | Projection operations and durable job streams visible without destructive production impact. | File a platform setup issue and keep destructive operations controlled-unavailable until approved. |
+
+For commerce marketplace data, prefer the [Staging Representative Commerce State](./staging-representative-commerce-state.md) workflow and copy only its support-safe selector fields into evidence.
+
+## Verification Sequence
+
+1. Confirm every actor alias has private credentials or a private credential owner.
+2. Sign in through the intended host for each alias.
+3. Capture the landing route, section navigation, account-select behavior, and denied-write behavior where applicable.
+4. Run each section checklist issue with the least-privilege actor that proves the behavior.
+5. File a narrower bug under milestone #65 for any unexpected route error, permission leak, stale state, or missing fixture.
+6. Close #3016 only after all actor aliases have deployed staging evidence and representative state gaps are either resolved or tracked in narrower milestone issues.
