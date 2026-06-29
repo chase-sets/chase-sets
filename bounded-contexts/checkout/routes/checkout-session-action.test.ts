@@ -1438,11 +1438,7 @@ describe("checkout web routes: checkout session action", () => {
     mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
-    mockPreviewCheckoutFulfillment.mockResolvedValue(reviewedFulfillmentPreview("fulfillment_rev_reviewed"));
     mockRecordFulfillmentPreview.mockResolvedValue(checkoutCommit("43", "evt_fulfillment_preview"));
-    mockCreateOrderingRequestApiClient.mockReturnValue({
-      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
@@ -1475,21 +1471,14 @@ describe("checkout web routes: checkout session action", () => {
     const receipt = await readResolvedFreshWriteToken(location);
 
     expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_1");
-    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutSessionId: "chk_1",
-        sourceType: "cart-checkout",
-        shippingOption: "expedited",
-        shippingAddress: expect.objectContaining({ postalCode: "60601" }),
-      }),
-    );
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     expect(mockRecordFulfillmentPreview).toHaveBeenCalledWith("chk_1", {
-      fulfillmentPreviewRevision: "fulfillment_rev_reviewed",
+      shippingOption: "expedited",
+      shippingAddress: expect.objectContaining({ postalCode: "60601" }),
     });
     const checkoutApiRequest = mockCreateCheckoutRequestApiClient.mock.calls[0]?.[0] as Request;
-    const orderingApiRequest = mockCreateOrderingRequestApiClient.mock.calls[0]?.[0] as Request;
     expect(new URL(checkoutApiRequest.url).searchParams.has("afterWrite")).toBe(false);
-    expect(new URL(orderingApiRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(mockCreateOrderingRequestApiClient).not.toHaveBeenCalled();
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expectCompactPostWriteLocation(location, "/checkout/buy/session/chk_1?paymentMethodCategory=card&postWriteToken=");
@@ -1702,11 +1691,7 @@ describe("checkout web routes: checkout session action", () => {
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("51", "evt_shipping_option"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("52", "evt_shipping_address"));
     mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
-    mockPreviewCheckoutFulfillment.mockResolvedValue(reviewedFulfillmentPreview("fulfillment_rev_visible_change"));
     mockRecordFulfillmentPreview.mockResolvedValue(checkoutCommit("53", "evt_fulfillment_preview"));
-    mockCreateOrderingRequestApiClient.mockReturnValue({
-      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,
@@ -1741,15 +1726,10 @@ describe("checkout web routes: checkout session action", () => {
     const location = response.headers.get("Location") ?? "";
     const receipt = await readResolvedFreshWriteToken(location);
 
-    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutSessionId: "chk_1",
-        shippingOption: "priority",
-        shippingAddress: expect.objectContaining({ postalCode: "60601" }),
-      }),
-    );
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     expect(mockRecordFulfillmentPreview).toHaveBeenCalledWith("chk_1", {
-      fulfillmentPreviewRevision: "fulfillment_rev_visible_change",
+      shippingOption: "priority",
+      shippingAddress: expect.objectContaining({ postalCode: "60601" }),
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);

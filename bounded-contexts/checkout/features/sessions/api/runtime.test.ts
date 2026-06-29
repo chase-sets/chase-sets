@@ -229,6 +229,7 @@ function createSessionPageRow(
     source_type: "cart",
     optimization_goal: "lowest-total",
     fulfillment_preview_revision: null,
+    fulfillment_preview_snapshot: null,
     cart_readiness_snapshot: cartReadinessSnapshot,
     split_group_handoff: cartReadinessSnapshot?.fulfillmentGroups.length
       ? {
@@ -575,7 +576,8 @@ describe("checkout session runtime", () => {
     expect(result.session.session_id).toBe("chk_buy_now_projection_lag");
     expect(result.session.source_type).toBe("buy-now");
     expect(result.session.shipping_option).toBe("priority");
-    expect(result.session.fulfillment_preview_revision).toBe("buy_now_supply_ready");
+    expect(result.session.fulfillment_preview_revision).toBeNull();
+    expect(result.session.fulfillment_preview_snapshot).toBeNull();
     expect(result.session.payment_id).toBeNull();
     expect(result.session.order_ids).toEqual([]);
     expect(db.query).toHaveBeenCalledTimes(1);

@@ -6,6 +6,7 @@ import type {
   CheckoutSourceCommitPosition,
   CheckoutSplitGroupHandoff,
 } from "../domain/domain";
+import { readCheckoutFulfillmentPreview, type CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 
 export type CheckoutSessionRow = Readonly<{
   session_id: string;
@@ -13,6 +14,7 @@ export type CheckoutSessionRow = Readonly<{
   source_type: "cart" | "buy-now" | "offer-intent";
   optimization_goal: "lowest-total" | "fewest-shipments";
   fulfillment_preview_revision: string | null;
+  fulfillment_preview_snapshot: CheckoutFulfillmentPreview | null;
   cart_readiness_snapshot?: CartReadinessSnapshot | null;
   split_group_handoff?: CheckoutSplitGroupHandoff | null;
   shipping_option: "standard" | "expedited" | "priority";
@@ -35,6 +37,7 @@ type CheckoutSessionPageRow = Omit<
     source_type: string;
     optimization_goal: string;
     shipping_option: string;
+    fulfillment_preview_snapshot: unknown;
     shipping_address: unknown;
     cart_readiness_snapshot: unknown;
     split_group_handoff: unknown;
@@ -71,6 +74,7 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
     source_type:
       row.source_type === "buy-now" ? "buy-now" : row.source_type === "offer-intent" ? "offer-intent" : "cart",
     optimization_goal: row.optimization_goal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
+    fulfillment_preview_snapshot: readCheckoutFulfillmentPreview(row.fulfillment_preview_snapshot),
     shipping_option:
       row.shipping_option === "expedited" || row.shipping_option === "priority" ? row.shipping_option : "standard",
     shipping_address:
@@ -105,6 +109,7 @@ export async function getCheckoutSession(
        source_type,
        optimization_goal,
        fulfillment_preview_revision,
+       fulfillment_preview_snapshot,
        cart_readiness_snapshot,
        split_group_handoff,
        shipping_option,

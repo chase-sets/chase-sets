@@ -7,6 +7,7 @@ import type {
   ShippingAddressId,
 } from "@chase-sets/primitives/typed-ids";
 import type { CartReadinessFulfillmentGroup, CartReadinessSnapshot } from "../../cart/domain/readiness";
+import type { CheckoutFulfillmentPreview } from "./fulfillment-preview";
 import {
   assert,
   assertNever,
@@ -72,6 +73,7 @@ export type CheckoutSessionState = Readonly<{
   sourceType: CheckoutSourceType | null;
   optimizationGoal: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision: string | null;
+  fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
   cartReadinessSnapshot: CartReadinessSnapshot | null;
   splitGroupHandoff: CheckoutSplitGroupHandoff | null;
   shippingOption: ShippingOption;
@@ -91,6 +93,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   sourceType: null,
   optimizationGoal: "lowest-total",
   fulfillmentPreviewRevision: null,
+  fulfillmentPreviewSnapshot: null,
   cartReadinessSnapshot: null,
   splitGroupHandoff: null,
   shippingOption: "standard",
@@ -111,6 +114,7 @@ export type StartCheckoutSessionCommand = Readonly<{
   sourceType: CheckoutSourceType;
   optimizationGoal?: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision?: string | null;
+  fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
   cartReadinessSnapshot?: CartReadinessSnapshot | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
@@ -132,6 +136,7 @@ export type SelectOptimizationGoalCommand = Readonly<{
 export type RecordFulfillmentPreviewCommand = Readonly<{
   type: "RecordFulfillmentPreview";
   fulfillmentPreviewRevision: string;
+  fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
   recordedAt: string;
 }>;
 
@@ -178,6 +183,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     sourceType: CheckoutSourceType;
     optimizationGoal: CheckoutOptimizationGoal;
     fulfillmentPreviewRevision: string | null;
+    fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null;
     splitGroupHandoff: CheckoutSplitGroupHandoff | null;
     shippingOption: ShippingOption;
@@ -200,6 +206,7 @@ export type CheckoutFulfillmentPreviewRecordedEvent = DomainEvent<
   Readonly<{
     sessionId: CheckoutSessionId;
     fulfillmentPreviewRevision: string;
+    fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
     recordedAt: string;
   }>
 >;
@@ -283,6 +290,21 @@ function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
 
 function normalizeOptimizationGoal(value: CheckoutOptimizationGoal | undefined) {
   return value === "fewest-shipments" ? "fewest-shipments" : "lowest-total";
+}
+
+function normalizeFulfillmentPreviewSnapshot(
+  revision: string | null,
+  snapshot: CheckoutFulfillmentPreview | null | undefined,
+) {
+  if (!snapshot) {
+    return null;
+  }
+
+  assert(
+    snapshot.revision === revision,
+    "Fulfillment preview snapshot must match the recorded fulfillment preview revision.",
+  );
+  return snapshot;
 }
 
 function normalizeAvailabilityState(value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined) {
@@ -429,6 +451,7 @@ export const decideCheckoutSession: AggregateDecider<
       assert(lines.length > 0, "Checkout session must include at least one line.");
       const cartReadinessSnapshot = normalizeCartReadinessSnapshot(command.sourceType, command.cartReadinessSnapshot);
       const splitGroupHandoff = normalizeSplitGroupHandoff(command.sourceType, cartReadinessSnapshot, lines);
+      const fulfillmentPreviewRevision = normalizeOptionalText(command.fulfillmentPreviewRevision);
       return [
         {
           type: "checkout.session.started",
@@ -437,7 +460,11 @@ export const decideCheckoutSession: AggregateDecider<
             buyerAccountId: command.buyerAccountId,
             sourceType: command.sourceType,
             optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
-            fulfillmentPreviewRevision: normalizeOptionalText(command.fulfillmentPreviewRevision),
+            fulfillmentPreviewRevision,
+            fulfillmentPreviewSnapshot: normalizeFulfillmentPreviewSnapshot(
+              fulfillmentPreviewRevision,
+              command.fulfillmentPreviewSnapshot,
+            ),
             cartReadinessSnapshot,
             splitGroupHandoff,
             shippingOption: normalizeShippingOption(command.shippingOption),
@@ -460,18 +487,23 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
-    case "RecordFulfillmentPreview":
+    case "RecordFulfillmentPreview": {
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length === 0, "Fulfillment preview cannot change after orders are created.");
       assert(!state.submittedOfferId, "Fulfillment preview cannot change after purchase intent is placed.");
+      const fulfillmentPreviewRevision = normalizeRequiredText(
+        command.fulfillmentPreviewRevision,
+        "Fulfillment preview must include a revision.",
+      );
       return [
         {
           type: "checkout.session.fulfillment-preview-recorded",
           data: {
             sessionId: state.sessionId,
-            fulfillmentPreviewRevision: normalizeRequiredText(
-              command.fulfillmentPreviewRevision,
-              "Fulfillment preview must include a revision.",
+            fulfillmentPreviewRevision,
+            fulfillmentPreviewSnapshot: normalizeFulfillmentPreviewSnapshot(
+              fulfillmentPreviewRevision,
+              command.fulfillmentPreviewSnapshot,
             ),
             recordedAt: normalizeRequiredText(
               command.recordedAt,
@@ -480,6 +512,7 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
+    }
     case "SelectShippingOption":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assert(state.orderIds.length === 0, "Shipping cannot change after orders are created.");
@@ -582,6 +615,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         sourceType: event.data.sourceType,
         optimizationGoal: event.data.optimizationGoal ?? "lowest-total",
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
+        fulfillmentPreviewSnapshot: event.data.fulfillmentPreviewSnapshot ?? null,
         cartReadinessSnapshot: event.data.cartReadinessSnapshot ?? null,
         splitGroupHandoff: event.data.splitGroupHandoff ?? null,
         shippingOption: event.data.shippingOption,
@@ -599,24 +633,30 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         ...state,
         optimizationGoal: event.data.optimizationGoal,
         fulfillmentPreviewRevision: null,
+        fulfillmentPreviewSnapshot: null,
         updatedAt: event.data.selectedAt,
       };
     case "checkout.session.fulfillment-preview-recorded":
       return {
         ...state,
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision,
+        fulfillmentPreviewSnapshot: event.data.fulfillmentPreviewSnapshot,
         updatedAt: event.data.recordedAt,
       };
     case "checkout.session.shipping-option-selected":
       return {
         ...state,
         shippingOption: event.data.shippingOption,
+        fulfillmentPreviewRevision: null,
+        fulfillmentPreviewSnapshot: null,
         updatedAt: event.data.selectedAt,
       };
     case "checkout.session.shipping-address-set":
       return {
         ...state,
         shippingAddress: event.data.shippingAddress,
+        fulfillmentPreviewRevision: null,
+        fulfillmentPreviewSnapshot: null,
         updatedAt: event.data.selectedAt,
       };
     case "checkout.session.orders-created":

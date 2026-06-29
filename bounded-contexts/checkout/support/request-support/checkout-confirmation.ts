@@ -144,6 +144,29 @@ export async function previewBuyNowCheckoutSupplyThroughOrdering(
   });
 }
 
+export async function previewCheckoutFulfillmentThroughOrdering(
+  request: Request,
+  session: CheckoutSessionRow,
+  options: Readonly<{
+    shippingOption?: CheckoutSessionRow["shipping_option"];
+    shippingAddress?: CheckoutSessionRow["shipping_address"];
+  }> = {},
+) {
+  if (!checkoutSessionSourceCreatesOrders(session.source_type)) {
+    return null;
+  }
+
+  const orderingApi = createOrderingRequestApiClient(request);
+  return orderingApi.previewCheckoutFulfillment({
+    checkoutSessionId: session.session_id,
+    sourceType: toOrderingSourceForCheckoutOrderCreation(session.source_type),
+    shippingOption: options.shippingOption ?? session.shipping_option,
+    shippingAddress: options.shippingAddress ?? session.shipping_address,
+    optimizationGoal: session.optimization_goal,
+    lines: session.lines,
+  });
+}
+
 export async function createCheckoutPaymentThroughPayments(
   request: Request,
   sessionId: string,

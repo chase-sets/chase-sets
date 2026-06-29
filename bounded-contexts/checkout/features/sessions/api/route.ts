@@ -15,9 +15,11 @@ import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
   normalizeRequestedBalanceCreditAmount,
+  previewCheckoutFulfillmentThroughOrdering,
   previewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
+import { readCheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import {
   assertNoUnsupportedCustomerEconomicsInput,
@@ -374,6 +376,61 @@ function parseShippingAddress(value: unknown) {
   };
 }
 
+function parseOptionalShippingAddress(value: unknown) {
+  return value === null || value === undefined ? null : parseShippingAddress(value);
+}
+
+function normalizePreviewShippingOption(value: unknown, fallback: CheckoutSessionRow["shipping_option"]) {
+  return value === "priority" || value === "expedited" || value === "standard" ? value : fallback;
+}
+
+function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
+  return Boolean(
+    session.payment_id ||
+    session.submitted_offer_id ||
+    (Array.isArray(session.order_ids) && session.order_ids.length > 0),
+  );
+}
+
+async function recordCheckoutFulfillmentPreviewSnapshot(
+  request: Request,
+  services: CheckoutSessionServices,
+  session: CheckoutSessionRow,
+  accountId: AccountId,
+  context: NonNullable<CheckoutApiEnv["Variables"]["context"]>,
+  options: Readonly<{
+    fulfillmentPreviewSnapshot?: unknown;
+    fulfillmentPreviewRevision?: string | null;
+    shippingOption?: CheckoutSessionRow["shipping_option"];
+    shippingAddress?: CheckoutSessionRow["shipping_address"];
+  }> = {},
+) {
+  const suppliedSnapshot = readCheckoutFulfillmentPreview(options.fulfillmentPreviewSnapshot);
+  const calculatedSnapshot =
+    suppliedSnapshot ??
+    (await previewCheckoutFulfillmentThroughOrdering(request, session, {
+      shippingOption: options.shippingOption,
+      shippingAddress: options.shippingAddress,
+    }));
+  const fulfillmentPreviewRevision = String(
+    options.fulfillmentPreviewRevision ?? calculatedSnapshot?.revision ?? "",
+  ).trim();
+
+  if (!fulfillmentPreviewRevision) {
+    throw new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+  }
+
+  return services.recordFulfillmentPreview(
+    {
+      sessionId: session.session_id,
+      accountId,
+      fulfillmentPreviewRevision,
+      fulfillmentPreviewSnapshot: calculatedSnapshot,
+    },
+    context,
+  );
+}
+
 function parseOptimizationGoal(value: unknown) {
   return value === "fewest-shipments" ? ("fewest-shipments" as const) : ("lowest-total" as const);
 }
@@ -555,7 +612,29 @@ export function createAccountCheckoutSessionRoutes(
           },
           context,
         );
-        return c.json(checkoutSessionStartedResponse(result), 201);
+        try {
+          const session = await services.getSession(result.sessionId, access.actor.accountId);
+          if (!session || sessionHasCommittedCheckoutSideEffects(session)) {
+            return c.json(checkoutSessionStartedResponse(result), 201);
+          }
+
+          const fulfillmentPreviewResult = await recordCheckoutFulfillmentPreviewSnapshot(
+            c.req.raw,
+            services,
+            session,
+            access.actor.accountId as AccountId,
+            context,
+          );
+          return c.json(
+            checkoutSessionStartedResponse({
+              ...result,
+              ...checkoutCommitMetadataFromSources([result, fulfillmentPreviewResult]),
+            }),
+            201,
+          );
+        } catch {
+          return c.json(checkoutSessionStartedResponse(result), 201);
+        }
       }
 
       const source =
@@ -709,6 +788,7 @@ export function createAccountCheckoutSessionRoutes(
           optimizationGoal,
           shippingOption,
           fulfillmentPreviewRevision: supplyPreview.revision,
+          fulfillmentPreviewSnapshot: supplyPreview,
           sessionIdOverride,
         },
         context,
@@ -731,6 +811,7 @@ export function createAccountCheckoutSessionRoutes(
             sessionId: result.sessionId,
             accountId: access.actor.accountId as AccountId,
             fulfillmentPreviewRevision: replacementSupplyPreview.revision,
+            fulfillmentPreviewSnapshot: replacementSupplyPreview,
           },
           context,
         );
@@ -907,19 +988,53 @@ export function createAccountCheckoutSessionRoutes(
     }
 
     const sessionId = c.req.param("sessionId");
-    const body = await c.req.json().catch(() => ({}));
+    const parsedBody = await c.req.json().catch(() => ({}));
+    const body = parsedBody && typeof parsedBody === "object" ? (parsedBody as Record<string, unknown>) : {};
     const fulfillmentPreviewRevision =
       typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : "";
 
     try {
-      const result = await services.recordFulfillmentPreview(
-        {
-          sessionId,
-          accountId: access.actor.accountId as AccountId,
-          fulfillmentPreviewRevision,
-        },
-        context,
-      );
+      const session = await services.getSession(sessionId, access.actor.accountId);
+      if (!session) {
+        return c.json(
+          {
+            error: {
+              code: "not_found",
+              message: t("checkout.features.sessions.api.route.checkout.session.not.found"),
+            },
+          },
+          404,
+        );
+      }
+
+      const suppliedPreview = body.fulfillmentPreviewSnapshot ?? body.fulfillmentPreview;
+      const hasReviewInput = "shippingOption" in body || "shippingAddress" in body;
+      const result =
+        fulfillmentPreviewRevision && !suppliedPreview && !hasReviewInput
+          ? await services.recordFulfillmentPreview(
+              {
+                sessionId,
+                accountId: access.actor.accountId as AccountId,
+                fulfillmentPreviewRevision,
+              },
+              context,
+            )
+          : await recordCheckoutFulfillmentPreviewSnapshot(
+              c.req.raw,
+              services,
+              session,
+              access.actor.accountId as AccountId,
+              context,
+              {
+                fulfillmentPreviewRevision,
+                fulfillmentPreviewSnapshot: suppliedPreview,
+                shippingOption: normalizePreviewShippingOption(body.shippingOption, session.shipping_option),
+                shippingAddress:
+                  "shippingAddress" in body
+                    ? parseOptionalShippingAddress(body.shippingAddress)
+                    : session.shipping_address,
+              },
+            );
       return c.json({
         session_id: sessionId,
         status: "fulfillment-preview-recorded",

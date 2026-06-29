@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   source_type text NOT NULL,
   optimization_goal text NOT NULL DEFAULT 'lowest-total',
   fulfillment_preview_revision text NULL,
+  fulfillment_preview_snapshot jsonb NULL,
   cart_readiness_snapshot jsonb NULL,
   split_group_handoff jsonb NULL,
   shipping_option text NOT NULL,
@@ -32,4 +33,7 @@ CREATE INDEX IF NOT EXISTS checkout_session_pages_split_group_handoff_idx
 
 ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
 `;

@@ -12,32 +12,6 @@
   ],
   "entries": [
     {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:ordering:createOrderingRequestApiClient.previewCheckoutFulfillment#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "ordering",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 457,
-      "clientFactory": "createOrderingRequestApiClient",
-      "methodName": "previewCheckoutFulfillment",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Project fulfillment preview state into the Checkout buy-session view model instead of requesting Ordering on render."
-    },
-    {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:ordering:createOrderingRequestApiClient.previewCheckoutFulfillment#2",
-      "consumerContextName": "checkout",
-      "sourceContextName": "ordering",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 514,
-      "clientFactory": "createOrderingRequestApiClient",
-      "methodName": "previewCheckoutFulfillment",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Project fulfillment preview state into the Checkout buy-session view model instead of requesting Ordering on render."
-    },
-    {
       "id": "bounded-contexts/checkout/routes/checkout-session.tsx:payments:createPaymentsRequestApiClient.getCheckoutStatus#1",
       "consumerContextName": "checkout",
       "sourceContextName": "payments",

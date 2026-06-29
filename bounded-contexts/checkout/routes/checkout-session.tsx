@@ -46,16 +46,12 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import {
   createPaymentsRequestApiClient,
   type PaymentsCheckoutStatus,
   type PaymentsSavedCheckoutInstrument,
 } from "@chase-sets/payments/server";
-import {
-  checkoutSessionSourceCreatesOrders,
-  toOrderingSourceForCheckoutOrderCreation,
-} from "@chase-sets/checkout-order-source";
+import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
@@ -445,33 +441,23 @@ function parseCheckoutEditSection(value: string | null): CheckoutEditSection | n
 }
 
 async function loadFulfillmentPreview(
-  request: Request,
   session: Awaited<ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>>,
 ) {
   if (!checkoutSessionSourceCreatesOrders(session.source_type)) {
     return { fulfillmentPreview: null, previewError: null };
   }
 
-  const orderingSourceType = toOrderingSourceForCheckoutOrderCreation(session.source_type);
-  const orderingApi = createOrderingRequestApiClient(request);
-  try {
-    return {
-      fulfillmentPreview: await orderingApi.previewCheckoutFulfillment({
-        checkoutSessionId: session.session_id,
-        sourceType: orderingSourceType,
-        shippingOption: session.shipping_option,
-        shippingAddress: session.shipping_address,
-        optimizationGoal: session.optimization_goal,
-        lines: session.lines,
-      }),
-      previewError: null,
-    };
-  } catch {
+  if (!session.fulfillment_preview_snapshot) {
     return {
       fulfillmentPreview: null,
       previewError: FULFILLMENT_PREVIEW_UNAVAILABLE,
     };
   }
+
+  return {
+    fulfillmentPreview: session.fulfillment_preview_snapshot,
+    previewError: null,
+  };
 }
 
 type CheckoutRequestApiClient = ReturnType<typeof createCheckoutRequestApiClient>;
@@ -493,7 +479,6 @@ async function loadCheckoutSessionForReviewedPreview(api: CheckoutRequestApiClie
 }
 
 async function recordReviewedFulfillmentPreview(
-  request: Request,
   api: CheckoutRequestApiClient,
   session: CheckoutSessionForReviewedPreview | null,
   input: Readonly<{
@@ -509,25 +494,14 @@ async function recordReviewedFulfillmentPreview(
     return null;
   }
 
-  const orderingSourceType = toOrderingSourceForCheckoutOrderCreation(session.source_type);
-  const orderingApi = createOrderingRequestApiClient(request);
-  let fulfillmentPreview: Awaited<ReturnType<typeof orderingApi.previewCheckoutFulfillment>>;
   try {
-    fulfillmentPreview = await orderingApi.previewCheckoutFulfillment({
-      checkoutSessionId: session.session_id,
-      sourceType: orderingSourceType,
+    return await api.recordFulfillmentPreview(session.session_id, {
       shippingOption: normalizeFulfillmentPreviewShippingOption(input.shippingOption),
       shippingAddress: input.shippingAddress,
-      optimizationGoal: session.optimization_goal,
-      lines: session.lines,
     });
   } catch {
     return null;
   }
-
-  return api.recordFulfillmentPreview(session.session_id, {
-    fulfillmentPreviewRevision: fulfillmentPreview.revision,
-  });
 }
 
 function reviewedPreviewWriteSources(sources: readonly unknown[]) {
@@ -759,7 +733,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const savedShippingAddresses = await loadSavedShippingAddresses(resolvedRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(resolvedRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(resolvedRequest, actor);
-  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(resolvedRequest, session);
+  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(session);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
@@ -861,7 +835,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
         shippingAddress,
       });
-      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, writeApi, session, {
+      const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(writeApi, session, {
         shippingOption,
         shippingAddress,
       });
@@ -926,7 +900,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const shippingAddressResult = await writeApi.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
-        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(internalApiRequest, writeApi, session, {
+        const fulfillmentPreviewResult = await recordReviewedFulfillmentPreview(writeApi, session, {
           shippingOption,
           shippingAddress,
         });
