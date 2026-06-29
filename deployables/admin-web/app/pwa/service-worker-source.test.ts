@@ -14,9 +14,6 @@ describe("admin service worker source", () => {
     expect(isAdminServiceWorkerExcludedPath("/access/sign-in")).toBe(true);
     expect(isAdminServiceWorkerExcludedPath("/access/sign-out")).toBe(true);
     expect(isAdminServiceWorkerExcludedPath("/access/account-select")).toBe(true);
-    expect(isAdminServiceWorkerExcludedPath("/catalog/sign-in")).toBe(true);
-    expect(isAdminServiceWorkerExcludedPath("/catalog/sign-out")).toBe(true);
-    expect(isAdminServiceWorkerExcludedPath("/catalog/account-select")).toBe(true);
     expect(isAdminServiceWorkerExcludedPath("/catalog-items")).toBe(false);
   });
 

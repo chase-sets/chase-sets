@@ -1,6 +1,5 @@
 import { defineAuthHost } from "./auth-host";
-import { accessAdminAuthHostConfig, catalogAdminAuthHostConfig, marketplaceAuthHostConfig } from "./host-config";
+import { adminAuthHostConfig, marketplaceAuthHostConfig } from "./host-config";
 
 export const marketplaceAuthHost = defineAuthHost(marketplaceAuthHostConfig);
-export const catalogAdminAuthHost = defineAuthHost(catalogAdminAuthHostConfig);
-export const accessAdminAuthHost = defineAuthHost(accessAdminAuthHostConfig);
+export const adminAuthHost = defineAuthHost(adminAuthHostConfig);

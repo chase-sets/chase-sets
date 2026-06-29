@@ -177,38 +177,6 @@
         {
           "routeId": "account-select",
           "routePath": "account-select",
-          "fileExport": "./routes/catalog-admin/account-select",
-          "routeType": "route",
-          "sourceContext": "auth",
-          "placement": "root",
-          "section": "catalog"
-        },
-        {
-          "routeId": "sign-in",
-          "routePath": "sign-in",
-          "fileExport": "./routes/catalog-admin/sign-in",
-          "routeType": "route",
-          "sourceContext": "auth",
-          "placement": "root",
-          "section": "catalog"
-        },
-        {
-          "routeId": "sign-out",
-          "routePath": "sign-out",
-          "fileExport": "./routes/catalog-admin/sign-out",
-          "routeType": "route",
-          "sourceContext": "auth",
-          "placement": "root",
-          "section": "catalog"
-        }
-      ]
-    },
-    {
-      "deployable": "admin-web",
-      "routes": [
-        {
-          "routeId": "account-select",
-          "routePath": "account-select",
           "fileExport": "./routes/access-admin/account-select",
           "routeType": "route",
           "sourceContext": "auth",
@@ -613,9 +581,6 @@
         "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
-        "route-action:bounded-contexts/auth/routes/catalog-admin/account-select.tsx",
-        "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
-        "route-action:bounded-contexts/auth/routes/catalog-admin/sign-out.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",

@@ -25,16 +25,13 @@ const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
 const SOCIAL_LOGIN_SUCCESS_PATH = "/account";
 const SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH = "/account/select";
-const ACCESS_ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
-const ACCESS_ADMIN_SUCCESS_PATH = "/access/accounts";
-const ACCESS_ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
-const CATALOG_ADMIN_SIGN_IN_FALLBACK_PATH = "/catalog/sign-in";
-const CATALOG_ADMIN_SUCCESS_PATH = "/catalog/dimensions";
-const CATALOG_ADMIN_ACCOUNT_SELECTION_PATH = "/catalog/account-select";
+const ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
+const ADMIN_SUCCESS_PATH = "/";
+const ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
 
-type SocialLoginJourney = "sign-in" | "registration" | "access-admin" | "catalog-admin";
+type SocialLoginJourney = "sign-in" | "registration" | "admin";
 
-type AdminSocialLoginJourney = Extract<SocialLoginJourney, "access-admin" | "catalog-admin">;
+type AdminSocialLoginJourney = Extract<SocialLoginJourney, "admin">;
 
 const ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS = [
   { path: "/access/users", permissions: ["security.manage"] },
@@ -80,11 +77,11 @@ function isSocialLoginProviderName(value: string): value is SocialLoginProviderN
 }
 
 function isSocialLoginJourney(value: string): value is SocialLoginJourney {
-  return value === "sign-in" || value === "registration" || value === "access-admin" || value === "catalog-admin";
+  return value === "sign-in" || value === "registration" || value === "admin";
 }
 
 function isAdminSocialLoginJourney(value: SocialLoginJourney): value is AdminSocialLoginJourney {
-  return value === "access-admin" || value === "catalog-admin";
+  return value === "admin";
 }
 
 function getSocialLoginProvider(services: AuthServices, providerName: string) {
@@ -92,11 +89,8 @@ function getSocialLoginProvider(services: AuthServices, providerName: string) {
 }
 
 function getDefaultSuccessPath(journey: SocialLoginJourney) {
-  if (journey === "access-admin") {
-    return ACCESS_ADMIN_SUCCESS_PATH;
-  }
-  if (journey === "catalog-admin") {
-    return CATALOG_ADMIN_SUCCESS_PATH;
+  if (journey === "admin") {
+    return ADMIN_SUCCESS_PATH;
   }
   return SOCIAL_LOGIN_SUCCESS_PATH;
 }
@@ -131,21 +125,15 @@ function buildSocialRedirectUri(request: Request, providerName: string) {
 }
 
 function getFallbackPath(journey: SocialLoginJourney) {
-  if (journey === "access-admin") {
-    return ACCESS_ADMIN_SIGN_IN_FALLBACK_PATH;
-  }
-  if (journey === "catalog-admin") {
-    return CATALOG_ADMIN_SIGN_IN_FALLBACK_PATH;
+  if (journey === "admin") {
+    return ADMIN_SIGN_IN_FALLBACK_PATH;
   }
   return journey === "registration" ? SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH : SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH;
 }
 
 function getAccountSelectionPath(journey: SocialLoginJourney) {
-  if (journey === "access-admin") {
-    return ACCESS_ADMIN_ACCOUNT_SELECTION_PATH;
-  }
-  if (journey === "catalog-admin") {
-    return CATALOG_ADMIN_ACCOUNT_SELECTION_PATH;
+  if (journey === "admin") {
+    return ADMIN_ACCOUNT_SELECTION_PATH;
   }
 
   return SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH;
@@ -240,10 +228,6 @@ function isSameRouteFamily(pathname: string, routePath: string) {
 }
 
 function getRequiredAdminPermissions(journey: AdminSocialLoginJourney, returnTo: string) {
-  if (journey === "catalog-admin") {
-    return ["catalog.view"];
-  }
-
   const pathname = getReturnToPathname(returnTo);
   const sectionRootPermissions = ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS.find(
     (entry) => pathname === entry.path,

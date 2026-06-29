@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accessAdminAuthHostConfig, catalogAdminAuthHostConfig, marketplaceAuthHostConfig } from "./host-config";
+import { adminAuthHostConfig, marketplaceAuthHostConfig } from "./host-config";
 
 describe("auth host config", () => {
   it("keeps host-specific success, sign-out, and permission rules explicit", () => {
@@ -9,14 +9,9 @@ describe("auth host config", () => {
       signedOutReturnTo: "/search",
       allowManualMagicLinkTokenEntry: false,
     });
-    expect(catalogAdminAuthHostConfig).toMatchObject({
-      requiredPermission: "catalog.view",
-      defaultSuccessPath: "/catalog/dimensions",
-      allowManualMagicLinkTokenEntry: false,
-    });
-    expect(accessAdminAuthHostConfig).toMatchObject({
+    expect(adminAuthHostConfig).toMatchObject({
       hostLabel: "Admin",
-      requiredPermission: "accounts.view",
+      defaultSuccessPath: "/",
       accountSelectionPath: "/access/account-select",
       allowManualMagicLinkTokenEntry: false,
       titles: expect.objectContaining({
