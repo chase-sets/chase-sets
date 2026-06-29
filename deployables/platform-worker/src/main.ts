@@ -87,6 +87,7 @@ import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
+import { runStartupRetry } from "./startup-retry";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -97,7 +98,9 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
-await bootstrapPlatformControlPlane(pools.control);
+await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
+  bootstrapPlatformControlPlane(pools.control),
+);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const workSignalStore = createPostgresWorkSignalStore(pools.control, {
   observer: {
@@ -481,16 +484,18 @@ assertRunnerCapacity(runnerCapacity, {
 });
 assertRunnerLaneIsolation(runnerCapacity, { workerName: "Platform worker" });
 
-await controlPlane.heartbeatWorker({
-  workerId: config.workerId,
-  workerKind: "platform-worker",
-  metadata: {
-    runnerCount,
-    runnerGroups: runnerGroupMetadata(runnerGroups),
-    runnerCapacity,
-    databasePoolPressure: getDatabasePoolPressure(),
-  },
-});
+await runWorkerStartupDatabaseStep("record initial worker heartbeat", () =>
+  controlPlane.heartbeatWorker({
+    workerId: config.workerId,
+    workerKind: "platform-worker",
+    metadata: {
+      runnerCount,
+      runnerGroups: runnerGroupMetadata(runnerGroups),
+      runnerCapacity,
+      databasePoolPressure: getDatabasePoolPressure(),
+    },
+  }),
+);
 const heartbeatTimer = setInterval(
   () => {
     void controlPlane
@@ -661,6 +666,21 @@ function createRunnerGroup(
     pollIntervalMs,
     reservedRunnerSlots,
   };
+}
+
+function runWorkerStartupDatabaseStep<T>(operationName: string, run: () => Promise<T>): Promise<T> {
+  return runStartupRetry({
+    operationName,
+    run,
+    logger,
+    retryBudgetMs: startupRetryBudgetMs("WORKER_STARTUP_DATABASE_RETRY_BUDGET_MS", 60_000),
+    retryDelayMs: startupRetryBudgetMs("WORKER_STARTUP_DATABASE_RETRY_DELAY_MS", 1_000),
+  });
+}
+
+function startupRetryBudgetMs(envName: string, fallback: number): number {
+  const value = Number(process.env[envName] ?? fallback);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
 function runnerGroupMetadata(groups: readonly RunnerGroup[]) {
