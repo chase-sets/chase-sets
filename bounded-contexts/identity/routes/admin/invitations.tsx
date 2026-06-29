@@ -17,19 +17,21 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
-  let result: unknown = null;
 
-  if (intent === "create") {
-    result = await api.createInvitation({
-      invitationId: createId("ivt"),
-      accountId: String(formData.get("accountId") ?? ""),
-      email: String(formData.get("email") ?? ""),
-      roleKey: String(formData.get("roleKey") ?? "viewer"),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    });
+  if (intent !== "create") {
+    throw new Response("Unsupported invitation action.", { status: 400 });
   }
 
-  return redirect(navigateAfterWrite(result, "/access/invitations"));
+  const invitationId = createId("ivt");
+  const result = await api.createInvitation({
+    invitationId,
+    accountId: String(formData.get("accountId") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    roleKey: String(formData.get("roleKey") ?? "viewer"),
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  return redirect(navigateAfterWrite(result, `/access/invitations/${invitationId}`));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];

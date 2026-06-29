@@ -90,6 +90,16 @@ async function captureRedirect(actionCall: Promise<unknown>) {
   return response.headers.get("Location") ?? "";
 }
 
+function expectLocationPath(location: string, expectedPath: string | RegExp) {
+  if (typeof expectedPath === "string") {
+    expect(location).toContain(`${expectedPath}?afterWrite=`);
+    return;
+  }
+
+  expect(location).toMatch(expectedPath);
+  expect(location).toContain("?afterWrite=");
+}
+
 describe("Identity mutation consistency route actions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -124,7 +134,7 @@ describe("Identity mutation consistency route actions", () => {
         action: apiKeysAction,
         request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
         params: {},
-        expectedPath: "/access/api-keys",
+        expectedPath: "/access/api-keys/identity_written",
       },
       {
         action: apiKeyDetailAction,
@@ -141,7 +151,7 @@ describe("Identity mutation consistency route actions", () => {
           roleKey: "viewer",
         }),
         params: {},
-        expectedPath: "/access/invitations",
+        expectedPath: /^\/access\/invitations\/ivt_[^?]+\?afterWrite=/,
       },
       {
         action: invitationDetailAction,
@@ -254,7 +264,7 @@ describe("Identity mutation consistency route actions", () => {
         } as never),
       );
 
-      expect(location).toContain(`${testCase.expectedPath}?afterWrite=`);
+      expectLocationPath(location, testCase.expectedPath);
       expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("77");
     }
   });
