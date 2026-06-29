@@ -194,4 +194,50 @@ describe("platform feedback runtime", () => {
       vi.useRealTimers();
     }
   });
+
+  it("emits an archive event after reviewed feedback", async () => {
+    const rowsByFeedbackId = new Map<string, { feedback_id: string; status: string }>();
+    const db = {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("FROM experience_platform_feedback_pages") && sql.includes("feedback_id = $1")) {
+          const feedbackId = String(params?.[0] ?? "");
+          return { rows: rowsByFeedbackId.get(feedbackId) ? [rowsByFeedbackId.get(feedbackId)] : [] };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const runtime = createPlatformFeedbackRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    const submitted = await runtime.submitPlatformFeedback(
+      {
+        userId: "usr_test",
+        accountId: "acc_test",
+        rating: 4,
+        topic: "pricing-fees",
+        followUpConsent: true,
+        workflow: "listing-publish",
+        sourceRoutePath: "/account/listings/lst_test",
+        relatedEntities: [{ type: "listing", id: "lst_test" }],
+      },
+      context,
+    );
+    rowsByFeedbackId.set(submitted.feedbackId, { feedback_id: submitted.feedbackId, status: "new" });
+
+    await runtime.markReviewed(submitted.feedbackId, "usr_admin", context);
+    rowsByFeedbackId.set(submitted.feedbackId, { feedback_id: submitted.feedbackId, status: "reviewed" });
+    const archived = await runtime.archive(submitted.feedbackId, "usr_admin", context);
+
+    expect(archived.version).toBe(3);
+    expect(allEvents.map((event) => event.eventType)).toEqual([
+      "experience.platform-feedback.submitted",
+      "experience.platform-feedback.reviewed",
+      "experience.platform-feedback.archived",
+    ]);
+  });
 });

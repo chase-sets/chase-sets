@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { PlatformFeedbackAdminDetailPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
@@ -22,22 +23,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const feedbackId = params.id ?? "";
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
+  let result: unknown = null;
 
   if (intent === "review") {
-    await api.markReviewed(feedbackId);
+    result = await api.markReviewed(feedbackId);
   }
 
   if (intent === "archive") {
-    await api.archive(feedbackId);
+    result = await api.archive(feedbackId);
   }
 
   if (intent === "record-note") {
-    await api.recordOperatorNote(feedbackId, {
+    result = await api.recordOperatorNote(feedbackId, {
       body: String(formData.get("body") ?? ""),
     });
   }
 
-  throw redirect(`/support/platform-feedback/${feedbackId}`);
+  throw redirect(navigateAfterWrite(result, `/support/platform-feedback/${feedbackId}`));
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [

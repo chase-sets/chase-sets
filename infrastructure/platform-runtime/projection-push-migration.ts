@@ -15,8 +15,8 @@ import type { WorkSignalPriorityLane } from "./work-signal-store";
  * from the source-context wake registry must classify as `push-enabled`, with
  * zero `disabled` and zero `opted-out` groups. As of the 2026-06-27 #2744
  * Identity wake enablement, wave 2 `fulfillment` and the remaining wave 3
- * contexts (`discovery`, `platform-operations`, `public-presence`) still have
- * registry `eligible` rows with relay fan-out disabled, leaving 16 projection
+ * contexts (`discovery`, `public-presence`) still have
+ * registry `eligible` rows with relay fan-out disabled, leaving 14 projection
  * groups `push-eligible`.
  *
  * Derives a push-first disposition for every projection group and every

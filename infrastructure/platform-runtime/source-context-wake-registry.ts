@@ -483,19 +483,27 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "platform-operations",
     owner: "Platform Operations",
-    rolloutState: "eligible",
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-3-expansion",
     rolloutWave: "wave-3-platform-expansion",
     priorityLane: "standard",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: [
+      "platform-operations:experience-platform-feedback-projection",
       "payments:payments-support-refund-effect",
       "marketplace:marketplace-review-support-source-projection",
       "ordering:ordering-order-review-opportunity-projection",
       "settlement:settlement-support-hold-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: [
+      "platform-operations.platform-feedback-detail-fresh-read",
+      "platform-operations.platform-feedback-list-fresh-read",
+    ],
   }),
   registryEntry({
     sourceContextName: "pricing",
