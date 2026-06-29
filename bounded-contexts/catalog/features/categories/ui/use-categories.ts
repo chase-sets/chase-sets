@@ -4,6 +4,7 @@ import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -56,6 +57,10 @@ export function previewBulkCategoryLifecycle(action: string, selection: unknown)
   return api.previewBulkCategoryLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkCategoryLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkCategoryLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkCategoryLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkCategoryLifecycle<BulkLifecycleResult>(action, selection, options);
 }

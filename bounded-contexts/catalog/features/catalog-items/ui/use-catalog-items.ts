@@ -13,6 +13,7 @@ import type {
 } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -90,8 +91,8 @@ export function previewBulkPublishCatalogItems(selection: unknown) {
   return api.previewBulkPublishCatalogItems<BulkPublishPreview>(selection);
 }
 
-export function confirmBulkPublishCatalogItems(itemIds: readonly string[]) {
-  return api.confirmBulkPublishCatalogItems<BulkPublishResult>(itemIds);
+export function confirmBulkPublishCatalogItems(itemIds: readonly string[], options: BulkLifecycleProgressOptions = {}) {
+  return api.confirmBulkPublishCatalogItems<BulkPublishResult>(itemIds, options);
 }
 
 export function reviseMetadata(id: string, body: CatalogItemMetadataInput) {
@@ -106,16 +107,24 @@ export function previewBulkCatalogItemLifecycle(action: string, selection: unkno
   return api.previewBulkCatalogItemLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkCatalogItemLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkCatalogItemLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkCatalogItemLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkCatalogItemLifecycle<BulkLifecycleResult>(action, selection, options);
 }
 
 export function previewBulkCatalogItemEdit(operation: BulkEditCatalogItemOperation, selection: unknown) {
   return api.previewBulkCatalogItemEdit<BulkEditCatalogItemPreview>(operation, selection);
 }
 
-export function confirmBulkCatalogItemEdit(operation: BulkEditCatalogItemOperation, selection: unknown) {
-  return api.confirmBulkCatalogItemEdit<BulkEditCatalogItemResult>(operation, selection);
+export function confirmBulkCatalogItemEdit(
+  operation: BulkEditCatalogItemOperation,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkCatalogItemEdit<BulkEditCatalogItemResult>(operation, selection, options);
 }
 
 export function removeDraftCatalogItem(id: string) {

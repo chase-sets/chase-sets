@@ -41,6 +41,8 @@ export const catalogSupportEnglishTranslations = {
   "catalog.support.shellSupport.ui.bulkLifecycleActions.preview.matching": "Preview matching items",
   "catalog.support.shellSupport.ui.bulkLifecycleActions.preview.description": "{ready} ready, {blocked} blocked.",
   "catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title": "Bulk {action} Preview",
+  "catalog.support.shellSupport.ui.bulkLifecycleActions.progress": "{completed} of {total} processed.",
+  "catalog.support.shellSupport.ui.bulkLifecycleActions.progress.current": "Current: {name}",
   "catalog.support.shellSupport.ui.bulkLifecycleActions.reason": "Reason",
   "catalog.support.shellSupport.ui.bulkLifecycleActions.record": "Record",
   "catalog.support.shellSupport.ui.bulkLifecycleActions.result.description":

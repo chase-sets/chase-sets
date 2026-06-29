@@ -4,6 +4,7 @@ import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -62,8 +63,12 @@ export function previewBulkReferenceTypeLifecycle(action: string, selection: unk
   return api.previewBulkReferenceTypeLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkReferenceTypeLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkReferenceTypeLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkReferenceTypeLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkReferenceTypeLifecycle<BulkLifecycleResult>(action, selection, options);
 }
 
 export function createReferenceRecord(body: {
@@ -108,6 +113,10 @@ export function previewBulkReferenceRecordLifecycle(action: string, selection: u
   return api.previewBulkReferenceRecordLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkReferenceRecordLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkReferenceRecordLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkReferenceRecordLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkReferenceRecordLifecycle<BulkLifecycleResult>(action, selection, options);
 }

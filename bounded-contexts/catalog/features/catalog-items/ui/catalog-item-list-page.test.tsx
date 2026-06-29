@@ -8,6 +8,9 @@ import type { CatalogListQuery } from "../../../support/shell-support/list-query
 import type { CatalogItemListItem } from "./contracts";
 
 const {
+  mockConfirmBulkCatalogItemEdit,
+  mockConfirmBulkCatalogItemLifecycle,
+  mockConfirmBulkPublishCatalogItems,
   mockCreateCatalogItem,
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkCatalogItemLifecycle,
@@ -17,6 +20,9 @@ const {
   mockUseRevalidator,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockConfirmBulkCatalogItemEdit: vi.fn(),
+  mockConfirmBulkCatalogItemLifecycle: vi.fn(),
+  mockConfirmBulkPublishCatalogItems: vi.fn(),
   mockCreateCatalogItem: vi.fn(),
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkCatalogItemLifecycle: vi.fn(),
@@ -34,9 +40,9 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-catalog-items", () => ({
-  confirmBulkCatalogItemEdit: vi.fn(),
-  confirmBulkCatalogItemLifecycle: vi.fn(),
-  confirmBulkPublishCatalogItems: vi.fn(),
+  confirmBulkCatalogItemEdit: mockConfirmBulkCatalogItemEdit,
+  confirmBulkCatalogItemLifecycle: mockConfirmBulkCatalogItemLifecycle,
+  confirmBulkPublishCatalogItems: mockConfirmBulkPublishCatalogItems,
   createCatalogItem: mockCreateCatalogItem,
   localizedTextMapFromEnglish: (value: string) => ({ defaultLocale: "en", values: { en: value } }),
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
@@ -275,6 +281,65 @@ describe("CatalogItemListPage", () => {
       });
     });
     expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
+  });
+
+  it("renders live progress while confirming bulk publish jobs", async () => {
+    const user = userEvent.setup();
+    const revalidate = vi.fn();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockPreviewBulkPublishCatalogItems.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [],
+    });
+    mockConfirmBulkPublishCatalogItems.mockImplementation(async (_itemIds, options) => {
+      options.onProgress({
+        phase: "running",
+        completed: 1,
+        total: 3,
+        currentName: "Charizard",
+        status: "activating",
+      });
+      return {
+        mode: "ids",
+        item_ids: ["cat_1"],
+        total: 1,
+        published_count: 1,
+        skipped_count: 0,
+        failed_count: 0,
+        candidates: [],
+      };
+    });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ ...defaultQuery, search: "", status: "draft", language: "", source: "", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preview publish" }));
+    expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
+    fireEvent.click(await screen.findByText("Publish Ready Items"));
+
+    await waitFor(() => {
+      expect(mockConfirmBulkPublishCatalogItems).toHaveBeenCalledWith(
+        ["cat_1"],
+        expect.objectContaining({ onProgress: expect.any(Function) }),
+      );
+    });
+    expect(await screen.findByText("activating")).toBeTruthy();
+    expect(screen.getByText("1 of 3 processed.")).toBeTruthy();
+    expect(screen.getByText("Current: Charizard")).toBeTruthy();
+    expect(revalidate).toHaveBeenCalled();
   });
 
   it("previews selected shared bulk edits from the list", async () => {

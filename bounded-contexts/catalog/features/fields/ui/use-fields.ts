@@ -4,6 +4,7 @@ import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Field } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -56,6 +57,10 @@ export function previewBulkFieldLifecycle(action: string, selection: unknown) {
   return api.previewBulkFieldLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkFieldLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkFieldLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkFieldLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkFieldLifecycle<BulkLifecycleResult>(action, selection, options);
 }

@@ -4,6 +4,7 @@ import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -76,6 +77,10 @@ export function previewBulkBlueprintLifecycle(action: string, selection: unknown
   return api.previewBulkBlueprintLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkBlueprintLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkBlueprintLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkBlueprintLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkBlueprintLifecycle<BulkLifecycleResult>(action, selection, options);
 }
