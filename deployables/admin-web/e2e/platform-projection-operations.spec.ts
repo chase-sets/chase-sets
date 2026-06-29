@@ -18,9 +18,9 @@ test.describe("platform admin projection operations", () => {
     await expect(page.getByRole("tab", { name: /Overview/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Attention/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Operations/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Projection Groups/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Projection groups/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Subscriptions/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Blocked Streams/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Blocked streams/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Workers/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Push wakes/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /Diagnostics/ })).toBeVisible();
@@ -29,7 +29,7 @@ test.describe("platform admin projection operations", () => {
     await expect(page.getByRole("link", { name: "Open Grafana wake dashboard" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open push-wake runbook" })).toBeVisible();
 
-    await page.getByRole("tab", { name: /Projection Groups/ }).click();
+    await page.getByRole("tab", { name: /Projection groups/ }).click();
     await page.getByLabel("Search").fill("identity");
     await page.getByRole("button", { name: "Apply filters" }).click();
     await expect(page).toHaveURL(/\/platform\/projections\?.*search=identity/);
