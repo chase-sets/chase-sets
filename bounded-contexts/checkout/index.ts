@@ -10,6 +10,7 @@ import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
 import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
 import { buildCheckoutSellListProjectionHandlers } from "./features/sell-list/read-model/projection";
+import { buildCheckoutPaymentAffordanceProjectionHandlers } from "./features/sessions/integrations/payments/payment-affordance-projection";
 import { buildCheckoutPaymentSummaryProjectionHandlers } from "./features/sessions/integrations/payments/payment-summary-projection";
 import {
   createCheckoutServices,
@@ -72,6 +73,10 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
         "payments.checkout.payment-summary-projection": {
           filterToEventTypes: true,
           buildHandlers: () => buildCheckoutPaymentSummaryProjectionHandlers(services.db),
+        },
+        "payments.checkout.payment-affordance-projection": {
+          filterToEventTypes: true,
+          buildHandlers: () => buildCheckoutPaymentAffordanceProjectionHandlers(services.db),
         },
       },
     }),

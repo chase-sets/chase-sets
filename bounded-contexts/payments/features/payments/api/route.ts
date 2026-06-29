@@ -66,6 +66,14 @@ function errorCode(error: unknown) {
     : "validation_failed";
 }
 
+function requireEventStoreContext(c: { get(key: "context"): EventStoreContext | null | undefined }) {
+  const context = c.get("context");
+  if (!context) {
+    throw new Error(t("payments.features.payments.api.route.authentication.context.missing"));
+  }
+  return context;
+}
+
 function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (!message.startsWith("fee_quote_stale:")) {
@@ -401,10 +409,13 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
     try {
-      const instrument = await services.reconcileSavedCheckoutSetupSession({
-        accountId: access.actor.accountId as AccountId,
-        setupReference: c.req.param("processorSetupReference"),
-      });
+      const instrument = await services.reconcileSavedCheckoutSetupSession(
+        {
+          accountId: access.actor.accountId as AccountId,
+          setupReference: c.req.param("processorSetupReference"),
+        },
+        requireEventStoreContext(c),
+      );
       return c.json({
         instrument: instrument ? savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }) : null,
       });
@@ -418,10 +429,13 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     if (access.response) {
       return access.response;
     }
-    const instrument = await services.setSavedCheckoutInstrumentDefault({
-      accountId: access.actor.accountId as AccountId,
-      instrumentId: c.req.param("instrumentId"),
-    });
+    const instrument = await services.setSavedCheckoutInstrumentDefault(
+      {
+        accountId: access.actor.accountId as AccountId,
+        instrumentId: c.req.param("instrumentId"),
+      },
+      requireEventStoreContext(c),
+    );
     if (!instrument) {
       return c.json(
         {
@@ -441,10 +455,13 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     if (access.response) {
       return access.response;
     }
-    const instrument = await services.removeSavedCheckoutInstrument({
-      accountId: access.actor.accountId as AccountId,
-      instrumentId: c.req.param("instrumentId"),
-    });
+    const instrument = await services.removeSavedCheckoutInstrument(
+      {
+        accountId: access.actor.accountId as AccountId,
+        instrumentId: c.req.param("instrumentId"),
+      },
+      requireEventStoreContext(c),
+    );
     if (!instrument) {
       return c.json(
         {
@@ -465,9 +482,12 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
     const accountId = access.actor.accountId as AccountId;
-    const result = await services.reconcileSavedCheckoutInstruments({
-      accountId,
-    });
+    const result = await services.reconcileSavedCheckoutInstruments(
+      {
+        accountId,
+      },
+      requireEventStoreContext(c),
+    );
     const instruments = await services.listSavedCheckoutInstruments(accountId);
     return c.json({
       ...result,

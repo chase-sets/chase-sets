@@ -166,6 +166,14 @@
       ],
       "order": 25,
       "projectionHandlerSetNames": ["checkout.payment-summary-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "checkout.payment-affordance-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["payments.checkout-affordances-published"],
+      "order": 26,
+      "projectionHandlerSetNames": ["checkout.payment-affordance-projection"]
     }
   ],
   "projectionGroups": [
@@ -199,6 +207,13 @@
       "projectionName": "checkout.payment-summary-projection",
       "sourceContextNames": ["payments"],
       "ownedTables": ["checkout_payment_summary_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "checkout.payment-affordance-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["checkout_payment_affordance_account_snapshots", "checkout_payment_affordance_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },

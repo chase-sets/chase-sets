@@ -42,6 +42,10 @@ import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-servicea
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
 import {
+  listCheckoutSavedPaymentInstruments,
+  type CheckoutSavedPaymentInstrumentRow,
+} from "../integrations/payments/payment-affordance-queries";
+import {
   getCheckoutPaymentSummary,
   type CheckoutPaymentSummaryRow,
 } from "../integrations/payments/payment-summary-queries";
@@ -196,6 +200,7 @@ export type CheckoutSessionServices = Readonly<{
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
+  listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -937,6 +942,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       return session;
     },
     getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
+    listSavedPaymentInstruments: (accountId) => listCheckoutSavedPaymentInstruments(deps.db, accountId),
     projectors: [sessionProjector],
   };
 }

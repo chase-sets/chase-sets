@@ -198,8 +198,28 @@ export type PaymentCapturedPayload = Readonly<{
   capturedAt: string;
 }>;
 
+export type PaymentsCheckoutAffordanceInstrumentPayload = Readonly<{
+  instrumentId: string;
+  paymentMethodCategory: "card" | "bank-account" | "platform-credit";
+  displayLabel: string;
+  confirmationExperience: "trusted-payment-step" | "off-session-token";
+  readiness: "ready" | "setup-required" | "removed";
+  checkoutEligible: boolean;
+  isDefault: boolean;
+  removedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type PaymentsCheckoutAffordancesPublishedPayload = Readonly<{
+  accountId: AccountId;
+  savedCheckoutInstruments: readonly PaymentsCheckoutAffordanceInstrumentPayload[];
+  publishedAt: string;
+}>;
+
 export type PaymentsEventPayloads = Readonly<{
   "payments.payment-captured": PaymentCapturedPayload;
+  "payments.checkout-affordances-published": PaymentsCheckoutAffordancesPublishedPayload;
 }>;
 
 export type PayoutReadinessRecordedPayload = Readonly<{

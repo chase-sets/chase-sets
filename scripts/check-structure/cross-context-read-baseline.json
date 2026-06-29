@@ -38,19 +38,6 @@
       "migration": "Project fulfillment preview state into the Checkout buy-session view model instead of requesting Ordering on render."
     },
     {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:payments:createPaymentsRequestApiClient.listSavedCheckoutInstruments#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "payments",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 648,
-      "clientFactory": "createPaymentsRequestApiClient",
-      "methodName": "listSavedCheckoutInstruments",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Mirror saved checkout instrument summaries into Checkout's buy-session projection."
-    },
-    {
       "id": "bounded-contexts/checkout/routes/checkout-session.tsx:payments:createPaymentsRequestApiClient.getCheckoutStatus#1",
       "consumerContextName": "checkout",
       "sourceContextName": "payments",

@@ -21,6 +21,7 @@ import type {
   SellListSellerConfirmationEvidence,
 } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
+import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
@@ -651,6 +652,13 @@ export function createCheckoutApiClient({
       return parseJsonResponse(
         await client.account["checkout-payment-summaries"][":paymentId"].$get({
           param: { paymentId },
+          header: headers,
+        }),
+      );
+    },
+    async listCheckoutSavedPaymentInstruments(): Promise<{ items: CheckoutSavedPaymentInstrumentRow[] }> {
+      return parseJsonResponse(
+        await client.account["checkout-payment-affordances"].$get({
           header: headers,
         }),
       );
