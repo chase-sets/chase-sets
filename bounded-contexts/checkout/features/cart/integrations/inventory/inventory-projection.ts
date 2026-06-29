@@ -49,25 +49,125 @@ export async function recomputeCheckoutSellerOptionSupply(db: PgQueryable, itemI
  */
 export function buildCheckoutInventorySupplyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "inventory.storage-location.created": async (event) => {
+      const data = event.data as {
+        storageLocationId: string;
+        accountId: string;
+        name: string;
+        shipFromCode: string;
+        shipFromAddress: unknown;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_supply_locations (
+           storage_location_id,
+           account_id,
+           name,
+           ship_from_code,
+           ship_from_address,
+           is_archived,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, false, $6)
+         ON CONFLICT (storage_location_id) DO UPDATE SET
+           account_id = EXCLUDED.account_id,
+           name = EXCLUDED.name,
+           ship_from_code = EXCLUDED.ship_from_code,
+           ship_from_address = EXCLUDED.ship_from_address,
+           is_archived = false,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.storageLocationId,
+          data.accountId,
+          data.name,
+          data.shipFromCode,
+          JSON.stringify(data.shipFromAddress ?? {}),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "inventory.storage-location.updated": async (event) => {
+      const data = event.data as {
+        storageLocationId: string;
+        name: string;
+        shipFromCode: string;
+        shipFromAddress: unknown;
+      };
+
+      await db.query(
+        `UPDATE checkout_supply_locations
+         SET name = $2,
+             ship_from_code = $3,
+             ship_from_address = $4,
+             updated_at = $5
+         WHERE storage_location_id = $1`,
+        [
+          data.storageLocationId,
+          data.name,
+          data.shipFromCode,
+          JSON.stringify(data.shipFromAddress ?? {}),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "inventory.storage-location.archived": async (event) => {
+      const data = event.data as { storageLocationId: string };
+
+      await db.query(
+        `UPDATE checkout_supply_locations
+         SET is_archived = true,
+             updated_at = $2
+         WHERE storage_location_id = $1`,
+        [data.storageLocationId, event.timing.recordedAt],
+      );
+    },
     "inventory.item.created": async (event) => {
       const data = event.data as {
         itemId: string;
+        accountId?: string;
+        catalogItemId?: string;
+        productId?: string;
+        selectedOptions?: unknown;
+        gradedCard?: unknown;
+        storageLocationId?: string;
         totalQuantity: number;
       };
 
       await db.query(
         `INSERT INTO checkout_supply_items (
            item_id,
+           account_id,
+           catalog_catalog_item_id,
+           product_id,
+           selected_options,
+           graded_card,
+           storage_location_id,
            total_quantity,
            last_stream_version,
            updated_at
-         ) VALUES ($1, $2, $3, $4)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (item_id) DO UPDATE SET
+           account_id = EXCLUDED.account_id,
+           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+           product_id = EXCLUDED.product_id,
+           selected_options = EXCLUDED.selected_options,
+           graded_card = EXCLUDED.graded_card,
+           storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity,
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
          WHERE checkout_supply_items.last_stream_version < EXCLUDED.last_stream_version`,
-        [data.itemId, data.totalQuantity, event.streamVersion, event.timing.recordedAt],
+        [
+          data.itemId,
+          data.accountId ?? null,
+          data.catalogItemId ?? null,
+          data.productId ?? null,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.gradedCard === null || typeof data.gradedCard !== "object" ? null : JSON.stringify(data.gradedCard),
+          data.storageLocationId ?? null,
+          data.totalQuantity,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
 
       await recomputeCheckoutSellerOptionSupply(db, data.itemId);

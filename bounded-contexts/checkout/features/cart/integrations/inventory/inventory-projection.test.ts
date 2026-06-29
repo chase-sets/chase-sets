@@ -42,8 +42,8 @@ class InventoryProjectionDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     if (sql.includes("INSERT INTO checkout_supply_items")) {
       const itemId = String(values[0]);
-      const totalQuantity = Number(values[1]);
-      const streamVersion = Number(values[2]);
+      const totalQuantity = Number(values[7]);
+      const streamVersion = Number(values[8]);
       const existing = this.supplyItems.get(itemId);
       if (!existing || existing.last_stream_version < streamVersion) {
         this.supplyItems.set(itemId, {

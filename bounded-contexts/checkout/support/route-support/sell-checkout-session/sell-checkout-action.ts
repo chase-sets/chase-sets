@@ -16,11 +16,7 @@ import {
   valuesFromFormData,
   validateGuestSellCheckoutValues,
 } from "./sell-checkout-form";
-import {
-  assertMarketplaceOfferTermsFresh,
-  buildSellerEvidence,
-  performMarketplaceHandoff,
-} from "./sell-checkout-handoff";
+import { buildSellerEvidence, performMarketplaceHandoff } from "./sell-checkout-handoff";
 import {
   canUseSignedInSellCheckout,
   loadGuestSellCheckoutState,
@@ -112,7 +108,6 @@ export async function action({
       const reviewPlan = parseSellListReviewPlan(state.sellListReviewPlan);
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
       const marketplaceApi = createMarketplaceRequestApiClient(request);
-      await assertMarketplaceOfferTermsFresh(marketplaceApi, reviewedLines);
       const confirmedAt = new Date().toISOString();
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
       const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, sellerEvidence });

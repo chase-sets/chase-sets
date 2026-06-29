@@ -68,6 +68,10 @@ class SellListProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("INSERT INTO checkout_sell_offer_pages") || sql.includes("UPDATE checkout_sell_offer_pages")) {
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("UPDATE checkout_sell_list_line_pages") && sql.includes("SET quantity")) {
       if (sql.includes("WHERE seller_account_id = $1")) {
         const row = this.lines.get(this.key(String(values[0]), String(values[1])));

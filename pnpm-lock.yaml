@@ -192,6 +192,9 @@ importers:
       '@chase-sets/checkout-order-source':
         specifier: workspace:*
         version: link:../../contracts/checkout-order-source
+      '@chase-sets/commercial-terms':
+        specifier: workspace:*
+        version: link:../commercial-terms
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -690,12 +693,12 @@ importers:
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
-      '@chase-sets/outbound-messaging':
-        specifier: workspace:*
-        version: link:../../contracts/outbound-messaging
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../ordering
+      '@chase-sets/outbound-messaging':
+        specifier: workspace:*
+        version: link:../../contracts/outbound-messaging
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
@@ -1558,15 +1561,12 @@ importers:
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
-      '@chase-sets/notifications':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/notifications
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
-      '@chase-sets/outbound-messaging':
+      '@chase-sets/notifications':
         specifier: workspace:*
-        version: link:../../contracts/outbound-messaging
+        version: link:../../bounded-contexts/notifications
       '@chase-sets/object-storage':
         specifier: workspace:*
         version: link:../../infrastructure/object-storage
@@ -1576,6 +1576,9 @@ importers:
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
+      '@chase-sets/outbound-messaging':
+        specifier: workspace:*
+        version: link:../../contracts/outbound-messaging
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
@@ -1998,6 +2001,7 @@ packages:
   '@aws-sdk/core@3.974.10':
     resolution: {integrity: sha512-ZGFFlYynBR78Y/F8b/7y4i4sgW/iGwJSjoM7AZo5Et6vyr4/L0bunN+uzKMsvecCZyqcPp4RRK7Rs17l0kMujg==}
     engines: {node: '>=20.0.0'}
+    deprecated: Deprecated due to an error deserialization bug in JSON 1.0 protocol services, see https://github.com/aws/aws-sdk-js-v3/pull/8031. Newer version available.
 
   '@aws-sdk/core@3.974.8':
     resolution: {integrity: sha512-njR2qoG6ZuB0kvAS2FyICsFZJ6gmCcf2X/7JcD14sUvGDm26wiZ5BrA6LOiUxKFEF+IVe7kdroxyE00YlkiYsw==}
@@ -3650,6 +3654,7 @@ packages:
   '@smithy/core@3.24.1':
     resolution: {integrity: sha512-3mT7o4qQyUWttYnVK3A0Z/u3Xha3E81tXn32Tz6vjZiUXhBrkEivpw1hBYfh84iFF9CSzkBU9Y1DJ3Q6RQ231g==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to bug in browser bundling instructions https://github.com/smithy-lang/smithy-typescript/issues/2025
 
   '@smithy/credential-provider-imds@4.3.1':
     resolution: {integrity: sha512-0S/acwHnqX4WrjXzhdiDRxsG2s9SC0cpPIK9nZ1R6UOHd+j7uL28+4bHu22urbLk2TVw3fkp6na/+fkUt/pLNQ==}

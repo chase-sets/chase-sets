@@ -245,11 +245,20 @@ describe("checkout web routes: account sell list", () => {
     const listSellerListingInventory = vi.fn(async () => ({ items: [] }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList,
+      getSellListCompositeReview: vi.fn(async () => ({
+        offerReviews: [],
+        productOfferReviews: [
+          {
+            lineId: "sll_air_balloon",
+            status: "unavailable",
+            offers: [],
+            message: "No matching offers are currently ready for this product.",
+          },
+        ],
+        inventoryItems: [],
+      })),
     });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listOfferMatches,
-      listSellerListingInventory,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
 
     const result = await accountSellListLoader({
       request: new Request(
@@ -280,9 +289,8 @@ describe("checkout web routes: account sell list", () => {
         inventoryItems: [],
       }),
     );
-    const matchQuery = new URLSearchParams(listOfferMatches.mock.calls[0]?.[0]);
-    expect(matchQuery.get("productIds")).toBe(productId);
-    expect(listSellerListingInventory).toHaveBeenCalled();
+    expect(listOfferMatches).not.toHaveBeenCalled();
+    expect(listSellerListingInventory).not.toHaveBeenCalled();
   });
 
   it("hides a stale latest seller confirmation while the current confirmation is still preparing", async () => {
@@ -440,6 +448,28 @@ describe("checkout web routes: account sell list", () => {
     mockGetGuestSellList.mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_1",
+            status: "ready",
+            comparison: null,
+            message: null,
+            terms: {
+              account_type: "personal",
+              basis_amount: "380.00",
+              marketplace_sales_fee_unit_amount: "34.35",
+              seller_net_unit_amount: "345.65",
+              shipping_allowance_percentage_bps: 500,
+              source_kind: "public-standard-seller-terms",
+              source_label: "Standard seller terms",
+              schedule_label: "Personal Default",
+              source_updated_at: "2026-04-01T00:00:00.000Z",
+              resolved_at: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        ],
+      })),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
 
@@ -810,11 +840,9 @@ describe("checkout web routes: account sell list", () => {
       status: "added",
       commandReceipt: checkoutCommit("42", "evt_sell_list_line"),
     });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addSellListLine: mockAddSellListLine,
+      getSellListOfferMatch: mockGetOfferMatch,
     });
 
     const form = new URLSearchParams();
@@ -858,7 +886,7 @@ describe("checkout web routes: account sell list", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockAddGuestSellListLine.mockResolvedValue({ status: "added" });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
+      getSellListOfferMatch: mockGetOfferMatch,
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addGuestSellListLine: mockAddGuestSellListLine,
@@ -975,7 +1003,7 @@ describe("checkout web routes: account sell list", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("rejects stale or guest-sourced selected-offer fee fingerprints before seller checkout", async () => {
+  it("uses posted selected-offer fee fingerprints without Marketplace preview reads before seller checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockPreviewOfferAcceptanceTerms.mockResolvedValue({
       account_type: "personal",
@@ -1030,12 +1058,14 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as { error: string };
 
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect((result as { error: string }).error).toBe(
+      "Sell List readiness must be resolved before seller checkout starts.",
+    );
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
-      lineActions: [],
-      lineOutcomes: [{ lineId: "sll_1", outcome: "keep-in-list" }],
+      lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
+      lineOutcomes: [],
     });
-    expect(result.error).toBe("Sell List readiness must be resolved before seller checkout starts.");
     expectNoSellerCommitSideEffects();
   });
 
@@ -1058,9 +1088,9 @@ describe("checkout web routes: account sell list", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListOfferMatch: mockGetOfferMatch,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
     });
@@ -1116,7 +1146,7 @@ describe("checkout web routes: account sell list", () => {
       createSellListReadiness: mockCreateSellListReadiness,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
+      getSellListOfferMatch: mockGetOfferMatch,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
     });
@@ -1184,9 +1214,9 @@ describe("checkout web routes: account sell list", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListOfferMatch: mockGetOfferMatch,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
     });
@@ -1276,9 +1306,9 @@ describe("checkout web routes: account sell list", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListOfferMatch: mockGetOfferMatch,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      getOfferMatch: mockGetOfferMatch,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
     });
@@ -1422,6 +1452,28 @@ describe("checkout web routes: account sell list", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestSellList: mockGetGuestSellList,
+      getGuestSellListOfferReviews: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_1",
+            status: "ready",
+            comparison: null,
+            message: null,
+            terms: {
+              account_type: "personal",
+              basis_amount: "380.00",
+              marketplace_sales_fee_unit_amount: "34.35",
+              seller_net_unit_amount: "345.65",
+              shipping_allowance_percentage_bps: 500,
+              source_kind: "public-standard-seller-terms",
+              source_label: "Standard seller terms",
+              schedule_label: "Personal Default",
+              source_updated_at: "2026-04-01T00:00:00.000Z",
+              resolved_at: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        ],
+      })),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewPublicStandardListingTerms: mockPreviewPublicStandardListingTerms,
@@ -1436,7 +1488,7 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
+    expect(mockPreviewPublicStandardListingTerms).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         isSignedIn: false,
@@ -1531,6 +1583,36 @@ describe("checkout web routes: account sell list", () => {
         ],
         count: 1,
       })),
+      getSellListCompositeReview: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_1",
+            status: "ready",
+            terms: {
+              account_type: "personal",
+              basis_amount: "380.00",
+              marketplace_sales_fee_unit_amount: "38.00",
+              seller_net_unit_amount: "342.00",
+              shipping_allowance_percentage_bps: 0,
+              schedule_id: "terms_registered",
+              agreement_id: null,
+              resolved_at: "2026-04-28T00:00:00.000Z",
+              fee_quote_fingerprint: "registered_quote",
+            },
+            comparison: {
+              status: "changed",
+              changedFields: ["seller-net", "marketplace-fee", "shipping-allowance"],
+              standardPreview: {
+                seller_net_unit_amount: "345.65",
+                source_kind: "public-standard-seller-terms",
+              },
+            },
+            message: null,
+          },
+        ],
+        productOfferReviews: [],
+        inventoryItems: [],
+      })),
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -1552,8 +1634,8 @@ describe("checkout web routes: account sell list", () => {
     expect(result.mergedLineCount).toBe(1);
     expect(result.mergeError).toBeNull();
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
-    expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(mockPreviewPublicStandardListingTerms).not.toHaveBeenCalled();
     expect(result.offerReviews[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_1",
@@ -1612,6 +1694,33 @@ describe("checkout web routes: account sell list", () => {
           },
         ],
         count: 1,
+      })),
+      getSellListCompositeReview: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_1",
+            status: "ready",
+            terms: {
+              account_type: "personal",
+              basis_amount: "380.00",
+              marketplace_sales_fee_unit_amount: "38.00",
+              seller_net_unit_amount: "342.00",
+              shipping_allowance_percentage_bps: 0,
+              schedule_id: "terms_registered",
+              agreement_id: null,
+              resolved_at: "2026-04-28T00:00:00.000Z",
+              fee_quote_fingerprint: "registered_quote",
+            },
+            comparison: {
+              status: "standard-preview-unavailable",
+              standardPreview: null,
+              changedFields: [],
+            },
+            message: null,
+          },
+        ],
+        productOfferReviews: [],
+        inventoryItems: [],
       })),
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
@@ -1684,6 +1793,25 @@ describe("checkout web routes: account sell list", () => {
           },
         ],
         count: 1,
+      })),
+      getSellListCompositeReview: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_1",
+            status: "unavailable",
+            terms: null,
+            message: "Offer terms are stale.",
+            comparison: {
+              status: "final-unavailable",
+              standardPreview: {
+                seller_net_unit_amount: "345.65",
+              },
+              changedFields: [],
+            },
+          },
+        ],
+        productOfferReviews: [],
+        inventoryItems: [],
       })),
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
     });
@@ -1761,6 +1889,19 @@ describe("checkout web routes: account sell list", () => {
         ],
         count: 1,
       })),
+      getSellListCompositeReview: vi.fn(async () => ({
+        offerReviews: [
+          {
+            lineId: "sll_air_balloon",
+            status: "unavailable",
+            terms: null,
+            comparison: null,
+            message: "Create a matching listing before accepting this offer.",
+          },
+        ],
+        productOfferReviews: [],
+        inventoryItems: [],
+      })),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getPublicOffer: mockGetPublicOffer,
@@ -1773,8 +1914,8 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never);
 
-    expect(mockGetPublicOffer).toHaveBeenCalledWith("off_air_balloon");
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_air_balloon");
+    expect(mockGetPublicOffer).not.toHaveBeenCalled();
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(result.offerReviews[0]).toEqual({
       lineId: "sll_air_balloon",
       status: "unavailable",

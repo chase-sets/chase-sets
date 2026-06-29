@@ -203,7 +203,84 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
       const data = event.data as {
         offerId: string;
         sellerAccountId: string;
+        buyerAccountId?: string;
+        catalogItemId?: string;
+        productId?: string;
+        itemTitle?: string;
+        itemSubtitle?: string | null;
+        selectedOptions?: unknown;
+        productSummary?: string | null;
+        priceAmount?: string;
+        quantityRequested?: number;
+        acceptedAt?: string;
       };
+
+      if (data.buyerAccountId && data.catalogItemId && data.productId && data.itemTitle && data.priceAmount) {
+        await db.query(
+          `INSERT INTO checkout_sell_offer_pages (
+             offer_id,
+             buyer_account_id,
+             catalog_catalog_item_id,
+             product_id,
+             item_title,
+             item_subtitle,
+             selected_options,
+             product_summary,
+             price_amount,
+             quantity_requested,
+             status,
+             accepted_seller_account_id,
+             accepted_at,
+             created_at,
+             updated_at,
+             last_stream_version
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'accepted', $11, $12, $13, $13, $14)
+           ON CONFLICT (offer_id) DO UPDATE SET
+             buyer_account_id = EXCLUDED.buyer_account_id,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
+             item_title = EXCLUDED.item_title,
+             item_subtitle = EXCLUDED.item_subtitle,
+             selected_options = EXCLUDED.selected_options,
+             product_summary = EXCLUDED.product_summary,
+             price_amount = EXCLUDED.price_amount,
+             quantity_requested = EXCLUDED.quantity_requested,
+             status = EXCLUDED.status,
+             accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
+             accepted_at = EXCLUDED.accepted_at,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+           WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version`,
+          [
+            data.offerId,
+            data.buyerAccountId,
+            data.catalogItemId,
+            data.productId,
+            data.itemTitle,
+            data.itemSubtitle ?? null,
+            JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+            data.productSummary ?? null,
+            data.priceAmount,
+            data.quantityRequested ?? 1,
+            data.sellerAccountId,
+            data.acceptedAt ?? event.timing.recordedAt,
+            event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        );
+      } else {
+        await db.query(
+          `UPDATE checkout_sell_offer_pages
+           SET status = 'accepted',
+               accepted_seller_account_id = $2,
+               accepted_at = $3,
+               updated_at = $3,
+               last_stream_version = $4
+           WHERE offer_id = $1
+             AND last_stream_version < $4`,
+          [data.offerId, data.sellerAccountId, data.acceptedAt ?? event.timing.recordedAt, event.streamVersion],
+        );
+      }
 
       await db.query(
         `DELETE FROM checkout_sell_list_line_pages
@@ -211,6 +288,71 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            AND line_type = 'selected-offer'
            AND offer_id = $2`,
         [data.sellerAccountId, data.offerId],
+      );
+    },
+    "marketplace.offer.submitted": async (event) => {
+      const data = event.data as {
+        offerId: string;
+        buyerAccountId: string;
+        catalogItemId: string;
+        productId: string;
+        itemTitle: string;
+        itemSubtitle?: string | null;
+        selectedOptions?: unknown;
+        productSummary?: string | null;
+        priceAmount: string;
+        quantityRequested: number;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_sell_offer_pages (
+           offer_id,
+           buyer_account_id,
+           catalog_catalog_item_id,
+           product_id,
+           item_title,
+           item_subtitle,
+           selected_options,
+           product_summary,
+           price_amount,
+           quantity_requested,
+           status,
+           accepted_seller_account_id,
+           accepted_at,
+           created_at,
+           updated_at,
+           last_stream_version
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', NULL, NULL, $11, $11, $12)
+         ON CONFLICT (offer_id) DO UPDATE SET
+           buyer_account_id = EXCLUDED.buyer_account_id,
+           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+           product_id = EXCLUDED.product_id,
+           item_title = EXCLUDED.item_title,
+           item_subtitle = EXCLUDED.item_subtitle,
+           selected_options = EXCLUDED.selected_options,
+           product_summary = EXCLUDED.product_summary,
+           price_amount = EXCLUDED.price_amount,
+           quantity_requested = EXCLUDED.quantity_requested,
+           status = EXCLUDED.status,
+           accepted_seller_account_id = NULL,
+           accepted_at = NULL,
+           updated_at = EXCLUDED.updated_at,
+           last_stream_version = EXCLUDED.last_stream_version
+         WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version`,
+        [
+          data.offerId,
+          data.buyerAccountId,
+          data.catalogItemId,
+          data.productId,
+          data.itemTitle,
+          data.itemSubtitle ?? null,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.productSummary ?? null,
+          data.priceAmount,
+          data.quantityRequested,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
       );
     },
     "settlement.payout-readiness.recorded": async (event) => {

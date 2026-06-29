@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { CheckoutServices } from "./support/runtime-support/services";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./features/cart/api/route";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./features/sell-list/api/route";
@@ -7,6 +9,10 @@ import { createAccountCheckoutSessionRoutes } from "./features/sessions/api/rout
 import { createCheckoutSupportLookupRoutes } from "./features/support-lookup/api/route";
 
 export type CheckoutApiEnv = AuthenticatedApiEnv;
+
+export function createCheckoutCommercialTermsResolver(db: PgQueryable) {
+  return createCommercialTermsResolver({ db });
+}
 
 export function buildCheckoutApi(services: CheckoutServices) {
   const app = new Hono<CheckoutApiEnv>();

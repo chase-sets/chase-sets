@@ -118,6 +118,13 @@ describe("fresh checkout read-model schemas", () => {
           dependencies: [
             { readModelTable: "checkout_sell_list_line_pages" },
             { readModelTable: "checkout_sell_list_confirmation_pages" },
+            { readModelTable: "checkout_sell_payout_readiness_pages" },
+            { readModelTable: "checkout_sell_offer_pages" },
+            { readModelTable: "checkout_marketplace_seller_options" },
+            { readModelTable: "checkout_supply_items" },
+            { readModelTable: "checkout_supply_locations" },
+            { readModelTable: "checkout_seller_accounts" },
+            { readModelTable: "checkout_ship_from_addresses" },
           ],
         }),
         expect.objectContaining({

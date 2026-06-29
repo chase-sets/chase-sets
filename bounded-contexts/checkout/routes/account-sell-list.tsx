@@ -23,19 +23,13 @@ import {
   type PlatformPostWriteConsistencyOutcome,
 } from "@chase-sets/platform-runtime/post-write-consistency";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
-import type {
-  OfferMatchListItem,
-  MarketplaceListingInventoryItemOption,
-  MarketplaceListingTermsPreview,
-  MarketplacePublicStandardTermsPreview,
-  PublicOfferDetail,
-} from "@chase-sets/marketplace/server";
 import {
   createCheckoutRequestApiClient,
   type AddCheckoutSellListLineRequest,
   type CheckoutSellListConfirmationRow,
+  type CheckoutSellListCompositeReview,
   type CheckoutSellListLineRow,
+  type CheckoutSellOfferMatch,
   type CheckoutSellPayoutReadinessRow,
   type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
@@ -66,7 +60,7 @@ function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFrom
 type SellListOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
-  terms: MarketplaceListingTermsPreview | MarketplacePublicStandardTermsPreview | null;
+  terms: CheckoutSellListCompositeReview["offerReviews"][number]["terms"];
   comparison: SellListOfferTermsComparison | null;
   message: string | null;
 }>;
@@ -75,17 +69,16 @@ type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shi
 
 type SellListOfferTermsComparison = Readonly<{
   status: "same" | "changed" | "standard-preview-unavailable" | "final-unavailable";
-  standardPreview: MarketplacePublicStandardTermsPreview | null;
+  standardPreview: NonNullable<
+    CheckoutSellListCompositeReview["offerReviews"][number]["comparison"]
+  >["standardPreview"];
   changedFields: readonly SellListOfferTermsComparisonField[];
 }>;
 
 type SellListProductOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
-  offers: readonly Readonly<{
-    offer: OfferMatchListItem;
-    terms: MarketplaceListingTermsPreview;
-  }>[];
+  offers: CheckoutSellListCompositeReview["productOfferReviews"][number]["offers"];
   message: string | null;
 }>;
 
@@ -465,306 +458,6 @@ async function loadSellListWithPostWriteRecovery(
   }
 }
 
-function moneyValue(value: string | null | undefined) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount : 0;
-}
-
-function moneyCents(value: string | null | undefined) {
-  return Math.round(moneyValue(value) * 100);
-}
-
-function buyerTrustScore(offer: OfferMatchListItem) {
-  const rating = Number(offer.buyer_average_rating ?? 0);
-  const reviews = Number(offer.buyer_review_count ?? 0);
-  return (Number.isFinite(rating) ? rating : 0) * 100 + Math.min(50, Number.isFinite(reviews) ? reviews : 0);
-}
-
-function compareRegisteredTermsWithStandard(
-  finalTerms: MarketplaceListingTermsPreview,
-  standardPreview: MarketplacePublicStandardTermsPreview | null,
-): SellListOfferTermsComparison {
-  if (!standardPreview) {
-    return {
-      status: "standard-preview-unavailable",
-      standardPreview: null,
-      changedFields: [],
-    };
-  }
-
-  const changedFields: SellListOfferTermsComparisonField[] = [];
-  if (moneyCents(finalTerms.seller_net_unit_amount) !== moneyCents(standardPreview.seller_net_unit_amount)) {
-    changedFields.push("seller-net");
-  }
-  if (
-    moneyCents(finalTerms.marketplace_sales_fee_unit_amount) !==
-    moneyCents(standardPreview.marketplace_sales_fee_unit_amount)
-  ) {
-    changedFields.push("marketplace-fee");
-  }
-  if (finalTerms.shipping_allowance_percentage_bps !== standardPreview.shipping_allowance_percentage_bps) {
-    changedFields.push("shipping-allowance");
-  }
-  if (finalTerms.account_type !== standardPreview.account_type || Boolean(finalTerms.agreement_id)) {
-    changedFields.push("terms-source");
-  }
-
-  return {
-    status: changedFields.length > 0 ? "changed" : "same",
-    standardPreview,
-    changedFields,
-  };
-}
-
-function selectedOfferProductMatchesLine(offer: PublicOfferDetail, line: CheckoutSellListLineRow) {
-  return (
-    offer.catalog_catalog_item_id === line.catalog_catalog_item_id &&
-    (!line.product_id || offer.product_id === line.product_id)
-  );
-}
-
-function selectedOfferUnavailableMessage(offer: PublicOfferDetail | null | undefined, error: unknown) {
-  if (offer === null) {
-    return error instanceof Error ? error.message : "Offer not found.";
-  }
-
-  if (offer === undefined) {
-    return error instanceof Error ? error.message : "Offer terms are unavailable.";
-  }
-
-  if (offer.status !== "submitted") {
-    return offer.status === "accepted"
-      ? "Offer has already been accepted."
-      : `Offer is no longer submitted (${offer.status}).`;
-  }
-
-  const message = error instanceof Error ? error.message : "";
-  if (message === "Offer not found.") {
-    return "Create a matching listing before accepting this offer.";
-  }
-
-  return message || "Offer terms are unavailable.";
-}
-
-async function loadSellListOfferReviews(
-  request: Request,
-  lines: readonly CheckoutSellListLineRow[],
-  options: Readonly<{ includeStandardComparison?: boolean }> = {},
-): Promise<readonly SellListOfferReview[]> {
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
-  const getPublicOffer = marketplaceApi.getPublicOffer?.bind(marketplaceApi);
-  const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_id);
-  const includeStandardComparison =
-    options.includeStandardComparison && typeof previewPublicStandardListingTerms === "function";
-  const previewByPrice = new Map<string, Promise<MarketplacePublicStandardTermsPreview | null>>();
-  const previewForPrice = (priceAmount: string | null | undefined) => {
-    if (!includeStandardComparison || !priceAmount || typeof previewPublicStandardListingTerms !== "function") {
-      return Promise.resolve(null);
-    }
-    if (!previewByPrice.has(priceAmount)) {
-      previewByPrice.set(
-        priceAmount,
-        previewPublicStandardListingTerms({ priceAmount })
-          .then((preview) => preview)
-          .catch(() => null),
-      );
-    }
-
-    return previewByPrice.get(priceAmount)!;
-  };
-
-  return Promise.all(
-    selectedOfferLines.map(async (line) => {
-      const standardPreviewPromise = previewForPrice(line.offer_price_amount);
-      const publicOfferPromise =
-        typeof getPublicOffer === "function"
-          ? getPublicOffer(line.offer_id!).catch(() => null)
-          : Promise.resolve(undefined);
-      try {
-        const publicOffer = await publicOfferPromise;
-        if (publicOffer === null) {
-          throw new Error("Offer not found.");
-        }
-        if (publicOffer && !selectedOfferProductMatchesLine(publicOffer, line)) {
-          throw new Error("Selected offer no longer matches this Sell List line.");
-        }
-        if (publicOffer && publicOffer.status !== "submitted") {
-          throw new Error("Offer is no longer submitted.");
-        }
-
-        const [terms, standardPreview] = await Promise.all([
-          marketplaceApi.previewOfferAcceptanceTerms(line.offer_id!),
-          standardPreviewPromise,
-        ]);
-        return {
-          lineId: line.line_id,
-          status: "ready" as const,
-          terms,
-          comparison: options.includeStandardComparison
-            ? compareRegisteredTermsWithStandard(terms, standardPreview)
-            : null,
-          message: null,
-        };
-      } catch (error) {
-        const [standardPreview, publicOffer] = await Promise.all([standardPreviewPromise, publicOfferPromise]);
-        return {
-          lineId: line.line_id,
-          status: "unavailable" as const,
-          terms: null,
-          comparison: options.includeStandardComparison
-            ? { status: "final-unavailable" as const, standardPreview, changedFields: [] }
-            : null,
-          message: selectedOfferUnavailableMessage(publicOffer, error),
-        };
-      }
-    }),
-  );
-}
-
-async function loadGuestSellListOfferReviews(
-  request: Request,
-  lines: readonly CheckoutSellListLineRow[],
-): Promise<readonly SellListOfferReview[]> {
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
-  const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_price_amount);
-  if (typeof previewPublicStandardListingTerms !== "function" || selectedOfferLines.length === 0) {
-    return [];
-  }
-
-  const previewByPrice = new Map<string, Promise<MarketplacePublicStandardTermsPreview | null>>();
-  const previewForPrice = (priceAmount: string) => {
-    if (!previewByPrice.has(priceAmount)) {
-      previewByPrice.set(
-        priceAmount,
-        previewPublicStandardListingTerms({ priceAmount })
-          .then((preview) => preview)
-          .catch(() => null),
-      );
-    }
-
-    return previewByPrice.get(priceAmount)!;
-  };
-
-  return Promise.all(
-    selectedOfferLines.map(async (line) => {
-      const terms = line.offer_price_amount ? await previewForPrice(line.offer_price_amount) : null;
-      return {
-        lineId: line.line_id,
-        status: terms ? ("ready" as const) : ("unavailable" as const),
-        terms,
-        comparison: null,
-        message: terms ? null : "Public standard seller terms are temporarily unavailable.",
-      };
-    }),
-  );
-}
-
-async function loadSellListProductOfferReviews(
-  request: Request,
-  lines: readonly CheckoutSellListLineRow[],
-): Promise<readonly SellListProductOfferReview[]> {
-  const productLines = lines.filter((line) => line.line_type === "product");
-  if (productLines.length === 0) {
-    return [];
-  }
-
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const selectedOfferIds = new Set(
-    lines.filter((line) => line.line_type === "selected-offer" && line.offer_id).map((line) => line.offer_id as string),
-  );
-  const productIds = [...new Set(productLines.map((line) => line.product_id).filter(Boolean))];
-  const query = new URLSearchParams({
-    limit: String(Math.min(250, Math.max(50, productLines.length * 20))),
-    offset: "0",
-    productIds: productIds.join(","),
-    status: "submitted",
-    canFulfill: "true",
-  });
-
-  try {
-    const matches = (await marketplaceApi.listOfferMatches(query.toString())).items.filter(
-      (offer) =>
-        offer.status === "submitted" &&
-        offer.can_fulfill &&
-        !selectedOfferIds.has(offer.offer_id) &&
-        productLines.some((line) => line.product_id === offer.product_id),
-    );
-
-    return Promise.all(
-      productLines.map(async (line) => {
-        const lineMatches = matches
-          .filter((offer) => offer.product_id === line.product_id)
-          .sort(
-            (left, right) =>
-              right.offer_to_listing_price_bps - left.offer_to_listing_price_bps ||
-              Number(right.price_amount) - Number(left.price_amount) ||
-              left.offer_id.localeCompare(right.offer_id),
-          );
-        const offers: Array<SellListProductOfferReview["offers"][number]> = [];
-        let remainingQuantity = line.quantity;
-
-        for (const offer of lineMatches) {
-          if (remainingQuantity <= 0) {
-            break;
-          }
-          if (offer.quantity_requested > remainingQuantity) {
-            continue;
-          }
-
-          try {
-            offers.push({
-              offer,
-              terms: await marketplaceApi.previewOfferAcceptanceTerms(offer.offer_id),
-            });
-            remainingQuantity -= offer.quantity_requested;
-          } catch {
-            // A stale match should not block the rest of the Sell List review.
-          }
-        }
-
-        return {
-          lineId: line.line_id,
-          status: offers.length > 0 ? ("ready" as const) : ("unavailable" as const),
-          offers: offers.sort(
-            (left, right) =>
-              moneyValue(right.terms.seller_net_unit_amount) - moneyValue(left.terms.seller_net_unit_amount) ||
-              Number(right.offer.can_fulfill) - Number(left.offer.can_fulfill) ||
-              buyerTrustScore(right.offer) - buyerTrustScore(left.offer) ||
-              new Date(right.offer.created_at).getTime() - new Date(left.offer.created_at).getTime() ||
-              right.offer.quantity_requested - left.offer.quantity_requested ||
-              left.offer.offer_id.localeCompare(right.offer.offer_id),
-          ),
-          message: offers.length > 0 ? null : "No matching offers are currently ready for this product.",
-        };
-      }),
-    );
-  } catch (error) {
-    return productLines.map((line) => ({
-      lineId: line.line_id,
-      status: "unavailable" as const,
-      offers: [],
-      message: error instanceof Error ? error.message : "Matching offers are unavailable.",
-    }));
-  }
-}
-
-async function loadSellListInventory(
-  request: Request,
-  lines: readonly CheckoutSellListLineRow[],
-): Promise<readonly MarketplaceListingInventoryItemOption[]> {
-  if (!lines.some((line) => line.line_type === "product")) {
-    return [];
-  }
-
-  try {
-    return (await createMarketplaceRequestApiClient(request).listSellerListingInventory()).items;
-  } catch {
-    return [];
-  }
-}
-
 async function loadPayoutReadiness(
   request: Request,
   api: ReturnType<typeof createCheckoutRequestApiClient>,
@@ -786,6 +479,30 @@ async function loadPayoutReadiness(
     }
     return null;
   }
+}
+
+async function loadSellListCompositeReviewFromCheckout(
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
+  options: Readonly<{ includeStandardComparison?: boolean }> = {},
+): Promise<CheckoutSellListCompositeReview> {
+  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
+  if (typeof client.getSellListCompositeReview !== "function") {
+    return { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
+  }
+
+  return client.getSellListCompositeReview(options);
+}
+
+async function loadGuestSellListOfferReviewsFromCheckout(
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
+  anonymousSellListId: string | null,
+): Promise<readonly SellListOfferReview[]> {
+  const client = api as Partial<ReturnType<typeof createCheckoutRequestApiClient>>;
+  if (typeof client.getGuestSellListOfferReviews !== "function") {
+    return [];
+  }
+
+  return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -816,7 +533,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       freshnessError,
       sellListRecovery,
       sellList,
-      offerReviews: await loadGuestSellListOfferReviews(resolvedRequest, sellList.items),
+      offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
     };
   }
 
@@ -842,11 +559,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
           freshnessError: guestSource.freshnessError,
           sellListRecovery: guestSource.sellListRecovery,
           sellList: guestSource.sellList,
-          offerReviews: await loadSellListOfferReviews(resolvedRequest, guestSource.sellList.items, {
-            includeStandardComparison: registrationReturn === "seller-checkout",
-          }),
-          productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, guestSource.sellList.items),
-          inventoryItems: await loadSellListInventory(resolvedRequest, guestSource.sellList.items),
+          offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
+          productOfferReviews: [],
+          inventoryItems: [],
           payoutReadiness: await loadPayoutReadiness(resolvedRequest, api),
         };
       }
@@ -885,6 +600,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-checkout-confirmation",
     );
   }
+  const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
+    includeStandardComparison: registrationReturn === "seller-checkout",
+  });
 
   return {
     isSignedIn: true,
@@ -896,11 +614,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     freshnessError,
     sellListRecovery: effectiveSellListRecovery,
     sellList: accountSellList,
-    offerReviews: await loadSellListOfferReviews(resolvedRequest, accountSellList.items, {
-      includeStandardComparison: registrationReturn === "seller-checkout",
-    }),
-    productOfferReviews: await loadSellListProductOfferReviews(resolvedRequest, accountSellList.items),
-    inventoryItems: await loadSellListInventory(resolvedRequest, accountSellList.items),
+    offerReviews: sellListCompositeReview.offerReviews,
+    productOfferReviews: sellListCompositeReview.productOfferReviews,
+    inventoryItems: sellListCompositeReview.inventoryItems,
     payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
   };
 }
@@ -941,7 +657,7 @@ function parsePostedQuantity(formData: FormData) {
   return Number.isInteger(quantity) && quantity > 0 ? Math.min(quantity, 999) : 1;
 }
 
-function selectedOfferLineFromOffer(offer: OfferMatchListItem): AddCheckoutSellListLineRequest {
+function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutSellListLineRequest {
   return {
     lineType: "selected-offer",
     offerId: offer.offer_id,
@@ -1007,11 +723,10 @@ type SellListReviewPlanLine = Readonly<{
 }>;
 
 async function buildSellListReviewPlan(
-  request: Request,
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
   lines: readonly CheckoutSellListLineRow[],
   formData: FormData,
 ): Promise<SellListReviewPlan> {
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
   const reviewLines: SellListReviewPlanLine[] = [];
 
   for (const line of lines) {
@@ -1029,24 +744,7 @@ async function buildSellListReviewPlan(
           t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
         );
       } else {
-        try {
-          const currentTerms = await marketplaceApi.previewOfferAcceptanceTerms(line.offer_id);
-          if (currentTerms.fee_quote_fingerprint === feeQuoteFingerprint) {
-            selectedOffer = { offerId: line.offer_id, feeQuoteFingerprint };
-          } else {
-            skippedReasons.push(
-              t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
-            );
-          }
-        } catch (error) {
-          skippedReasons.push(
-            t("checkout.routes.accountSellList.offer.accept.failed.detail", {
-              itemTitle: line.item_title,
-              message:
-                error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
-            }),
-          );
-        }
+        selectedOffer = { offerId: line.offer_id, feeQuoteFingerprint };
       }
 
       reviewLines.push({
@@ -1072,7 +770,7 @@ async function buildSellListReviewPlan(
       .map((value) => String(value).trim())
       .filter(Boolean)) {
       try {
-        const offer = await marketplaceApi.getOfferMatch(offerId);
+        const offer = await api.getSellListOfferMatch(offerId);
         if (offer.product_id !== line.product_id) {
           skippedReasons.push(`${line.item_title}: matching offer ${offerId} no longer matches this product.`);
           continue;
@@ -1191,7 +889,6 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createCheckoutRequestApiClient(request);
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
   const useAccountSellList = canUseAccountSellList(actor);
   const anonymousSellListId = readAnonymousSellListId(request);
@@ -1211,7 +908,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       const offerId = String(formData.get("offerId") ?? "");
-      const offer = await marketplaceApi.getOfferMatch(offerId);
+      const offer = await api.getSellListOfferMatch(offerId);
 
       const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
@@ -1260,7 +957,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       const sellList = await api.getSellList();
-      const reviewPlan = await buildSellListReviewPlan(request, sellList.items, formData);
+      const reviewPlan = await buildSellListReviewPlan(api, sellList.items, formData);
       const readinessDecisions = readinessDecisionsFromReviewPlan(reviewPlan);
       const readiness = await api.createSellListReadiness(readinessDecisions);
       if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
