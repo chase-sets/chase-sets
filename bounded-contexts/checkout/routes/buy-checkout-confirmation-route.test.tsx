@@ -6,7 +6,7 @@ import {
   guestCheckoutActor,
   mockCreateCheckoutRequestApiClient,
   mockCreatePaymentsRequestApiClient,
-  mockGetAccountPayment,
+  mockGetCheckoutPaymentSummary,
   mockGetCheckoutSession,
   mockResolveActorFromAuthApi,
 } from "../tests/support/checkout-route-test-harness";
@@ -61,15 +61,13 @@ function confirmedSession(overrides: Record<string, unknown> = {}) {
 describe("checkout web routes: buy checkout confirmation loader", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
-    mockGetAccountPayment.mockResolvedValue({
+    mockGetCheckoutPaymentSummary.mockResolvedValue({
       payment_id: "pay_1",
       amount: "27.29",
       currency_code: "usd",
       status: "pending-confirmation",
     });
-    mockCreatePaymentsRequestApiClient.mockReturnValue({
-      getAccountPayment: mockGetAccountPayment,
-    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({});
   });
 
   afterEach(() => {
@@ -82,6 +80,7 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
     mockGetCheckoutSession.mockResolvedValue(confirmedSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const result = await buyCheckoutConfirmationLoader({
@@ -105,7 +104,8 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
         },
       }),
     );
-    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_1");
+    expect(mockGetCheckoutPaymentSummary).toHaveBeenCalledWith("pay_1");
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
   });
 
   it("preserves the confirmation fresh-write token for the payment continuation", async () => {
@@ -113,6 +113,7 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
     mockGetCheckoutSession.mockResolvedValue(confirmedSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const path = appendFreshWriteToken(
@@ -137,6 +138,7 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
     mockGetCheckoutSession.mockResolvedValue(confirmedSession({ buyer_account_id: "acc_guest" }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const result = await buyCheckoutConfirmationLoader({
@@ -151,9 +153,10 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
   it("keeps confirmation available when payment detail is still projecting", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockGetCheckoutSession.mockResolvedValue(confirmedSession());
-    mockGetAccountPayment.mockRejectedValue(new Error("payment page not projected yet"));
+    mockGetCheckoutPaymentSummary.mockRejectedValue(new Error("payment summary not projected yet"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const result = await buyCheckoutConfirmationLoader({
@@ -175,6 +178,7 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
     mockGetCheckoutSession.mockResolvedValue(confirmedSession({ payment_id: null, order_ids: [] }));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const redirectResponse = (await buyCheckoutConfirmationLoader({

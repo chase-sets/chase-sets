@@ -12,19 +12,6 @@
   ],
   "entries": [
     {
-      "id": "bounded-contexts/checkout/routes/buy-checkout-confirmation.tsx:payments:createPaymentsRequestApiClient.getAccountPayment#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "payments",
-      "file": "bounded-contexts/checkout/routes/buy-checkout-confirmation.tsx",
-      "line": 43,
-      "clientFactory": "createPaymentsRequestApiClient",
-      "methodName": "getAccountPayment",
-      "classification": "read-your-writes",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Serve payment confirmation status from a Checkout-owned payment mirror with wake-before-wait (#2512) instead of a Payments request read."
-    },
-    {
       "id": "bounded-contexts/checkout/routes/checkout-session.tsx:ordering:createOrderingRequestApiClient.previewCheckoutFulfillment#1",
       "consumerContextName": "checkout",
       "sourceContextName": "ordering",

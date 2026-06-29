@@ -41,6 +41,10 @@ import {
 import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
+import {
+  getCheckoutPaymentSummary,
+  type CheckoutPaymentSummaryRow,
+} from "../integrations/payments/payment-summary-queries";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import type { CheckoutSourceCommitPosition } from "../domain/domain";
 
@@ -191,6 +195,7 @@ export type CheckoutSessionServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
+  getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -931,6 +936,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       return session;
     },
+    getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
     projectors: [sessionProjector],
   };
 }

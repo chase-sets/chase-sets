@@ -16,6 +16,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
   mockGetAccountPayment,
+  mockGetCheckoutPaymentSummary,
   mockGetCheckoutSession,
   mockGetCheckoutStatus,
   MockMarketplaceApiError,
@@ -514,6 +515,12 @@ describe("checkout web routes: signed-in buy checkout", () => {
       status: "pending-confirmation",
       currency_code: "usd",
     });
+    mockGetCheckoutPaymentSummary.mockResolvedValue({
+      payment_id: "pay_signed_in_1",
+      amount: "27.25",
+      status: "pending-confirmation",
+      currency_code: "usd",
+    });
     mockCreateOrderingRequestApiClient.mockReturnValue({
       previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
     });
@@ -617,6 +624,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     mockGetCheckoutSession.mockResolvedValue(signedInBuyNowCommittedOrderSession("pay_signed_in_1"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentSummary: mockGetCheckoutPaymentSummary,
     });
 
     const confirmation = await buyCheckoutConfirmationLoader({
@@ -626,6 +634,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     } as never);
 
     expect(confirmation.paymentPath).toContain("/account/payments/pay_signed_in_1?postWriteToken=");
+    expect(mockGetCheckoutPaymentSummary).toHaveBeenCalledWith("pay_signed_in_1");
 
     let paymentRedirect: Response | null = null;
     try {

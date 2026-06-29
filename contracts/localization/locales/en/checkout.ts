@@ -92,6 +92,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
+  "checkout.features.sessions.api.route.payment.summary.not.found": "Payment summary not found.",
   "checkout.features.sessions.api.route.payment.quote.required":
     "Review the latest payable total before payment starts.",
   "checkout.features.sessions.api.route.payment.start.pending":

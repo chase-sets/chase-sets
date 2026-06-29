@@ -151,6 +151,21 @@
       ],
       "order": 22,
       "projectionHandlerSetNames": ["checkout.identity-seller-options-accounts-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "checkout.payment-summary-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "payments.payment-created",
+        "payments.payment-captured",
+        "payments.payment-failed",
+        "payments.payment-cancelled",
+        "payments.payment-refunded",
+        "payments.payment-disputed"
+      ],
+      "order": 25,
+      "projectionHandlerSetNames": ["checkout.payment-summary-projection"]
     }
   ],
   "projectionGroups": [
@@ -177,6 +192,13 @@
       "projectionName": "checkout.session-projection",
       "sourceContextNames": ["checkout"],
       "ownedTables": ["checkout_session_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "checkout.payment-summary-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["checkout_payment_summary_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
