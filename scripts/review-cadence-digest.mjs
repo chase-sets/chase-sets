@@ -48,7 +48,7 @@ export function buildCadenceDigest(comments, options = {}) {
 
   if (flagged) {
     lines.push(
-      "**Flagged.** The anti-ratchet cadence cap was exceeded. Per `docs/launch/checklist.md`, evidence rows belong in the checklist via PR and comprehensive reviews are capped at one per milestone per week.",
+      "**Flagged.** The anti-ratchet cadence cap was exceeded. Evidence rows belong in the owning GitHub milestone or release record, and comprehensive reviews are capped at one per milestone per week.",
       "",
     );
     for (const comment of [...reviewPasses, ...ledgerComments].slice(0, 20)) {

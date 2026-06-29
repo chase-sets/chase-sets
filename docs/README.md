@@ -18,7 +18,6 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ### Product and language
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
-- [Launch Checklist](./launch/checklist.md): single pre-public safety checklist for the Shopify-simple checkout.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
 
 ### Bounded contexts and structure
