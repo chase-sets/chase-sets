@@ -205,7 +205,7 @@ Build a Markdown dashboard from release-health artifacts with:
 pnpm run ops release-health:report --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
 ```
 
-The report classifies mixed artifact directories by `schemaVersion`: `release-health/v1` records drive release counts and queue SLOs, while Buy Now freshness probes, account-cart consistency probes, wake-drill artifacts, and Non-Buy-Now Chrome UAT evidence feed the Projection Freshness Evidence section. Probe artifacts in `artifacts/release-health` no longer count as release attempts. Add wake-drill artifacts with repeated `--file` flags when they live under `artifacts/wake-drills`, for example:
+The report classifies mixed artifact directories by `schemaVersion`: `release-health/v1` records drive release counts and queue SLOs, while Buy Now freshness probes, account-cart consistency probes, wake-drill artifacts, route-matrix wake evidence (`read-consistency-route-matrix-evidence/v1`), and Non-Buy-Now Chrome UAT evidence feed the Projection Freshness Evidence section. Probe artifacts in `artifacts/release-health` no longer count as release attempts. Add wake-drill or route-matrix artifacts with repeated `--file` flags when they live under `artifacts/wake-drills`, for example:
 
 ```powershell
 pnpm run ops release-health:report `
@@ -214,7 +214,7 @@ pnpm run ops release-health:report `
   --out .\artifacts\release-health\summary.md
 ```
 
-The freshness section reports only support-safe labels: environment, flow or route template, promotion decision, verdict, and segment summaries. It also summarizes the sustained freshness window across included timestamped evidence artifacts, the ready-latency p95 for Buy Now and wake-drill evidence, and the durable-convergence p95 for wake drills. The target window is 30 days; a shorter artifact span is reported as `short-window` so #2511 reviews can distinguish a green point-in-time drill from sustained evidence. It fails the posture when evidence contains raw URLs, account/cart/session/payment/payout/event identifiers, email addresses, cookies, tokens, or raw `afterWrite` values; fix the source artifact instead of copying private details into the report.
+The freshness section reports only support-safe labels: environment, flow or route template, promotion decision, verdict, and segment summaries. Route-matrix evidence expands one artifact into per-route rows for checkout, cart, Sell List, payout, payment, and listing route templates, plus a coverage row; it reports wake-before-wait p95/p99, timeout/error rates, missing receipt or target-context counts, fallback counts, and projection names without raw entity identifiers. It also summarizes the sustained freshness window across included timestamped evidence artifacts, the ready-latency p95 for Buy Now, wake-drill, and route-matrix evidence, and the durable-convergence p95 for wake drills. The target window is 30 days; a shorter artifact span is reported as `short-window` so #2511 reviews can distinguish a green point-in-time drill from sustained evidence. It fails the posture when evidence contains raw URLs, account/cart/session/payment/payout/event identifiers, email addresses, cookies, tokens, or raw `afterWrite` values; fix the source artifact instead of copying private details into the report.
 
 The report includes SLO posture for cautious merge-queue batch tuning. Initial thresholds are deliberately conservative:
 

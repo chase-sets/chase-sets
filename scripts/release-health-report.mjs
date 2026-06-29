@@ -11,11 +11,13 @@ const BUY_NOW_FRESHNESS_PROBE_PREFIX = "guest-buy-now-freshness-probe/";
 const WAKE_DRILL_VERSION = "staging-wake-drills/v1";
 const ACCOUNT_CART_PROBE_VERSION = "account-cart-consistency-probe/v1";
 const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
+const ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
 const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
 const FRESHNESS_EVIDENCE_SCHEMA_VERSIONS = new Set([
   WAKE_DRILL_VERSION,
   ACCOUNT_CART_PROBE_VERSION,
   NON_BUY_NOW_UAT_VERSION,
+  ROUTE_MATRIX_EVIDENCE_VERSION,
 ]);
 const SUPPORT_SAFE_EVIDENCE_PATTERNS = [
   { label: "email", pattern: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
@@ -42,6 +44,14 @@ const REQUIRED_NON_BUY_NOW_UAT_TELEMETRY = [
   "marketplace-listing-freshness-slo",
   "settlement-payout-errors",
   "projection-lag-poison-events",
+];
+const REQUIRED_ROUTE_MATRIX_ROUTES = [
+  { label: "checkout", routeTemplate: "/checkout/buy/session/:sessionid" },
+  { label: "cart", routeTemplate: "/account/cart" },
+  { label: "sell-list", routeTemplate: "/account/sell-list" },
+  { label: "payout", routeTemplate: "/account/payouts/:payoutid" },
+  { label: "payment", routeTemplate: "/account/payments/:paymentid" },
+  { label: "listing", routeTemplate: "/account/listings/:listingid" },
 ];
 
 export function parseReleaseHealthReportArgs(argv, env = process.env) {
@@ -148,6 +158,7 @@ export function buildReleaseHealthReport(input) {
     `- Wake-before-wait drill failures: ${summary.freshness.wakeDrillFailureCount}`,
     `- Account cart probe failures: ${summary.freshness.accountCartFailureCount}`,
     `- Non-Buy-Now UAT failures: ${summary.freshness.nonBuyNowUatFailureCount}`,
+    `- Route matrix failures: ${summary.freshness.routeMatrixFailureCount}`,
     `- Sustained-window target: ${FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS}d`,
     `- Sustained-window status: ${summary.freshness.sustainedWindow.status}`,
     `- Sustained-window artifact span: ${formatEvidenceWindow(summary.freshness.sustainedWindow)}`,
@@ -323,31 +334,39 @@ export function evaluateReleaseSloPosture(records, timing = summarizeTimings(rec
 function summarizeFreshnessEvidence(artifacts) {
   const rows = [];
 
-  for (const artifact of artifacts) {
+  for (const [artifactIndex, artifact] of artifacts.entries()) {
     const record = artifact.record ?? artifact;
     const redactionFailures = findSupportSafeEvidenceFailures(record);
-    const row = summarizeFreshnessArtifact(record);
-    rows.push({
-      ...row,
-      redactionFailures,
-      status: redactionFailures.length > 0 ? "fail" : row.status,
-      decision: redactionFailures.length > 0 ? "redaction-failed" : row.decision,
-    });
+    const artifactRows = toArray(summarizeFreshnessArtifact(record));
+    const evidenceKey = artifact.file ?? `artifact-${artifactIndex}`;
+    for (const row of artifactRows) {
+      rows.push({
+        ...row,
+        evidenceKey,
+        redactionFailures,
+        status: redactionFailures.length > 0 ? "fail" : row.status,
+        decision: redactionFailures.length > 0 ? "redaction-failed" : row.decision,
+      });
+    }
   }
 
-  const redactionFailureCount = rows.filter((row) => row.redactionFailures.length > 0).length;
+  const redactionFailureCount = new Set(
+    rows.filter((row) => row.redactionFailures.length > 0).map((row) => row.evidenceKey),
+  ).size;
   const buyNowAbortCount = rows.filter((row) => row.kind === "buy-now" && row.status === "fail").length;
   const wakeDrillFailureCount = rows.filter((row) => row.kind === "wake-drill" && row.status === "fail").length;
   const accountCartFailureCount = rows.filter((row) => row.kind === "account-cart" && row.status === "fail").length;
   const nonBuyNowUatFailureCount = rows.filter((row) => row.kind === "non-buy-now-uat" && row.status === "fail").length;
-  const artifactCount = rows.length;
+  const routeMatrixFailureCount = rows.filter((row) => row.kind === "route-matrix" && row.status === "fail").length;
+  const artifactCount = artifacts.length;
   const sustainedWindow = summarizeFreshnessSustainedWindow(rows);
   const failureCount =
     redactionFailureCount +
     buyNowAbortCount +
     wakeDrillFailureCount +
     accountCartFailureCount +
-    nonBuyNowUatFailureCount;
+    nonBuyNowUatFailureCount +
+    routeMatrixFailureCount;
 
   return {
     artifactCount,
@@ -357,6 +376,7 @@ function summarizeFreshnessEvidence(artifacts) {
     wakeDrillFailureCount,
     accountCartFailureCount,
     nonBuyNowUatFailureCount,
+    routeMatrixFailureCount,
     sustainedWindow,
     posture: artifactCount === 0 ? "not-provided" : failureCount === 0 ? "pass" : "fail",
     reason:
@@ -428,6 +448,9 @@ function summarizeFreshnessArtifact(record) {
       status: evaluation.failures.length === 0 ? "pass" : "fail",
     };
   }
+  if (record.schemaVersion === ROUTE_MATRIX_EVIDENCE_VERSION) {
+    return summarizeRouteMatrixEvidence(record);
+  }
 
   return {
     kind: "unknown",
@@ -442,7 +465,13 @@ function summarizeFreshnessArtifact(record) {
 }
 
 function summarizeFreshnessSustainedWindow(rows) {
-  const evidenceTimes = rows.map((row) => row.timestampMs).filter((time) => Number.isInteger(time));
+  const evidenceTimeByKey = new Map();
+  for (const row of rows) {
+    if (Number.isInteger(row.timestampMs) && !evidenceTimeByKey.has(row.evidenceKey)) {
+      evidenceTimeByKey.set(row.evidenceKey, row.timestampMs);
+    }
+  }
+  const evidenceTimes = [...evidenceTimeByKey.values()];
   const readyLatencySamples = rows.map((row) => row.readyLatencyMs).filter((value) => Number.isInteger(value));
   const durableConvergenceSamples = rows
     .map((row) => row.durableConvergenceMs)
@@ -507,6 +536,82 @@ function evaluateNonBuyNowUatEvidence(record) {
   return { coveredFlows, coveredTelemetry, failures };
 }
 
+function summarizeRouteMatrixEvidence(record) {
+  const routeMeasurements = Array.isArray(record.routes)
+    ? record.routes
+    : Array.isArray(record.routeMatrix)
+      ? record.routeMatrix
+      : [];
+  const rows = routeMeasurements.map((route) => summarizeRouteMatrixRoute(record, route));
+  const routeTemplates = new Set(rows.map((row) => row.normalizedRouteTemplate));
+  const missingRoutes = REQUIRED_ROUTE_MATRIX_ROUTES.filter((route) => !routeTemplates.has(route.routeTemplate));
+
+  return [
+    ...rows.map(({ normalizedRouteTemplate: _normalizedRouteTemplate, ...row }) => row),
+    {
+      kind: "route-matrix",
+      surface: "wake-route-matrix",
+      environment: normalizeEvidenceLabel(record.environment),
+      flowOrRoute: "coverage",
+      decision: missingRoutes.length === 0 ? "complete" : "incomplete",
+      segmentEvidence:
+        missingRoutes.length === 0
+          ? `${REQUIRED_ROUTE_MATRIX_ROUTES.length}/${REQUIRED_ROUTE_MATRIX_ROUTES.length} required routes`
+          : `${REQUIRED_ROUTE_MATRIX_ROUTES.length - missingRoutes.length}/${REQUIRED_ROUTE_MATRIX_ROUTES.length} required routes; missing ${missingRoutes.map((route) => route.label).join(",")}`,
+      timestampMs: freshnessEvidenceTimestampMs(record),
+      status: missingRoutes.length === 0 ? "pass" : "fail",
+    },
+  ];
+}
+
+function summarizeRouteMatrixRoute(record, route) {
+  const wake = route.wakeBeforeWait ?? route.wake ?? {};
+  const routeStatus = normalizeEvidenceLabel(wake.status ?? route.status ?? route.decision ?? route.verdict);
+  const p95Ms = nonNegativeIntegerOrNull(wake.p95Ms ?? wake.readyLatencyP95Ms ?? wake.readyLatencyMs?.p95);
+  const p99Ms = nonNegativeIntegerOrNull(wake.p99Ms ?? wake.readyLatencyP99Ms ?? wake.readyLatencyMs?.p99);
+  const timeoutRate = nonNegativeRateOrNull(wake.timeoutRate);
+  const errorRate = nonNegativeRateOrNull(wake.workSignalErrorRate ?? wake.errorRate);
+  const missingReceiptCount = nonNegativeInteger(wake.missingReceiptCount);
+  const missingTargetContextCount = nonNegativeInteger(wake.missingTargetContextCount);
+  const exactDependencyFallbackCount = nonNegativeInteger(wake.exactDependencyFallbackCount);
+  const status =
+    isPassingRouteMatrixStatus(routeStatus) &&
+    (timeoutRate ?? 0) === 0 &&
+    (errorRate ?? 0) === 0 &&
+    missingReceiptCount === 0 &&
+    missingTargetContextCount === 0 &&
+    exactDependencyFallbackCount === 0
+      ? "pass"
+      : "fail";
+
+  return {
+    kind: "route-matrix",
+    surface: "wake-route-matrix",
+    environment: normalizeEvidenceLabel(record.environment),
+    flowOrRoute: normalizeEvidenceLabel(route.routeTemplate),
+    normalizedRouteTemplate: normalizeEvidenceLabel(route.routeTemplate),
+    decision: routeStatus,
+    segmentEvidence: [
+      `wake ${routeStatus}`,
+      `p95 ${formatOptionalMs(p95Ms)}`,
+      `p99 ${formatOptionalMs(p99Ms)}`,
+      `timeout ${formatOptionalRate(timeoutRate)}`,
+      `errors ${formatOptionalRate(errorRate)}`,
+      `missing-receipt ${missingReceiptCount}`,
+      `missing-target ${missingTargetContextCount}`,
+      `fallback ${exactDependencyFallbackCount}`,
+      `projection ${normalizeEvidenceLabel(route.projectionName ?? route.projection ?? route.readModel)}`,
+    ].join("; "),
+    timestampMs: freshnessEvidenceTimestampMs(record),
+    readyLatencyMs: p95Ms,
+    status,
+  };
+}
+
+function isPassingRouteMatrixStatus(status) {
+  return ["fresh", "green", "ok", "pass", "promote", "within-slo"].includes(status);
+}
+
 function formatFreshnessEvidenceRows(freshness) {
   if (freshness.rows.length === 0) {
     return ["| none | unknown | unknown | not-provided | no evidence artifacts included | warn |"];
@@ -529,6 +634,10 @@ function formatBuyNowSegmentEvidence(record) {
     `doc-ready ${formatOptionalMs(segments.documentToReadyMs)}`,
     `failure ${normalizeEvidenceLabel(record.failureReason)}`,
   ].join("; ");
+}
+
+function toArray(value) {
+  return Array.isArray(value) ? value : [value];
 }
 
 function isFreshnessEvidenceRecord(record) {
@@ -766,6 +875,24 @@ function freshnessEvidenceTimestampMs(record) {
 
 function nonNegativeIntegerOrNull(value) {
   return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function nonNegativeRateOrNull(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const parsed = Number.parseFloat(trimmed.replace(/%$/, ""));
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return trimmed.endsWith("%") ? parsed / 100 : parsed;
+    }
+  }
+  return null;
+}
+
+function formatOptionalRate(value) {
+  return value === null ? "unknown" : formatPercent(value);
 }
 
 function normalizeEvidenceLabel(value) {
