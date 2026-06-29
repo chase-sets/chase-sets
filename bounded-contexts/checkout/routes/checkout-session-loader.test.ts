@@ -374,16 +374,8 @@ describe("checkout web routes: checkout session loader", () => {
         },
       ],
     });
-    mockPreviewCheckoutStatus.mockResolvedValue({
-      amount: "26.00",
-      marketplace_checkout_fee: { total_amount: "27.10" },
-      wallet_credit: { applied_amount: "0.00" },
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
-    });
-    mockCreatePaymentsRequestApiClient.mockReturnValue({
-      previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
 
     const result = await checkoutSessionLoader({
@@ -392,17 +384,18 @@ describe("checkout web routes: checkout session loader", () => {
       context: undefined,
     } as never);
 
-    expect(mockPreviewCheckoutStatus).toHaveBeenCalledWith({
-      amount: "26.00",
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
-    expect(result.paymentPreview).toEqual({
-      amount: "26.00",
-      marketplace_checkout_fee: { total_amount: "27.10" },
-      wallet_credit: { applied_amount: "0.00" },
-    });
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(result.paymentPreview).toEqual(
+      expect.objectContaining({
+        amount: "26.00",
+        marketplace_checkout_fee: expect.objectContaining({
+          total_amount: "27.09",
+          quote_fingerprint: "marketplace-checkout-fee-v1|card|26.00|0.00|26.00|1.09|27.09|27.09",
+        }),
+        wallet_credit: expect.objectContaining({ applied_amount: "0.00" }),
+      }),
+    );
   });
 
   it("keeps the Payments fee quote fingerprint after payment-start commits orders and refreshes checkout", async () => {
@@ -436,6 +429,15 @@ describe("checkout web routes: checkout session loader", () => {
       },
       optimization_goal: "lowest-total",
       fulfillment_preview_revision: "lowest-total#rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        totals: {
+          itemSubtotalAmount: "31.99",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 1,
+        },
+      }),
       order_ids: ["ord_checkout_1"],
       order_write_commit_positions: [
         {
@@ -516,12 +518,7 @@ describe("checkout web routes: checkout session loader", () => {
       context: undefined,
     } as never);
 
-    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
-      orderIds: ["ord_checkout_1"],
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
@@ -560,6 +557,15 @@ describe("checkout web routes: checkout session loader", () => {
       },
       optimization_goal: "lowest-total",
       fulfillment_preview_revision: "lowest-total#rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        totals: {
+          itemSubtotalAmount: "31.99",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 1,
+        },
+      }),
       order_ids: ["ord_checkout_1"],
       order_write_commit_positions: [
         {
@@ -630,16 +636,8 @@ describe("checkout web routes: checkout session loader", () => {
       context: undefined,
     } as never);
 
-    const paymentStatusRequest = mockCreatePaymentsRequestApiClient.mock.calls
-      .map((call) => call[0] as Request)
-      .find((request) => readFreshWriteToken(request)?.sources[0]?.sourceContextName === "ordering");
-    expect(readFreshWriteToken(paymentStatusRequest!)?.sources).toEqual([
-      {
-        sourceContextName: "ordering",
-        maxGlobalPosition: "42",
-        eventIds: ["evt_order_created"],
-      },
-    ]);
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
@@ -677,6 +675,15 @@ describe("checkout web routes: checkout session loader", () => {
       },
       optimization_goal: "lowest-total",
       fulfillment_preview_revision: "lowest-total#rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        totals: {
+          itemSubtotalAmount: "31.99",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 1,
+        },
+      }),
       order_ids: ["ord_checkout_1"],
       order_write_commit_positions: [
         {
@@ -720,31 +727,20 @@ describe("checkout web routes: checkout session loader", () => {
       listSavedCheckoutInstruments: vi.fn(async () => ({ items: [] })),
     });
 
-    let recoveryResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request(
-          "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
-        ),
-        params: { sessionId: "chk_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      recoveryResponse = error as Response;
-    }
+    const result = await checkoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+      ),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
 
-    expect(recoveryResponse?.status).toBe(202);
-    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
-    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
-      recoveryKind?: string;
-      primaryAction?: { href?: string; label?: string };
-      trustCue?: string;
-    };
-    expect(recoveryBody.recoveryKind).toBe("refreshable-catching-up");
-    expect(recoveryBody.primaryAction?.href).toBe(
-      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&resumePaymentStart=1",
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(result.autoResumePaymentStart).toBe(true);
   });
 
   it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
@@ -778,6 +774,15 @@ describe("checkout web routes: checkout session loader", () => {
       },
       optimization_goal: "lowest-total",
       fulfillment_preview_revision: "lowest-total#rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        totals: {
+          itemSubtotalAmount: "31.99",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 1,
+        },
+      }),
       order_ids: ["ord_checkout_1"],
       order_write_commit_positions: [
         {
@@ -820,37 +825,18 @@ describe("checkout web routes: checkout session loader", () => {
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
 
-    let recoveryResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated"),
-        params: { sessionId: "chk_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      recoveryResponse = error as Response;
-    }
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
 
-    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
-      orderIds: ["ord_checkout_1"],
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
-    expect(recoveryResponse?.status).toBe(202);
-    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
-    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
-      recoveryKind?: string;
-      primaryAction?: { href?: string; label?: string };
-      trustCue?: string;
-    };
-    expect(recoveryBody.recoveryKind).toBe("stale-projection");
-    expect(recoveryBody.primaryAction?.href).toBe(
-      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
-    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(result.autoResumePaymentStart).toBe(false);
   });
 
   it("keeps post-order payment-start recovery safe when the compact post-write token expires", async () => {
@@ -884,6 +870,15 @@ describe("checkout web routes: checkout session loader", () => {
       },
       optimization_goal: "lowest-total",
       fulfillment_preview_revision: "lowest-total#rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        totals: {
+          itemSubtotalAmount: "31.99",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 1,
+        },
+      }),
       order_ids: ["ord_checkout_1"],
       order_write_commit_positions: [
         {
@@ -926,39 +921,20 @@ describe("checkout web routes: checkout session loader", () => {
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
 
-    let recoveryResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request(
-          "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=pwt_expiredMissing1",
-        ),
-        params: { sessionId: "chk_1" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      recoveryResponse = error as Response;
-    }
+    const result = await checkoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=pwt_expiredMissing1",
+      ),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
 
     expect(mockGetCheckoutSession).toHaveBeenCalled();
-    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
-      orderIds: ["ord_checkout_1"],
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
-    expect(recoveryResponse?.status).toBe(202);
-    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
-    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
-      recoveryKind?: string;
-      primaryAction?: { href?: string; label?: string };
-      trustCue?: string;
-    };
-    expect(recoveryBody.recoveryKind).toBe("stale-projection");
-    expect(recoveryBody.primaryAction?.href).toBe(
-      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&postWriteToken=pwt_expiredMissing1",
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
+      "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
-    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
   });
 
   it("loads Auth-owned guest checkout contact as checkout defaults", async () => {

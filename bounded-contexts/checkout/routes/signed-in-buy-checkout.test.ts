@@ -180,6 +180,22 @@ function signedInBuyNowCommittedOrderSession(paymentId: string | null = null) {
     },
     optimization_goal: "lowest-total",
     fulfillment_preview_revision: "fulfillment_rev_1",
+    fulfillment_preview_snapshot: {
+      revision: "fulfillment_rev_1",
+      optimizationGoal: "lowest-total",
+      readyLineKeys: ["cart_line_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "25.99",
+        shippingAmount: "0.20",
+        salesTaxAmount: "0.00",
+        totalAmount: "26.19",
+        packageCount: 1,
+      },
+    },
     order_ids: ["ord_signed_in_1"],
     order_write_commit_positions: [
       {
@@ -365,12 +381,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
 
     expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_signed_in");
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
-    expect(mockPreviewCheckoutStatus).toHaveBeenCalledWith({
-      amount: "26.19",
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "0.00",
-      paymentMethodCategory: "card",
-    });
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(mockListCheckoutSavedPaymentInstruments).toHaveBeenCalled();
     expect(mockListSavedCheckoutInstruments).not.toHaveBeenCalled();
     expect(checkoutReview).toEqual(
@@ -394,7 +405,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
         ],
         paymentPreview: expect.objectContaining({
           marketplace_checkout_fee: expect.objectContaining({
-            quote_fingerprint: "quote_card_1",
+            quote_fingerprint: "marketplace-checkout-fee-v1|card|26.19|0.00|26.19|1.10|27.29|27.29",
           }),
         }),
       }),
@@ -556,43 +567,20 @@ describe("checkout web routes: signed-in buy checkout", () => {
 
     const resumeUrl =
       "http://localhost/checkout/buy/session/chk_signed_in?paymentMethodCategory=card&review=updated&resumePaymentStart=1";
-    let recoveryResponse: Response | null = null;
-    try {
-      await checkoutSessionLoader({
-        request: new Request(resumeUrl),
-        params: { sessionId: "chk_signed_in" },
-        context: undefined,
-      } as never);
-    } catch (error) {
-      recoveryResponse = error as Response;
-    }
-
-    expect(recoveryResponse?.status).toBe(202);
-    expect((await recoveryResponse?.json())?.recoveryKind).toBe("refreshable-catching-up");
-
     const recoveredReview = await checkoutSessionLoader({
       request: new Request(resumeUrl),
       params: { sessionId: "chk_signed_in" },
       context: undefined,
     } as never);
-    const paymentStatusRequest = mockCreatePaymentsRequestApiClient.mock.calls
-      .map((call) => call[0] as Request)
-      .find((request) => readFreshWriteToken(request)?.sources[0]?.sourceContextName === "ordering");
-
-    expect(readFreshWriteToken(paymentStatusRequest!)?.sources).toEqual([
-      {
-        sourceContextName: "ordering",
-        maxGlobalPosition: "42",
-        eventIds: ["evt_order_created"],
-      },
-    ]);
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(recoveredReview).toEqual(
       expect.objectContaining({
         autoResumePaymentStart: true,
         isSignedInBuyer: true,
         paymentPreview: expect.objectContaining({
           marketplace_checkout_fee: expect.objectContaining({
-            quote_fingerprint: "quote_card_1",
+            quote_fingerprint: "marketplace-checkout-fee-v1|card|26.19|0.00|26.19|1.10|27.29|27.29",
           }),
         }),
       }),
