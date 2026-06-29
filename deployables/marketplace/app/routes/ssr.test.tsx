@@ -450,46 +450,36 @@ describe("marketplace SSR routes", () => {
     ).not.toContain("Sitemap:");
   });
 
-  it("does not expose resource routes before production proof access is authenticated", async () => {
-    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
+  it("serves public resource routes without an extra launch gate", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        Promise.resolve(new Response(JSON.stringify({ error: "Authentication required." }), { status: 401 })),
-      ),
+      vi.fn(() => Promise.resolve(Response.json({ items: [] }))),
     );
 
-    for (const loadResource of [
-      () =>
-        robotsLoader({
-          request: new Request("https://marketplace.chasesets.com/robots.txt"),
-          params: {},
-          context: undefined,
-        } as never),
-      () =>
-        sitemapLoader({
-          request: new Request("https://marketplace.chasesets.com/sitemap.xml"),
-          params: {},
-          context: undefined,
-        } as never),
-      () =>
-        chromeDevtoolsLoader({
-          request: new Request("https://marketplace.chasesets.com/.well-known/appspecific/com.chrome.devtools.json"),
-          params: {},
-          context: undefined,
-        } as never),
-    ]) {
-      let thrown: unknown;
-      try {
-        await loadResource();
-      } catch (error) {
-        thrown = error;
-      }
+    const responses = await Promise.all(
+      [
+        () =>
+          robotsLoader({
+            request: new Request("https://marketplace.chasesets.com/robots.txt"),
+            params: {},
+            context: undefined,
+          } as never),
+        () =>
+          sitemapLoader({
+            request: new Request("https://marketplace.chasesets.com/sitemap.xml"),
+            params: {},
+            context: undefined,
+          } as never),
+        () =>
+          chromeDevtoolsLoader({
+            request: new Request("https://marketplace.chasesets.com/.well-known/appspecific/com.chrome.devtools.json"),
+            params: {},
+            context: undefined,
+          } as never),
+      ].map((loadResource) => loadResource()),
+    );
 
-      expect(thrown).toBeInstanceOf(Response);
-      expect((thrown as Response).status).toBe(302);
-      expect((thrown as Response).headers.get("Location")).toMatch(/^\/sign-in\?returnTo=/);
-    }
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 204]);
   });
 
   it("returns sign-in route SEO metadata", () => {

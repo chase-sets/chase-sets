@@ -198,29 +198,7 @@ describe("marketplace root layout", () => {
     ).toBe(405);
   });
 
-  it("redirects anonymous production proof marketplace requests to sign-in", async () => {
-    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(new Response(JSON.stringify({ error: "Authentication required." }), { status: 401 })),
-      ),
-    );
-
-    let thrown: unknown;
-    try {
-      await loader(createLoaderArgs("https://marketplace.chasesets.com/search?q=charizard"));
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Response);
-    expect((thrown as Response).status).toBe(302);
-    expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Fsearch%3Fq%3Dcharizard");
-  });
-
-  it("allows proof sign-in and guest checkout exit routes to render before an actor exists", async () => {
-    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
+  it("keeps public marketplace pages reachable without an extra launch gate", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -229,15 +207,11 @@ describe("marketplace root layout", () => {
     );
 
     const data = unwrapLoaderData(
-      await loader(createLoaderArgs("https://marketplace.chasesets.com/sign-in?returnTo=%2F")),
-    );
-    const guestExitData = unwrapLoaderData(
-      await loader(createLoaderArgs("https://marketplace.chasesets.com/guest-checkout/exit")),
+      await loader(createLoaderArgs("https://marketplace.chasesets.com/search?q=charizard")),
     );
 
     expect(data.actor).toBeNull();
     expect(data.origin).toBe("https://marketplace.chasesets.com");
-    expect(guestExitData.actor).toBeNull();
   });
 
   it("does not request account display data for guest checkout actors", async () => {
@@ -369,56 +343,5 @@ describe("marketplace root layout", () => {
     expect(data.actor).toBeNull();
     expect(data.colorMode).toBe("system");
     expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
-  });
-
-  it("does not expose sitemap routes before proof access is authenticated", async () => {
-    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(new Response(JSON.stringify({ error: "Authentication required." }), { status: 401 })),
-      ),
-    );
-
-    let thrown: unknown;
-    try {
-      await loader(createLoaderArgs("https://marketplace.chasesets.com/sitemap.xml"));
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Response);
-    expect((thrown as Response).status).toBe(302);
-    expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Fsitemap.xml");
-  });
-
-  it("requires the proof access permission for signed-in production proof actors", async () => {
-    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          Response.json({
-            actor: {
-              userId: "usr_1",
-              accountId: "acc_1",
-              tenantId: "acc_1",
-              sessionId: "ses_1",
-              permissions: ["accounts.view"],
-            },
-          }),
-        ),
-      ),
-    );
-
-    let thrown: unknown;
-    try {
-      await loader(createLoaderArgs("https://marketplace.chasesets.com/search"));
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Response);
-    expect((thrown as Response).status).toBe(403);
   });
 });

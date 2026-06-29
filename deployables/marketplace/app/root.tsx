@@ -16,7 +16,6 @@ import {
 } from "react-router";
 import { buildCanonicalUrl, shouldIndexMarketplace } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
-import { requireMarketplaceProofAccess } from "./proof-access.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
 import {
   ChaseRoot,
@@ -173,8 +172,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const { registerMarketplacePostWriteConsistencyRecorder } = await import("./observability.server");
   registerMarketplacePostWriteConsistencyRecorder();
 
-  const proofAccessActor = await requireMarketplaceProofAccess(request);
-  const actor = proofAccessActor ?? (await resolveMarketplaceActor(request));
+  const actor = await resolveMarketplaceActor(request);
   const [actorDisplay, cartCount, rootTheme] = await Promise.all([
     resolveCurrentActorDisplay(request, actor),
     resolveCartCount(request, actor),
