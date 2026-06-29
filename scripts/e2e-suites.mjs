@@ -62,6 +62,13 @@ export const e2eSuites = Object.freeze([
     journeys: ["projection operations"],
     grep: "@admin-platform",
   },
+  {
+    id: "admin_access",
+    label: "Admin Access",
+    deployable: "admin-web",
+    journeys: ["invitation lifecycle"],
+    grep: "@admin-access",
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -92,7 +99,7 @@ const contextSuiteOwnership = new Map([
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
   ["fulfillment", ["marketplace_account"]],
-  ["identity", ["marketplace_account"]],
+  ["identity", ["marketplace_account", "admin_access"]],
   ["inventory", ["marketplace_seller"]],
   ["marketplace", ["marketplace_account", "marketplace_seller"]],
   ["notifications", ["marketplace_account"]],
@@ -143,6 +150,14 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/identity\/routes\/admin\/invitations/,
+    suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/features\/invitations\/(?:api|ui)\//,
+    suites: ["admin_access"],
+  },
   {
     pattern: /^bounded-contexts\/ordering\/routes\/admin\/postage-policies/,
     suites: ["admin_commerce"],
