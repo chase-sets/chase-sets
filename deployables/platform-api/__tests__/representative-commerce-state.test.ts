@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertRepresentativeCommerceStateRunAllowed,
   selectChromeUatRepresentativePersona,
+  selectPendingPaymentSaleRepresentativePersona,
 } from "../src/representative-commerce-state";
 
 describe("representative commerce state refresh guardrails", () => {
@@ -49,6 +50,93 @@ describe("representative commerce state refresh guardrails", () => {
         localOverride: "true",
       }),
     ).not.toThrow();
+  });
+});
+
+describe("representative pending-payment sale selector", () => {
+  it("selects a magic-link-ready seller with pending-payment sales without requiring payout readiness", async () => {
+    const selection = await selectPendingPaymentSaleRepresentativePersona(
+      pendingPaymentSaleSelectorServices({
+        aliasesWithPendingPaymentSales: new Map([
+          [
+            "card-vault",
+            {
+              pendingPaymentSaleCount: 2,
+              pendingPaymentOfferAcceptanceSaleCount: 1,
+            },
+          ],
+        ]),
+      }),
+    );
+
+    expect(selection).toEqual({
+      schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1",
+      status: "ready",
+      selectedPersonaAlias: "card-vault",
+      checkedPersonaCount: 2,
+      evidencePolicy: "support-safe",
+      sellerSalesPath: "/account/sales",
+      selectedSaleRouteTemplate: "/account/sales/:orderId",
+      nextOperatorAction: "use-selected-private-login-open-sales-and-record-redacted-pending-payment-uat",
+      personas: [
+        {
+          personaAlias: "card-vault",
+          chromeLogin: "magic-link-ready",
+          pendingPaymentSaleCount: 2,
+          pendingPaymentOfferAcceptanceSaleCount: 1,
+        },
+        {
+          personaAlias: "sealed-stockroom",
+          chromeLogin: "magic-link-ready",
+          pendingPaymentSaleCount: 0,
+          pendingPaymentOfferAcceptanceSaleCount: 0,
+        },
+      ],
+    });
+
+    const serialized = JSON.stringify(selection);
+    expect(serialized).not.toContain("acc_repr_");
+    expect(serialized).not.toContain("usr_repr_");
+    expect(serialized).not.toContain("ord_");
+    expect(serialized).not.toContain("@");
+  });
+
+  it("keeps the pending-payment selector unavailable when login or sale state is missing", async () => {
+    const selection = await selectPendingPaymentSaleRepresentativePersona(
+      pendingPaymentSaleSelectorServices({
+        aliasesWithPendingPaymentSales: new Map([
+          [
+            "card-vault",
+            {
+              pendingPaymentSaleCount: 1,
+              pendingPaymentOfferAcceptanceSaleCount: 1,
+            },
+          ],
+        ]),
+        loginReadyAliases: new Set(["sealed-stockroom"]),
+      }),
+    );
+
+    expect(selection).toMatchObject({
+      status: "not-available",
+      selectedPersonaAlias: null,
+      selectedSaleRouteTemplate: null,
+      nextOperatorAction: "refresh-representative-state-and-rerun-selector",
+    });
+    expect(selection.personas).toEqual([
+      {
+        personaAlias: "card-vault",
+        chromeLogin: "not-ready",
+        pendingPaymentSaleCount: 1,
+        pendingPaymentOfferAcceptanceSaleCount: 1,
+      },
+      {
+        personaAlias: "sealed-stockroom",
+        chromeLogin: "magic-link-ready",
+        pendingPaymentSaleCount: 0,
+        pendingPaymentOfferAcceptanceSaleCount: 0,
+      },
+    ]);
   });
 });
 
@@ -254,11 +342,62 @@ function selectorServices(
   };
 }
 
+function pendingPaymentSaleSelectorServices(
+  options: Readonly<{
+    aliasesWithPendingPaymentSales: ReadonlyMap<
+      string,
+      Readonly<{ pendingPaymentSaleCount: number; pendingPaymentOfferAcceptanceSaleCount: number }>
+    >;
+    loginReadyAliases?: ReadonlySet<string>;
+  }>,
+): Parameters<typeof selectPendingPaymentSaleRepresentativePersona>[0] {
+  const loginReadyAliases = options.loginReadyAliases ?? new Set(["card-vault", "sealed-stockroom"]);
+
+  return {
+    identityDb: {
+      query: async <Row>(_sql: string, params?: readonly unknown[]) => {
+        const alias = personaAliasForUser(String(params?.[1] ?? ""));
+        const ready = loginReadyAliases.has(alias);
+
+        return {
+          rows: [{ account_ready: ready, membership_ready: ready, magic_link_ready: ready }] as Row[],
+        };
+      },
+    },
+    orderingDb: {
+      query: async <Row>(_sql: string, params?: readonly unknown[]) => {
+        const alias = personaAliasForAccount(String(params?.[0] ?? ""));
+        const sale = options.aliasesWithPendingPaymentSales.get(alias);
+
+        return {
+          rows: [
+            {
+              pending_payment_sale_count: sale?.pendingPaymentSaleCount ?? 0,
+              pending_payment_offer_acceptance_sale_count: sale?.pendingPaymentOfferAcceptanceSaleCount ?? 0,
+            },
+          ] as Row[],
+        };
+      },
+    },
+  };
+}
+
 function personaAliasForAccount(accountId: string): string {
   if (accountId.includes("card_vault")) {
     return "card-vault";
   }
   if (accountId.includes("sealed_stockroom")) {
+    return "sealed-stockroom";
+  }
+
+  return "unknown";
+}
+
+function personaAliasForUser(userId: string): string {
+  if (userId.includes("card_vault")) {
+    return "card-vault";
+  }
+  if (userId.includes("sealed_stockroom")) {
     return "sealed-stockroom";
   }
 

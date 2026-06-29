@@ -23,7 +23,18 @@ For local or non-standard non-production environments, set `REPRESENTATIVE_COMME
 
 Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command asks Catalog to resolve product measurements for the bounded current item window, skipping Catalog Items that already have resolved product measurement snapshots, selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff, and asks Discovery to reconcile the selected representative account/listing/offer facts for visible product/search market presentation without replaying the full Marketplace event backlog. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`; Catalog measurement preparation uses a larger bounded timeout because it may need to resolve newly imported items after a provider pull.
 
-The completion payload also includes `chromeUatSelector`, a support-safe selector for the remaining projection freshness Chrome UAT. It evaluates the representative selling persona aliases `card-vault` and `sealed-stockroom` without printing account ids, user ids, emails, provider references, inventory ids, listing ids, item details, compact tokens, or URLs. Use only these selector fields in public issue or PR evidence:
+The completion payload also includes `chromeUatSelector`, a support-safe selector for the remaining projection freshness Chrome UAT, and `pendingPaymentSaleSelector`, a support-safe selector for pending-payment seller-surface QA. Both evaluate the representative selling persona aliases `card-vault` and `sealed-stockroom` without printing account ids, user ids, emails, provider references, inventory ids, listing ids, order ids, item details, compact tokens, or URLs. Use only these selector fields in public issue or PR evidence.
+
+For `pendingPaymentSaleSelector`:
+
+- `status`: `ready` means one magic-link-ready seller persona has at least one pending-payment sale visible through normal seller navigation; `not-available` means rerun the representative state workflow after checking projection catch-up.
+- `selectedPersonaAlias`: the alias to use from private operator credential tooling when `status=ready`.
+- `sellerSalesPath`: the normal seller navigation target `/account/sales`.
+- `selectedSaleRouteTemplate`: the route shape `/account/sales/:orderId`; do not publish the concrete order id in public evidence.
+- `personas[].chromeLogin`, `pendingPaymentSaleCount`, and `pendingPaymentOfferAcceptanceSaleCount`: support-safe readiness counts only.
+- `nextOperatorAction`: when ready, sign in with the selected private persona and record redacted UI-only evidence that pending-payment sales cannot be packed, labeled, dispatched, released, or paid out.
+
+For `chromeUatSelector`:
 
 - `status`: `ready` means one persona can be used for Chrome UAT; `operator-action-required` means staging still needs private payout setup or representative state refresh.
 - `selectedPersonaAlias`: the alias to use from private operator credential tooling when `status=ready`.
@@ -33,7 +44,7 @@ The completion payload also includes `chromeUatSelector`, a support-safe selecto
 - `personas[].listingState`, `activeListingCount`, `mutableListingCount`, and `inventoryItemCount`: whether the alias owns mutable representative listing and inventory state.
 - `personas[].blockerCategories`: support-safe missing-state categories such as `payout-not-ready` or `owned-active-listing-missing`.
 
-If `status=operator-action-required`, do not treat sandbox provider verification as Chrome UAT evidence. Complete the private operator action named by `nextOperatorAction`, then rerun this workflow. When `nextOperatorAction=complete-private-payout-setup-for-recommended-persona`, use `recommendedOperatorActionPersonaAlias` with private operator credential tooling, open that account's staging `/account/payouts/setup` flow, finish provider-managed embedded payout setup until Settlement records `onboarding_status=complete`, `payout_capability_status=active`, and `payout_destination_status=ready`, then rerun the workflow. When `nextOperatorAction=refresh-representative-state-and-rerun-selector`, rerun the representative commerce state workflow after confirming current Catalog candidates and projection catch-up. Do not publish the underlying login email, account id, provider account reference, payout id, listing id, inventory id, or item detail used to satisfy the selector.
+If `chromeUatSelector.status=operator-action-required`, do not treat sandbox provider verification as Chrome UAT evidence. Complete the private operator action named by `nextOperatorAction`, then rerun this workflow. When `nextOperatorAction=complete-private-payout-setup-for-recommended-persona`, use `recommendedOperatorActionPersonaAlias` with private operator credential tooling, open that account's staging `/account/payouts/setup` flow, finish provider-managed embedded payout setup until Settlement records `onboarding_status=complete`, `payout_capability_status=active`, and `payout_destination_status=ready`, then rerun the workflow. When `nextOperatorAction=refresh-representative-state-and-rerun-selector`, rerun the representative commerce state workflow after confirming current Catalog candidates and projection catch-up. Do not publish the underlying login email, account id, provider account reference, payout id, listing id, inventory id, concrete order id, or item detail used to satisfy either selector. `pendingPaymentSaleSelector` intentionally does not require payout readiness because pending-payment seller QA proves fulfillment and payout actions stay unavailable before buyer payment completes.
 
 ## Expected Data
 
@@ -77,5 +88,6 @@ After the command runs:
 3. Confirm at least one purchasing account has purchases, payments, shipments, reviews, notifications, and support requests.
 4. Confirm at least one selling account has listings, offer matches, sales, shipments, wallet activity, payouts, reviews, and support requests.
 5. Confirm the command emitted `representative-commerce-state.complete`; if a step timeout occurs, inspect the named projection backlog before retrying.
-6. Confirm `chromeUatSelector.status=ready` before using representative state as the source for payout-ready return or listing-freshness Chrome UAT. If it is not ready, follow the support-safe blocker categories instead of guessing at a private account.
-7. Run staging smoke checks before promoting the release.
+6. Confirm `pendingPaymentSaleSelector.status=ready` before using representative state as the source for pending-payment seller-surface QA. If it is not ready, rerun the representative state workflow after checking the Ordering/Inventory reservation projection backlog.
+7. Confirm `chromeUatSelector.status=ready` before using representative state as the source for payout-ready return or listing-freshness Chrome UAT. If it is not ready, follow the support-safe blocker categories instead of guessing at a private account.
+8. Run staging smoke checks before promoting the release.

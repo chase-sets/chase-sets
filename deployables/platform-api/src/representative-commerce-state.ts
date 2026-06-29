@@ -81,6 +81,25 @@ export type ChromeUatRepresentativePersonaSelection = Readonly<{
     | "refresh-representative-state-and-rerun-selector";
 }>;
 
+export type PendingPaymentSaleRepresentativeSelection = Readonly<{
+  schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1";
+  status: "ready" | "not-available";
+  selectedPersonaAlias: ChromeUatPersonaAlias | null;
+  checkedPersonaCount: number;
+  personas: readonly Readonly<{
+    personaAlias: ChromeUatPersonaAlias;
+    chromeLogin: "magic-link-ready" | "not-ready";
+    pendingPaymentSaleCount: number;
+    pendingPaymentOfferAcceptanceSaleCount: number;
+  }>[];
+  evidencePolicy: "support-safe";
+  sellerSalesPath: "/account/sales";
+  selectedSaleRouteTemplate: "/account/sales/:orderId" | null;
+  nextOperatorAction:
+    | "use-selected-private-login-open-sales-and-record-redacted-pending-payment-uat"
+    | "refresh-representative-state-and-rerun-selector";
+}>;
+
 const chromeUatPersonaCandidates: readonly ChromeUatPersonaCandidate[] = [
   {
     alias: "card-vault",
@@ -219,6 +238,8 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-order-reservation-workflow");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-reservation-outcomes");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
     const orderingSupplyState = await runRepresentativeStep("reconcile representative ordering supply state", () =>
       reconcileRepresentativeOrderingSupplyState(
@@ -254,6 +275,12 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         settlementDb: getSettlementDb(runtime.services),
       }),
     );
+    const pendingPaymentSaleSelector = await runRepresentativeStep("select support-safe pending-payment sale", () =>
+      selectPendingPaymentSaleRepresentativePersona({
+        identityDb: getIdentityDb(runtime.services),
+        orderingDb: getOrderingDb(runtime.services),
+      }),
+    );
 
     console.log(
       JSON.stringify({
@@ -277,6 +304,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         representativeOrderingSupplyState: orderingSupplyState,
         representativeDiscoveryMarketState: discoveryMarketState,
         chromeUatSelector,
+        pendingPaymentSaleSelector,
         contexts: runtime.mountedContexts.map((context) => context.contextName),
       }),
     );
@@ -533,6 +561,35 @@ export async function selectChromeUatRepresentativePersona(
   };
 }
 
+export async function selectPendingPaymentSaleRepresentativePersona(
+  services: Readonly<{
+    identityDb: Pick<PgQueryable, "query">;
+    orderingDb: Pick<PgQueryable, "query">;
+  }>,
+  candidates: readonly ChromeUatPersonaCandidate[] = chromeUatPersonaCandidates,
+): Promise<PendingPaymentSaleRepresentativeSelection> {
+  const personas = await Promise.all(
+    candidates.map((candidate) => evaluatePendingPaymentSalePersona(services, candidate)),
+  );
+  const selectedPersona =
+    personas.find((persona) => persona.chromeLogin === "magic-link-ready" && persona.pendingPaymentSaleCount > 0) ??
+    null;
+
+  return {
+    schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1",
+    status: selectedPersona ? "ready" : "not-available",
+    selectedPersonaAlias: selectedPersona?.personaAlias ?? null,
+    checkedPersonaCount: personas.length,
+    personas,
+    evidencePolicy: "support-safe",
+    sellerSalesPath: "/account/sales",
+    selectedSaleRouteTemplate: selectedPersona ? "/account/sales/:orderId" : null,
+    nextOperatorAction: selectedPersona
+      ? "use-selected-private-login-open-sales-and-record-redacted-pending-payment-uat"
+      : "refresh-representative-state-and-rerun-selector",
+  };
+}
+
 async function evaluateChromeUatPersona(
   services: Parameters<typeof selectChromeUatRepresentativePersona>[0],
   candidate: ChromeUatPersonaCandidate,
@@ -579,6 +636,23 @@ async function evaluateChromeUatPersona(
 
 function hasOnlyPayoutBlocker(persona: ChromeUatPersonaReadiness): boolean {
   return persona.blockerCategories.length === 1 && persona.blockerCategories[0] === "payout-not-ready";
+}
+
+async function evaluatePendingPaymentSalePersona(
+  services: Parameters<typeof selectPendingPaymentSaleRepresentativePersona>[0],
+  candidate: ChromeUatPersonaCandidate,
+): Promise<PendingPaymentSaleRepresentativeSelection["personas"][number]> {
+  const [login, sale] = await Promise.all([
+    readChromeLoginPosture(services.identityDb, candidate),
+    readPendingPaymentSalePosture(services.orderingDb, candidate.accountId),
+  ]);
+
+  return {
+    personaAlias: candidate.alias,
+    chromeLogin: login.magicLinkReady ? "magic-link-ready" : "not-ready",
+    pendingPaymentSaleCount: sale.pendingPaymentSaleCount,
+    pendingPaymentOfferAcceptanceSaleCount: sale.pendingPaymentOfferAcceptanceSaleCount,
+  };
 }
 
 async function readChromeLoginPosture(
@@ -651,6 +725,30 @@ async function readPayoutReadinessPosture(
       row.payout_capability_status === "active" &&
       row.payout_destination_status === "ready",
     ),
+  };
+}
+
+async function readPendingPaymentSalePosture(
+  db: Pick<PgQueryable, "query">,
+  sellerAccountId: string,
+): Promise<Readonly<{ pendingPaymentSaleCount: number; pendingPaymentOfferAcceptanceSaleCount: number }>> {
+  const result = await db.query<{
+    pending_payment_sale_count: number | string | null;
+    pending_payment_offer_acceptance_sale_count: number | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'pending-payment')::int AS pending_payment_sale_count,
+       COUNT(*) FILTER (WHERE status = 'pending-payment' AND source_type = 'offer-acceptance')::int
+         AS pending_payment_offer_acceptance_sale_count
+     FROM ordering_order_pages
+     WHERE seller_account_id = $1`,
+    [sellerAccountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    pendingPaymentSaleCount: normalizeCount(row?.pending_payment_sale_count),
+    pendingPaymentOfferAcceptanceSaleCount: normalizeCount(row?.pending_payment_offer_acceptance_sale_count),
   };
 }
 
