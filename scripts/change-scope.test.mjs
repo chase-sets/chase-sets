@@ -349,6 +349,7 @@ describe("change-scope", () => {
       "marketplace_checkout",
       "marketplace_seller",
       "catalog_admin_integrations",
+      "catalog_admin_modeling",
       "admin_growth",
       "admin_commerce",
       "admin_support",
@@ -441,9 +442,10 @@ describe("change-scope", () => {
     expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
-      "catalog_admin_integrations,admin_growth",
-      "admin_commerce,admin_support",
-      "admin_platform,admin_access",
+      "catalog_admin_integrations,catalog_admin_modeling",
+      "admin_growth,admin_commerce",
+      "admin_support,admin_platform",
+      "admin_access",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -497,12 +499,28 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual([
       "catalog_admin_integrations",
+      "catalog_admin_modeling",
       "admin_growth",
       "admin_commerce",
       "admin_support",
       "admin_platform",
       "admin_access",
     ]);
+  });
+
+  it("routes catalog admin modeling routes to modeling E2E", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/catalog/routes/admin/dimensions.tsx",
+        "bounded-contexts/catalog/features/dimensions/ui/dimension-list-page.tsx",
+      ],
+      workspaces: [workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog")],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_modeling"]);
   });
 
   it("routes support platform feedback admin routes to admin support E2E", () => {

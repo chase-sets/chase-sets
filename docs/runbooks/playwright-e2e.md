@@ -15,6 +15,7 @@ The lane runs by tag (`scripts/e2e-suites.mjs` maps each suite id to a `@tag`; `
 - `marketplace_checkout` (`@marketplace-checkout`): buy/sell checkout recovery, the decomposed `checkout/sell/session/:sessionId` sell handoff + readiness redirect chain, and the decomposed `account/payments/:paymentId` / `checkout/payments/:paymentId` payment confirmation and guest-claim surfaces.
 - `marketplace_seller` (`@marketplace-seller`): listings, offers, and seller operations.
 - `catalog_admin_integrations` (`@catalog-admin-integrations`): the admin-web catalog integration workbench.
+- `catalog_admin_modeling` (`@catalog-admin-modeling`): the admin-web catalog model authoring surfaces, including Dimensions list/detail navigation and create-dialog affordances.
 
 ## Local Setup
 
