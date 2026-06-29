@@ -17,21 +17,8 @@ locals {
     "record",
     "launch-000",
   ]
-  marketplace_platform_enabled = (
-    local.is_non_production ||
-    var.production_marketplace_public_enabled ||
-    var.production_marketplace_proof_enabled
-  )
   marketplace_public_enabled = (
     local.is_non_production || var.production_marketplace_public_enabled
-  )
-  production_proof_web_enabled = (
-    local.is_production &&
-    var.production_marketplace_proof_enabled &&
-    !var.production_marketplace_public_enabled
-  )
-  marketplace_web_enabled = (
-    local.marketplace_public_enabled || local.production_proof_web_enabled
   )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
@@ -49,7 +36,7 @@ locals {
     "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.marketplace_web_enabled ? [
+  marketplace_domains = local.marketplace_public_enabled ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
@@ -69,8 +56,7 @@ locals {
   } : {}
   api_component_name            = local.marketplace_public_enabled ? "platform-api" : "admin-support-api"
   api_private_url               = local.marketplace_public_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
-  platform_api_private_url      = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : local.api_private_url
-  admin_web_internal_api_origin = local.marketplace_platform_enabled ? local.platform_api_private_url : local.api_private_url
+  admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
   observability_zone            = local.is_production ? var.root_domain : local.environment_zone
@@ -120,8 +106,8 @@ locals {
   # min(hot lane runner count, wake concurrency - 1) slots for hot-lane wake
   # runners, so wake concurrency must be at least hot lanes + 1 for the
   # reservation to be real while standard/bulk keep a slot. Production runs 2
-  # like staging so the reservation is provisioned before production proof
-  # mode (#1237) enables the relay; the worker_runner_capacity check sums
+  # like staging so the reservation is provisioned before production relay
+  # enablement; the worker_runner_capacity check sums
   # production runner concurrency to 7 = worker_database_pool_max and staging
   # to 12 = worker_database_pool_max. Staging runs an extra shared wake slot
   # and standard-lane runner so representative load drills do not leave
@@ -163,9 +149,9 @@ locals {
     )
   }
   # Grants can only target databases Terraform manages in this configuration;
-  # landing-only production (no marketplace platform contexts) skips them and
-  # the grants resource re-runs when proof mode creates the databases because
-  # its triggers include the database/user ids.
+  # landing-only production (no marketplace public contexts) skips them and
+  # the grants resource re-runs when public promotion creates the databases
+  # because its triggers include the database/user ids.
   wake_listener_grant_contexts = [
     for context_name in local.worker_listener_source_contexts :
     context_name
@@ -191,8 +177,8 @@ locals {
   # The source-context wake registry is environment-global, so push rollout is
   # environment-gated here: staging runs the full push loop for the enabled
   # wave-1 contexts, while production and previews keep both the relay and
-  # write-side event-store wake emission killed until the production proof
-  # gates (#1243/#1244/#1237) pass.
+  # write-side event-store wake emission killed until the production
+  # enablement gates (#1243/#1244/#1237) pass.
   worker_projection_wake_relay_enabled   = local.is_staging ? "true" : "false"
   event_store_wake_notifications_enabled = local.is_staging ? "true" : "false"
 
@@ -222,13 +208,11 @@ locals {
   #   timeout reaps idle backends. The headroom asserted by
   #   check "wake_connection_budget" absorbs bursts above that allowance.
 
-  # Production proof mode deploys the platform-* and admin-support-* component
-  # families at the same time, so production budgets both families even when a
-  # gate currently deploys only one; flipping the proof/public switches can
-  # never grow demand past this worst case. Staging and previews only ever
-  # deploy the platform-* family.
-  api_component_count    = local.is_production ? 2 : 1
-  worker_component_count = local.is_production ? 2 : 1
+  # Every deployment shape now runs one API family and one worker family:
+  # platform components when marketplace/public contexts are enabled,
+  # admin-support components for landing-only production.
+  api_component_count    = 1
+  worker_component_count = 1
 
   # Worst-case app-side pool demand (per-process pool max x component count x
   # instances). Direct cluster backends in production; PgBouncer client-side
@@ -418,7 +402,7 @@ locals {
     "settlement",
   ]
 
-  context_names = local.marketplace_platform_enabled ? local.platform_context_names : local.landing_context_names
+  context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names
 
   production_retained_context_database_names = [
     "reputation",
@@ -501,7 +485,7 @@ locals {
   native_mcp_route_prefixes = [
     "/mcp",
   ]
-  native_mcp_route_domains = local.marketplace_platform_enabled ? distinct(concat(
+  native_mcp_route_domains = local.marketplace_public_enabled ? distinct(concat(
     local.public_domains,
     [local.admin_domain],
     local.all_marketplace_domains,
@@ -519,79 +503,13 @@ locals {
     "/api/notifications/provider/email/webhooks",
     "/api/fulfillment/provider/postage/webhooks",
   ]
-  provider_webhook_route_domains = local.marketplace_platform_enabled ? distinct(concat(
+  provider_webhook_route_domains = local.marketplace_public_enabled ? distinct(concat(
     local.public_domains,
     [local.admin_domain],
     local.all_marketplace_domains,
   )) : []
   provider_webhook_ingress_routes = {
     for route in setproduct(local.provider_webhook_route_domains, local.provider_webhook_route_prefixes) :
-    "${route[0]}:${route[1]}" => {
-      authority   = route[0]
-      path_prefix = route[1]
-    }
-  }
-  proof_api_route_prefixes = [
-    "/api/marketplace/account/sales/shipments",
-    "/api/inventory/items/listing-stock/ensure",
-    "/api/inventory/storage-locations",
-    "/api/marketplace/account/listing-availability",
-    "/api/marketplace/account/listing-inventory",
-    "/api/marketplace/account/listings",
-    "/api/marketplace/account/checkout",
-    "/api/marketplace/account/checkout-sessions",
-    "/api/marketplace/account/marketplace-checkout-fee-policy",
-    "/api/marketplace/account/payments",
-    "/api/marketplace/account/provider-events",
-    "/api/marketplace/account/provider-health",
-    "/api/marketplace/account/provider-idempotency",
-    "/api/marketplace/account/purchases/checkout",
-    "/api/marketplace/account/reconciliation",
-    "/api/settlement/account-status",
-    "/api/settlement/money-health",
-    "/api/settlement/payout-readiness",
-    "/api/settlement/payout-setup",
-    "/api/settlement/payouts",
-    "/api/settlement/provider-health",
-    "/api/settlement/wallet",
-  ]
-  proof_api_route_domains = local.is_production && var.production_marketplace_proof_enabled && !var.production_marketplace_public_enabled ? distinct(concat(
-    local.public_domains,
-    [local.admin_domain],
-  )) : []
-  proof_api_ingress_routes = {
-    for route in setproduct(local.proof_api_route_domains, local.proof_api_route_prefixes) :
-    "${route[0]}:${route[1]}" => {
-      authority   = route[0]
-      path_prefix = route[1]
-    }
-  }
-  proof_admin_api_route_prefixes = [
-    "/api/catalog",
-    "/api/commercial-terms",
-    "/api/platform",
-    "/api/public-presence",
-    "/api/realtime",
-  ]
-  proof_admin_api_route_domains = local.is_production && var.production_marketplace_proof_enabled && !var.production_marketplace_public_enabled ? [
-    local.admin_domain,
-  ] : []
-  proof_admin_api_ingress_routes = {
-    for route in setproduct(local.proof_admin_api_route_domains, local.proof_admin_api_route_prefixes) :
-    "${route[0]}:${route[1]}" => {
-      authority   = route[0]
-      path_prefix = route[1]
-    }
-  }
-  proof_web_route_prefixes = [
-    "/account/payouts/setup",
-  ]
-  proof_web_route_domains = local.production_proof_web_enabled ? distinct(concat(
-    local.public_domains,
-    [local.admin_domain],
-  )) : []
-  proof_web_ingress_routes = {
-    for route in setproduct(local.proof_web_route_domains, local.proof_web_route_prefixes) :
     "${route[0]}:${route[1]}" => {
       authority   = route[0]
       path_prefix = route[1]

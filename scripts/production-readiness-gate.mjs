@@ -9,8 +9,7 @@
 // deploy job derives from Terraform state.
 //
 // This gate is warn-and-proceed by design: the deploy workflow records the
-// outcome but never blocks promotion on it — the proof-mode Buy Now canary
-// stays the real gate and reports honestly either way. The relay cursor is
+// outcome while Stage 1 production canary remains the release gate. The relay cursor is
 // recorded as informational context only and never affects readiness, because
 // production runs with the relay killed until push enablement.
 //
@@ -192,7 +191,7 @@ export function renderReadinessStepSummary(evidence) {
   const lines = [
     "## Production post-deploy readiness gate",
     "",
-    `- Outcome: **${evidence.outcome}** (warn-and-proceed; the proof canary is the promotion gate)`,
+    `- Outcome: **${evidence.outcome}** (warn-and-proceed; Stage 1 production canary is the release gate)`,
     `- Budget: ${evidence.budgetMs} ms; ready after: ${evidence.readyAfterMs ?? "budget expired"}${
       evidence.readyAfterMs !== null && evidence.readyAfterMs !== undefined ? " ms" : ""
     } across ${evidence.sampleCount} sample(s)`,
