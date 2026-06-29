@@ -38,7 +38,7 @@ async function insertAgreementHistory(
        effective_until,
        recorded_at
      ) VALUES (
-       $1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9
+       $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9
      )
      ON CONFLICT (event_id) DO UPDATE
      SET agreement_id = EXCLUDED.agreement_id,

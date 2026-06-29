@@ -41,6 +41,7 @@ describe("commercial terms schedule projection", () => {
       "2026-05-01T00:00:01.000Z",
     ]);
     expect(calls[1]?.sql).toContain("INSERT INTO commercial_terms_schedule_history");
+    expect(calls[1]?.sql).toContain("$5, $6::jsonb");
     expect(calls[1]?.params).toEqual([
       "cts_business",
       "evt_schedule_revised",
