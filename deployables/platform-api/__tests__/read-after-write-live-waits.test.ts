@@ -367,6 +367,13 @@ describe("critical exact read-after-write waits", () => {
           dependencies: [
             { readModelTable: "checkout_sell_list_line_pages" },
             { readModelTable: "checkout_sell_list_confirmation_pages" },
+            { readModelTable: "checkout_sell_payout_readiness_pages" },
+            { readModelTable: "checkout_sell_offer_pages" },
+            { readModelTable: "checkout_marketplace_seller_options" },
+            { readModelTable: "checkout_supply_items" },
+            { readModelTable: "checkout_supply_locations" },
+            { readModelTable: "checkout_seller_accounts" },
+            { readModelTable: "checkout_ship_from_addresses" },
           ],
         },
       },
@@ -386,6 +393,7 @@ describe("critical exact read-after-write waits", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.sell-list-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
     ]);
   });
 
