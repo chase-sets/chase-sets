@@ -90,6 +90,26 @@ class MockPaymentsApiError extends Error {
   }
 }
 
+function fulfillmentPreviewSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    revision: "rev_1",
+    optimizationGoal: "lowest-total",
+    readyLineKeys: ["lst_1"],
+    unavailableLineKeys: [],
+    unavailableLines: [],
+    materialChangeReasons: [],
+    sellerGroups: [],
+    totals: {
+      itemSubtotalAmount: "20.00",
+      shippingAmount: "4.00",
+      salesTaxAmount: "2.00",
+      totalAmount: "26.00",
+      packageCount: 1,
+    },
+    ...overrides,
+  };
+}
+
 describe("checkout web routes: checkout session loader", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -125,12 +145,8 @@ describe("checkout web routes: checkout session loader", () => {
         },
       ],
     });
-    mockPreviewCheckoutFulfillment.mockRejectedValue(new Error("preview unavailable"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
-    });
-    mockCreateOrderingRequestApiClient.mockReturnValue({
-      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
     });
 
     const result = await checkoutSessionLoader({
@@ -145,15 +161,10 @@ describe("checkout web routes: checkout session loader", () => {
         previewError: "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
       }),
     );
-    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutSessionId: "chk_1",
-        sourceType: "buy-now",
-      }),
-    );
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
   });
 
-  it("maps cart checkout sessions to Ordering cart-checkout preview source", async () => {
+  it("loads cart checkout fulfillment preview from the Checkout session page", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
@@ -162,7 +173,10 @@ describe("checkout web routes: checkout session loader", () => {
       submitted_offer_id: null,
       shipping_option: "standard",
       optimization_goal: "lowest-total",
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot({
+        readyLineKeys: ["cli_1"],
+      }),
       order_ids: [],
       lines: [
         {
@@ -178,40 +192,18 @@ describe("checkout web routes: checkout session loader", () => {
         },
       ],
     });
-    mockPreviewCheckoutFulfillment.mockResolvedValue({
-      revision: "rev_1",
-      readyLineKeys: ["cli_1"],
-      unavailableLineKeys: [],
-      unavailableLines: [],
-      materialChangeReasons: [],
-      sellerGroups: [],
-      totals: {
-        itemSubtotalAmount: "20.00",
-        shippingAmount: "4.00",
-        salesTaxAmount: "2.00",
-        totalAmount: "26.00",
-        packageCount: 1,
-      },
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
     });
-    mockCreateOrderingRequestApiClient.mockReturnValue({
-      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
-    });
 
-    await checkoutSessionLoader({
+    const result = await checkoutSessionLoader({
       request: new Request("http://localhost/checkout/buy/session/chk_1"),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
 
-    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutSessionId: "chk_1",
-        sourceType: "cart-checkout",
-      }),
-    );
+    expect(result.fulfillmentPreview).toEqual(expect.objectContaining({ revision: "rev_1" }));
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
   });
 
   it("does not ask Ordering to preview offer-intent sessions", async () => {
@@ -223,7 +215,8 @@ describe("checkout web routes: checkout session loader", () => {
       submitted_offer_id: null,
       shipping_option: "standard",
       optimization_goal: "lowest-total",
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot(),
       order_ids: [],
       lines: [],
     });
@@ -364,7 +357,8 @@ describe("checkout web routes: checkout session loader", () => {
       shipping_option: "standard",
       shipping_address: null,
       optimization_goal: "lowest-total",
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: fulfillmentPreviewSnapshot(),
       order_ids: [],
       lines: [
         {
@@ -380,21 +374,6 @@ describe("checkout web routes: checkout session loader", () => {
         },
       ],
     });
-    mockPreviewCheckoutFulfillment.mockResolvedValue({
-      revision: "rev_1",
-      readyLineKeys: ["lst_1"],
-      unavailableLineKeys: [],
-      unavailableLines: [],
-      materialChangeReasons: [],
-      sellerGroups: [],
-      totals: {
-        itemSubtotalAmount: "20.00",
-        shippingAmount: "4.00",
-        salesTaxAmount: "2.00",
-        totalAmount: "26.00",
-        packageCount: 1,
-      },
-    });
     mockPreviewCheckoutStatus.mockResolvedValue({
       amount: "26.00",
       marketplace_checkout_fee: { total_amount: "27.10" },
@@ -402,9 +381,6 @@ describe("checkout web routes: checkout session loader", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
-    });
-    mockCreateOrderingRequestApiClient.mockReturnValue({
-      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
     });
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       previewCheckoutStatus: mockPreviewCheckoutStatus,

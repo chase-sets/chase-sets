@@ -11,11 +11,13 @@ import type { CheckoutSessionServices } from "./runtime";
 const {
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
+  mockPreviewCheckoutFulfillmentThroughOrdering,
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
 } = vi.hoisted(() => ({
   mockCreateCheckoutOrdersThroughOrdering: vi.fn(),
   mockCreateCheckoutPaymentThroughPayments: vi.fn(),
+  mockPreviewCheckoutFulfillmentThroughOrdering: vi.fn(),
   mockPreviewBuyNowCheckoutSupplyThroughOrdering: vi.fn(),
   mockSubmitPurchaseIntentThroughMarketplace: vi.fn(),
 }));
@@ -23,6 +25,7 @@ const {
 vi.mock("../../../support/request-support/checkout-confirmation", () => ({
   createCheckoutOrdersThroughOrdering: mockCreateCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments: mockCreateCheckoutPaymentThroughPayments,
+  previewCheckoutFulfillmentThroughOrdering: mockPreviewCheckoutFulfillmentThroughOrdering,
   previewBuyNowCheckoutSupplyThroughOrdering: mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace: mockSubmitPurchaseIntentThroughMarketplace,
   normalizeRequestedBalanceCreditAmount: (value: unknown) =>
@@ -115,6 +118,7 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
     source_type: "cart",
     optimization_goal: "lowest-total",
     fulfillment_preview_revision: null,
+    fulfillment_preview_snapshot: null,
     shipping_option: "standard",
     shipping_address_id: null,
     lines: [
@@ -214,6 +218,7 @@ function expectNoCheckoutConfirmSideEffects(services: CheckoutSessionServices) {
 useMockReset(
   mockCreateCheckoutOrdersThroughOrdering,
   mockCreateCheckoutPaymentThroughPayments,
+  mockPreviewCheckoutFulfillmentThroughOrdering,
   mockPreviewBuyNowCheckoutSupplyThroughOrdering,
   mockSubmitPurchaseIntentThroughMarketplace,
 );
@@ -221,6 +226,7 @@ useMockReset(
 describe("checkout session routes", () => {
   beforeEach(() => {
     mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+    mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
   });
 
   it("returns cart session validation errors from checkout", async () => {
@@ -812,11 +818,12 @@ describe("checkout session routes", () => {
       }),
     );
     expect(recordFulfillmentPreview).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         sessionId: "chk_replacement",
         accountId: "acc_buyer",
         fulfillmentPreviewRevision: "fresh_replacement_preview",
-      },
+        fulfillmentPreviewSnapshot: expect.objectContaining({ revision: "fresh_replacement_preview" }),
+      }),
       expect.any(Object),
     );
   });

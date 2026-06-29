@@ -9,6 +9,7 @@ const session: CheckoutSessionRow = {
   source_type: "cart",
   optimization_goal: "lowest-total",
   fulfillment_preview_revision: "rev_1",
+  fulfillment_preview_snapshot: null,
   shipping_option: "standard",
   shipping_address_id: null,
   shipping_address: null,

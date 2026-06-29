@@ -23,6 +23,7 @@ import type {
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 import type { CheckoutSavedPaymentInstrumentRow } from "./features/sessions/integrations/payments/payment-affordance-queries";
 import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
+import type { CheckoutFulfillmentPreview } from "./features/sessions/domain/fulfillment-preview";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -182,7 +183,11 @@ export type SelectCheckoutOptimizationGoalRequest = Readonly<{
 }>;
 
 export type RecordCheckoutFulfillmentPreviewRequest = Readonly<{
-  fulfillmentPreviewRevision: string;
+  fulfillmentPreviewRevision?: string;
+  fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
+  fulfillmentPreview?: CheckoutFulfillmentPreview | null;
+  shippingOption?: string;
+  shippingAddress?: CheckoutShippingAddressInput | null;
 }>;
 
 export type CheckoutShippingAddressInput = Readonly<{
@@ -753,5 +758,6 @@ export type {
   CheckoutShipFromAddressRow,
   CheckoutSessionRow,
   CheckoutPaymentSummaryRow,
+  CheckoutFulfillmentPreview,
 };
 export const checkoutApi = createCheckoutApiClient();

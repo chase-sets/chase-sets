@@ -73,7 +73,7 @@ describe("fresh checkout read-model schemas", () => {
     const sessionAddColumns = [...checkoutSessionSchemaSql.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)].map(
       ([, column]) => column,
     );
-    expect(sessionAddColumns).toEqual(["order_write_commit_positions"]);
+    expect(sessionAddColumns).toEqual(["order_write_commit_positions", "fulfillment_preview_snapshot"]);
 
     expect(checkoutCartSchemaSql).toContain("item_image_url text NULL");
     expect(checkoutCartSchemaSql).toContain("fulfillment_mode text NOT NULL DEFAULT 'optimize'");
@@ -86,6 +86,7 @@ describe("fresh checkout read-model schemas", () => {
 
     expect(checkoutSessionSchemaSql).toContain("shipping_address_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("fulfillment_preview_revision text NULL");
+    expect(checkoutSessionSchemaSql).toContain("fulfillment_preview_snapshot jsonb NULL");
     expect(checkoutSessionSchemaSql).toContain("cart_readiness_snapshot jsonb NULL");
     expect(checkoutSessionSchemaSql).toContain("submitted_offer_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb");

@@ -121,7 +121,23 @@ function signedInCartSession() {
     shipping_option: "standard",
     shipping_address: null,
     optimization_goal: "lowest-total",
-    fulfillment_preview_revision: null,
+    fulfillment_preview_revision: "fulfillment_rev_1",
+    fulfillment_preview_snapshot: {
+      revision: "fulfillment_rev_1",
+      optimizationGoal: "lowest-total",
+      readyLineKeys: ["cart_line_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "25.99",
+        shippingAmount: "0.20",
+        salesTaxAmount: "0.00",
+        totalAmount: "26.19",
+        packageCount: 1,
+      },
+    },
     order_ids: [],
     lines: [
       {
@@ -348,12 +364,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     } as never);
 
     expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_signed_in");
-    expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutSessionId: "chk_signed_in",
-        sourceType: "cart-checkout",
-      }),
-    );
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutStatus).toHaveBeenCalledWith({
       amount: "26.19",
       currencyCode: "usd",

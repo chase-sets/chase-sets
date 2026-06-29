@@ -162,7 +162,23 @@ describe("checkout web routes: guest checkout handoff", () => {
       shipping_option: "standard",
       shipping_address: null,
       optimization_goal: "lowest-total",
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: {
+        revision: "rev_1",
+        optimizationGoal: "lowest-total",
+        readyLineKeys: ["lst_1"],
+        unavailableLineKeys: [],
+        unavailableLines: [],
+        materialChangeReasons: [],
+        sellerGroups: [],
+        totals: {
+          itemSubtotalAmount: "20.00",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "26.00",
+          packageCount: 1,
+        },
+      },
       order_ids: [],
       lines: [
         {
@@ -387,7 +403,23 @@ describe("checkout web routes: guest checkout handoff", () => {
       shipping_option: "standard",
       shipping_address: null,
       optimization_goal: "lowest-total",
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_1",
+      fulfillment_preview_snapshot: {
+        revision: "rev_1",
+        optimizationGoal: "lowest-total",
+        readyLineKeys: ["lst_1"],
+        unavailableLineKeys: [],
+        unavailableLines: [],
+        materialChangeReasons: [],
+        sellerGroups: [],
+        totals: {
+          itemSubtotalAmount: "20.00",
+          shippingAmount: "4.00",
+          salesTaxAmount: "2.00",
+          totalAmount: "26.00",
+          packageCount: 1,
+        },
+      },
       order_ids: [],
       lines: [
         {

@@ -19,8 +19,8 @@ export type {
   CheckoutShipFromAddressRow,
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
+  CheckoutFulfillmentPreview,
 } from "../../client";
-export type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
 import { createCheckoutApiClient } from "../../client";
 
 export function createCheckoutRequestApiClient(

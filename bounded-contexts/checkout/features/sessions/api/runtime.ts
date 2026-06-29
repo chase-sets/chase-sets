@@ -38,6 +38,7 @@ import {
   type CheckoutSessionState,
   type CheckoutSplitGroupHandoff,
 } from "../domain/domain";
+import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
 import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
@@ -113,6 +114,7 @@ export type CheckoutSessionServices = Readonly<{
       optimizationGoal?: CheckoutOptimizationGoal;
       shippingOption?: string;
       fulfillmentPreviewRevision: string;
+      fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -155,6 +157,7 @@ export type CheckoutSessionServices = Readonly<{
       sessionId: string;
       accountId: AccountId;
       fulfillmentPreviewRevision: string;
+      fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
@@ -233,6 +236,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     source_type: state.sourceType,
     optimization_goal: state.optimizationGoal,
     fulfillment_preview_revision: state.fulfillmentPreviewRevision,
+    fulfillment_preview_snapshot: state.fulfillmentPreviewSnapshot,
     cart_readiness_snapshot: state.cartReadinessSnapshot,
     split_group_handoff: state.splitGroupHandoff,
     shipping_option: state.shippingOption,
@@ -559,6 +563,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       sourceType: "cart" | "buy-now" | "offer-intent";
       optimizationGoal?: CheckoutOptimizationGoal;
       fulfillmentPreviewRevision?: string | null;
+      fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       cartReadinessSnapshot?: CartReadinessSnapshot | null;
       shippingOption: ShippingOption;
       lines: readonly CheckoutSessionLine[];
@@ -627,6 +632,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           sourceType: params.sourceType,
           optimizationGoal: params.optimizationGoal,
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+          fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
           cartReadinessSnapshot: params.cartReadinessSnapshot,
           shippingOption: params.shippingOption,
           lines: params.lines,
@@ -717,6 +723,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
           optimizationGoal: params.optimizationGoal,
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+          fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
           sessionIdOverride: params.sessionIdOverride,
           lines: [
             {
@@ -806,6 +813,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           command: {
             type: "RecordFulfillmentPreview",
             fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+            fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
             recordedAt: new Date().toISOString(),
           },
         },

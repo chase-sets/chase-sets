@@ -11,6 +11,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         sourceType: string;
         optimizationGoal?: string;
         fulfillmentPreviewRevision?: string | null;
+        fulfillmentPreviewSnapshot?: unknown;
         cartReadinessSnapshot?: unknown;
         splitGroupHandoff?: unknown;
         shippingOption: string;
@@ -25,6 +26,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            source_type,
            optimization_goal,
            fulfillment_preview_revision,
+           fulfillment_preview_snapshot,
            cart_readiness_snapshot,
            split_group_handoff,
            shipping_option,
@@ -37,12 +39,13 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $10, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, NULL, NULL, $11, $11)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
              optimization_goal = EXCLUDED.optimization_goal,
              fulfillment_preview_revision = EXCLUDED.fulfillment_preview_revision,
+             fulfillment_preview_snapshot = EXCLUDED.fulfillment_preview_snapshot,
              cart_readiness_snapshot = EXCLUDED.cart_readiness_snapshot,
              split_group_handoff = EXCLUDED.split_group_handoff,
              shipping_option = EXCLUDED.shipping_option,
@@ -56,6 +59,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
           data.sourceType,
           data.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
           data.fulfillmentPreviewRevision ?? null,
+          JSON.stringify(data.fulfillmentPreviewSnapshot ?? null),
           JSON.stringify(data.cartReadinessSnapshot ?? null),
           JSON.stringify(data.splitGroupHandoff ?? null),
           data.shippingOption,
@@ -76,6 +80,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         `UPDATE checkout_session_pages
          SET optimization_goal = $2,
              fulfillment_preview_revision = NULL,
+             fulfillment_preview_snapshot = NULL,
              updated_at = $3
          WHERE session_id = $1`,
         [
@@ -90,15 +95,22 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
       const data = event.data as {
         sessionId: string;
         fulfillmentPreviewRevision: string;
+        fulfillmentPreviewSnapshot?: unknown;
         recordedAt: string;
       };
 
       await projectionDb.query(
         `UPDATE checkout_session_pages
          SET fulfillment_preview_revision = $2,
-             updated_at = $3
+             fulfillment_preview_snapshot = $3,
+             updated_at = $4
          WHERE session_id = $1`,
-        [data.sessionId, data.fulfillmentPreviewRevision, data.recordedAt],
+        [
+          data.sessionId,
+          data.fulfillmentPreviewRevision,
+          JSON.stringify(data.fulfillmentPreviewSnapshot ?? null),
+          data.recordedAt,
+        ],
       );
     },
     "checkout.session.shipping-option-selected": async (event, context) => {
@@ -112,6 +124,8 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
       await projectionDb.query(
         `UPDATE checkout_session_pages
          SET shipping_option = $2,
+             fulfillment_preview_revision = NULL,
+             fulfillment_preview_snapshot = NULL,
              updated_at = $3
          WHERE session_id = $1`,
         [data.sessionId, data.shippingOption, data.selectedAt],
@@ -129,6 +143,8 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         `UPDATE checkout_session_pages
          SET shipping_address_id = $2,
              shipping_address = $3,
+             fulfillment_preview_revision = NULL,
+             fulfillment_preview_snapshot = NULL,
              updated_at = $4
          WHERE session_id = $1`,
         [
