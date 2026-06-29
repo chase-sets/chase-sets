@@ -9,6 +9,7 @@ describe("run e2e suite", () => {
       "marketplace_checkout marketplace_seller",
       "catalog_admin_integrations",
       "admin_growth",
+      "admin_commerce",
     ]);
 
     expect(suites.map((suite) => suite.id)).toEqual([
@@ -18,6 +19,7 @@ describe("run e2e suite", () => {
       "marketplace_seller",
       "catalog_admin_integrations",
       "admin_growth",
+      "admin_commerce",
     ]);
   });
 
@@ -36,11 +38,13 @@ describe("run e2e suite", () => {
         "marketplace_checkout",
         "marketplace_account",
         "admin_growth",
+        "admin_commerce",
       ]),
     ).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
+      "admin_commerce",
     ]);
   });
 
@@ -58,5 +62,16 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/public-presence/routes/admin/promo-bar.tsx")).toEqual([
       "admin_growth",
     ]);
+  });
+
+  it("routes postage policy admin routes to commerce admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/ordering/routes/admin/postage-policies.tsx")).toEqual([
+      "admin_commerce",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
+      ),
+    ).toEqual(["admin_commerce"]);
   });
 });

@@ -38,7 +38,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     const result = await api.createPostagePolicy(postagePolicyRequestFromForm(formData));
-    return redirect(navigateAfterWrite(result, "/commerce/postage-policies"));
+    return redirect(navigateAfterWrite(result, `/commerce/postage-policies/${result.id}`));
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };

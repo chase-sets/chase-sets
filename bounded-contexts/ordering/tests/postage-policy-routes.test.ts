@@ -54,7 +54,7 @@ describe("ordering postage policy routes", () => {
     vi.clearAllMocks();
   });
 
-  it("redirects list creates with the Ordering commit receipt", async () => {
+  it("redirects list creates to the new draft detail with the Ordering commit receipt", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -84,7 +84,9 @@ describe("ordering postage policy routes", () => {
     } as never);
 
     expect(response).toBeInstanceOf(Response);
-    expect((response as Response).headers.get("Location")).toContain("afterWrite=");
+    const location = (response as Response).headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/postage-policies/opp_1");
+    expect(location).toContain("afterWrite=");
   });
 
   it("forwards fresh-write metadata when the list reloads after create", async () => {
