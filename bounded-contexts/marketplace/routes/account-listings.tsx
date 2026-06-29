@@ -26,7 +26,7 @@ import {
   resolveMarketplacePostWriteTokenStore,
 } from "../support/route-support/post-write-tokens";
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
-import { createInventoryRequestApiClient, type InventoryItemDetail } from "@chase-sets/inventory/server";
+import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -45,15 +45,6 @@ const ACCOUNT_LISTINGS_POST_WRITE_TELEMETRY = {
 
 function marketplaceApiErrorStatus(error: unknown) {
   return error instanceof MarketplaceApiError ? error.status : null;
-}
-
-function apiErrorStatus(error: unknown) {
-  if (typeof error !== "object" || error === null || !("status" in error)) {
-    return null;
-  }
-
-  const status = (error as { status?: unknown }).status;
-  return Number.isInteger(status) ? Number(status) : null;
 }
 
 function marketplaceApiErrorCode(error: unknown) {
@@ -150,30 +141,7 @@ function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftInten
   };
 }
 
-function inventoryOptionFromInventoryItem(item: InventoryItemDetail): MarketplaceListingInventoryItemOption | null {
-  if (item.available_quantity <= 0) {
-    return null;
-  }
-
-  return {
-    item_id: item.item_id,
-    catalog_catalog_item_id: item.catalog_catalog_item_id,
-    product_id: item.product_id,
-    item_language_code: item.language_code,
-    item_title: item.item_title,
-    item_subtitle: item.item_subtitle,
-    selected_options: item.selected_options,
-    product_summary: item.product_summary,
-    product_measure_snapshot: null,
-    graded_card: item.graded_card,
-    storage_location_name: item.storage_location_name,
-    ship_from_code: item.ship_from_code,
-    ship_from_address: item.ship_from_address,
-    available_quantity: item.available_quantity,
-  };
-}
-
-function inventorySnapshotFromInventoryItem(item: InventoryItemDetail) {
+function inventorySnapshotFromMarketplaceSupplyItem(item: MarketplaceListingInventoryItemOption) {
   return {
     inventoryItemId: item.item_id,
     catalogItemId: item.catalog_catalog_item_id,
@@ -225,7 +193,6 @@ function createFreshWriteRecoveryPageReads(
 
 async function loadListingInventoryOptions(
   marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
-  inventoryApi: ReturnType<typeof createInventoryRequestApiClient>,
   selectedInventoryItemId: string | null,
 ) {
   const inventoryItemsResponse = await marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY);
@@ -249,29 +216,22 @@ async function loadListingInventoryOptions(
     };
   }
 
-  try {
-    const inventoryItem = inventoryOptionFromInventoryItem(await inventoryApi.getItem(selectedInventoryItemId));
-    if (!inventoryItem) {
-      return inventoryItemsResponse;
-    }
-
-    return {
-      ...inventoryItemsResponse,
-      items: [inventoryItem, ...inventoryItemsResponse.items],
-      total: Math.max(inventoryItemsResponse.total, inventoryItemsResponse.items.length + 1),
-      count: inventoryItemsResponse.count + 1,
-    };
-  } catch (error) {
-    if (apiErrorStatus(error) === 404) {
-      return inventoryItemsResponse;
-    }
-    throw error;
-  }
+  return inventoryItemsResponse;
 }
 
-async function createListingFromInventorySnapshot(
+async function loadSelectedMarketplaceSupplyItem(
   api: ReturnType<typeof createMarketplaceRequestApiClient>,
-  inventoryApi: ReturnType<typeof createInventoryRequestApiClient>,
+  inventoryItemId: string,
+) {
+  const response = await api.listSellerListingInventory(
+    new URLSearchParams({ inventoryItemId, limit: "1", offset: "0" }).toString(),
+  );
+
+  return response.items.find((item) => item.item_id === inventoryItemId) ?? null;
+}
+
+async function createListingFromMarketplaceSupplySnapshot(
+  api: ReturnType<typeof createMarketplaceRequestApiClient>,
   createForm: Readonly<{
     inventoryItemId: string;
     priceAmount: string;
@@ -285,13 +245,17 @@ async function createListingFromInventorySnapshot(
   listingPhotoFiles: readonly File[],
 ) {
   const quantityCap = Number(createForm.quantityCap ?? 0);
-  const inventoryItem = await inventoryApi.getItem(createForm.inventoryItemId);
+  const inventoryItem = await loadSelectedMarketplaceSupplyItem(api, createForm.inventoryItemId);
+  if (!inventoryItem) {
+    throw new Error(t("marketplace.routes.accountListings.inventory.item.preparing"));
+  }
+
   const listingBody = {
     inventoryItemId: createForm.inventoryItemId,
     priceAmount: createForm.priceAmount,
     quantityCap,
     purchaseLimits,
-    inventorySnapshot: inventorySnapshotFromInventoryItem(inventoryItem),
+    inventorySnapshot: inventorySnapshotFromMarketplaceSupplyItem(inventoryItem),
   };
 
   return (
@@ -336,7 +300,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({ request, permission: "listings.view" });
   const resolvedRequest = await resolveMarketplacePostWriteRequest(request);
   const marketplaceApi = createMarketplaceRequestApiClient(resolvedRequest);
-  const inventoryApi = createInventoryRequestApiClient(resolvedRequest);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
@@ -370,7 +333,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
         await Promise.all([
           marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
           marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-          loadListingInventoryOptions(marketplaceApi, inventoryApi, selectedInventoryItemId),
+          loadListingInventoryOptions(marketplaceApi, selectedInventoryItemId),
           marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
           marketplaceApi.getSellerListingAvailability(),
         ]);
@@ -423,6 +386,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability } = pageReads;
   const inventoryItems = inventoryItemsResponse.items as MarketplaceListingInventoryItemOption[];
+  if (
+    selectedInventoryItemId &&
+    !inventoryItems.some((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
+  ) {
+    inventoryHandoffError = t("marketplace.routes.accountListings.inventory.item.preparing");
+  }
   const selectedInventoryItem = selectedInventoryItemId
     ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
     : selectedCatalogItemId
@@ -469,7 +438,6 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
   const createForm = {
     inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
     catalogItemId: String(formData.get("catalogItemId") ?? ""),
@@ -533,7 +501,7 @@ export async function action({ request }: ActionFunctionArgs) {
             quantityCap,
             purchaseLimits,
             inventorySnapshot: (
-              await inventoryApi.ensureListingStock({
+              await createInventoryRequestApiClient(request).ensureListingStock({
                 catalogItemId: createForm.catalogItemId,
                 selectedOptions: createForm.selectedOptions,
                 quantity: quantityCap,
@@ -553,9 +521,8 @@ export async function action({ request }: ActionFunctionArgs) {
           throw error;
         }
 
-        result = await createListingFromInventorySnapshot(
+        result = await createListingFromMarketplaceSupplySnapshot(
           api,
-          inventoryApi,
           {
             inventoryItemId: createForm.inventoryItemId,
             priceAmount: createForm.priceAmount,

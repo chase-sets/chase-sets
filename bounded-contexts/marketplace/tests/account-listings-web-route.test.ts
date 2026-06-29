@@ -48,28 +48,25 @@ const shipFromAddress = {
   country: "US",
 };
 
-const inventoryItemDetail = {
+const listingInventoryItem = {
   item_id: "inv_1",
   account_id: "acc_1",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::dim_condition:near_mint",
-  language_code: "en",
+  item_language_code: "en",
   item_title: "Charizard ex",
   item_subtitle: null,
   selected_options: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
   product_summary: "Condition: Near Mint",
+  product_measure_snapshot: null,
   graded_card: null,
   storage_location_id: "loc_1",
   storage_location_name: "North shelf",
   ship_from_code: "CHI-WH-1",
   ship_from_address: shipFromAddress,
   total_quantity: 7,
-  held_quantity: 0,
   available_quantity: 7,
   acquisition_cost_amount: "1.00",
-  created_at: "2026-04-17T00:00:00.000Z",
-  updated_at: "2026-04-17T00:00:00.000Z",
-  holds: [],
 };
 
 let restorePostWriteTokenStore: (() => void) | null = null;
@@ -327,7 +324,7 @@ describe("marketplace listing routes", () => {
     expect(listingInventoryUrls.some((url) => url.includes("inventoryItemId=inv_1"))).toBe(true);
   });
 
-  it("preselects an explicit Inventory handoff item when the Marketplace supply mirror is missing it", async () => {
+  it("does not fall back to Inventory when an explicit handoff item is missing from Marketplace supply", async () => {
     const requestedUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -344,7 +341,7 @@ describe("marketplace listing routes", () => {
         }
 
         if (url.includes("/api/inventory/items/inv_1")) {
-          return Promise.resolve(jsonResponse(inventoryItemDetail));
+          throw new Error("Inventory reads are not allowed from account listings.");
         }
 
         if (url.includes("/api/marketplace/account/supply-locations/exists")) {
@@ -365,15 +362,12 @@ describe("marketplace listing routes", () => {
       context: undefined,
     } as never);
 
-    expect(result.createForm?.inventoryItemId).toBe("inv_1");
-    expect(result.inventoryItems).toEqual([
-      expect.objectContaining({
-        item_id: "inv_1",
-        storage_location_name: "North shelf",
-        available_quantity: 7,
-      }),
-    ]);
-    expect(requestedUrls.some((url) => url.includes("/api/inventory/items/inv_1"))).toBe(true);
+    expect(result.createForm).toBeNull();
+    expect(result.inventoryItems).toEqual([]);
+    expect(result.claimError).toBe(
+      "That inventory item is still preparing for listing setup. Refresh this page in a moment and the selected stock should appear.",
+    );
+    expect(requestedUrls.some((url) => url.includes("/api/inventory/items/inv_1"))).toBe(false);
   });
 
   it("creates and publishes a listing in one seller action", async () => {
@@ -497,22 +491,28 @@ describe("marketplace listing routes", () => {
     expect(store.storeCalls[0]?.payload.receipt.commitPosition).toBe("42");
   });
 
-  it("creates a listing from an Inventory snapshot when the Marketplace mirror is missing the selected item", async () => {
+  it("creates a listing from a Marketplace supply snapshot when direct create misses the selected item", async () => {
     const store = createTestPostWriteTokenStore();
     restorePostWriteTokenStore = configureMarketplacePostWriteTokenStoreForTests(store);
     const marketplaceCreateBodies: Record<string, unknown>[] = [];
     let marketplaceCreateAttempts = 0;
+    const requestedUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
+        requestedUrls.push(url);
 
         if (url.includes("/api/auth/session")) {
           return jsonResponse({ actor: sellerActor });
         }
 
         if (url.includes("/api/inventory/items/inv_1")) {
-          return jsonResponse(inventoryItemDetail);
+          throw new Error("Inventory reads are not allowed from account listings.");
+        }
+
+        if (url.includes("/api/marketplace/account/listing-inventory")) {
+          return jsonResponse({ items: [listingInventoryItem], total: 1, count: 1 });
         }
 
         if (url.includes("/api/marketplace/account/listings")) {
@@ -570,6 +570,68 @@ describe("marketplace listing routes", () => {
         availableQuantity: 7,
       },
     });
+    expect(requestedUrls.some((url) => url.includes("/api/inventory/items/inv_1"))).toBe(false);
+    expect(requestedUrls.some((url) => url.includes("/api/marketplace/account/listing-inventory"))).toBe(true);
+  });
+
+  it("returns a preparing error when create recovery cannot find the selected Marketplace supply item", async () => {
+    const marketplaceCreateBodies: Record<string, unknown>[] = [];
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requestedUrls.push(url);
+
+        if (url.includes("/api/auth/session")) {
+          return jsonResponse({ actor: sellerActor });
+        }
+
+        if (url.includes("/api/inventory/items/inv_1")) {
+          throw new Error("Inventory reads are not allowed from account listings.");
+        }
+
+        if (url.includes("/api/marketplace/account/listing-inventory")) {
+          return jsonResponse({ items: [], total: 0, count: 0 });
+        }
+
+        if (url.includes("/api/marketplace/account/listings")) {
+          marketplaceCreateBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+          return jsonResponse(
+            { error: { code: "inventory_item_not_found", message: "Inventory item not found." } },
+            400,
+          );
+        }
+
+        return jsonResponse({ items: [], total: 0, count: 0 });
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-listing");
+    form.set("inventoryItemId", "inv_1");
+    form.set("priceAmount", "24.99");
+    form.set("quantityCap", "1");
+
+    const result = await listingsAction({
+      request: new Request("http://localhost/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({
+      createForm: { inventoryItemId: "inv_1" },
+      error:
+        "That inventory item is still preparing for listing setup. Refresh this page in a moment and the selected stock should appear.",
+    });
+    expect(marketplaceCreateBodies).toHaveLength(1);
+    expect(requestedUrls.some((url) => url.includes("/api/inventory/items/inv_1"))).toBe(false);
+    expect(requestedUrls.some((url) => url.includes("/api/marketplace/account/listing-inventory"))).toBe(true);
   });
 
   it("marks seller availability disable redirects with the pending availability action", async () => {

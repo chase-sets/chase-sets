@@ -158,6 +158,7 @@ describe("marketplace listing form migration smoke", () => {
             product_summary: "Raw",
             product_measure_snapshot: null,
             graded_card: null,
+            storage_location_id: "loc_1",
             storage_location_name: "North shelf",
             ship_from_code: "CHI",
             ship_from_address: {
@@ -168,7 +169,9 @@ describe("marketplace listing form migration smoke", () => {
               postalCode: "60601",
               country: "US",
             },
+            total_quantity: 1,
             available_quantity: 1,
+            acquisition_cost_amount: null,
           },
         ]}
         hasListingStockLocation

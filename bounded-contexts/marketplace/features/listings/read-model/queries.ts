@@ -139,10 +139,13 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   product_summary: string | null;
   product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
+  storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
   ship_from_address: AddressSnapshot;
+  total_quantity: number;
   available_quantity: number;
+  acquisition_cost_amount: string | null;
 }>;
 
 function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRow {
@@ -197,10 +200,13 @@ export async function getInventoryItemSupply(
     product_summary: string | null;
     product_measure_snapshot: unknown;
     graded_card: unknown;
+    storage_location_id: string;
     storage_location_name: string;
     ship_from_code: string;
     ship_from_address: unknown;
+    total_quantity: number;
     available_quantity: number;
+    acquisition_cost_amount: string | null;
   }>(
     `SELECT
        item.item_id,
@@ -247,10 +253,13 @@ export async function getInventoryItemSupply(
          WHERE measure->>'productId' = item.product_id
          LIMIT 1
        ) AS product_measure_snapshot,
+       item.storage_location_id,
        location.name AS storage_location_name,
        location.ship_from_code,
        location.ship_from_address,
-       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
+       item.total_quantity,
+       item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
+       item.acquisition_cost_amount
      FROM marketplace_supply_items AS item
      INNER JOIN marketplace_supply_locations AS location
        ON location.storage_location_id = item.storage_location_id
@@ -362,10 +371,13 @@ export async function listSellerInventoryItemSupply(
         WHERE measure->>'productId' = item.product_id
         LIMIT 1
       ) AS product_measure_snapshot,
+      item.storage_location_id,
       location.name AS storage_location_name,
       location.ship_from_code,
       location.ship_from_address,
-      item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity
+      item.total_quantity,
+      item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
+      item.acquisition_cost_amount
     FROM marketplace_supply_items AS item
     INNER JOIN marketplace_supply_locations AS location
       ON location.storage_location_id = item.storage_location_id
@@ -410,10 +422,13 @@ export async function listSellerInventoryItemSupply(
       product_summary: string | null;
       product_measure_snapshot: unknown;
       graded_card: unknown;
+      storage_location_id: string;
       storage_location_name: string;
       ship_from_code: string;
       ship_from_address: unknown;
+      total_quantity: number;
       available_quantity: number;
+      acquisition_cost_amount: string | null;
     }>(
       `${selectSql}
        ORDER BY catalog_item.title ASC, item.product_id ASC, item.item_id ASC
