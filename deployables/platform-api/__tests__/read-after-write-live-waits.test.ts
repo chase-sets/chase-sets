@@ -296,6 +296,8 @@ describe("critical exact read-after-write waits", () => {
           dependencies: [
             { readModelTable: "checkout_cart_line_pages" },
             { readModelTable: "checkout_marketplace_seller_options" },
+            { projectionName: "checkout-inventory-supply-projection" },
+            { readModelTable: "checkout_seller_accounts" },
           ],
         },
       },
@@ -309,7 +311,9 @@ describe("critical exact read-after-write waits", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.cart-projection" },
-      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-listing-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-inventory-supply-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-seller-accounts-projection" },
     ]);
   });
 
@@ -332,6 +336,8 @@ describe("critical exact read-after-write waits", () => {
           dependencies: [
             { readModelTable: "checkout_cart_line_pages" },
             { readModelTable: "checkout_marketplace_seller_options" },
+            { projectionName: "checkout-inventory-supply-projection" },
+            { readModelTable: "checkout_seller_accounts" },
           ],
         },
       },
@@ -345,7 +351,9 @@ describe("critical exact read-after-write waits", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.cart-projection" },
-      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-listing-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-inventory-supply-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-seller-accounts-projection" },
     ]);
   });
 
@@ -394,7 +402,9 @@ describe("critical exact read-after-write waits", () => {
 
     expect(resolvedDependencies).toEqual([
       { targetContextName: "checkout", projectionName: "checkout.sell-list-projection" },
-      { targetContextName: "checkout", projectionName: "checkout-marketplace-seller-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-marketplace-listing-options-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-inventory-supply-projection" },
+      { targetContextName: "checkout", projectionName: "checkout-seller-accounts-projection" },
     ]);
   });
 

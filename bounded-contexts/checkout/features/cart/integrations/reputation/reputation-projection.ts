@@ -49,13 +49,11 @@ async function refreshCheckoutSellerAccountReputation(
 }
 
 /**
- * Checkout-local reputation handler set feeding the SAME
- * `checkout-marketplace-seller-options-projection` as the marketplace listing,
- * inventory supply, and identity account handlers. It maintains a replay-safe
- * auxiliary `checkout_seller_account_reviews` table keyed by `review_id` and
- * recomputes the seller's `average_rating` / `review_count` onto the
- * `checkout_seller_accounts` join row so the cart seller-options read model can
- * surface a seller rating per option.
+ * Checkout-local reputation handler set feeding the seller account projection.
+ * It maintains a replay-safe auxiliary `checkout_seller_account_reviews` table
+ * keyed by `review_id` and recomputes the seller's `average_rating` /
+ * `review_count` onto the `checkout_seller_accounts` join row so the cart
+ * seller-options read model can surface a seller rating per option.
  *
  * Each handler upserts/transitions behind a `last_stream_version` guard,
  * mirroring the inventory/identity auxiliary tables, so replaying review events

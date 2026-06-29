@@ -44,7 +44,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
-| `checkout:checkout-marketplace-seller-options-projection` | Checkout | **catalog**, **identity**, **inventory**, **marketplace** | push-enabled | 4/4 |
+| `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace** | push-enabled | 2/2 |
+| `checkout:checkout-inventory-supply-projection` | Checkout | **inventory** | push-enabled | 1/1 |
+| `checkout:checkout-seller-accounts-projection` | Checkout | **identity**, **marketplace** | push-enabled | 2/2 |
 | `checkout:checkout.payment-affordance-projection` | Checkout | **payments** | push-enabled | 1/1 |
 | `checkout:checkout.payment-summary-projection` | Checkout | **payments** | push-enabled | 1/1 |
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |

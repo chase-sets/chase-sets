@@ -45,7 +45,7 @@
     },
     {
       "sourceContextName": "marketplace",
-      "projectionName": "checkout-marketplace-seller-options-projection",
+      "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "marketplace.listing.created",
@@ -55,16 +55,18 @@
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
-        "marketplace.seller-listing-availability.enabled",
-        "marketplace.review.submitted",
-        "marketplace.review.updated",
-        "marketplace.review.withdrawn"
+        "marketplace.seller-listing-availability.enabled"
       ],
       "order": 20,
-      "projectionHandlerSetNames": [
-        "checkout.marketplace-seller-options-projection",
-        "checkout.marketplace-review-seller-options-projection"
-      ]
+      "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "checkout-seller-accounts-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "order": 22,
+      "projectionHandlerSetNames": ["checkout.marketplace-review-seller-options-projection"]
     },
     {
       "sourceContextName": "marketplace",
@@ -114,7 +116,7 @@
     },
     {
       "sourceContextName": "catalog",
-      "projectionName": "checkout-marketplace-seller-options-projection",
+      "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 11,
@@ -122,7 +124,7 @@
     },
     {
       "sourceContextName": "inventory",
-      "projectionName": "checkout-marketplace-seller-options-projection",
+      "projectionName": "checkout-inventory-supply-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
         "inventory.item.created",
@@ -138,9 +140,8 @@
     },
     {
       "sourceContextName": "identity",
-      "projectionName": "checkout-marketplace-seller-options-projection",
+      "projectionName": "checkout-seller-accounts-projection",
       "subscriptionVersion": 1,
-      "subscriptionName": "checkout.identity-seller-options-accounts-projection",
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -230,17 +231,23 @@
       "resetStrategy": "replay-only"
     },
     {
-      "projectionName": "checkout-marketplace-seller-options-projection",
-      "sourceContextNames": ["marketplace", "catalog", "inventory", "identity"],
-      "ownedTables": [
-        "checkout_marketplace_seller_options",
-        "checkout_supply_items",
-        "checkout_supply_locations",
-        "checkout_supply_holds",
-        "checkout_seller_accounts",
-        "checkout_ship_from_addresses",
-        "checkout_seller_account_reviews"
-      ],
+      "projectionName": "checkout-marketplace-listing-options-projection",
+      "sourceContextNames": ["marketplace", "catalog"],
+      "ownedTables": ["checkout_marketplace_seller_options"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "checkout-inventory-supply-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["checkout_supply_items", "checkout_supply_locations", "checkout_supply_holds"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "checkout-seller-accounts-projection",
+      "sourceContextNames": ["identity", "marketplace"],
+      "ownedTables": ["checkout_seller_accounts", "checkout_ship_from_addresses", "checkout_seller_account_reviews"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
@@ -269,6 +276,12 @@
             },
             {
               "readModelTable": "checkout_marketplace_seller_options"
+            },
+            {
+              "projectionName": "checkout-inventory-supply-projection"
+            },
+            {
+              "readModelTable": "checkout_seller_accounts"
             }
           ]
         },
@@ -281,6 +294,12 @@
             },
             {
               "readModelTable": "checkout_marketplace_seller_options"
+            },
+            {
+              "projectionName": "checkout-inventory-supply-projection"
+            },
+            {
+              "readModelTable": "checkout_seller_accounts"
             }
           ]
         },

@@ -35,12 +35,11 @@ export async function recomputeCheckoutSellerOptionSupply(db: PgQueryable, itemI
 }
 
 /**
- * Checkout-local inventory supply/holds handler set feeding the SAME
- * `checkout-marketplace-seller-options-projection` as the marketplace listing
- * handlers. It maintains replay-safe auxiliary supply/hold tables keyed by the
- * inventory item id and recomputes the denormalized `supply_total_quantity` /
- * `active_held_quantity` counters on the joined seller-option rows so the cart
- * read model can compute `available_quantity = LEAST(quantity_cap,
+ * Checkout-local inventory supply/holds handler set. It maintains replay-safe
+ * auxiliary supply/hold tables keyed by the inventory item id and recomputes
+ * the denormalized `supply_total_quantity` / `active_held_quantity` counters on
+ * the joined seller-option rows so the cart read model can compute
+ * `available_quantity = LEAST(quantity_cap,
  * GREATEST(supply - holds, 0))`.
  *
  * `inventory.hold.released` carries only the hold id, so the released hold is
