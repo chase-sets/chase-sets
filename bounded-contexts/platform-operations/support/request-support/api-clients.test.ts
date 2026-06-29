@@ -83,6 +83,20 @@ describe("platform operations request API clients", () => {
       if (url.endsWith("/ops/escalate-overdue")) {
         return jsonResponse({ escalated: 2, skipped: 1 });
       }
+      if (url.includes("/ops/sup_1/")) {
+        const status = url.endsWith("/evidence")
+          ? "evidence-submitted"
+          : url.endsWith("/responses")
+            ? "response-recorded"
+            : url.endsWith("/escalate")
+              ? "escalated"
+              : url.endsWith("/resolve")
+                ? "resolved"
+                : url.endsWith("/close")
+                  ? "closed"
+                  : "cancelled";
+        return jsonResponse({ id: "sup_1", version: 2, status });
+      }
       return jsonResponse({ id: "sup_1", version: 1, status: "opened" }, 201);
     });
     const client = createSupportRequestApiClient({ baseUrl: "https://api.example.test", fetch: fetchMock as never });
@@ -98,5 +112,59 @@ describe("platform operations request API clients", () => {
       escalated: 2,
       skipped: 1,
     });
+    await expect(client.recordSupportOperationsNote("sup_1", { summary: "Operator note" })).resolves.toEqual({
+      id: "sup_1",
+      version: 2,
+      status: "evidence-submitted",
+    });
+    await expect(
+      client.recordSupportOperationsResponse("sup_1", {
+        responseType: "request-support-review",
+        summary: "Reviewed",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "response-recorded" });
+    await expect(client.escalateSupportOperationsRequest("sup_1", { reason: "Needs support owner" })).resolves.toEqual({
+      id: "sup_1",
+      version: 2,
+      status: "escalated",
+    });
+    await expect(
+      client.resolveSupportOperationsRequest("sup_1", {
+        resolutionType: "support-reviewed",
+        summary: "Reviewed",
+      }),
+    ).resolves.toEqual({ id: "sup_1", version: 2, status: "resolved" });
+    await expect(client.closeSupportOperationsRequest("sup_1")).resolves.toEqual({
+      id: "sup_1",
+      version: 2,
+      status: "closed",
+    });
+    await expect(client.cancelSupportOperationsRequest("sup_1", { reason: "Duplicate" })).resolves.toEqual({
+      id: "sup_1",
+      version: 2,
+      status: "cancelled",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/ops/sup_1/evidence",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ evidenceType: "support-note", summary: "Operator note" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/ops/sup_1/responses",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ responseType: "request-support-review", summary: "Reviewed" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/ops/sup_1/close",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    );
   });
 });
