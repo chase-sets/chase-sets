@@ -214,7 +214,7 @@ pnpm run ops release-health:report `
   --out .\artifacts\release-health\summary.md
 ```
 
-The freshness section reports only support-safe labels: environment, flow or route template, promotion decision, verdict, and segment summaries. It fails the posture when evidence contains raw URLs, account/cart/session/payment/payout/event identifiers, email addresses, cookies, tokens, or raw `afterWrite` values; fix the source artifact instead of copying private details into the report.
+The freshness section reports only support-safe labels: environment, flow or route template, promotion decision, verdict, and segment summaries. It also summarizes the sustained freshness window across included timestamped evidence artifacts, the ready-latency p95 for Buy Now and wake-drill evidence, and the durable-convergence p95 for wake drills. The target window is 30 days; a shorter artifact span is reported as `short-window` so #2511 reviews can distinguish a green point-in-time drill from sustained evidence. It fails the posture when evidence contains raw URLs, account/cart/session/payment/payout/event identifiers, email addresses, cookies, tokens, or raw `afterWrite` values; fix the source artifact instead of copying private details into the report.
 
 The report includes SLO posture for cautious merge-queue batch tuning. Initial thresholds are deliberately conservative:
 
