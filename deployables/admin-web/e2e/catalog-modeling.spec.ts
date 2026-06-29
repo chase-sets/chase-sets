@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import {
+  authenticateAdmin,
+  expectAdminPageReady,
+  expectAdminWebHydrated,
+  expectPageOk,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 test.describe("catalog admin modeling", () => {
   test("signed-in catalog operator can inspect dimensions and open the create model dialog @catalog-admin-modeling", async ({
@@ -36,7 +42,8 @@ test.describe("catalog admin modeling", () => {
     if (await firstViewLink.count()) {
       await firstViewLink.click();
       await expect(page).toHaveURL(/\/catalog\/dimensions\/[^/?]+(?:\?|$)/);
-      await expectAdminPageReady(page, { heading: /.+/ });
+      await expectAdminWebHydrated(page);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await expect(page.getByText("Options").first()).toBeVisible();
       await expect(page.getByText("Value kind").first()).toBeVisible();
       await expect(page.getByText("Dimensions").first()).toBeVisible();
