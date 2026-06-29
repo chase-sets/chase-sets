@@ -466,6 +466,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
+      "checkout:checkout.payment-affordance-projection",
       "checkout:checkout.payment-summary-projection",
       "ordering:ordering-payment-capture",
       "payments:payments-payment-projection",

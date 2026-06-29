@@ -647,7 +647,23 @@ async function loadSavedCheckoutInstruments(
   }
 
   try {
-    return (await createPaymentsRequestApiClient(request).listSavedCheckoutInstruments()).items;
+    const { items } = await createCheckoutRequestApiClient(request).listCheckoutSavedPaymentInstruments();
+    return items.map((instrument) => ({
+      id: instrument.instrument_id,
+      instrument_id: instrument.instrument_id,
+      account_id: actor.accountId,
+      payment_method_category:
+        instrument.payment_method_category as PaymentsSavedCheckoutInstrument["payment_method_category"],
+      provider: "payments",
+      display_label: instrument.display_label,
+      confirmation_experience:
+        instrument.confirmation_experience as PaymentsSavedCheckoutInstrument["confirmation_experience"],
+      is_default: instrument.is_default,
+      readiness: instrument.readiness as PaymentsSavedCheckoutInstrument["readiness"],
+      removed_at: instrument.removed_at,
+      created_at: instrument.created_at,
+      updated_at: instrument.updated_at,
+    }));
   } catch {
     return [];
   }

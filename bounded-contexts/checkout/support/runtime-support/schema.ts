@@ -5,6 +5,7 @@ import { checkoutMarketplaceSellerOptionsSchemaSql } from "../../features/cart/i
 import { checkoutSellerAccountReviewsSchemaSql } from "../../features/cart/integrations/reputation/reputation-schema";
 import { checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../../features/sell-list/read-model/schema";
+import { checkoutPaymentAffordanceSchemaSql } from "../../features/sessions/integrations/payments/payment-affordance-schema";
 import { checkoutPaymentSummarySchemaSql } from "../../features/sessions/integrations/payments/payment-summary-schema";
 import { checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
 
@@ -16,6 +17,7 @@ export const checkoutSchemaSql = [
   checkoutSellerAccountReviewsSchemaSql,
   checkoutCartSchemaSql,
   checkoutSellListSchemaSql,
+  checkoutPaymentAffordanceSchemaSql,
   checkoutPaymentSummarySchemaSql,
   checkoutSessionSchemaSql,
 ].join("\n");

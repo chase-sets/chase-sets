@@ -80,6 +80,7 @@ function createSessions(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => session()),
     getPaymentSummary: vi.fn(async () => null),
+    listSavedPaymentInstruments: vi.fn(async () => []),
     projectors: [],
     ...overrides,
   };

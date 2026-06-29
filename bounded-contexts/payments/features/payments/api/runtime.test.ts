@@ -566,4 +566,66 @@ describe("payment runtime", () => {
       savedCheckoutInstrumentId: "sci_card_1",
     });
   });
+
+  it("publishes support-safe checkout affordance facts after saved instrument changes", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb({
+        savedCheckoutInstrumentRows: [
+          {
+            instrument_id: "sci_card_1",
+            account_id: "acc_buyer",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_card_1",
+            display_label: "Visa ending in 4242",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_1",
+            consent_text: "Save for future checkout.",
+            removed_at: null,
+            is_default: false,
+            created_at: "2026-04-29T00:00:00.000Z",
+            updated_at: "2026-04-29T00:00:00.000Z",
+          },
+        ],
+      }) as never,
+      processorGateway: createProcessorGateway(),
+    });
+
+    await services.setSavedCheckoutInstrumentDefault(
+      {
+        accountId: "acc_buyer" as never,
+        instrumentId: "sci_card_1",
+      },
+      context,
+    );
+
+    const published = readAllEvents().find((event) => event.eventType === "payments.checkout-affordances-published");
+    expect(published?.streamId).toBe("payments.checkout-affordances-acc_buyer");
+    expect(published?.payload).toMatchObject({
+      accountId: "acc_buyer",
+      savedCheckoutInstruments: [
+        {
+          instrumentId: "sci_card_1",
+          paymentMethodCategory: "card",
+          displayLabel: "Visa ending in 4242",
+          confirmationExperience: "off-session-token",
+          readiness: "ready",
+          checkoutEligible: true,
+          isDefault: false,
+          removedAt: null,
+        },
+      ],
+    });
+    expect(JSON.stringify(published?.payload)).not.toContain("provider_reference");
+    expect(JSON.stringify(published?.payload)).not.toContain("providerReference");
+    expect(JSON.stringify(published?.payload)).not.toContain("provider_customer_reference");
+    expect(JSON.stringify(published?.payload)).not.toContain("providerCustomerReference");
+    expect(JSON.stringify(published?.payload)).not.toContain("consent");
+  });
 });

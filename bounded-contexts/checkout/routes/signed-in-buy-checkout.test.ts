@@ -31,6 +31,7 @@ import {
 } from "../tests/support/checkout-route-test-harness";
 
 const mockListSavedCheckoutInstruments = vi.fn();
+const mockListCheckoutSavedPaymentInstruments = vi.fn();
 
 async function readResolvedFreshWriteToken(location: string) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(new URL(location, "http://localhost")));
@@ -211,19 +212,22 @@ function mockSignedInSavedRows() {
       },
     ],
   });
-  mockListSavedCheckoutInstruments.mockResolvedValue({
+  mockListCheckoutSavedPaymentInstruments.mockResolvedValue({
     items: [
       {
-        id: "sci_card_1",
+        instrument_id: "sci_card_1",
         payment_method_category: "card",
         display_label: "Visa ending in 4242",
+        confirmation_experience: "off-session-token",
         readiness: "ready",
         is_default: true,
+        removed_at: null,
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
       },
     ],
   });
   mockCreatePaymentsRequestApiClient.mockReturnValue({
-    listSavedCheckoutInstruments: mockListSavedCheckoutInstruments,
     previewCheckoutStatus: mockPreviewCheckoutStatus,
   });
 }
@@ -333,6 +337,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     mockGetCheckoutSession.mockResolvedValue(signedInCartSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      listCheckoutSavedPaymentInstruments: mockListCheckoutSavedPaymentInstruments,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
@@ -355,6 +360,8 @@ describe("checkout web routes: signed-in buy checkout", () => {
       requestedBalanceCreditAmount: "0.00",
       paymentMethodCategory: "card",
     });
+    expect(mockListCheckoutSavedPaymentInstruments).toHaveBeenCalled();
+    expect(mockListSavedCheckoutInstruments).not.toHaveBeenCalled();
     expect(checkoutReview).toEqual(
       expect.objectContaining({
         isSignedInBuyer: true,

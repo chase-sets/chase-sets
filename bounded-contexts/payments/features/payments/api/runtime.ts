@@ -105,6 +105,21 @@ type CheckoutStatusResult = Readonly<{
 }>;
 
 type PaymentMethodCategory = "card" | "bank-account" | "platform-credit";
+type SavedCheckoutInstrumentReadiness = "ready" | "setup-required" | "removed";
+type SavedCheckoutConfirmationExperience = "trusted-payment-step" | "off-session-token";
+
+type CheckoutAffordanceInstrument = Readonly<{
+  instrumentId: string;
+  paymentMethodCategory: PaymentMethodCategory;
+  displayLabel: string;
+  confirmationExperience: SavedCheckoutConfirmationExperience;
+  readiness: SavedCheckoutInstrumentReadiness;
+  checkoutEligible: boolean;
+  isDefault: boolean;
+  removedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}>;
 
 const SAVE_PAYMENT_CONSENT_TEXT =
   "Save this payment method for future Chase Sets checkout and allow Chase Sets to use it for future purchases I approve.";
@@ -635,15 +650,19 @@ export type PaymentServices = Readonly<{
   ) => Promise<SavedCheckoutSetupSessionRow>;
   reconcileSavedCheckoutSetupSession: (
     params: Readonly<{ accountId: AccountId; setupReference: string }>,
+    context: EventStoreContext,
   ) => Promise<SavedCheckoutInstrumentRow | null>;
   setSavedCheckoutInstrumentDefault: (
     params: Readonly<{ accountId: AccountId; instrumentId: string }>,
+    context: EventStoreContext,
   ) => Promise<SavedCheckoutInstrumentRow | null>;
   removeSavedCheckoutInstrument: (
     params: Readonly<{ accountId: AccountId; instrumentId: string }>,
+    context: EventStoreContext,
   ) => Promise<SavedCheckoutInstrumentRow | null>;
   reconcileSavedCheckoutInstruments: (
     params: Readonly<{ accountId: AccountId }>,
+    context: EventStoreContext,
   ) => Promise<Readonly<{ checked: number; updated: number; removed: number }>>;
   listAccountOrderInputs: (
     params: Readonly<{ accountId: AccountId; orderIds: readonly OrderId[] }>,
@@ -734,6 +753,46 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       processor_publishable_key: canUseProcessorManagedForm ? publicConfig.publishableKey : null,
       provider_events: providerEvents,
     };
+  }
+
+  function mapCheckoutAffordanceInstrument(row: SavedCheckoutInstrumentRow): CheckoutAffordanceInstrument {
+    const readiness = row.readiness as SavedCheckoutInstrumentReadiness;
+    return {
+      instrumentId: row.instrument_id,
+      paymentMethodCategory: row.payment_method_category as PaymentMethodCategory,
+      displayLabel: row.display_label,
+      confirmationExperience: row.confirmation_experience as SavedCheckoutConfirmationExperience,
+      readiness,
+      checkoutEligible:
+        readiness === "ready" &&
+        Boolean(row.provider_customer_reference?.trim()) &&
+        Boolean(row.provider_reference?.trim()),
+      isDefault: row.is_default,
+      removedAt: row.removed_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async function publishCheckoutAffordances(accountId: AccountId, context: EventStoreContext) {
+    const instruments = await listSavedCheckoutInstruments(deps.db, accountId);
+    const publishedAt = new Date().toISOString();
+    await deps.eventStore.appendToStream({
+      streamId: `payments.checkout-affordances-${accountId}`,
+      expectedVersion: "any",
+      events: [
+        {
+          eventType: "payments.checkout-affordances-published",
+          payload: {
+            accountId,
+            savedCheckoutInstruments: instruments.map(mapCheckoutAffordanceInstrument),
+            publishedAt,
+          } as never,
+          occurredAt: publishedAt as never,
+        },
+      ],
+      context,
+    });
   }
 
   return {
@@ -857,7 +916,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         consentText: SAVE_PAYMENT_CONSENT_TEXT,
       });
     },
-    async reconcileSavedCheckoutSetupSession(params) {
+    async reconcileSavedCheckoutSetupSession(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const setupReference = normalizeRequiredText(params.setupReference, "Setup reference is required.");
       const setupSession =
@@ -875,7 +934,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         return null;
       }
 
-      return persistProcessorSavedPaymentMethod(deps, {
+      const instrument = await persistProcessorSavedPaymentMethod(deps, {
         accountId,
         providerCustomerReference: setupSession.provider_customer_reference,
         savedPaymentMethod: result.savedPaymentMethod,
@@ -884,8 +943,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         isDefault: true,
         auditAction: "setup-completed",
       });
+      await publishCheckoutAffordances(accountId, context);
+      return instrument;
     },
-    async setSavedCheckoutInstrumentDefault(params) {
+    async setSavedCheckoutInstrumentDefault(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const instrument = await getSavedCheckoutInstrument(deps.db, {
         accountId,
@@ -905,9 +966,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         action: "set-default",
         performedByAccountId: accountId,
       });
+      await publishCheckoutAffordances(accountId, context);
       return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
     },
-    async removeSavedCheckoutInstrument(params) {
+    async removeSavedCheckoutInstrument(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const instrument = await getSavedCheckoutInstrument(deps.db, {
         accountId,
@@ -930,9 +992,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         action: "removed",
         performedByAccountId: accountId,
       });
+      await publishCheckoutAffordances(accountId, context);
       return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
     },
-    async reconcileSavedCheckoutInstruments(params) {
+    async reconcileSavedCheckoutInstruments(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const instruments = await listSavedCheckoutInstruments(deps.db, accountId);
       let updated = 0;
@@ -965,6 +1028,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         updated += 1;
       }
 
+      if (updated > 0) {
+        await publishCheckoutAffordances(accountId, context);
+      }
       return { checked: instruments.length, updated, removed };
     },
     async createAccountPayment(params, context) {

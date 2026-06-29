@@ -799,6 +799,16 @@ export function createAccountCheckoutSessionRoutes(
     return c.json(paymentSummary);
   });
 
+  app.get("/checkout-payment-affordances", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const instruments = await services.listSavedPaymentInstruments(access.actor.accountId as AccountId);
+    return c.json({ items: instruments });
+  });
+
   app.post("/checkout-sessions/:sessionId/shipping-option", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {
