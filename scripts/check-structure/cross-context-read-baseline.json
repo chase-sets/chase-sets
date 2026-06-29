@@ -207,32 +207,6 @@
       "migration": "Mirror storage location summaries into Discovery's item-detail overlay; Inventory remains poll-only until #1364 expands push coverage."
     },
     {
-      "id": "bounded-contexts/marketplace/routes/account-listings.tsx:inventory:createInventoryRequestApiClient.getItem#1",
-      "consumerContextName": "marketplace",
-      "sourceContextName": "inventory",
-      "file": "bounded-contexts/marketplace/routes/account-listings.tsx",
-      "line": 253,
-      "clientFactory": "createInventoryRequestApiClient",
-      "methodName": "getItem",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "poll-only",
-      "issue": "#2780",
-      "migration": "Mirror inventory item detail needed by Marketplace account listings; Inventory remains poll-only until #1364 expands push coverage."
-    },
-    {
-      "id": "bounded-contexts/marketplace/routes/account-listings.tsx:inventory:createInventoryRequestApiClient.getItem#2",
-      "consumerContextName": "marketplace",
-      "sourceContextName": "inventory",
-      "file": "bounded-contexts/marketplace/routes/account-listings.tsx",
-      "line": 288,
-      "clientFactory": "createInventoryRequestApiClient",
-      "methodName": "getItem",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "poll-only",
-      "issue": "#2780",
-      "migration": "Mirror inventory item detail needed by Marketplace account listings; Inventory remains poll-only until #1364 expands push coverage."
-    },
-    {
       "id": "bounded-contexts/ordering/routes/account-purchase.tsx:marketplace:createReputationRequestApiClient.getOrderReviewOpportunity#1",
       "consumerContextName": "ordering",
       "sourceContextName": "marketplace",

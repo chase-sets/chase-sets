@@ -220,10 +220,13 @@ describe("marketplace listing routes", () => {
       product_summary: "Form: Raw",
       product_measure_snapshot: null,
       graded_card: null,
+      storage_location_id: "sloc_1",
       storage_location_name: "Listing stock",
       ship_from_code: "CHI-1",
       ship_from_address: validShipFromAddress,
+      total_quantity: 3,
       available_quantity: 3,
+      acquisition_cost_amount: "4.50",
     });
     const app = buildApp({
       actor: sellerActor,
@@ -256,10 +259,13 @@ describe("marketplace listing routes", () => {
       product_summary: "Form: Raw",
       product_measure_snapshot: null,
       graded_card: null,
+      storage_location_id: "sloc_1",
       storage_location_name: "Listing stock",
       ship_from_code: "CHI-1",
       ship_from_address: validShipFromAddress,
+      total_quantity: 3,
       available_quantity: 0,
+      acquisition_cost_amount: "4.50",
     });
     const app = buildApp({
       actor: sellerActor,

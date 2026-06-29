@@ -135,10 +135,13 @@ export interface MarketplaceListingInventoryItemOption {
   product_summary: string | null;
   product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
+  storage_location_id: string;
   storage_location_name: string;
   ship_from_code: string;
   ship_from_address: AddressSnapshot;
+  total_quantity: number;
   available_quantity: number;
+  acquisition_cost_amount: string | null;
 }
 
 export interface MarketplaceAnonymousListingDraftIntent {
