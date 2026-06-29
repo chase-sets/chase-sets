@@ -59,7 +59,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_support",
     label: "Admin Support",
     deployable: "admin-web",
-    journeys: ["platform feedback triage"],
+    journeys: ["support request operations", "platform feedback triage"],
     grep: "@admin-support",
   },
   {
@@ -176,6 +176,14 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/public-presence\/routes\/admin\/promo-bar\./,
     suites: ["admin_growth"],
+  },
+  {
+    pattern: /^bounded-contexts\/platform-operations\/routes\/admin\/request(?:s|-detail)/,
+    suites: ["admin_support"],
+  },
+  {
+    pattern: /^bounded-contexts\/platform-operations\/features\/support-requests\/(?:api|ui)\//,
+    suites: ["admin_support"],
   },
   {
     pattern: /^bounded-contexts\/platform-operations\/routes\/admin\/platform-feedback/,

@@ -107,6 +107,20 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_support"]);
   });
 
+  it("routes support request admin routes to support admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/requests.tsx")).toEqual([
+      "admin_support",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/request-detail.tsx")).toEqual([
+      "admin_support",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
+      ),
+    ).toEqual(["admin_support"]);
+  });
+
   it("routes projection operations admin routes to platform admin coverage", () => {
     expect(
       e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"),

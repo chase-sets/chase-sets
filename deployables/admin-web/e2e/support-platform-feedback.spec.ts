@@ -27,7 +27,7 @@ test.describe("support admin platform feedback", () => {
     await expect(page.getByText("New").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Mark reviewed" }).click();
-    await expect(page).toHaveURL(new RegExp(`/support/platform-feedback/${feedbackId}$`));
+    await expect(page).toHaveURL((url) => url.pathname === `/support/platform-feedback/${feedbackId}`);
     await expectReviewedFeedback(page, feedbackId);
   });
 });
