@@ -262,7 +262,7 @@ describe("DigitalOcean platform configuration", () => {
     const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");
 
     expect(platformMain).toContain(
-      'dynamic "job" {\n      for_each = local.marketplace_platform_enabled ? [] : [1]\n      content {\n        name               = "admin-support-bootstrap"',
+      'dynamic "job" {\n      for_each = local.marketplace_public_enabled ? [] : [1]\n      content {\n        name               = "admin-support-bootstrap"',
     );
     expect(platformMain).toContain("admin-support-bootstrap remains only for landing-only production");
     for (const key of ["PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD", "PLATFORM_ADMIN_DISPLAY_NAME"]) {
@@ -270,8 +270,8 @@ describe("DigitalOcean platform configuration", () => {
       expect(adminSupportBootstrapJob).toContain(`key   = "${key}"`);
     }
 
-    expect(platformBootstrapJob).not.toContain("local.marketplace_platform_enabled ? [] : [1]");
-    expect(adminSupportBootstrapJob).not.toContain("local.marketplace_platform_enabled ? [] : [1]");
+    expect(platformBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
+    expect(adminSupportBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
@@ -447,15 +447,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
-    expect(platformMain).toContain(
-      'dynamic "worker" {\n      for_each = local.marketplace_platform_enabled ? [1] : []',
-    );
+    expect(platformMain).toContain('dynamic "worker" {\n      for_each = local.marketplace_public_enabled ? [1] : []');
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
   });
 
   it("models the push-wake connection budget and listener topology parity as plan-time checks", () => {
-    expectTerraformAssignment(platformLocals, "api_component_count", "local.is_production ? 2 : 1");
-    expectTerraformAssignment(platformLocals, "worker_component_count", "local.is_production ? 2 : 1");
+    expectTerraformAssignment(platformLocals, "api_component_count", "1");
+    expectTerraformAssignment(platformLocals, "worker_component_count", "1");
     expectTerraformAssignment(
       platformLocals,
       "api_total_pool_demand",
@@ -561,17 +559,15 @@ describe("DigitalOcean platform configuration", () => {
     const exportStep = workflowStep(platformProductionWorkflow, "Export production readiness database URLs");
     const readinessStep = workflowStep(platformProductionWorkflow, "Production post-deploy readiness gate");
 
-    // Ordering: after the smoke check, before the Stage 1 canary and the
-    // proof-mode canary, so canaries measure steady state (#1237).
+    // Ordering: after the smoke check and before the Stage 1 canary, so the
+    // canary measures steady state (#1237).
     const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
     const exportIndex = platformProductionWorkflow.indexOf("- name: Export production readiness database URLs");
     const readinessIndex = platformProductionWorkflow.indexOf("- name: Production post-deploy readiness gate");
     const stage1Index = platformProductionWorkflow.indexOf("- name: Stage 1 production canary");
-    const proofIndex = platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness probe");
     expect(smokeIndex).toBeLessThan(exportIndex);
     expect(exportIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(stage1Index);
-    expect(stage1Index).toBeLessThan(proofIndex);
 
     // The export step derives direct production URLs from Terraform state
     // (staging wake-drills pattern) and masks them.
@@ -582,13 +578,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(exportStep).toContain(
       "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}",
     );
-    expect(exportStep).toContain(
-      "(vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')",
-    );
+    expect(exportStep).toContain("vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'");
     expect(exportStep).toContain("continue-on-error: true");
 
     // The gate is warn-and-proceed: it records the outcome but never fails
-    // the job — the proof canary remains the promotion gate.
+    // the job. Stage 1 production canary remains the release gate.
     expect(readinessStep).toContain("node ./scripts/production-readiness-gate.mjs");
     expect(readinessStep).toContain(
       "READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}",
@@ -736,12 +730,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
     expect(platformVariables).not.toContain('variable "production_marketplace_launch_evidence_reference"');
-    expect(platformVariables).toContain('variable "production_marketplace_proof_enabled"');
-    expect(platformVariables).toContain("production_marketplace_proof_enabled may only be true for production.");
-    expect(platformVariables).toContain('variable "production_marketplace_proof_reference"');
-    expect(platformVariables).toContain(
-      "production_marketplace_proof_reference is required when production_marketplace_proof_enabled is true.",
-    );
+    expect(platformVariables).not.toContain('variable "production_marketplace_proof_enabled"');
+    expect(platformVariables).not.toContain('variable "production_marketplace_proof_reference"');
     expect(platformVariables).toContain('variable "production_marketplace_promotion_approved"');
     expect(platformVariables).toContain("production_marketplace_promotion_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_marketplace_promotion_reference"');
@@ -808,7 +798,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('startswith(var.stripe_publishable_key, "pk_live")');
     expect(platformVariables).toContain('variable "stripe_connect_webhook_secret"');
     expect(platformVariables).toContain(
-      "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace proof or promotion.",
+      "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace promotion.",
     );
     expect(platformMain).toContain('key   = "STRIPE_CONNECT_WEBHOOK_SECRET"');
     expect(platformMain).toContain("value = var.stripe_connect_webhook_secret");
@@ -818,50 +808,28 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_REFRESH_URL"');
     expect(platformVariables).toContain('variable "easypost_webhook_secret"');
     expect(platformVariables).toContain(
-      "easypost_webhook_secret is required when production marketplace proof or promotion is enabled.",
+      "easypost_webhook_secret is required when production marketplace promotion is enabled.",
     );
     expect(platformVariables).toContain('var.easypost_mode == "production"');
-    expect(platformLocals).toContain("marketplace_platform_enabled = (");
+    expect(platformLocals).not.toContain("marketplace_platform_enabled");
     expect(platformLocals).toContain("placeholder_evidence_references = [");
     expect(platformLocals).toContain('"launch-000"');
-    expect(platformLocals).toContain("var.production_marketplace_proof_enabled");
+    expect(platformLocals).not.toContain("var.production_marketplace_proof_enabled");
     expect(platformLocals).toContain("marketplace_public_enabled = (");
     expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
-    expect(platformLocals).toContain(
-      'platform_api_private_url      = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : local.api_private_url',
-    );
-    expect(platformLocals).toContain(
-      "admin_web_internal_api_origin = local.marketplace_platform_enabled ? local.platform_api_private_url : local.api_private_url",
-    );
-    expect(platformLocals).toContain("production_proof_web_enabled = (");
-    expect(platformLocals).toContain("marketplace_web_enabled = (");
-    expect(platformLocals).toContain("marketplace_domains = local.marketplace_web_enabled");
+    expect(platformLocals).toContain("admin_web_internal_api_origin = local.api_private_url");
+    expect(platformLocals).not.toContain("production_proof_web_enabled");
+    expect(platformLocals).not.toContain("marketplace_web_enabled");
+    expect(platformLocals).toContain("marketplace_domains = local.marketplace_public_enabled");
     expect(platformLocals).toContain('local.is_production ? "marketplace.${var.root_domain}"');
     expect(platformLocals).toContain("provider_webhook_ingress_routes = {");
     expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
     expect(platformLocals).toContain('"/api/settlement/provider/money-movement/webhooks"');
-    expect(platformLocals).toContain("proof_api_ingress_routes = {");
-    expect(platformLocals).toContain('"/api/marketplace/account/sales/shipments"');
-    expect(platformLocals).toContain('"/api/inventory/items/listing-stock/ensure"');
-    expect(platformLocals).toContain('"/api/inventory/storage-locations"');
-    expect(platformLocals).toContain('"/api/marketplace/account/listing-availability"');
-    expect(platformLocals).toContain('"/api/marketplace/account/listing-inventory"');
-    expect(platformLocals).toContain('"/api/marketplace/account/listings"');
-    expect(platformLocals).toContain('"/api/marketplace/account/payments"');
-    expect(platformLocals).toContain('"/api/settlement/payout-setup"');
-    expect(platformLocals).toContain("proof_admin_api_ingress_routes = {");
-    expect(platformLocals).toContain('"/api/catalog"');
-    expect(platformLocals).toContain('"/api/commercial-terms"');
-    expect(platformLocals).toContain('"/api/platform"');
-    expect(platformLocals).toContain('"/api/public-presence"');
-    expect(platformLocals).toContain('"/api/realtime"');
-    expect(platformLocals).toContain("proof_admin_api_route_domains = local.is_production");
-    expect(platformLocals).toContain("local.admin_domain");
-    expect(platformLocals).toContain("proof_web_ingress_routes = {");
-    expect(platformLocals).toContain('"/account/payouts/setup"');
-    expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"');
-    expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"');
-    expect(platformMain).toContain('value = "security.manage"');
+    expect(platformLocals).not.toContain("proof_api_ingress_routes");
+    expect(platformLocals).not.toContain("proof_admin_api_ingress_routes");
+    expect(platformLocals).not.toContain("proof_web_ingress_routes");
+    expect(platformMain).not.toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"');
+    expect(platformMain).not.toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"');
     const marketplaceService = terraformServiceBlock(platformMain, "marketplace");
     expect(marketplaceService).toContain('key   = "STRIPE_PUBLISHABLE_KEY"');
     expect(marketplaceService).toContain("value = var.stripe_publishable_key");
@@ -873,11 +841,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
     expect(adminWebService).toContain('key   = "CHASE_SETS_MARKETPLACE_ORIGIN"');
     expect(adminWebService).toContain("value = local.marketplace_origin");
-    expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
-    expect(platformMain).toContain('check "production_marketplace_proof"');
-    expect(platformMain).toContain(
-      'error_message = "Production marketplace proof mode requires a production environment and a real evidence-collection approval reference."',
-    );
+    expect(platformLocals).toContain("context_names = local.marketplace_public_enabled");
+    expect(platformMain).not.toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain('check "production_marketplace_promotion"');
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
@@ -937,13 +902,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved Tax readiness evidence before live order creation."',
     );
-    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [1] : []");
-    expect(platformMain).toContain("for_each = local.marketplace_web_enabled ? [1] : []");
-    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [] : [1]");
+    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [1] : []");
+    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).not.toContain("for_each = local.marketplace_platform_enabled");
+    expect(platformMain).not.toContain("for_each = local.marketplace_web_enabled");
     expect(platformMain).toContain("for_each = local.provider_webhook_ingress_routes");
-    expect(platformMain).toContain("for_each = local.proof_api_ingress_routes");
-    expect(platformMain).toContain("for_each = local.proof_admin_api_ingress_routes");
-    expect(platformMain).toContain("for_each = local.proof_web_ingress_routes");
+    expect(platformMain).not.toContain("for_each = local.proof_api_ingress_routes");
+    expect(platformMain).not.toContain("for_each = local.proof_admin_api_ingress_routes");
+    expect(platformMain).not.toContain("for_each = local.proof_web_ingress_routes");
     expect(platformMain).toContain(
       'value = local.is_production && local.marketplace_public_enabled ? "true" : "false"',
     );
@@ -1090,14 +1056,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness probe"),
+      platformProductionWorkflow.indexOf("- name: Mark production release"),
     );
-    expect(platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness probe")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Production settlement provider-health telemetry probe"),
-    );
-    expect(
-      platformProductionWorkflow.indexOf("- name: Production settlement provider-health telemetry probe"),
-    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Mark production release"));
+    expect(platformProductionWorkflow).not.toContain("- name: Production proof-mode Buy Now freshness probe");
+    expect(platformProductionWorkflow).not.toContain("- name: Production settlement provider-health telemetry probe");
     // The baseline-vs-canary promotion-evidence gate (canary-evidence.mjs /
     // canary-analysis.json) was removed in #2507: it modeled a canary deploy
     // that does not exist (rolling deploy), was half-uninstrumented, and never
@@ -1106,75 +1068,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).not.toContain("- name: Collect production canary observability evidence");
     expect(platformProductionWorkflow).not.toContain("canary-evidence.mjs");
     expect(platformProductionWorkflow).not.toContain("CANARY_PROMETHEUS");
-    const settlementProviderHealthProbeStep = workflowStep(
-      platformProductionWorkflow,
-      "Production settlement provider-health telemetry probe",
-    );
-    expect(settlementProviderHealthProbeStep).toContain(
-      "if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
-    );
-    expect(settlementProviderHealthProbeStep).toContain("production-settlement-provider-health-probe.mjs");
-    expect(settlementProviderHealthProbeStep).toContain(
-      "PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
-    );
-    expect(settlementProviderHealthProbeStep).toContain(
-      "artifacts/release-health/production-settlement-provider-health-probe.json",
-    );
-    expect(settlementProviderHealthProbeStep).toContain(
-      "PRODUCTION_SETTLEMENT_PROBE_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '90' }}",
-    );
-    expect(settlementProviderHealthProbeStep).toContain('echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"');
-    expect(settlementProviderHealthProbeStep).toContain('echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"');
     expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+      "CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome || 'skipped' }}",
     );
     expect(platformProductionWorkflow).not.toContain("CANARY_EVIDENCE_RESULT");
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_COMPLETED_AT: ${{ steps.settlement_probe.outputs.completed_at || steps.proof_probe.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
+      "CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}",
     );
     expect(platformProductionWorkflow).toContain(
       "CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
-    const productionProofProbeStep = workflowStep(
-      platformProductionWorkflow,
-      "Production proof-mode Buy Now freshness probe",
-    );
-    expect(productionProofProbeStep).toContain(
-      "if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
-    );
-    expect(productionProofProbeStep).toContain(
-      "GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
-    );
-    expect(productionProofProbeStep).toContain(
-      "GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
-    );
-    expect(productionProofProbeStep).toContain(
-      "configure PRODUCTION_PROOF_CANARY_EMAIL/PRODUCTION_PROOF_CANARY_PASSWORD or keep PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD available as the launch fallback",
-    );
-    expect(productionProofProbeStep).not.toContain("blocked-missing-credentials");
-    expect(productionProofProbeStep).toContain("--flow account");
-    expect(productionProofProbeStep).toContain("--environment production-proof");
-    expect(productionProofProbeStep).toContain(
-      '--production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}"',
-    );
-    expect(productionProofProbeStep).toContain(
-      "artifacts/release-health/production-proof-buy-now-freshness-probe.json",
-    );
-    expect(productionProofProbeStep).toContain(
-      'failure_reason="$(jq -r \'.failureReason // "unknown"\' "$proof_out")"',
-    );
-    expect(productionProofProbeStep).toContain('echo "failure_reason=${failure_reason}"');
-    expect(productionProofProbeStep).toContain(
-      'echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"',
-    );
-    expect(platformProductionWorkflow).toContain("Install Playwright Chromium for production proof probe");
+    expect(platformProductionWorkflow).not.toContain("Install Playwright Chromium for production proof probe");
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}",
     );
@@ -1200,17 +1111,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Upload release health summary");
     expect(platformProductionWorkflow).toContain("name: production-release-health");
     expect(platformProductionWorkflow).not.toContain("artifacts/release-health/canary-analysis.json");
-    expect(platformProductionWorkflow).toContain(
+    expect(platformProductionWorkflow).not.toContain(
       "artifacts/release-health/production-settlement-provider-health-probe.json",
+    );
+    expect(platformProductionWorkflow).not.toContain(
+      "artifacts/release-health/production-proof-buy-now-freshness-probe.json",
     );
     expect(platformProductionWorkflow).toContain("retention-days: 30");
     expect(platformProductionWorkflow).not.toContain("TF_VAR_production_marketplace_launch_evidence_reference");
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}",
-    );
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_production_marketplace_proof_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}",
-    );
+    expect(platformProductionWorkflow).not.toContain("TF_VAR_production_marketplace_proof_enabled");
+    expect(platformProductionWorkflow).not.toContain("TF_VAR_production_marketplace_proof_reference");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
     );
@@ -1243,7 +1153,7 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_stripe_connect_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
@@ -1258,7 +1168,7 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_fulfillment_postage_reference: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
@@ -1304,7 +1214,7 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace platform deployment requires EASYPOST_API_BASE_URL to be unset.",
     );
     expect(platformProductionWorkflow).toContain("Missing required production Google Workspace SSO configuration");
-    expect(platformProductionWorkflow).toContain(
+    expect(platformProductionWorkflow).not.toContain(
       "Production marketplace proof mode requires an evidence-collection approval reference.",
     );
     expect(platformProductionWorkflow).toContain(
@@ -1364,9 +1274,8 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
-  it("keeps admin-web API dependency inventory aligned with local proxy and proof ingress", () => {
+  it("keeps admin-web API dependency inventory aligned with local proxy coverage", () => {
     const localProxyPrefixes = viteProxyPrefixes();
-    const proofAdminApiPrefixes = terraformStringList(platformLocals, "proof_admin_api_route_prefixes");
 
     expect(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.callerType)).toEqual(
       expect.arrayContaining(["server-loader/action", "direct-download", "event-source", "durable-job-event-source"]),
@@ -1378,7 +1287,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(missingIds).toEqual([]);
 
     const missingTopologyModes = ADMIN_WEB_API_DEPENDENCIES.filter((dependency) =>
-      ["staging", "production-proof", "public-marketplace", "production-platform-disabled"].some(
+      ["staging", "public-marketplace", "production-platform-disabled"].some(
         (mode) => !dependency.topologyExpectations?.[mode],
       ),
     ).map((dependency) => dependency.id);
@@ -1410,14 +1319,7 @@ describe("DigitalOcean platform configuration", () => {
     ).map((dependency) => `${dependency.surface}: ${dependency.localProxyPrefix}`);
     expect(missingConfiguredProxy).toEqual([]);
 
-    const missingProofIngress = ADMIN_WEB_API_DEPENDENCIES.filter(
-      (dependency) =>
-        dependency.proofAdminIngressPrefix && !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix),
-    ).map(
-      (dependency) =>
-        `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
-    );
-    expect(missingProofIngress).toEqual([]);
+    expect(ADMIN_WEB_API_DEPENDENCIES.filter((dependency) => dependency.proofAdminIngressPrefix)).toEqual([]);
   });
 
   it("adds Shipit-like PR release status without replacing merge queue", () => {
@@ -1615,10 +1517,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
     expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
-      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+      "TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
 

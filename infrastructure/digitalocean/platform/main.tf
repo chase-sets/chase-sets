@@ -27,17 +27,6 @@ check "context_database_name_lengths" {
   }
 }
 
-check "production_marketplace_proof" {
-  assert {
-    condition = !var.production_marketplace_proof_enabled || (
-      var.environment == "production" &&
-      length(trimspace(var.production_marketplace_proof_reference)) >= 6 &&
-      !contains(local.placeholder_evidence_references, lower(trimspace(var.production_marketplace_proof_reference)))
-    )
-    error_message = "Production marketplace proof mode requires a production environment and a real evidence-collection approval reference."
-  }
-}
-
 check "staging_production_observability_export" {
   assert {
     condition = !(local.is_staging || local.is_production) || !var.observability_enabled || (
@@ -525,7 +514,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.marketplace_web_enabled ? [1] : []
+      for_each = local.marketplace_public_enabled ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -604,18 +593,6 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
-        env {
-          key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"
-          value = local.production_proof_web_enabled ? "true" : "false"
-          scope = "RUN_TIME"
-        }
-
-        env {
-          key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"
-          value = "security.manage"
-          scope = "RUN_TIME"
-        }
-
         health_check {
           http_path = "/health/ready"
         }
@@ -670,7 +647,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.marketplace_platform_enabled ? [1] : []
+      for_each = local.marketplace_public_enabled ? [1] : []
       content {
         name               = "platform-api"
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
@@ -1137,7 +1114,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "worker" {
-      for_each = local.marketplace_platform_enabled ? [1] : []
+      for_each = local.marketplace_public_enabled ? [1] : []
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
@@ -1749,7 +1726,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.marketplace_platform_enabled ? [1] : []
+      for_each = local.marketplace_public_enabled ? [1] : []
       content {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -1909,10 +1886,10 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    # platform-bootstrap owns production marketplace proof/public bootstrapping.
+    # platform-bootstrap owns production marketplace public bootstrapping.
     # admin-support-bootstrap remains only for landing-only production.
     dynamic "job" {
-      for_each = local.marketplace_platform_enabled ? [] : [1]
+      for_each = local.marketplace_public_enabled ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -2125,60 +2102,6 @@ resource "digitalocean_app" "platform" {
           }
           component {
             name                 = "platform-api"
-            preserve_path_prefix = true
-          }
-        }
-      }
-
-      dynamic "rule" {
-        for_each = local.proof_api_ingress_routes
-        content {
-          match {
-            authority {
-              exact = rule.value.authority
-            }
-            path {
-              prefix = rule.value.path_prefix
-            }
-          }
-          component {
-            name                 = "platform-api"
-            preserve_path_prefix = true
-          }
-        }
-      }
-
-      dynamic "rule" {
-        for_each = local.proof_admin_api_ingress_routes
-        content {
-          match {
-            authority {
-              exact = rule.value.authority
-            }
-            path {
-              prefix = rule.value.path_prefix
-            }
-          }
-          component {
-            name                 = "platform-api"
-            preserve_path_prefix = true
-          }
-        }
-      }
-
-      dynamic "rule" {
-        for_each = local.proof_web_ingress_routes
-        content {
-          match {
-            authority {
-              exact = rule.value.authority
-            }
-            path {
-              prefix = rule.value.path_prefix
-            }
-          }
-          component {
-            name                 = "marketplace"
             preserve_path_prefix = true
           }
         }

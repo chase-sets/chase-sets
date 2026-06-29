@@ -47,19 +47,6 @@ jobs:
       exposure_posture_categories: ${{ steps.deployment_scope.outputs.exposure_posture_categories }}
       exposure_posture_changed: ${{ steps.deployment_scope.outputs.exposure_posture_changed }}
     steps:
-      - name: Validate production proof canary credentials
-        if: vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
-        env:
-          PROOF_CANARY_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
-          PROOF_CANARY_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
-        run: |
-          set -euo pipefail
-          if [ -z "${PROOF_CANARY_EMAIL}" ] || [ -z "${PROOF_CANARY_PASSWORD}" ]; then
-            echo "Production proof mode requires Buy Now canary operator credentials before any deploy work starts: configure PRODUCTION_PROOF_CANARY_EMAIL/PRODUCTION_PROOF_CANARY_PASSWORD or keep PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD available as the launch fallback." >&2
-            exit 1
-          fi
-          echo "Production proof canary credentials are configured."
-
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -1279,8 +1266,6 @@ jobs:
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
-      TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}
-      TF_VAR_production_marketplace_proof_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
       TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
@@ -1310,15 +1295,15 @@ jobs:
       TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
       TF_VAR_tax_provider_backed_quotes_required: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
-      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
-      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
+      TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
+      TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+      TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_API_KEY || '' }}
+      TF_VAR_easypost_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      TF_VAR_easypost_mode: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.EASYPOST_MODE || 'production') || 'test' }}
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
       TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
       TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
@@ -1470,17 +1455,7 @@ jobs:
             fi
           fi
 
-          if [ "${TF_VAR_production_marketplace_proof_enabled:-false}" = "true" ] && [ -z "${TF_VAR_production_marketplace_proof_reference:-}" ]; then
-            echo "Production marketplace proof mode requires an evidence-collection approval reference." >&2
-            exit 1
-          fi
-
-          marketplace_platform_enabled="false"
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ] || [ "${TF_VAR_production_marketplace_proof_enabled:-false}" = "true" ]; then
-            marketplace_platform_enabled="true"
-          fi
-
-          if [ "${marketplace_platform_enabled}" = "true" ]; then
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
             marketplace_missing=()
             for name in \
               TF_VAR_stripe_secret_key \
@@ -1968,7 +1943,7 @@ jobs:
       - name: Export production readiness database URLs
         if: |
           env.SHOULD_DEPLOY != 'false' &&
-          (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
+          vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'
         # Warn-and-proceed support step: an export failure leaves the gate
         # without database URLs, which it reports as a config-error warning —
         # it must never block the deploy.
@@ -2035,15 +2010,14 @@ jobs:
       # Bounded wait for steady state (#1237): poll until the audited contexts'
       # projection checkpoints reach the event-store head or the budget expires
       # so the canaries below measure steady-state freshness instead of
-      # post-deploy catch-up. Warn-and-proceed by design: this step never
-      # blocks promotion — the proof-mode canary remains the real gate and
-      # reports honestly either way.
+      # post-deploy catch-up. Warn-and-proceed by design: this step records
+      # readiness evidence without replacing the production canary gate.
       - name: Production post-deploy readiness gate
         timeout-minutes: 20
         id: readiness_gate
         if: |
           env.SHOULD_DEPLOY != 'false' &&
-          (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
+          vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true'
         env:
           READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}
           READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}
@@ -2061,7 +2035,7 @@ jobs:
           esac
           echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
           if [ "$outcome" != "ready" ]; then
-            echo "::warning::Production post-deploy readiness gate outcome was '${outcome}'; proceeding (warn-and-proceed) — the canaries below measure post-deploy catch-up rather than steady state and the proof canary remains the promotion gate."
+            echo "::warning::Production post-deploy readiness gate outcome was '${outcome}'; proceeding (warn-and-proceed) — the canary below measures post-deploy catch-up rather than steady state."
           fi
 
       - name: Stage 1 production canary
@@ -2095,137 +2069,6 @@ jobs:
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
-
-      - name: Install Playwright Chromium for production proof probe
-        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Production proof-mode Buy Now freshness probe
-        id: proof_probe
-        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
-          GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
-          GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_ITEM_PATH || '' }}
-          GUEST_BUY_NOW_PROBE_SEARCH_QUERY: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_SEARCH_QUERY || 'charizard' }}
-          GUEST_BUY_NOW_PROBE_FIXTURE_KEY: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_FIXTURE_KEY || 'production-proof-buy-now-fixture' }}
-          GUEST_BUY_NOW_PROBE_TIMEOUT_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
-          GUEST_BUY_NOW_PROBE_READY_SLO_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_READY_SLO_MS || vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
-          GUEST_BUY_NOW_PROBE_SLO_MODE: ${{ vars.GUEST_BUY_NOW_CANARY_SLO_MODE || 'warn' }}
-          GUEST_BUY_NOW_PROBE_ATTEMPTS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_ATTEMPTS || '3' }}
-          PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
-        run: |
-          set -euo pipefail
-          if [ -z "${GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL}" ] || [ -z "${GUEST_BUY_NOW_PROBE_ACCOUNT_PASSWORD}" ]; then
-            echo "Production proof mode requires operator credentials for the Buy Now readiness probe: configure PRODUCTION_PROOF_CANARY_EMAIL/PRODUCTION_PROOF_CANARY_PASSWORD or keep PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD available as the launch fallback." >&2
-            exit 1
-          fi
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$marketplace_domain" ]; then
-            echo "Production proof mode was enabled but no marketplace domain was present in Terraform outputs." >&2
-            exit 1
-          fi
-          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
-          cd ../../..
-          proof_out=artifacts/release-health/production-proof-buy-now-freshness-probe.json
-          probe_args=(
-            --flow account
-            --environment production-proof
-            --production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}"
-            --base-url "https://${marketplace_domain}"
-            --search-query "${GUEST_BUY_NOW_PROBE_SEARCH_QUERY}"
-            --fixture-key "${GUEST_BUY_NOW_PROBE_FIXTURE_KEY}"
-            --timeout-ms "${GUEST_BUY_NOW_PROBE_TIMEOUT_MS}"
-            --ready-slo-ms "${GUEST_BUY_NOW_PROBE_READY_SLO_MS}"
-            --attempts "${GUEST_BUY_NOW_PROBE_ATTEMPTS}"
-            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof"
-            --out "$proof_out"
-          )
-          if [ -n "${GUEST_BUY_NOW_PROBE_ITEM_PATH}" ]; then
-            probe_args+=(--item-path "${GUEST_BUY_NOW_PROBE_ITEM_PATH}")
-          fi
-
-          set +e
-          pnpm run guest-buy-now:freshness-probe -- "${probe_args[@]}"
-          probe_exit=$?
-          set -e
-
-          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          if [ -f "$proof_out" ]; then
-            final_state="$(jq -r '.finalState // "unknown"' "$proof_out")"
-            promotion_decision="$(jq -r '.promotionDecision // "abort"' "$proof_out")"
-            failure_reason="$(jq -r '.failureReason // "unknown"' "$proof_out")"
-            ready_latency_ms="$(jq -r '.readyLatencyMs // "unknown"' "$proof_out")"
-          else
-            final_state=unknown
-            promotion_decision=abort
-            failure_reason=unknown
-            ready_latency_ms=unknown
-          fi
-          {
-            echo "completed_at=${completed_at}"
-            echo "final_state=${final_state}"
-            echo "promotion_decision=${promotion_decision}"
-            echo "failure_reason=${failure_reason}"
-            echo "ready_latency_ms=${ready_latency_ms}"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "## Production proof-mode Buy Now freshness probe"
-            echo ""
-            echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"
-            echo "| --- | --- | --- | --- | --- | --- |"
-            echo "| account (proof mode) | ${final_state} | ${promotion_decision} | ${failure_reason} | ${ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof |"
-            echo ""
-            echo "Interpretation: docs/runbooks/guest-buy-now-freshness-probe.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
-            if [ "$promotion_decision" = "warn" ]; then
-              echo ""
-              echo "WARNING: ready SLO exceeded with user-safe final state '${final_state}'. Recorded as a release-health warning; the release was not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md)."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$probe_exit" -ne 0 ]; then
-            echo "Production proof-mode Buy Now freshness probe aborted the release (exit ${probe_exit})." >&2
-            exit "$probe_exit"
-          fi
-
-      - name: Production settlement provider-health telemetry probe
-        id: settlement_probe
-        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
-          PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
-          PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
-          PRODUCTION_SETTLEMENT_PROBE_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '90' }}
-        run: |
-          set -euo pipefail
-          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
-          if [ -z "${PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_EMAIL}" ] || [ -z "${PRODUCTION_SETTLEMENT_PROBE_ACCOUNT_PASSWORD}" ]; then
-            echo "Production proof mode requires operator credentials for the settlement provider-health telemetry probe." >&2
-            exit 1
-          fi
-          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$marketplace_domain" ]; then
-            echo "Production proof mode was enabled but no marketplace domain was present in Terraform outputs." >&2
-            exit 1
-          fi
-          cd ../../..
-          node ./scripts/production-settlement-provider-health-probe.mjs \
-            --environment production-proof \
-            --production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}" \
-            --base-url "https://${marketplace_domain}" \
-            --auth-base-url "https://${marketplace_domain}" \
-            --out artifacts/release-health/production-settlement-provider-health-probe.json
-          sleep "${PRODUCTION_SETTLEMENT_PROBE_SCRAPE_WAIT_SECONDS}"
-          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
 
       - name: Roll back production App Platform image
         id: production_rollback
@@ -2438,13 +2281,13 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'failure' || steps.settlement_probe.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
-          CANARY_COMPLETED_AT: ${{ steps.settlement_probe.outputs.completed_at || steps.proof_probe.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
+          CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ env.SHOULD_DEPLOY == 'false' && 'production-superseded-by-newer-main' || steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.proof_probe.outcome == 'failure' && 'abort' || steps.settlement_probe.outcome == 'failure' && 'abort' || steps.proof_probe.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
@@ -2480,8 +2323,6 @@ jobs:
           path: |
             artifacts/release-health/production-release.json
             artifacts/release-health/production-db-restore-point.json
-            artifacts/release-health/production-proof-buy-now-freshness-probe.json
-            artifacts/release-health/production-settlement-provider-health-probe.json
             artifacts/release-health/production-readiness-gate.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
