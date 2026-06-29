@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryMarketProjectionHandlers } from "../support/market-support/projection";
-import { getDiscoveryItemDetail } from "../features/item-detail/read-model/queries";
+import {
+  getDiscoveryItemDetail,
+  getDiscoveryItemDetailSellerOverlay,
+} from "../features/item-detail/read-model/queries";
 
 function createEvent(type: string, data: Record<string, unknown>, recordedAt: string) {
   return {
@@ -160,6 +163,199 @@ describe("item detail offer matches", () => {
     expect(calls[4].sql).toContain("UPDATE discovery_market_listings AS listing");
     expect(calls[4].sql).toContain("supply_total_quantity = supply.total_quantity");
     expect(calls[4].sql).toContain("active_held_quantity = COALESCE(holds.held_quantity, 0)");
+  });
+
+  it("projects seller overlay support rows from Inventory and Checkout events", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["inventory.storage-location.created"]?.(
+      createEvent(
+        "inventory.storage-location.created",
+        {
+          storageLocationId: "stl_listing",
+          accountId: "acc_seller",
+          name: "Listing stock",
+          shipFromCode: "LISTING-STOCK",
+          shipFromAddress: { country: "US" },
+        },
+        "2026-04-28T00:00:00.000Z",
+      ) as never,
+    );
+    await handlers["checkout.sell-list.line-added"]?.({
+      ...createEvent(
+        "checkout.sell-list.line-added",
+        {
+          sellerAccountId: "acc_seller",
+          lineId: "sll_offer",
+          lineType: "selected-offer",
+          offerId: "offer_charizard",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::raw",
+          quantity: 1,
+        },
+        "2026-04-28T00:01:00.000Z",
+      ),
+      streamId: "checkout.sell-list-acc_seller",
+    } as never);
+
+    expect(calls[0].sql).toContain("INSERT INTO discovery_market_supply_locations");
+    expect(calls[0].params).toEqual([
+      "stl_listing",
+      "acc_seller",
+      "Listing stock",
+      "LISTING-STOCK",
+      JSON.stringify({ country: "US" }),
+      "2026-04-28T00:00:00.000Z",
+    ]);
+    expect(calls[1].sql).toContain("INSERT INTO discovery_item_detail_sell_list_lines");
+    expect(calls[1].params).toEqual([
+      "acc_seller",
+      "sll_offer",
+      "selected-offer",
+      "offer_charizard",
+      "cat_charizard",
+      "cat_charizard::raw",
+      1,
+      "2026-04-28T00:01:00.000Z",
+    ]);
+  });
+
+  it("returns seller item-detail overlays from Discovery-owned local projections", async () => {
+    const queries: string[] = [];
+    const db = {
+      query: async (sql: string) => {
+        queries.push(sql);
+
+        if (sql.includes("WITH seller_listing")) {
+          return {
+            rows: [
+              {
+                offer_id: "offer_charizard",
+                buyer_account_id: "buyer_1",
+                buyer_display_name: "Ash Ketchum",
+                catalog_catalog_item_id: "cat_charizard",
+                product_id: "cat_charizard::raw",
+                item_title: "Charizard",
+                item_subtitle: "Base Set",
+                selected_options: [{ dimensionId: "form", optionId: "raw" }],
+                product_summary: "Raw",
+                price_amount: "350.00",
+                quantity_requested: 1,
+                status: "submitted",
+                accepted_seller_account_id: null,
+                accepted_at: null,
+                buyer_slug: "ash-ketchum",
+                buyer_average_rating: null,
+                buyer_review_count: 0,
+                seller_available_quantity: 2,
+                can_fulfill: true,
+                in_sell_list: true,
+                created_at: "2026-04-28T00:00:00.000Z",
+                updated_at: "2026-04-28T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("FROM discovery_market_supply_items AS supply")) {
+          return {
+            rows: [
+              {
+                item_id: "itm_charizard",
+                catalog_catalog_item_id: "cat_charizard",
+                product_id: "cat_charizard::raw",
+                item_title: "Charizard",
+                item_subtitle: "Base Set",
+                selected_options: [{ dimensionId: "form", optionId: "raw" }],
+                product_summary: "Raw",
+                storage_location_name: "Listing stock",
+                ship_from_code: "LISTING-STOCK",
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("SELECT EXISTS")) {
+          return { rows: [{ exists: true }] };
+        }
+
+        if (sql.includes("WHERE listing.listing_id = $1")) {
+          return {
+            rows: [
+              {
+                listing_id: "lst_charizard",
+                listing_slug: "charizard-lst",
+                product_slug: "charizard-raw",
+                account_id: "acc_seller",
+                inventory_item_id: "itm_charizard",
+                catalog_catalog_item_id: "cat_charizard",
+                catalog_item_slug: "charizard-base-set",
+                product_id: "cat_charizard::raw",
+                item_title: "Charizard",
+                item_subtitle: "Base Set",
+                selected_options: [{ dimensionId: "form", optionId: "raw" }],
+                product_summary: "Raw",
+                storage_location_name: "Listing stock",
+                ship_from_code: "LISTING-STOCK",
+                price_amount: "380.00",
+                shipping_allowance_percentage_bps: 500,
+                quantity_cap: 2,
+                max_units_per_order: null,
+                max_units_per_day: null,
+                max_units_per_customer_account: null,
+                status: "draft",
+                seller_slug: "fresh-seller",
+                seller_display_name: "Fresh Seller",
+                seller_listing_availability_status: "available",
+                seller_listing_availability_reason_category: null,
+                seller_listing_available_again_on: null,
+                seller_average_rating: null,
+                seller_review_count: 0,
+                visible_quantity: 2,
+                created_at: "2026-04-28T00:00:00.000Z",
+                updated_at: "2026-04-28T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+
+    const overlay = await getDiscoveryItemDetailSellerOverlay(db, {
+      accountId: "acc_seller",
+      catalogItemId: "cat_charizard",
+      selectedListingId: "lst_charizard",
+    });
+
+    expect(overlay.accountOfferMatches).toEqual([
+      expect.objectContaining({
+        offer_id: "offer_charizard",
+        in_sell_list: true,
+        can_fulfill: true,
+        acceptance_terms: null,
+      }),
+    ]);
+    expect(overlay.sellerInventoryItems).toEqual([
+      expect.objectContaining({
+        item_id: "itm_charizard",
+        storage_location_name: "Listing stock",
+        available_quantity: 2,
+      }),
+    ]);
+    expect(overlay.hasListingStockLocation).toBe(true);
+    expect(overlay.selectedSellerListing).toEqual(expect.objectContaining({ listing_id: "lst_charizard" }));
+    expect(queries.join("\n")).toContain("discovery_item_detail_sell_list_lines");
+    expect(queries.join("\n")).toContain("discovery_market_supply_locations");
   });
 
   it("returns submitted public offer demand on item detail payloads", async () => {

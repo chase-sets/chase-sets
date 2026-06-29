@@ -26,6 +26,7 @@ const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
 const MARKET_ACCOUNTS_TABLE = "discovery_market_accounts";
 const MARKET_LISTINGS_TABLE = "discovery_market_listings";
 const OFFER_DEMAND_MATCHES_TABLE = "discovery_offer_demand_matches";
+const CHECKOUT_SELL_LIST_STREAM_PREFIX = "checkout.sell-list-";
 const MARKET_ACCOUNT_CREATED_COLUMNS = [
   "account_id",
   "seller_slug",
@@ -127,6 +128,16 @@ const OFFER_DEMAND_MATCH_UPDATE_COLUMNS = [
 
 function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;
+}
+
+function resolveSellListSellerAccountId(event: { streamId: string }, data: { sellerAccountId?: unknown }) {
+  if (typeof data.sellerAccountId === "string" && data.sellerAccountId.trim()) {
+    return data.sellerAccountId;
+  }
+
+  return event.streamId.startsWith(CHECKOUT_SELL_LIST_STREAM_PREFIX)
+    ? event.streamId.slice(CHECKOUT_SELL_LIST_STREAM_PREFIX.length)
+    : null;
 }
 
 async function loadDiscoveryMarketProductMeasureSnapshot(
@@ -729,25 +740,125 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         await emitListingPatch(db, event, row.listing_id);
       }
     },
+    "inventory.storage-location.created": async (event) => {
+      const data = event.data as {
+        storageLocationId: string;
+        accountId: string;
+        name: string;
+        shipFromCode: string;
+        shipFromAddress: unknown;
+      };
+
+      await db.query(
+        `INSERT INTO discovery_market_supply_locations (
+           storage_location_id,
+           account_id,
+           name,
+           ship_from_code,
+           ship_from_address,
+           is_archived,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, false, $6)
+         ON CONFLICT (storage_location_id) DO UPDATE SET
+           account_id = EXCLUDED.account_id,
+           name = EXCLUDED.name,
+           ship_from_code = EXCLUDED.ship_from_code,
+           ship_from_address = EXCLUDED.ship_from_address,
+           is_archived = false,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.storageLocationId,
+          data.accountId,
+          data.name,
+          data.shipFromCode,
+          JSON.stringify(data.shipFromAddress ?? {}),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "inventory.storage-location.updated": async (event) => {
+      const data = event.data as {
+        storageLocationId: string;
+        name: string;
+        shipFromCode: string;
+        shipFromAddress: unknown;
+      };
+
+      await db.query(
+        `UPDATE discovery_market_supply_locations
+         SET name = $2,
+             ship_from_code = $3,
+             ship_from_address = $4,
+             updated_at = $5
+         WHERE storage_location_id = $1`,
+        [
+          data.storageLocationId,
+          data.name,
+          data.shipFromCode,
+          JSON.stringify(data.shipFromAddress ?? {}),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "inventory.storage-location.archived": async (event) => {
+      const data = event.data as { storageLocationId: string };
+
+      await db.query(
+        `UPDATE discovery_market_supply_locations
+         SET is_archived = true,
+             updated_at = $2
+         WHERE storage_location_id = $1`,
+        [data.storageLocationId, event.timing.recordedAt],
+      );
+    },
     "inventory.item.created": async (event) => {
       const data = event.data as {
         itemId: string;
+        accountId?: string;
+        catalogItemId?: string;
+        productId?: string;
+        selectedOptions?: unknown;
+        gradedCard?: unknown;
+        storageLocationId?: string;
         totalQuantity: number;
       };
 
       await db.query(
         `INSERT INTO discovery_market_supply_items (
            item_id,
+           account_id,
+           catalog_catalog_item_id,
+           product_id,
+           selected_options,
+           graded_card,
+           storage_location_id,
            total_quantity,
            last_stream_version,
            updated_at
-         ) VALUES ($1, $2, $3, $4)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (item_id) DO UPDATE SET
+           account_id = EXCLUDED.account_id,
+           catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+           product_id = EXCLUDED.product_id,
+           selected_options = EXCLUDED.selected_options,
+           graded_card = EXCLUDED.graded_card,
+           storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity,
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
          WHERE discovery_market_supply_items.last_stream_version < EXCLUDED.last_stream_version`,
-        [data.itemId, data.totalQuantity, event.streamVersion, event.timing.recordedAt],
+        [
+          data.itemId,
+          data.accountId ?? null,
+          data.catalogItemId ?? null,
+          data.productId ?? null,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.gradedCard === null || typeof data.gradedCard !== "object" ? null : JSON.stringify(data.gradedCard),
+          data.storageLocationId ?? null,
+          data.totalQuantity,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
 
       const listingIds = await recomputeDiscoveryMarketListingSupply(db, data.itemId);
@@ -1037,7 +1148,130 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         },
         where: { columns: ["offer_id"], values: { offer_id: data.offerId } },
       });
+      await db.query(
+        `DELETE FROM discovery_item_detail_sell_list_lines
+         WHERE seller_account_id = $1
+           AND line_type = 'selected-offer'
+           AND offer_id = $2`,
+        [data.sellerAccountId, data.offerId],
+      );
       await emitOfferPatch(db, event, data.offerId);
+    },
+    "checkout.sell-list.line-added": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        lineId: string;
+        lineType: string;
+        offerId: string | null;
+        catalogItemId: string;
+        productId: string;
+        quantity: number;
+      };
+      const conflictTarget = data.offerId
+        ? "(seller_account_id, offer_id) WHERE offer_id IS NOT NULL"
+        : "(seller_account_id, line_id)";
+
+      await db.query(
+        `INSERT INTO discovery_item_detail_sell_list_lines (
+           seller_account_id,
+           line_id,
+           line_type,
+           offer_id,
+           catalog_catalog_item_id,
+           product_id,
+           quantity,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT ${conflictTarget} DO UPDATE
+         SET line_id = EXCLUDED.line_id,
+             line_type = EXCLUDED.line_type,
+             offer_id = EXCLUDED.offer_id,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
+             quantity = EXCLUDED.quantity,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          data.sellerAccountId,
+          data.lineId,
+          data.lineType === "selected-offer" ? "selected-offer" : "product",
+          data.offerId,
+          data.catalogItemId,
+          data.productId,
+          data.quantity,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "checkout.sell-list.line-quantity-set": async (event) => {
+      const data = event.data as { sellerAccountId?: string | null; lineId: string; quantity: number };
+      const sellerAccountId = resolveSellListSellerAccountId(event, data);
+
+      if (sellerAccountId) {
+        await db.query(
+          `UPDATE discovery_item_detail_sell_list_lines
+           SET quantity = $3,
+               updated_at = $4
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [sellerAccountId, data.lineId, data.quantity, event.timing.recordedAt],
+        );
+        return;
+      }
+
+      await db.query(
+        `UPDATE discovery_item_detail_sell_list_lines
+         SET quantity = $2,
+             updated_at = $3
+         WHERE line_id = $1`,
+        [data.lineId, data.quantity, event.timing.recordedAt],
+      );
+    },
+    "checkout.sell-list.line-removed": async (event) => {
+      const data = event.data as { sellerAccountId?: string | null; lineId: string };
+      const sellerAccountId = resolveSellListSellerAccountId(event, data);
+
+      if (sellerAccountId) {
+        await db.query(
+          `DELETE FROM discovery_item_detail_sell_list_lines
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [sellerAccountId, data.lineId],
+        );
+        return;
+      }
+
+      await db.query(
+        `DELETE FROM discovery_item_detail_sell_list_lines
+         WHERE line_id = $1`,
+        [data.lineId],
+      );
+    },
+    "checkout.sell-list.checkout-confirmed": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        completedLineIds: string[];
+        remainingLineQuantities: readonly { lineId: string; quantity: number }[];
+      };
+
+      if (Array.isArray(data.completedLineIds) && data.completedLineIds.length > 0) {
+        await db.query(
+          `DELETE FROM discovery_item_detail_sell_list_lines
+           WHERE seller_account_id = $1
+             AND line_id = ANY($2::text[])`,
+          [data.sellerAccountId, data.completedLineIds],
+        );
+      }
+
+      for (const entry of data.remainingLineQuantities) {
+        await db.query(
+          `UPDATE discovery_item_detail_sell_list_lines
+           SET quantity = $3,
+               updated_at = $4
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [data.sellerAccountId, entry.lineId, entry.quantity, event.timing.recordedAt],
+        );
+      }
     },
     "marketplace.review.submitted": async (event) => {
       const data = event.data as {

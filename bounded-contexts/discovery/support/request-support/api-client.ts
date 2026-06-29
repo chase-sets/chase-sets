@@ -10,6 +10,7 @@ export type {
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
   DiscoveryBulkCartPreview,
+  DiscoveryItemDetailSellerOverlay,
   AnonymousProductAlertIntent,
   CreateAnonymousProductAlertIntentRequest,
   ProductAlertListResponse,

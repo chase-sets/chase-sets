@@ -114,10 +114,30 @@ CREATE INDEX IF NOT EXISTS discovery_market_listings_selected_options_idx
 
 CREATE TABLE IF NOT EXISTS discovery_market_supply_items (
   item_id text PRIMARY KEY,
+  account_id text NULL,
+  catalog_catalog_item_id text NULL,
+  product_id text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  graded_card jsonb NULL,
+  storage_location_id text NULL,
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE discovery_market_supply_items
+  ADD COLUMN IF NOT EXISTS account_id text NULL,
+  ADD COLUMN IF NOT EXISTS catalog_catalog_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS product_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS graded_card jsonb NULL,
+  ADD COLUMN IF NOT EXISTS storage_location_id text NULL;
+
+CREATE INDEX IF NOT EXISTS discovery_market_supply_items_account_catalog_idx
+  ON discovery_market_supply_items (account_id, catalog_catalog_item_id);
+
+CREATE INDEX IF NOT EXISTS discovery_market_supply_items_storage_location_idx
+  ON discovery_market_supply_items (storage_location_id);
 
 CREATE TABLE IF NOT EXISTS discovery_market_supply_holds (
   hold_id text PRIMARY KEY,
@@ -131,6 +151,19 @@ CREATE TABLE IF NOT EXISTS discovery_market_supply_holds (
 
 CREATE INDEX IF NOT EXISTS discovery_market_supply_holds_item_idx
   ON discovery_market_supply_holds (item_id, status);
+
+CREATE TABLE IF NOT EXISTS discovery_market_supply_locations (
+  storage_location_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  name text NOT NULL,
+  ship_from_code text NOT NULL,
+  ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
+  is_archived boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS discovery_market_supply_locations_account_idx
+  ON discovery_market_supply_locations (account_id, is_archived);
 
 CREATE TABLE IF NOT EXISTS discovery_market_product_measures (
   catalog_item_id text NOT NULL,
@@ -170,4 +203,23 @@ CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_buyer_idx
 CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_status_idx
   ON discovery_offer_demand_matches (status);
 CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_selected_options_idx
-  ON discovery_offer_demand_matches USING gin (selected_options);`;
+  ON discovery_offer_demand_matches USING gin (selected_options);
+
+CREATE TABLE IF NOT EXISTS discovery_item_detail_sell_list_lines (
+  seller_account_id text NOT NULL,
+  line_id text NOT NULL,
+  line_type text NOT NULL,
+  offer_id text NULL,
+  catalog_catalog_item_id text NOT NULL DEFAULT '',
+  product_id text NOT NULL DEFAULT '',
+  quantity integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (seller_account_id, line_id)
+);
+
+CREATE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_seller_idx
+  ON discovery_item_detail_sell_list_lines (seller_account_id, updated_at DESC, line_id ASC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_unique_idx
+  ON discovery_item_detail_sell_list_lines (seller_account_id, offer_id)
+  WHERE offer_id IS NOT NULL;`;
