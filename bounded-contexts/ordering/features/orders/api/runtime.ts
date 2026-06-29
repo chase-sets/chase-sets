@@ -38,6 +38,8 @@ import {
 } from "../domain/policies";
 import { getPurchase, getSale, listOrderIdsForSource, listPurchases, listSales } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
+import { buildOrderingReputationProjectionHandlers } from "../integrations/reputation/reputation-projection";
+import { getOrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
 import {
   buildOrderingTransactionalEmailProjectionHandlers,
   ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -378,6 +380,10 @@ export type OrderingOrderServices = Readonly<{
   getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
+  getOrderReviewOpportunity: (
+    orderId: string,
+    authorAccountId: string,
+  ) => ReturnType<typeof getOrderingOrderReviewOpportunity>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -1716,10 +1722,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),
     listSales: (params) => listSales(deps.db, params),
     getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),
+    getOrderReviewOpportunity: (orderId, authorAccountId) =>
+      getOrderingOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "ordering-order-projection",
         handlers: buildOrderingOrderProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: "ordering-order-review-opportunity-projection",
+        handlers: buildOrderingReputationProjectionHandlers(deps.db),
       }),
       createProjectionHandlerSet({
         projectionName: ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,

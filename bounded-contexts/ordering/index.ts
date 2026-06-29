@@ -20,6 +20,7 @@ import {
   buildOrderingMarketplaceSupplyProjectionHandlers,
 } from "./features/orders/integrations/supply/supply-projection";
 import { buildOrderingFulfillmentCancellationProjectionHandlers } from "./features/orders/integrations/fulfillment/fulfillment-projection";
+import { buildOrderingReputationProjectionHandlers } from "./features/orders/integrations/reputation/reputation-projection";
 import { listAcceptedOfferBatchInputs } from "./features/orders/integrations/supply/supply-queries";
 import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaSql } from "./support/runtime-support/schema";
@@ -64,6 +65,7 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db);
+    const reputationHandlers = buildOrderingReputationProjectionHandlers(services.db);
 
     return [
       ...buildEventSubscriptionsFromManifest({
@@ -86,6 +88,22 @@ export const module = defineBoundedContextModule<OrderingServices, PgTransaction
             buildOrderingInventorySupplyProjectionHandlers(services.db),
           "fulfillment.ordering-fulfillment-cancellation-inputs": () =>
             buildOrderingFulfillmentCancellationProjectionHandlers(services.db),
+          "ordering.ordering-order-review-opportunity-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => reputationHandlers,
+          },
+          "fulfillment.ordering-order-review-opportunity-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => reputationHandlers,
+          },
+          "platform-operations.ordering-order-review-opportunity-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => reputationHandlers,
+          },
+          "marketplace.ordering-order-review-opportunity-projection": {
+            filterToEventTypes: true,
+            buildHandlers: () => reputationHandlers,
+          },
         },
       }),
       ...buildEventReactionsFromManifest({

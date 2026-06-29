@@ -75,12 +75,25 @@ export interface OrderingOrderProjectionHold {
   released_at: string | null;
 }
 
+export interface OrderingOrderReviewOpportunity {
+  order_id: string;
+  subject_account_id: string;
+  subject_display_name: string | null;
+  author_role: string;
+  eligible_at: string;
+  active_review_id: string | null;
+}
+
 export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
   lines: readonly OrderingOrderProjectionLine[];
   inventory_holds: readonly OrderingOrderProjectionHold[];
 }
 
 export interface PurchaseListItem extends OrderingOrderProjection {}
-export interface PurchaseDetail extends OrderingOrderProjectionDetail {}
+export interface PurchaseDetail extends OrderingOrderProjectionDetail {
+  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+}
 export interface SaleListItem extends OrderingOrderProjection {}
-export interface SaleDetail extends OrderingOrderProjectionDetail {}
+export interface SaleDetail extends OrderingOrderProjectionDetail {
+  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+}

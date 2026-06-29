@@ -85,6 +85,10 @@ function errorCode(error: unknown) {
   return errorMessage(error).startsWith("Sign in is required") ? "account_sign_in_required" : "validation_failed";
 }
 
+function canViewReviewOpportunity(actor: OrderingApiEnv["Variables"]["actor"]) {
+  return Boolean(actor?.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage"));
+}
+
 function parseShippingAddress(value: unknown) {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
@@ -264,7 +268,11 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       );
     }
 
-    return c.json(order);
+    const reviewOpportunity = canViewReviewOpportunity(access.actor)
+      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
+      : null;
+
+    return c.json({ ...order, reviewOpportunity });
   });
 
   app.post("/purchases/:id/cancel", async (c) => {
@@ -341,7 +349,11 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
       );
     }
 
-    return c.json(order);
+    const reviewOpportunity = canViewReviewOpportunity(access.actor)
+      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
+      : null;
+
+    return c.json({ ...order, reviewOpportunity });
   });
 
   app.post("/sales/:id/cancel", async (c) => {

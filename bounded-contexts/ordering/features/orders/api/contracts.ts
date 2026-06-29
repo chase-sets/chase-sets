@@ -3,6 +3,7 @@ export type {
   OrderingOrderProjectionDetail,
   OrderingOrderProjectionHold,
   OrderingOrderProjectionLine,
+  OrderingOrderReviewOpportunity,
   PurchaseDetail,
   PurchaseListItem,
   SaleDetail,

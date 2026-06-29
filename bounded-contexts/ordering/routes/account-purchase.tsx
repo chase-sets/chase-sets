@@ -9,9 +9,11 @@ import {
   OrderingApiError,
   type PurchaseDetail,
 } from "../support/request-support/api-client";
-import { createReputationRequestApiClient, type ReviewOpportunity } from "@chase-sets/marketplace/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
-import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
+import {
+  OrderReviewOpportunityCallout,
+  type OrderReviewOpportunity,
+} from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
@@ -23,12 +25,11 @@ function purchasePreparingResponse() {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
+  await requireActorFromAuthApi({
     request,
     permission: "orders.view",
   });
   const orderingApi = createOrderingRequestApiClient(request);
-  const reputationApi = createReputationRequestApiClient(request);
 
   try {
     const purchaseRead = await loadAfterWrite({
@@ -45,22 +46,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         : new Response("Purchase handoff is no longer valid.", { status: 410 });
     }
 
-    const purchase = purchaseRead.data;
-    let reviewOpportunity: ReviewOpportunity | null = null;
-
-    if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
-      try {
-        reviewOpportunity = await reputationApi.getOrderReviewOpportunity(params.purchaseId!);
-      } catch (error) {
-        if (!(error instanceof Error && "status" in error && error.status === 404)) {
-          throw error;
-        }
-      }
-    }
-
     return {
-      purchase,
-      reviewOpportunity,
+      purchase: purchaseRead.data,
+      reviewOpportunity: purchaseRead.data.reviewOpportunity ?? null,
     };
   } catch (error) {
     if (error instanceof OrderingApiError && error.status === 404) {
@@ -100,7 +88,7 @@ export const meta: MetaFunction = () =>
 export default function OrderingAccountPurchaseRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const reviewOpportunity = data.reviewOpportunity as ReviewOpportunity | null;
+  const reviewOpportunity = data.reviewOpportunity as OrderReviewOpportunity | null;
 
   return (
     <OrderingOrderDetailPage
