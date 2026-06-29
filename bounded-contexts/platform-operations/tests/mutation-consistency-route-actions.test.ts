@@ -101,6 +101,27 @@ describe("platform operations mutation consistency route actions", () => {
     expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");
   });
 
+  it("refetches platform feedback detail after archive snapshots", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: "pfb_1", version: 3, status: "archived" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({ intent: "archive" });
+
+    const response = await captureRedirect(
+      platformFeedbackDetailAction({
+        request: formRequest("http://localhost/support/platform-feedback/pfb_1", form),
+        params: { id: "pfb_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/experience/platform-feedback/pfb_1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");
+  });
+
   it("refetches platform feedback queues after bulk snapshots", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({

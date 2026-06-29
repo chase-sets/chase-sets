@@ -351,6 +351,7 @@ describe("change-scope", () => {
       "catalog_admin_integrations",
       "admin_growth",
       "admin_commerce",
+      "admin_support",
     ]);
   });
 
@@ -439,7 +440,7 @@ describe("change-scope", () => {
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
-      "admin_commerce",
+      "admin_commerce,admin_support",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -488,15 +489,31 @@ describe("change-scope", () => {
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations", "admin_growth", "admin_commerce"]);
+    expect(scope.e2eSuiteIds).toEqual([
+      "catalog_admin_integrations",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+    ]);
   });
 
-  it("keeps current non-marketplace bounded-context routes out of marketplace E2E", () => {
+  it("routes support platform feedback admin routes to admin support E2E", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/platform-operations/routes/admin/platform-feedback.tsx"],
+      workspaces: [workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations")],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["admin_support"]);
+  });
+
+  it("keeps current non-marketplace bounded-context routes without admin e2e coverage out of marketplace E2E", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
       changedFiles: [
-        "bounded-contexts/experience/routes/admin/platform-feedback.tsx",
         "bounded-contexts/insights/features/dashboards/api/route.ts",
         "bounded-contexts/platform-operations/routes/admin/projection-operations.tsx",
       ],
