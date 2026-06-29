@@ -40,6 +40,19 @@ function createServices(overrides: Partial<PlatformFeedbackServices> = {}) {
     })),
     markReviewed: vi.fn(async () => ({ feedbackId: "pfb_test", version: 2 })),
     archive: vi.fn(async () => ({ feedbackId: "pfb_test", version: 3 })),
+    recordOperatorNote: vi.fn(async () => ({ feedbackId: "pfb_test", version: 4, noteId: "pfn_test" })),
+    bulkMarkReviewed: vi.fn(async () => ({
+      action: "reviewed" as const,
+      updated: 1,
+      skipped: 0,
+      items: [{ feedbackId: "pfb_test", version: 2 }],
+    })),
+    bulkArchive: vi.fn(async () => ({
+      action: "archived" as const,
+      updated: 1,
+      skipped: 0,
+      items: [{ feedbackId: "pfb_test", version: 3 }],
+    })),
     listPlatformFeedback: vi.fn(async () => ({ items: [], total: 0 })),
     getPlatformFeedback: vi.fn(async () => null),
     getPlatformFeedbackMetrics: vi.fn(async () => ({
@@ -132,6 +145,7 @@ describe("experience platform feedback API", () => {
       reviewed_at: null,
       archived_by_user_id: null,
       archived_at: null,
+      operator_notes: [],
     }));
     const services = createServices({ listPlatformFeedback, getPlatformFeedback });
 
@@ -142,10 +156,13 @@ describe("experience platform feedback API", () => {
     const list = await app.request("/?status=new&topic=ease-of-use&workflow=listing-publish&limit=25&offset=50");
     const metrics = await app.request("/metrics");
     const detail = await app.request("/pfb_test");
+    const exported = await app.request("/export?status=new&topic=ease-of-use&workflow=listing-publish");
 
     expect(list.status).toBe(200);
     expect(metrics.status).toBe(200);
     expect(detail.status).toBe(200);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("Content-Type")).toContain("text/csv");
     expect(listPlatformFeedback).toHaveBeenCalledWith({
       limit: 25,
       offset: 50,
@@ -155,27 +172,82 @@ describe("experience platform feedback API", () => {
     });
   });
 
-  it("requires manage permission for reviewed and archived status actions", async () => {
+  it("requires manage permission for reviewed, archived, note, and bulk actions", async () => {
     const markReviewed = vi.fn(async () => ({ feedbackId: "pfb_test", version: 2 }));
     const archive = vi.fn(async () => ({ feedbackId: "pfb_test", version: 3 }));
-    const services = createServices({ markReviewed, archive });
+    const recordOperatorNote = vi.fn(async () => ({ feedbackId: "pfb_test", version: 4, noteId: "pfn_test" }));
+    const bulkMarkReviewed = vi.fn(async () => ({
+      action: "reviewed" as const,
+      updated: 1,
+      skipped: 0,
+      items: [{ feedbackId: "pfb_test", version: 2 }],
+    }));
+    const bulkArchive = vi.fn(async () => ({
+      action: "archived" as const,
+      updated: 1,
+      skipped: 0,
+      items: [{ feedbackId: "pfb_test", version: 3 }],
+    }));
+    const services = createServices({ markReviewed, archive, recordOperatorNote, bulkMarkReviewed, bulkArchive });
 
     const viewOnly = appFor(services, actorWithPermissions(["platform-feedback.view"]));
     const forbiddenReview = await viewOnly.request("/pfb_test/review", { method: "POST" });
     const forbiddenArchive = await viewOnly.request("/pfb_test/archive", { method: "POST" });
+    const forbiddenNote = await viewOnly.request("/pfb_test/notes", { method: "POST", body: "{}" });
+    const forbiddenBulk = await viewOnly.request("/bulk/review", { method: "POST", body: "{}" });
     expect(forbiddenReview.status).toBe(403);
     expect(forbiddenArchive.status).toBe(403);
+    expect(forbiddenNote.status).toBe(403);
+    expect(forbiddenBulk.status).toBe(403);
 
     const manager = appFor(services, actorWithPermissions(["platform-feedback.manage"]));
     const reviewed = await manager.request("/pfb_test/review", { method: "POST" });
     const archived = await manager.request("/pfb_test/archive", { method: "POST" });
+    const noted = await manager.request("/pfb_test/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "Follow up with checkout team." }),
+    });
+    const bulkReviewed = await manager.request("/bulk/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedbackIds: ["pfb_test"] }),
+    });
+    const bulkArchived = await manager.request("/bulk/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedbackIds: ["pfb_test"] }),
+    });
 
     expect(reviewed.status).toBe(200);
     expect(archived.status).toBe(200);
+    expect(noted.status).toBe(200);
+    expect(bulkReviewed.status).toBe(200);
+    expect(bulkArchived.status).toBe(200);
     await expect(reviewed.json()).resolves.toEqual({ id: "pfb_test", version: 2, status: "reviewed" });
     await expect(archived.json()).resolves.toEqual({ id: "pfb_test", version: 3, status: "archived" });
+    await expect(noted.json()).resolves.toEqual({ id: "pfb_test", version: 4, noteId: "pfn_test" });
+    await expect(bulkReviewed.json()).resolves.toEqual({
+      action: "reviewed",
+      updated: 1,
+      skipped: 0,
+      items: [{ id: "pfb_test", version: 2, status: "reviewed" }],
+    });
+    await expect(bulkArchived.json()).resolves.toEqual({
+      action: "archived",
+      updated: 1,
+      skipped: 0,
+      items: [{ id: "pfb_test", version: 3, status: "archived" }],
+    });
     expect(markReviewed).toHaveBeenCalledWith("pfb_test", "usr_test", context);
     expect(archive).toHaveBeenCalledWith("pfb_test", "usr_test", context);
+    expect(recordOperatorNote).toHaveBeenCalledWith(
+      "pfb_test",
+      { body: "Follow up with checkout team.", recordedByUserId: "usr_test" },
+      context,
+    );
+    expect(bulkMarkReviewed).toHaveBeenCalledWith(["pfb_test"], "usr_test", context);
+    expect(bulkArchive).toHaveBeenCalledWith(["pfb_test"], "usr_test", context);
   });
 
   it("returns prompt dismissal snapshots without depending on prompt projections", async () => {

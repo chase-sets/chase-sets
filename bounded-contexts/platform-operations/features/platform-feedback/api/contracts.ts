@@ -24,9 +24,17 @@ export type PlatformFeedbackListItem = Readonly<{
   reviewed_at: string | null;
   archived_by_user_id: string | null;
   archived_at: string | null;
+  operator_notes: readonly PlatformFeedbackOperatorNote[];
 }>;
 
 export type PlatformFeedbackDetail = PlatformFeedbackListItem;
+
+export type PlatformFeedbackOperatorNote = Readonly<{
+  noteId: string;
+  body: string;
+  recordedByUserId: string;
+  recordedAt: string;
+}>;
 
 export type PlatformFeedbackMetrics = Readonly<{
   total_count: number;
@@ -61,6 +69,19 @@ export type PlatformFeedbackReviewSnapshot = Readonly<{
   status: "reviewed" | "archived";
 }>;
 
+export type PlatformFeedbackOperatorNoteSnapshot = Readonly<{
+  id: string;
+  version: number;
+  noteId: string;
+}>;
+
+export type PlatformFeedbackBulkActionSnapshot = Readonly<{
+  action: "reviewed" | "archived";
+  updated: number;
+  skipped: number;
+  items: readonly PlatformFeedbackReviewSnapshot[];
+}>;
+
 export type SubmitPlatformFeedbackRequest = Readonly<{
   rating: number;
   topic: PlatformFeedbackTopic;
@@ -75,4 +96,12 @@ export type DismissPlatformFeedbackPromptRequest = Readonly<{
   workflow: PlatformFeedbackWorkflow;
   sourceRoutePath: string;
   relatedEntities?: readonly PlatformFeedbackRelatedEntity[];
+}>;
+
+export type RecordPlatformFeedbackOperatorNoteRequest = Readonly<{
+  body: string;
+}>;
+
+export type PlatformFeedbackBulkActionRequest = Readonly<{
+  feedbackIds: readonly string[];
 }>;

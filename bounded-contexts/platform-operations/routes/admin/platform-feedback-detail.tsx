@@ -31,6 +31,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.archive(feedbackId);
   }
 
+  if (intent === "record-note") {
+    await api.recordOperatorNote(feedbackId, {
+      body: String(formData.get("body") ?? ""),
+    });
+  }
+
   throw redirect(`/support/platform-feedback/${feedbackId}`);
 }
 

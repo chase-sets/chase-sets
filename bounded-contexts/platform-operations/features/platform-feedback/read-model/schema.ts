@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS experience_platform_feedback_pages (
   reviewed_by_user_id text NULL,
   reviewed_at timestamptz NULL,
   archived_by_user_id text NULL,
-  archived_at timestamptz NULL
+  archived_at timestamptz NULL,
+  operator_notes jsonb NOT NULL DEFAULT '[]'::jsonb
 );
+
+ALTER TABLE experience_platform_feedback_pages
+  ADD COLUMN IF NOT EXISTS operator_notes jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE UNIQUE INDEX IF NOT EXISTS experience_platform_feedback_entity_unique_idx
   ON experience_platform_feedback_pages (account_id, workflow, related_entity_key)

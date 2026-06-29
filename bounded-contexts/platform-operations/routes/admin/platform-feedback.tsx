@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import { PlatformFeedbackAdminListPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
@@ -36,7 +36,26 @@ export async function loader({ request }: LoaderFunctionArgs) {
     feedback,
     metrics,
     filters,
+    exportHref: `/api/experience/platform-feedback/export?${query.toString()}`,
   };
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const api = createExperienceRequestApiClient(request);
+  const url = new URL(request.url);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  const feedbackIds = formData.getAll("feedbackIds").map(String).filter(Boolean);
+
+  if (intent === "bulk-review") {
+    await api.bulkMarkReviewed({ feedbackIds });
+  }
+
+  if (intent === "bulk-archive") {
+    await api.bulkArchive({ feedbackIds });
+  }
+
+  throw redirect(`/support/platform-feedback${url.search}`);
 }
 
 export const meta: MetaFunction = () => [
@@ -45,5 +64,12 @@ export const meta: MetaFunction = () => [
 
 export default function PlatformFeedbackRoute() {
   const data = useLoaderData<typeof loader>();
-  return <PlatformFeedbackAdminListPage feedback={data.feedback} metrics={data.metrics} filters={data.filters} />;
+  return (
+    <PlatformFeedbackAdminListPage
+      feedback={data.feedback}
+      metrics={data.metrics}
+      filters={data.filters}
+      exportHref={data.exportHref}
+    />
+  );
 }

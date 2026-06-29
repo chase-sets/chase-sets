@@ -25,6 +25,14 @@ export type PlatformFeedbackRow = Readonly<{
   reviewed_at: string | null;
   archived_by_user_id: string | null;
   archived_at: string | null;
+  operator_notes: readonly PlatformFeedbackOperatorNote[];
+}>;
+
+export type PlatformFeedbackOperatorNote = Readonly<{
+  noteId: string;
+  body: string;
+  recordedByUserId: string;
+  recordedAt: string;
 }>;
 
 export type PlatformFeedbackMetricsRow = Readonly<{
@@ -108,7 +116,8 @@ export async function listPlatformFeedback(
        reviewed_by_user_id,
        reviewed_at::text AS reviewed_at,
        archived_by_user_id,
-       archived_at::text AS archived_at
+       archived_at::text AS archived_at,
+       operator_notes
      FROM experience_platform_feedback_pages
      ${filters.where}
      ORDER BY submitted_at DESC, feedback_id DESC
@@ -142,7 +151,8 @@ export async function getPlatformFeedback(db: PgQueryable, feedbackId: string): 
        reviewed_by_user_id,
        reviewed_at::text AS reviewed_at,
        archived_by_user_id,
-       archived_at::text AS archived_at
+       archived_at::text AS archived_at,
+       operator_notes
      FROM experience_platform_feedback_pages
      WHERE feedback_id = $1`,
     [feedbackId],

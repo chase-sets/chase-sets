@@ -17,6 +17,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 
 import { action as accountSupportAction } from "../routes/marketplace/account-support";
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
+import { action as platformFeedbackListAction } from "../routes/admin/platform-feedback";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
 import { action as supportOperationsDetailAction } from "../routes/admin/request-detail";
 import { action as supportOperationsAction } from "../routes/admin/requests";
@@ -95,6 +96,61 @@ describe("platform operations mutation consistency route actions", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost/api/experience/platform-feedback/pfb_1/review",
       expect.objectContaining({ method: "POST" }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");
+  });
+
+  it("refetches platform feedback queues after bulk snapshots", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        action: "reviewed",
+        updated: 1,
+        skipped: 0,
+        items: [{ id: "pfb_1", version: 2, status: "reviewed" }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({ intent: "bulk-review", feedbackIds: "pfb_1" });
+
+    const response = await captureRedirect(
+      platformFeedbackListAction({
+        request: formRequest("http://localhost/support/platform-feedback?status=new", form),
+        params: {},
+        context: undefined,
+      } as never),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/experience/platform-feedback/bulk/review",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ feedbackIds: ["pfb_1"] }),
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/support/platform-feedback?status=new");
+  });
+
+  it("refetches platform feedback detail after operator note snapshots", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: "pfb_1", version: 3, noteId: "pfn_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({ intent: "record-note", body: "Follow up." });
+
+    const response = await captureRedirect(
+      platformFeedbackDetailAction({
+        request: formRequest("http://localhost/support/platform-feedback/pfb_1", form),
+        params: { id: "pfb_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/experience/platform-feedback/pfb_1/notes",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ body: "Follow up." }),
+      }),
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");

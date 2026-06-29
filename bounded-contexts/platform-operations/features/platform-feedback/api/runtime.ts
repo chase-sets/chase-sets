@@ -83,6 +83,34 @@ export type PlatformFeedbackServices = Readonly<{
     archivedByUserId: string,
     context: EventStoreContext,
   ) => Promise<{ feedbackId: string; version: number }>;
+  recordOperatorNote: (
+    feedbackId: string,
+    params: Readonly<{
+      body: string;
+      recordedByUserId: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ feedbackId: string; version: number; noteId: string }>;
+  bulkMarkReviewed: (
+    feedbackIds: readonly string[],
+    reviewedByUserId: string,
+    context: EventStoreContext,
+  ) => Promise<{
+    action: "reviewed";
+    updated: number;
+    skipped: number;
+    items: readonly { feedbackId: string; version: number }[];
+  }>;
+  bulkArchive: (
+    feedbackIds: readonly string[],
+    archivedByUserId: string,
+    context: EventStoreContext,
+  ) => Promise<{
+    action: "archived";
+    updated: number;
+    skipped: number;
+    items: readonly { feedbackId: string; version: number }[];
+  }>;
   listPlatformFeedback: (params: Parameters<typeof listPlatformFeedback>[1]) => ReturnType<typeof listPlatformFeedback>;
   getPlatformFeedback: (feedbackId: string) => ReturnType<typeof getPlatformFeedback>;
   getPlatformFeedbackMetrics: () => ReturnType<typeof getPlatformFeedbackMetrics>;
@@ -142,7 +170,58 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
     }
   }
 
-  return {
+  type BulkActionResult<Action extends "reviewed" | "archived"> = {
+    action: Action;
+    updated: number;
+    skipped: number;
+    items: { feedbackId: string; version: number }[];
+  };
+
+  async function applyBulkAction(
+    feedbackIds: readonly string[],
+    action: "reviewed",
+    userId: string,
+    context: EventStoreContext,
+  ): Promise<BulkActionResult<"reviewed">>;
+  async function applyBulkAction(
+    feedbackIds: readonly string[],
+    action: "archived",
+    userId: string,
+    context: EventStoreContext,
+  ): Promise<BulkActionResult<"archived">>;
+  async function applyBulkAction(
+    feedbackIds: readonly string[],
+    action: "reviewed" | "archived",
+    userId: string,
+    context: EventStoreContext,
+  ): Promise<BulkActionResult<"reviewed" | "archived">> {
+    const uniqueIds = [...new Set(feedbackIds.map((id) => id.trim()).filter(Boolean))];
+    const items: { feedbackId: string; version: number }[] = [];
+    let skipped = 0;
+
+    for (const feedbackId of uniqueIds) {
+      const feedback = await requireFeedback(deps.db, feedbackId);
+      if ((action === "reviewed" && feedback.status === "reviewed") || feedback.status === "archived") {
+        skipped += 1;
+        continue;
+      }
+
+      items.push(
+        action === "reviewed"
+          ? await api.markReviewed(feedbackId, userId, context)
+          : await api.archive(feedbackId, userId, context),
+      );
+    }
+
+    return {
+      action,
+      updated: items.length,
+      skipped,
+      items,
+    };
+  }
+
+  const api: PlatformFeedbackServices = {
     commandHandler,
     async submitPlatformFeedback(params, context) {
       const now = new Date();
@@ -257,6 +336,27 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
 
       return { feedbackId: feedback.feedback_id, version: result.version };
     },
+    async recordOperatorNote(feedbackId, params, context) {
+      const feedback = await requireFeedback(deps.db, feedbackId);
+      const noteId = createId("pfn");
+      const result = await commandHandler({
+        streamId: `experience.platform-feedback-${feedback.feedback_id}`,
+        command: {
+          type: "RecordPlatformFeedbackOperatorNote",
+          noteId,
+          body: params.body,
+          recordedByUserId: params.recordedByUserId,
+          recordedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { feedbackId: feedback.feedback_id, version: result.version, noteId };
+    },
+    bulkMarkReviewed: (feedbackIds, reviewedByUserId, context) =>
+      applyBulkAction(feedbackIds, "reviewed", reviewedByUserId, context),
+    bulkArchive: (feedbackIds, archivedByUserId, context) =>
+      applyBulkAction(feedbackIds, "archived", archivedByUserId, context),
     listPlatformFeedback: (params) => listPlatformFeedback(deps.db, params),
     getPlatformFeedback: (feedbackId) => getPlatformFeedback(deps.db, feedbackId),
     getPlatformFeedbackMetrics: () => getPlatformFeedbackMetrics(deps.db),
@@ -270,4 +370,6 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
       }),
     ],
   };
+
+  return api;
 }

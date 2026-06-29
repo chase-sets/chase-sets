@@ -68,6 +68,16 @@ function relatedEntitiesFromQuery(c: { req: { query(name: string): string | unde
   return relatedEntityType && relatedEntityId ? [{ type: relatedEntityType, id: relatedEntityId }] : [];
 }
 
+function csvCell(value: unknown) {
+  const text = Array.isArray(value) ? value.join("; ") : String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function feedbackIdsFromBody(value: unknown): readonly string[] {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return Array.isArray(record.feedbackIds) ? record.feedbackIds.map(String) : [];
+}
+
 export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices) {
   const app = new Hono<ExperienceApiEnv>();
 
@@ -188,6 +198,124 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
     return c.json(await services.getPlatformFeedbackMetrics());
   });
 
+  app.get("/export", async (c) => {
+    const access = requireActor(c, "platform-feedback.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const result = await services.listPlatformFeedback({
+      limit: 500,
+      offset: 0,
+      status: c.req.query("status"),
+      topic: c.req.query("topic"),
+      workflow: c.req.query("workflow"),
+    });
+    const rows = [
+      [
+        "feedback_id",
+        "account_id",
+        "user_id",
+        "rating",
+        "topic",
+        "workflow",
+        "status",
+        "comment",
+        "follow_up_consent",
+        "source_route_path",
+        "related_entity_key",
+        "submitted_at",
+        "updated_at",
+        "reviewed_by_user_id",
+        "reviewed_at",
+        "archived_by_user_id",
+        "archived_at",
+        "operator_note_count",
+      ],
+      ...result.items.map((item) => [
+        item.feedback_id,
+        item.account_id,
+        item.user_id,
+        item.rating,
+        item.topic,
+        item.workflow,
+        item.status,
+        item.comment,
+        item.follow_up_consent,
+        item.source_route_path,
+        item.related_entity_key,
+        item.submitted_at,
+        item.updated_at,
+        item.reviewed_by_user_id,
+        item.reviewed_at,
+        item.archived_by_user_id,
+        item.archived_at,
+        item.operator_notes.length,
+      ]),
+    ];
+
+    return new Response(rows.map((row) => row.map(csvCell).join(",")).join("\n"), {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="chase-sets-platform-feedback.csv"',
+      },
+    });
+  });
+
+  app.post("/bulk/review", async (c) => {
+    const access = requireActor(c, "platform-feedback.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.3") } },
+        401,
+      );
+    }
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const result = await services.bulkMarkReviewed(feedbackIdsFromBody(body), access.actor.userId, context);
+      return c.json({
+        action: result.action,
+        updated: result.updated,
+        skipped: result.skipped,
+        items: result.items.map((item) => ({ id: item.feedbackId, version: item.version, status: "reviewed" })),
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/bulk/archive", async (c) => {
+    const access = requireActor(c, "platform-feedback.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.4") } },
+        401,
+      );
+    }
+
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const result = await services.bulkArchive(feedbackIdsFromBody(body), access.actor.userId, context);
+      return c.json({
+        action: result.action,
+        updated: result.updated,
+        skipped: result.skipped,
+        items: result.items.map((item) => ({ id: item.feedbackId, version: item.version, status: "archived" })),
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.get("/:id", async (c) => {
     const access = requireActor(c, "platform-feedback.view");
     if (access.response) {
@@ -200,6 +328,35 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
     }
 
     return c.json(feedback);
+  });
+
+  app.post("/:id/notes", async (c) => {
+    const access = requireActor(c, "platform-feedback.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.3") } },
+        401,
+      );
+    }
+
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+      const result = await services.recordOperatorNote(
+        c.req.param("id"),
+        {
+          body: String(body.body ?? ""),
+          recordedByUserId: access.actor.userId,
+        },
+        context,
+      );
+      return c.json({ id: result.feedbackId, version: result.version, noteId: result.noteId });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
   });
 
   app.post("/:id/review", async (c) => {

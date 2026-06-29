@@ -169,4 +169,29 @@ describe("platform feedback domain", () => {
       }),
     ).toThrow("Archived platform feedback cannot be reviewed.");
   });
+
+  it("records internal operator notes without changing lifecycle status", () => {
+    const [submitted] = decidePlatformFeedback(initialPlatformFeedbackState, submitCommand);
+    const submittedState = evolvePlatformFeedback(initialPlatformFeedbackState, submitted!);
+    const [recorded] = decidePlatformFeedback(submittedState, {
+      type: "RecordPlatformFeedbackOperatorNote",
+      noteId: "pfn_test",
+      body: "Follow up with checkout team.",
+      recordedByUserId: "usr_admin",
+      recordedAt: "2026-05-07T15:00:00.000Z",
+    });
+
+    expect(recorded?.type).toBe("experience.platform-feedback.operator-note-recorded");
+    const noteState = evolvePlatformFeedback(submittedState, recorded!);
+    expect(noteState.status).toBe("new");
+    expect(() =>
+      decidePlatformFeedback(submittedState, {
+        type: "RecordPlatformFeedbackOperatorNote",
+        noteId: "pfn_test",
+        body: "",
+        recordedByUserId: "usr_admin",
+        recordedAt: "2026-05-07T15:00:00.000Z",
+      }),
+    ).toThrow("Operator note is required.");
+  });
 });

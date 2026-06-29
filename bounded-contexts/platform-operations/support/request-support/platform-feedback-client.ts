@@ -4,10 +4,14 @@ import type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,
   PlatformFeedbackMetrics,
+  PlatformFeedbackBulkActionRequest,
+  PlatformFeedbackBulkActionSnapshot,
+  PlatformFeedbackOperatorNoteSnapshot,
   PlatformFeedbackPromptEligibility,
   PlatformFeedbackPromptDismissalSnapshot,
   PlatformFeedbackReviewSnapshot,
   PlatformFeedbackSubmissionSnapshot,
+  RecordPlatformFeedbackOperatorNoteRequest,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
 
@@ -18,10 +22,14 @@ export type {
   PlatformFeedbackDetail,
   PlatformFeedbackListItem,
   PlatformFeedbackMetrics,
+  PlatformFeedbackBulkActionRequest,
+  PlatformFeedbackBulkActionSnapshot,
+  PlatformFeedbackOperatorNoteSnapshot,
   PlatformFeedbackPromptEligibility,
   PlatformFeedbackPromptDismissalSnapshot,
   PlatformFeedbackReviewSnapshot,
   PlatformFeedbackSubmissionSnapshot,
+  RecordPlatformFeedbackOperatorNoteRequest,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
 
@@ -136,6 +144,30 @@ export function createExperienceApiClient({
         await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}/archive`, {
           method: "POST",
           body: "{}",
+        }),
+      );
+    },
+    async recordOperatorNote(feedbackId: string, body: RecordPlatformFeedbackOperatorNoteRequest) {
+      return parseJsonResponse<PlatformFeedbackOperatorNoteSnapshot>(
+        await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}/notes`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async bulkMarkReviewed(body: PlatformFeedbackBulkActionRequest) {
+      return parseJsonResponse<PlatformFeedbackBulkActionSnapshot>(
+        await configuredFetch(`${baseUrl}/platform-feedback/bulk/review`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async bulkArchive(body: PlatformFeedbackBulkActionRequest) {
+      return parseJsonResponse<PlatformFeedbackBulkActionSnapshot>(
+        await configuredFetch(`${baseUrl}/platform-feedback/bulk/archive`, {
+          method: "POST",
+          body: JSON.stringify(body),
         }),
       );
     },

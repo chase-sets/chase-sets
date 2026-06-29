@@ -123,21 +123,31 @@
       "surfaces": [
         "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H0320f0d7dce8#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H28424991b4a4#1",
-        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H6579561c17fb#1",
         "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST Hc1844b41e8c0#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H7eceedc4cf20#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST Hefbde2dd9d8e#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H507e7149dd9a#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST Hc23e00928e25#1",
         "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /",
         "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /:id/archive",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /:id/notes",
         "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /:id/review",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /bulk/archive",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /bulk/review",
         "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /dismiss",
         "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H901edc92b88e#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/platform-feedback.tsx",
         "route-action:bounded-contexts/platform-operations/routes/admin/platform-feedback-detail.tsx"
       ],
       "visibleDestination": {
-        "description": "Feedback submit, dismissal, review, and archive writes return id/version/status or snooze snapshots; admin review/archive forms redirect back to the detail route for an authoritative refetch."
+        "description": "Feedback submit, dismissal, review, archive, bulk status, and operator-note writes return id/version/status, snooze, or action-count snapshots; admin write forms redirect back to the filtered queue or detail route for an authoritative refetch."
       },
       "proof": {
-        "authoritativeResponse": "Platform feedback command handlers return the committed feedback or prompt id and aggregate version; the API maps that command result to submission, dismissal, reviewed, and archived snapshots.",
+        "authoritativeResponse": "Platform feedback command handlers return the committed feedback, prompt, note, or bulk action snapshot; the API maps those command results to submission, dismissal, reviewed, archived, operator-note, and bulk action responses.",
         "tests": [
           "bounded-contexts/platform-operations/tests/platform-feedback-api.test.ts",
           "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",

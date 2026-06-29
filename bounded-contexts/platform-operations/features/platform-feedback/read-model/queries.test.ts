@@ -37,6 +37,7 @@ describe("platform feedback read-model queries", () => {
               reviewed_at: null,
               archived_by_user_id: null,
               archived_at: null,
+              operator_notes: [],
             },
           ],
         };
@@ -53,6 +54,7 @@ describe("platform feedback read-model queries", () => {
 
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.operator_notes).toEqual([]);
     expect(String(calls[0]?.[0])).toContain("WHERE status = $1 AND topic = $2 AND workflow = $3");
     expect(calls[1]?.[1]).toEqual(["new", "ease-of-use", "listing-publish", 250, 0]);
   });

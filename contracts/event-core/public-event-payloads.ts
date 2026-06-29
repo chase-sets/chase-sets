@@ -311,11 +311,20 @@ export type PlatformFeedbackArchivedPayload = Readonly<{
   archivedAt: string;
 }>;
 
+export type PlatformFeedbackOperatorNoteRecordedPayload = Readonly<{
+  feedbackId: string;
+  noteId: string;
+  body: string;
+  recordedByUserId: string;
+  recordedAt: string;
+}>;
+
 export type PlatformOperationsEventPayloads = Readonly<{
   "experience.platform-feedback.submitted": PlatformFeedbackSubmittedPayload;
   "experience.platform-feedback.prompt-dismissed": PlatformFeedbackPromptDismissedPayload;
   "experience.platform-feedback.reviewed": PlatformFeedbackReviewedPayload;
   "experience.platform-feedback.archived": PlatformFeedbackArchivedPayload;
+  "experience.platform-feedback.operator-note-recorded": PlatformFeedbackOperatorNoteRecordedPayload;
 }>;
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
