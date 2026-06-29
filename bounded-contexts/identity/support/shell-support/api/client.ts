@@ -186,6 +186,37 @@ export function createIdentityApiClient({
         await client.users[":id"].reactivate.$post({ param: { id }, json: {}, header: headers }),
       );
     },
+    async addUserContactMethod<T>(id: string, body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"]["contact-methods"].$post({ param: { id }, json: body, header: headers }),
+      );
+    },
+    async verifyUserContactMethod<T>(id: string, contactMethodId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"]["contact-methods"][":contactMethodId"].verify.$post({
+          param: { id, contactMethodId },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async enableUserAuthMethod<T>(id: string, authMethod: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"]["auth-methods"].$post({
+          param: { id },
+          json: { authMethod },
+          header: headers,
+        }),
+      );
+    },
+    async disableUserAuthMethod<T>(id: string, authMethod: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"]["auth-methods"][":authMethod"].$delete({
+          param: { id, authMethod },
+          header: headers,
+        }),
+      );
+    },
     async listMemberships<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client.memberships.$get({

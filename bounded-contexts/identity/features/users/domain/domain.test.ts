@@ -15,12 +15,24 @@ describe("user domain", () => {
       authMethod: "password",
     });
     const enabledState = enabled.reduce(evolveUser, createdState);
+    const disabled = decideUser(enabledState, {
+      type: "DisableAuthMethod",
+      authMethod: "password",
+    });
+    const disabledState = disabled.reduce(evolveUser, enabledState);
 
     expect(enabledState.primaryEmail).toBe("seller@example.com");
     expect(enabledState.authMethods).toContain("password");
+    expect(disabledState.authMethods).not.toContain("password");
     expect(
       decideUser(enabledState, {
         type: "EnableAuthMethod",
+        authMethod: "password",
+      }),
+    ).toEqual([]);
+    expect(
+      decideUser(disabledState, {
+        type: "DisableAuthMethod",
         authMethod: "password",
       }),
     ).toEqual([]);

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
+import type { AuthMethodKey } from "../../../support/runtime-support/common";
 
 function canManageUser(actor: IdentityApiEnv["Variables"]["actor"], userId: string) {
   return !actor || actor.roleKey === "platform-admin" || actor.userId === userId;
@@ -15,6 +16,25 @@ function forbidden() {
       message: t("identity.features.users.api.route.forbidden"),
     },
   };
+}
+
+function badRequest(message: string) {
+  return {
+    error: {
+      code: "validation_error",
+      message,
+    },
+  };
+}
+
+function isAuthMethodKey(value: string): value is AuthMethodKey {
+  return (
+    value === "password" ||
+    value === "magic-link" ||
+    value === "passkey" ||
+    value === "sms-code" ||
+    value === "social-login"
+  );
 }
 
 export function userRoutes(services: UserServices) {
@@ -102,6 +122,23 @@ export function userRoutes(services: UserServices) {
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
       command: { type: "EnableAuthMethod", authMethod: body.authMethod },
+      context: c.get("context"),
+    });
+    return c.json({ id: userId, version: result.version, status: result.state.status });
+  });
+
+  app.delete("/:id/auth-methods/:authMethod", async (c) => {
+    const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
+    const authMethod = c.req.param("authMethod");
+    if (!isAuthMethodKey(authMethod)) {
+      return c.json(badRequest(t("identity.features.users.api.route.auth.method.invalid")), 400);
+    }
+    const result = await services.commandHandler({
+      streamId: `identity.user-${userId}`,
+      command: { type: "DisableAuthMethod", authMethod },
       context: c.get("context"),
     });
     return c.json({ id: userId, version: result.version, status: result.state.status });
