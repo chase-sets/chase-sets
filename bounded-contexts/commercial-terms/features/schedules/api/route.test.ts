@@ -58,6 +58,7 @@ describe("commercial terms schedule routes", () => {
         label: "Business",
         accountType: "business",
         marketplaceSalesFeePercentageBps: 650,
+        createdByUserId: "usr_admin",
       }),
       context,
     );
@@ -103,6 +104,7 @@ describe("commercial terms schedule routes", () => {
         label: "Business revised",
         marketplaceSalesFeePercentageBps: 650,
         shippingAllowancePercentageBps: 750,
+        revisedByUserId: "usr_admin",
       }),
       context,
     );

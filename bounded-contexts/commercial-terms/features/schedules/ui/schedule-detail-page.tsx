@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  DataTable,
   LinkButton,
   NativeSelect,
   NumberInput,
@@ -18,6 +19,10 @@ import type { CommercialTermsScheduleViewModel } from "./contracts";
 
 function statusTone(status: string) {
   return status === "active" ? "accent" : "warning";
+}
+
+function formatWindow(from: string, until: string | null) {
+  return `${from} - ${until ?? t("commercialTerms.features.schedules.ui.scheduleDetailPage.open.ended")}`;
 }
 
 export function ScheduleDetailPage({
@@ -78,6 +83,42 @@ export function ScheduleDetailPage({
             </Text>
           </Stack>
         </Card>
+      </PageSection>
+
+      <PageSection title={t("commercialTerms.features.schedules.ui.scheduleDetailPage.history")}>
+        <DataTable
+          rows={[...(schedule.history ?? [])]}
+          getRowId={(row) => row.history_id}
+          columns={[
+            {
+              key: "event_type",
+              header: t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.event"),
+              cell: (row) => row.event_type,
+            },
+            {
+              key: "actor_user_id",
+              header: t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.actor"),
+              cell: (row) => row.actor_user_id,
+            },
+            {
+              key: "status",
+              header: t("commercialTerms.features.schedules.ui.scheduleDetailPage.status"),
+              cell: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge>,
+            },
+            {
+              key: "window",
+              header: t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.window"),
+              cell: (row) => formatWindow(row.effective_from, row.effective_until),
+            },
+            {
+              key: "recorded_at",
+              header: t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.recorded"),
+              cell: (row) => row.recorded_at,
+            },
+          ]}
+          emptyTitle={t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.empty")}
+          emptyDescription={t("commercialTerms.features.schedules.ui.scheduleDetailPage.history.description")}
+        />
       </PageSection>
 
       <PageSection title={t("commercialTerms.features.schedules.ui.scheduleDetailPage.revise.schedule")}>

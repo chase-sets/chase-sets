@@ -57,6 +57,7 @@ describe("commercial terms agreement routes", () => {
         label: "Preferred",
         accountId: "acc_seller",
         marketplaceSalesFeePercentageBps: 550,
+        createdByUserId: "usr_admin",
       }),
       context,
     );
@@ -102,6 +103,7 @@ describe("commercial terms agreement routes", () => {
         label: "Preferred renewal",
         marketplaceSalesFeePercentageBps: 600,
         shippingAllowancePercentageBps: 800,
+        revisedByUserId: "usr_admin",
       }),
       context,
     );

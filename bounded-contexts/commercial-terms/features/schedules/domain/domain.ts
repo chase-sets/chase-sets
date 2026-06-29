@@ -48,6 +48,7 @@ export type CreateScheduleCommand = Readonly<{
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
+  createdByUserId: string;
 }>;
 
 export type ReviseScheduleCommand = Readonly<{
@@ -59,6 +60,7 @@ export type ReviseScheduleCommand = Readonly<{
   status: CommercialTermsStatus;
   effectiveFrom: string;
   effectiveUntil: string | null;
+  revisedByUserId: string;
 }>;
 
 export type CommercialTermsScheduleCommand = CreateScheduleCommand | ReviseScheduleCommand;
@@ -75,6 +77,7 @@ export type ScheduleCreatedEvent = DomainEvent<
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
+    createdByUserId: string;
   }>
 >;
 
@@ -89,6 +92,7 @@ export type ScheduleRevisedEvent = DomainEvent<
     status: CommercialTermsStatus;
     effectiveFrom: string;
     effectiveUntil: string | null;
+    revisedByUserId: string;
   }>
 >;
 
@@ -132,6 +136,7 @@ export const decideCommercialTermsSchedule: AggregateDecider<
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: createWindow.effectiveFrom,
             effectiveUntil: createWindow.effectiveUntil,
+            createdByUserId: normalizeLabel(command.createdByUserId, "Creator user id"),
           },
         },
       ];
@@ -159,6 +164,7 @@ export const decideCommercialTermsSchedule: AggregateDecider<
             status: normalizeCommercialTermsStatus(command.status),
             effectiveFrom: reviseWindow.effectiveFrom,
             effectiveUntil: reviseWindow.effectiveUntil,
+            revisedByUserId: normalizeLabel(command.revisedByUserId, "Reviser user id"),
           },
         },
       ];

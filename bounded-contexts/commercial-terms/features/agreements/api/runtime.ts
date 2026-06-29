@@ -8,7 +8,12 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildAgreementProjectionHandlers } from "../read-model/projection";
-import { getAgreement, listAgreements } from "../read-model/queries";
+import {
+  findOverlappingActiveAgreement,
+  getAgreement,
+  getCommercialTermsAccountReference,
+  listAgreements,
+} from "../read-model/queries";
 import {
   decideCommercialAgreement,
   evolveCommercialAgreement,
@@ -17,6 +22,7 @@ import {
   type CommercialAgreementEvent,
   type CommercialAgreementState,
 } from "../domain/domain";
+import { CommercialTermsDomainError } from "../../../support/runtime-support/common";
 
 type AgreementRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -49,10 +55,45 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
     decide: decideCommercialAgreement,
   });
 
+  async function assertAccountExists(accountId: string) {
+    const account = await getCommercialTermsAccountReference(deps.db, accountId);
+    if (!account) {
+      throw new CommercialTermsDomainError(`Account ${accountId} is not available for commercial terms.`);
+    }
+  }
+
+  async function assertNoActiveOverlap(
+    params: Readonly<{
+      accountId: string;
+      status: string;
+      effectiveFrom: string;
+      effectiveUntil: string | null;
+      excludeAgreementId?: string | null;
+    }>,
+  ) {
+    if (params.status !== "active") {
+      return;
+    }
+
+    const overlap = await findOverlappingActiveAgreement(deps.db, params);
+    if (overlap) {
+      throw new CommercialTermsDomainError(
+        `Active agreement ${overlap.agreement_id} already covers that account and effective window.`,
+      );
+    }
+  }
+
   return {
     commandHandler,
     async createAgreement(params, context) {
       const agreementId = createId("cag");
+      await assertAccountExists(params.accountId);
+      await assertNoActiveOverlap({
+        accountId: params.accountId,
+        status: params.status,
+        effectiveFrom: params.effectiveFrom,
+        effectiveUntil: params.effectiveUntil,
+      });
       const result = await commandHandler({
         streamId: `commercial-terms.agreement-${agreementId}`,
         command: {
@@ -65,6 +106,18 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
       return { agreementId, version: result.version };
     },
     async reviseAgreement(agreementId, params, context) {
+      const current = await getAgreement(deps.db, agreementId);
+      if (!current) {
+        throw new CommercialTermsDomainError("Agreement not found.");
+      }
+      await assertAccountExists(current.account_id);
+      await assertNoActiveOverlap({
+        accountId: current.account_id,
+        status: params.status,
+        effectiveFrom: params.effectiveFrom,
+        effectiveUntil: params.effectiveUntil,
+        excludeAgreementId: agreementId,
+      });
       const result = await commandHandler({
         streamId: `commercial-terms.agreement-${agreementId}`,
         command: {

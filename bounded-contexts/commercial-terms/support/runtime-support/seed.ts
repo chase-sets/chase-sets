@@ -74,6 +74,7 @@ export async function seedCommercialTermsDatabase(
         status: "active",
         effectiveFrom,
         effectiveUntil: null,
+        createdByUserId: identitySeedIds.support.userId,
       },
       context,
     });
@@ -102,7 +103,12 @@ async function seedDefaultScheduleIfMissing(
     effectiveFrom: string;
   }>,
 ) {
-  if (await scheduleExists(services.db, input.scheduleId)) {
+  if (await schedulePageExists(services.db, input.scheduleId)) {
+    return;
+  }
+
+  if (await streamExists(services.db, `commercial-terms.schedule-${input.scheduleId}`)) {
+    await upsertSeedSchedulePage(services.db, input);
     return;
   }
 
@@ -118,27 +124,86 @@ async function seedDefaultScheduleIfMissing(
       status: "active",
       effectiveFrom: input.effectiveFrom,
       effectiveUntil: null,
+      createdByUserId: identitySeedIds.support.userId,
     },
     context,
   });
 }
 
-async function scheduleExists(db: Pick<PgTransactionalPool, "query">, scheduleId: string): Promise<boolean> {
-  try {
-    const existing = await db.query("SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1", [
-      scheduleId,
-    ]);
-    return existing.rows.length > 0;
-  } catch {
-    return false;
-  }
+async function schedulePageExists(db: Pick<PgTransactionalPool, "query">, scheduleId: string): Promise<boolean> {
+  return rowExists(db, "SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1", [scheduleId]);
 }
 
 async function agreementExists(db: PgTransactionalPool, agreementId: string): Promise<boolean> {
-  try {
-    const existing = await db.query("SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1", [
+  return (
+    (await rowExists(db, "SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1", [
       agreementId,
-    ]);
+    ])) ||
+    (await rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [
+      `commercial-terms.agreement-${agreementId}`,
+    ]))
+  );
+}
+
+async function streamExists(db: Pick<PgTransactionalPool, "query">, streamId: string): Promise<boolean> {
+  return rowExists(db, "SELECT 1 FROM event_store_streams WHERE stream_id = $1 LIMIT 1", [streamId]);
+}
+
+async function upsertSeedSchedulePage(
+  db: Pick<PgTransactionalPool, "query">,
+  input: Readonly<{
+    scheduleId: string;
+    label: string;
+    accountType: "personal" | "business" | "enterprise";
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    effectiveFrom: string;
+  }>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO commercial_terms_schedule_pages (
+       schedule_id,
+       label,
+       account_type,
+       marketplace_sales_fee_percentage_bps,
+       marketplace_sales_fee_fixed_amount,
+       shipping_allowance_percentage_bps,
+       status,
+       effective_from,
+       effective_until,
+       created_at,
+       updated_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, 500, 'active', $6, NULL, $6, $6
+     )
+     ON CONFLICT (schedule_id) DO UPDATE
+     SET label = EXCLUDED.label,
+         account_type = EXCLUDED.account_type,
+         marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
+         marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
+         shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
+         status = EXCLUDED.status,
+         effective_from = EXCLUDED.effective_from,
+         effective_until = EXCLUDED.effective_until,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      input.scheduleId,
+      input.label,
+      input.accountType,
+      input.marketplaceSalesFeePercentageBps,
+      input.marketplaceSalesFeeFixedAmount,
+      input.effectiveFrom,
+    ],
+  );
+}
+
+async function rowExists(
+  db: Pick<PgTransactionalPool, "query">,
+  sql: string,
+  params: readonly unknown[],
+): Promise<boolean> {
+  try {
+    const existing = await db.query(sql, params);
     return existing.rows.length > 0;
   } catch {
     return false;

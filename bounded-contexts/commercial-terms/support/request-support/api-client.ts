@@ -80,6 +80,19 @@ export type CommercialTermsSchedule = Readonly<{
   effective_until: string | null;
   created_at: string;
   updated_at: string;
+  history?: readonly CommercialTermsHistoryItem[];
+}>;
+
+export type CommercialTermsHistoryItem = Readonly<{
+  history_id: string;
+  event_id: string;
+  event_type: string;
+  actor_user_id: string;
+  status: string;
+  payload: Record<string, unknown>;
+  effective_from: string;
+  effective_until: string | null;
+  recorded_at: string;
 }>;
 
 export type CommercialAgreement = Readonly<{
@@ -96,6 +109,7 @@ export type CommercialAgreement = Readonly<{
   effective_until: string | null;
   created_at: string;
   updated_at: string;
+  history?: readonly CommercialTermsHistoryItem[];
 }>;
 
 export function createCommercialTermsRequestApiClient(request: Request) {

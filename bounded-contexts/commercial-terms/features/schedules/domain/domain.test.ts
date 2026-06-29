@@ -17,9 +17,15 @@ describe("commercial terms schedules", () => {
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: null,
+      createdByUserId: " usr_admin ",
     });
     const state = evolveCommercialTermsSchedule(initialCommercialTermsScheduleState, event!);
 
+    expect(event).toMatchObject({
+      data: {
+        createdByUserId: "usr_admin",
+      },
+    });
     expect(state).toMatchObject({
       scheduleId: "default-personal",
       label: "Default Personal",
@@ -36,6 +42,7 @@ describe("commercial terms schedules", () => {
         status: "active",
         effectiveFrom: "2026-04-30T00:00:00.000Z",
         effectiveUntil: null,
+        createdByUserId: "usr_admin",
       }),
     ).toThrow("Schedule has already been created.");
   });
@@ -52,6 +59,7 @@ describe("commercial terms schedules", () => {
       status: "active",
       effectiveFrom: "2026-04-30T00:00:00.000Z",
       effectiveUntil: null,
+      createdByUserId: "usr_admin",
     });
     const createdState = evolveCommercialTermsSchedule(initialCommercialTermsScheduleState, created!);
 
@@ -64,6 +72,7 @@ describe("commercial terms schedules", () => {
       status: "inactive",
       effectiveFrom: "2026-05-01T00:00:00.000Z",
       effectiveUntil: "2026-06-01T00:00:00.000Z",
+      revisedByUserId: " usr_reviser ",
     });
 
     expect(revised).toMatchObject({
@@ -73,6 +82,7 @@ describe("commercial terms schedules", () => {
         label: "Business revised",
         marketplaceSalesFeeFixedAmount: "0.00",
         shippingAllowancePercentageBps: 750,
+        revisedByUserId: "usr_reviser",
       },
     });
     expect(evolveCommercialTermsSchedule(createdState, revised!)).toMatchObject({
@@ -96,6 +106,7 @@ describe("commercial terms schedules", () => {
         status: "active",
         effectiveFrom: "2026-04-30T00:00:00.000Z",
         effectiveUntil: null,
+        createdByUserId: "usr_admin",
       }),
     ).toThrow("cannot exceed 10000 basis points");
 
@@ -110,6 +121,7 @@ describe("commercial terms schedules", () => {
         status: "active",
         effectiveFrom: "2026-04-30T00:00:00.000Z",
         effectiveUntil: "2026-04-29T00:00:00.000Z",
+        createdByUserId: "usr_admin",
       }),
     ).toThrow("Schedule effective until must be after Schedule effective from.");
   });
