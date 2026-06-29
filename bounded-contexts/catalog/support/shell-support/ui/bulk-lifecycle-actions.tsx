@@ -44,6 +44,19 @@ export type BulkLifecycleResult = Readonly<{
   candidates: readonly BulkLifecycleCandidate[];
 }>;
 
+export type BulkLifecycleProgress = Readonly<{
+  phase: string;
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: string | null;
+}>;
+
+export type BulkLifecycleProgressOptions = Readonly<{
+  onProgress?: (progress: BulkLifecycleProgress) => void;
+  signal?: AbortSignal;
+}>;
+
 export type BulkLifecycleActionOption = Readonly<{
   value: string;
   label: string;
@@ -59,7 +72,11 @@ export interface BulkLifecycleActionBarProps {
   extraActions?: ReactNode;
   clearSelection: () => void;
   preview: (action: string, selection: BulkLifecycleSelection) => Promise<BulkLifecyclePreview>;
-  confirm: (action: string, selection: BulkLifecycleSelection) => Promise<BulkLifecycleResult>;
+  confirm: (
+    action: string,
+    selection: BulkLifecycleSelection,
+    options?: BulkLifecycleProgressOptions,
+  ) => Promise<BulkLifecycleResult>;
   onCompleted: () => void;
 }
 
@@ -79,6 +96,7 @@ export function BulkLifecycleActionBar({
   const [selection, setSelection] = useState<BulkLifecycleSelection | null>(null);
   const [previewResult, setPreviewResult] = useState<BulkLifecyclePreview | null>(null);
   const [confirmResult, setConfirmResult] = useState<BulkLifecycleResult | null>(null);
+  const [confirmProgress, setConfirmProgress] = useState<BulkLifecycleProgress | null>(null);
   const [busy, setBusy] = useState(false);
   const columns = useMemo(() => buildColumns(), []);
   const rows = (confirmResult?.candidates ?? previewResult?.candidates ?? []).slice(0, 20);
@@ -102,6 +120,7 @@ export function BulkLifecycleActionBar({
 
   async function handlePreview(nextSelection: BulkLifecycleSelection) {
     setBusy(true);
+    setConfirmProgress(null);
     setConfirmResult(null);
 
     try {
@@ -119,8 +138,9 @@ export function BulkLifecycleActionBar({
     }
 
     setBusy(true);
+    setConfirmProgress(null);
     try {
-      const result = await confirm(previewResult.action, selection);
+      const result = await confirm(previewResult.action, selection, { onProgress: setConfirmProgress });
       setConfirmResult(result);
       clearSelection();
       onCompleted();
@@ -237,6 +257,7 @@ export function BulkLifecycleActionBar({
             density="compact"
             emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
           />
+          {confirmProgress && <BulkLifecycleProgressSummary progress={confirmProgress} />}
           {(confirmResult?.candidates.length ?? previewResult?.candidates.length ?? 0) > rows.length && (
             <Text tone="secondary">
               {t("catalog.support.shellSupport.ui.bulkLifecycleActions.truncated", {
@@ -248,6 +269,30 @@ export function BulkLifecycleActionBar({
         </Stack>
       </Dialog>
     </>
+  );
+}
+
+export function BulkLifecycleProgressSummary({ progress }: { progress: BulkLifecycleProgress }) {
+  const status = progress.status ?? progress.phase;
+  return (
+    <Stack gap={1}>
+      <Inline gap={2} align="center">
+        <StatusPill>{status}</StatusPill>
+        <Text tone="secondary">
+          {t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress", {
+            completed: progress.completed,
+            total: progress.total,
+          })}
+        </Text>
+      </Inline>
+      {progress.currentName && (
+        <Text tone="secondary">
+          {t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress.current", {
+            name: progress.currentName,
+          })}
+        </Text>
+      )}
+    </Stack>
   );
 }
 

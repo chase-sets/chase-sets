@@ -20,7 +20,9 @@ import {
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import {
+  BulkLifecycleProgressSummary,
   type BulkLifecycleCandidate,
+  type BulkLifecycleProgress,
   type BulkLifecyclePreview,
   type BulkLifecycleResult,
   type BulkLifecycleSelection,
@@ -253,6 +255,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPreview, setBulkPreview] = useState<BulkPublishPreview | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkPublishResult | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<BulkLifecycleProgress | null>(null);
   const [bulkScopeLabel, setBulkScopeLabel] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [showRemoveDrafts, setShowRemoveDrafts] = useState(false);
@@ -268,6 +271,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
   const [bulkLifecycleSelection, setBulkLifecycleSelection] = useState<BulkLifecycleSelection | null>(null);
   const [bulkLifecyclePreview, setBulkLifecyclePreview] = useState<BulkLifecyclePreview | null>(null);
   const [bulkLifecycleResult, setBulkLifecycleResult] = useState<BulkLifecycleResult | null>(null);
+  const [bulkLifecycleProgress, setBulkLifecycleProgress] = useState<BulkLifecycleProgress | null>(null);
   const [bulkLifecycleBusy, setBulkLifecycleBusy] = useState(false);
   const bulkLifecycleColumns = useMemo(() => buildBulkLifecycleColumns(), []);
   const bulkLifecycleRows = (bulkLifecycleResult?.candidates ?? bulkLifecyclePreview?.candidates ?? []).slice(0, 20);
@@ -278,6 +282,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
   const [bulkEditOperation, setBulkEditOperation] = useState<BulkEditCatalogItemOperation | null>(null);
   const [bulkEditPreview, setBulkEditPreview] = useState<BulkEditCatalogItemPreview | null>(null);
   const [bulkEditResult, setBulkEditResult] = useState<BulkEditCatalogItemResult | null>(null);
+  const [bulkEditProgress, setBulkEditProgress] = useState<BulkLifecycleProgress | null>(null);
   const [bulkEditBusy, setBulkEditBusy] = useState(false);
   const bulkEditColumns = useMemo(() => buildBulkEditColumns(), []);
   const bulkEditRows = (bulkEditResult?.candidates ?? bulkEditPreview?.candidates ?? []).slice(0, 20);
@@ -368,6 +373,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
 
   async function handlePreviewBulkPublish(selection: unknown, scopeLabel: string) {
     setBulkBusy(true);
+    setBulkProgress(null);
     setBulkResult(null);
     try {
       const preview = await previewBulkPublishCatalogItems(selection);
@@ -386,8 +392,9 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     }
 
     setBulkBusy(true);
+    setBulkProgress(null);
     try {
-      const result = await confirmBulkPublishCatalogItems(bulkPreview.item_ids);
+      const result = await confirmBulkPublishCatalogItems(bulkPreview.item_ids, { onProgress: setBulkProgress });
       setBulkResult(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.completed"), "success");
       setSelectedKeys(new Set());
@@ -441,6 +448,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
   async function handlePreviewBulkEdit(selection: unknown, action: BulkEditCatalogItemOperation["action"]) {
     const operation = buildBulkEditOperation(action);
     setBulkEditBusy(true);
+    setBulkEditProgress(null);
     setBulkEditResult(null);
 
     try {
@@ -461,8 +469,11 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     }
 
     setBulkEditBusy(true);
+    setBulkEditProgress(null);
     try {
-      const result = await confirmBulkCatalogItemEdit(bulkEditOperation, bulkEditSelection);
+      const result = await confirmBulkCatalogItemEdit(bulkEditOperation, bulkEditSelection, {
+        onProgress: setBulkEditProgress,
+      });
       setBulkEditResult(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.completed"), "success");
       setSelectedKeys(new Set());
@@ -479,10 +490,12 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     setBulkEditOperation(null);
     setBulkEditPreview(null);
     setBulkEditResult(null);
+    setBulkEditProgress(null);
   }
 
   async function handlePreviewBulkLifecycle(action: "archive", selection: BulkLifecycleSelection) {
     setBulkLifecycleBusy(true);
+    setBulkLifecycleProgress(null);
     setBulkLifecycleResult(null);
 
     try {
@@ -502,8 +515,11 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     }
 
     setBulkLifecycleBusy(true);
+    setBulkLifecycleProgress(null);
     try {
-      const result = await confirmBulkCatalogItemLifecycle(bulkLifecyclePreview.action, bulkLifecycleSelection);
+      const result = await confirmBulkCatalogItemLifecycle(bulkLifecyclePreview.action, bulkLifecycleSelection, {
+        onProgress: setBulkLifecycleProgress,
+      });
       setBulkLifecycleResult(result);
       setSelectedKeys(new Set());
       revalidator.revalidate();
@@ -518,6 +534,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     setBulkLifecycleSelection(null);
     setBulkLifecyclePreview(null);
     setBulkLifecycleResult(null);
+    setBulkLifecycleProgress(null);
   }
 
   async function handlePreviewBulkOperation(scope: "selected" | "matching") {
@@ -788,6 +805,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
           if (!open) {
             setBulkPreview(null);
             setBulkResult(null);
+            setBulkProgress(null);
             setBulkScopeLabel("");
           }
         }}
@@ -817,6 +835,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
               onClick={() => {
                 setBulkPreview(null);
                 setBulkResult(null);
+                setBulkProgress(null);
                 setBulkScopeLabel("");
               }}
             >
@@ -834,6 +853,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
                 tone="secondary"
                 onClick={() => {
                   setBulkPreview(null);
+                  setBulkProgress(null);
                   setBulkScopeLabel("");
                 }}
               >
@@ -849,6 +869,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
               {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.partial.success.note")}
             </Text>
           )}
+          {bulkProgress && <BulkLifecycleProgressSummary progress={bulkProgress} />}
           <DataTable
             rows={bulkRows}
             columns={bulkColumns}
@@ -925,6 +946,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
             density="compact"
             emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
           />
+          {bulkLifecycleProgress && <BulkLifecycleProgressSummary progress={bulkLifecycleProgress} />}
           {(bulkLifecycleResult?.candidates.length ?? bulkLifecyclePreview?.candidates.length ?? 0) >
             bulkLifecycleRows.length && (
             <Text tone="secondary">
@@ -991,6 +1013,7 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
           <Text tone="secondary">
             {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.partial.success.note")}
           </Text>
+          {bulkEditProgress && <BulkLifecycleProgressSummary progress={bulkEditProgress} />}
           <DataTable
             rows={bulkEditRows}
             columns={bulkEditColumns}

@@ -239,7 +239,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkDimensionLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkDimensionLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.dimensions["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -248,6 +252,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -347,7 +353,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkFieldLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkFieldLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.fields["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -356,6 +366,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -498,7 +510,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkComponentLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkComponentLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.components["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -507,6 +523,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -606,7 +624,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkBlueprintLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkBlueprintLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.blueprints["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -615,6 +637,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -676,7 +700,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkCategoryLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkCategoryLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.categories["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -685,6 +713,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -746,7 +776,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkReferenceTypeLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkReferenceTypeLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client["reference-types"]["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -755,6 +789,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -816,7 +852,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkReferenceRecordLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkReferenceRecordLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client["reference-records"]["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -825,6 +865,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -902,7 +944,10 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkPublishCatalogItems<T>(itemIds: readonly string[]): Promise<T> {
+    async confirmBulkPublishCatalogItems<T>(
+      itemIds: readonly string[],
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.items["bulk-publish"].confirm.$post({
         json: { itemIds },
         header: headers,
@@ -911,6 +956,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -943,7 +990,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkCatalogItemLifecycle<T>(action: string, selection: unknown): Promise<T> {
+    async confirmBulkCatalogItemLifecycle<T>(
+      action: string,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.items["bulk-lifecycle"].confirm.$post({
         json: { action, selection },
         header: headers,
@@ -952,6 +1003,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -962,7 +1015,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async confirmBulkCatalogItemEdit<T>(operation: unknown, selection: unknown): Promise<T> {
+    async confirmBulkCatalogItemEdit<T>(
+      operation: unknown,
+      selection: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
       const response = await client.items["bulk-edit"].confirm.$post({
         json: { operation, selection },
         header: headers,
@@ -971,6 +1028,8 @@ export function createCatalogApiClient({
         baseUrl,
         fetch: configuredFetch,
         headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
@@ -2001,7 +2060,11 @@ async function waitForAuthoringBulkJobResult<T>(input: {
   fetch: typeof globalThis.fetch;
   headers?: HeadersInit;
   job: CatalogAuthoringBulkJob<T>;
+  onProgress?: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
 }): Promise<T> {
+  input.onProgress?.(input.job.progress);
+
   if (input.job.status === "completed" && input.job.result) {
     return input.job.result;
   }
@@ -2014,7 +2077,8 @@ async function waitForAuthoringBulkJobResult<T>(input: {
     url: `${input.baseUrl.replace(/\/$/, "")}/bulk-authoring-jobs/${encodeURIComponent(input.job.jobId)}/events`,
     fetch: input.fetch,
     headers: input.headers,
-    onProgress: () => {},
+    onProgress: input.onProgress ?? (() => {}),
+    signal: input.signal,
     errorMessage: "Catalog authoring bulk job failed.",
   });
 }

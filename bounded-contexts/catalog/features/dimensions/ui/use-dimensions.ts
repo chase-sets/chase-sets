@@ -4,6 +4,7 @@ import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Dimension, DimensionDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkLifecycleProgressOptions,
   BulkLifecyclePreview,
   BulkLifecycleResult,
 } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -49,8 +50,12 @@ export function previewBulkDimensionLifecycle(action: string, selection: unknown
   return api.previewBulkDimensionLifecycle<BulkLifecyclePreview>(action, selection);
 }
 
-export function confirmBulkDimensionLifecycle(action: string, selection: unknown) {
-  return api.confirmBulkDimensionLifecycle<BulkLifecycleResult>(action, selection);
+export function confirmBulkDimensionLifecycle(
+  action: string,
+  selection: unknown,
+  options: BulkLifecycleProgressOptions = {},
+) {
+  return api.confirmBulkDimensionLifecycle<BulkLifecycleResult>(action, selection, options);
 }
 
 export function addOption(
