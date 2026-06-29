@@ -20,6 +20,8 @@ describe("auth role permissions", () => {
         "public-presence.manage",
         "public-presence.view",
         "security.manage",
+        "support.manage",
+        "support.view",
       ]),
     );
   });
