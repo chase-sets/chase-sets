@@ -80,6 +80,29 @@ describe("production database restore point", () => {
     ]);
   });
 
+  it("records doctl fork failure diagnostics while keeping the gate closed", async () => {
+    const failure = new Error("Command failed: doctl databases fork");
+    failure.code = 2;
+    failure.stderr = "Error: database fork quota exceeded\n";
+    failure.stdout = '{"id":""}';
+
+    const result = await createProductionDbRestorePoint(baseOptions, async () => {
+      throw failure;
+    });
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(result.record.restorePoint).toMatchObject({
+      name: "cs-prod-rp-aaaaaaaa-12345-2",
+      status: "create-failed",
+    });
+    expect(result.record.errors).toEqual([
+      "doctl database fork failed before a restore-point cluster id was returned.",
+      "exit code: 2",
+      "stderr: Error: database fork quota exceeded",
+      'stdout: {"id":""}',
+    ]);
+  });
+
   it("allows restore-point bypass only for audited emergency releases", async () => {
     const result = await createProductionDbRestorePoint(
       {
