@@ -41,20 +41,19 @@ import {
 import {
   checkoutRecoveryForError,
   checkoutRecoveryForFreshWriteError,
-  checkoutRecoveryForKind,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import {
-  createPaymentsRequestApiClient,
-  type PaymentsCheckoutStatus,
-  type PaymentsSavedCheckoutInstrument,
-} from "@chase-sets/payments/server";
+import { type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
+import {
+  buildCheckoutPaymentPreviewStatus,
+  type CheckoutPaymentPreviewStatus,
+} from "../support/route-support/checkout-session/payment-preview";
 import {
   assertCheckoutDeliveryServiceableForAction,
   deliveryCorrectionActionData,
@@ -69,7 +68,6 @@ const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
 const PAYMENT_START_FRESHNESS_SOURCE_CONTEXT_NAMES = new Set(["ordering"]);
 const PAYMENT_START_RETRY_SOURCE_CONTEXT_NAMES = new Set(["checkout", "ordering"]);
-const PAYMENT_ORDER_READINESS_PENDING_CODES = new Set(["order_input_not_ready", "order_not_payment_ready"]);
 
 type GuestCheckoutContact = Readonly<{
   contactEmail: string;
@@ -368,48 +366,6 @@ function shouldRefreshPaymentStart(error: unknown) {
   return readApiErrorCode(error.body) === "payment_start_pending";
 }
 
-function responseLikeErrorStatus(error: unknown) {
-  return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
-    ? error.status
-    : null;
-}
-
-function responseLikeErrorBody(error: unknown) {
-  return typeof error === "object" && error !== null && "body" in error ? (error as { body?: unknown }).body : null;
-}
-
-function paymentStatusReadIsPending(error: unknown) {
-  const status = responseLikeErrorStatus(error);
-  const code = readApiErrorCode(responseLikeErrorBody(error));
-
-  if (status === 503 && code === "projection_freshness_timeout") {
-    return true;
-  }
-
-  if (status === 400 && PAYMENT_ORDER_READINESS_PENDING_CODES.has(code ?? "")) {
-    return true;
-  }
-
-  return false;
-}
-
-function checkoutRecoveryForPaymentStatusReadError(
-  error: unknown,
-  request: Request,
-  currentPath: string,
-  hasFreshnessSource = false,
-) {
-  if (!paymentStatusReadIsPending(error)) {
-    return null;
-  }
-
-  return checkoutRecoveryForKind(
-    "checkout-preparing",
-    currentPath,
-    readFreshWriteToken(request) || hasFreshnessSource ? "refreshable-catching-up" : "stale-projection",
-  );
-}
-
 function paymentQuoteRefreshPath(sessionId: string, paymentMethodCategory: string) {
   return `/checkout/buy/session/${sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}&review=updated&quote=required`;
 }
@@ -643,50 +599,28 @@ async function loadSavedCheckoutInstruments(
   }
 }
 
-async function loadPaymentPreview(
-  request: Request,
+function loadPaymentPreview(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
   wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
-  orderWriteCommitPositions: readonly SourceCommitPosition[],
-): Promise<PaymentsCheckoutStatus | null> {
+): CheckoutPaymentPreviewStatus | null {
   if (!actor) {
     return null;
   }
 
-  try {
-    if (committedOrderIds.length > 0) {
-      const paymentsApi = createPaymentsRequestApiClient(
-        requestWithPaymentStartFreshness(request, orderWriteCommitPositions),
-      );
-      return await paymentsApi.getCheckoutStatus({
-        orderIds: committedOrderIds,
-        currencyCode: wallet?.currency_code ?? "usd",
-        requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
-        paymentMethodCategory,
-      });
-    }
-
-    if (!fulfillmentPreview) {
-      return null;
-    }
-
-    const paymentsApi = createPaymentsRequestApiClient(request);
-    return await paymentsApi.previewCheckoutStatus({
-      amount: fulfillmentPreview.totals.totalAmount,
-      currencyCode: wallet?.currency_code ?? "usd",
-      requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
-      paymentMethodCategory,
-    });
-  } catch (error) {
-    if (committedOrderIds.length > 0) {
-      throw error;
-    }
-
+  if (!fulfillmentPreview) {
     return null;
   }
+
+  return buildCheckoutPaymentPreviewStatus({
+    orderIds: committedOrderIds,
+    amount: fulfillmentPreview.totals.totalAmount,
+    currencyCode: wallet?.currency_code ?? "usd",
+    requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
+    paymentMethodCategory,
+  });
 }
 
 function reloadForRealtimeSync() {
@@ -742,27 +676,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
   const isPaymentStartResume = searchParams.get("resumePaymentStart") === "1";
-  const paymentPreview = await loadPaymentPreview(
-    resolvedRequest,
+  const paymentPreview = loadPaymentPreview(
     actor,
     fulfillmentPreview,
     wallet,
     selectedPaymentMethodCategory,
     session.order_ids,
-    isPaymentStartResume ? session.order_write_commit_positions : [],
-  ).catch((error) => {
-    const recovery = checkoutRecoveryForPaymentStatusReadError(
-      error,
-      resolvedRequest,
-      currentPathWithSearch(request),
-      isPaymentStartResume && session.order_write_commit_positions.length > 0,
-    );
-    if (recovery) {
-      throw createCheckoutRecoveryResponse(recovery);
-    }
-
-    return null;
-  });
+  );
 
   return {
     session,

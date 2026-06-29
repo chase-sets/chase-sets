@@ -12,32 +12,6 @@
   ],
   "entries": [
     {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:payments:createPaymentsRequestApiClient.getCheckoutStatus#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "payments",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 672,
-      "clientFactory": "createPaymentsRequestApiClient",
-      "methodName": "getCheckoutStatus",
-      "classification": "read-your-writes",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Serve checkout payment status from a Checkout-owned payment mirror with wake-before-wait (#2512)."
-    },
-    {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:payments:createPaymentsRequestApiClient.previewCheckoutStatus#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "payments",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 685,
-      "clientFactory": "createPaymentsRequestApiClient",
-      "methodName": "previewCheckoutStatus",
-      "classification": "read-your-writes",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2778",
-      "migration": "Serve checkout payment preview/status from a Checkout-owned payment mirror with wake-before-wait (#2512)."
-    },
-    {
       "id": "bounded-contexts/discovery/support/route-support/item-detail/action.ts:marketplace:createMarketplaceRequestApiClient.previewListingTerms#1",
       "consumerContextName": "discovery",
       "sourceContextName": "marketplace",
