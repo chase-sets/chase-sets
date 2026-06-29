@@ -145,7 +145,7 @@ Optional shared-environment proof variables:
 - `STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS=true`: requires recorded Stripe-delivered webhook proof before the smoke run proceeds.
 - `STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`: private evidence record that ties the delivered Stripe `evt_...` ids to the Stripe Dashboard destination configuration and Chase Sets provider event rows.
 
-For private production proof with live keys, use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run ops marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for account-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. Final launch evidence uses the embedded payout setup page.
+For live production smoke, set `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, point `PLATFORM_API_BASE_URL` and `MARKETPLACE_WEB_BASE_URL` at the approved production host, authenticate with an operator-controlled seller session, run `pnpm run stripe:money-smoke -- --check-env`, then run the approved live smoke command. Final launch evidence uses the embedded payout setup page.
 
 The authenticated seller-flow smoke creates an embedded payout setup Account
 Session and then refreshes provider-neutral payout readiness. The smoke fails

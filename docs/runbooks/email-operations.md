@@ -113,7 +113,7 @@ For production prelaunch proof, first deploy private proof mode with `PRODUCTION
 
 The platform API requires a signed SNS notification envelope by default. It confirms signed `SubscriptionConfirmation` messages only when the `SubscribeURL` points back to an AWS SNS host, then parses SES `Delivery`, `Bounce`, and `Complaint` notifications through the SES infrastructure adapter and records them idempotently in the Notifications-owned `notification_email_provider_events` table. Attach the SES event destination ARN, confirmed subscription status, delivery status, and redacted query output from that table to the launch evidence record.
 
-Run `pnpm run ops marketplace:production-proof-readiness` before dashboard setup and use `operatorSetup.sesSnsEventDestinationSetup` from its JSON output as the canonical production setup manifest. The manifest includes the SNS topic name, HTTPS subscription endpoint, SES `transactional-production` event-destination command, required event types, and launch evidence fields that must be backed by the resulting AWS records. Do not hand-enter alternate callback URLs.
+Use the production callback URL above as the SES/SNS HTTPS subscription endpoint, keep the SES configuration set named `transactional-production`, subscribe the Chase Sets transactional SNS topic to that endpoint, and back the launch evidence fields with the resulting AWS records. Do not hand-enter alternate callback URLs.
 
 ## Production SES Proof
 

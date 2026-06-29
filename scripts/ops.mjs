@@ -72,10 +72,6 @@ export const SUBCOMMANDS = {
     script: "marketplace-production-launch-readiness.mjs",
     description: "Production launch readiness gate from variables and secrets.",
   },
-  "marketplace:production-proof-readiness": {
-    script: "marketplace-production-proof-readiness.mjs",
-    description: "Production proof-mode readiness record and operator setup manifest.",
-  },
   "marketplace:production-proof-topology-evidence": {
     script: "marketplace-production-proof-topology-evidence.mjs",
     description: "Production proof topology evidence against the deployed host.",
