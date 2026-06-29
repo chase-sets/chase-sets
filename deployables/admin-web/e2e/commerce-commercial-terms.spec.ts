@@ -1,0 +1,126 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+
+const demoAccountId = "acc_seed_demo_account";
+
+test.describe("commerce admin commercial terms", () => {
+  test("operator manages fee schedules and commercial agreements @admin-commerce", async ({ page }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/commerce/terms/schedules", "/access/sign-in");
+    const suffix = Date.now().toString(36);
+    await expectScheduleOverlapValidation(page);
+    await createInactiveScheduleAndInspectHistory(page, suffix);
+    await expectAgreementAccountValidation(page);
+    await createInactiveAgreementAndInspectHistory(page, suffix);
+  });
+});
+
+async function expectScheduleOverlapValidation(page: Page) {
+  await expectPageOk(page, "/commerce/terms/schedules");
+  await expectAdminPageReady(page, { heading: "Fee schedules" });
+
+  const form = createScheduleForm(page);
+  await form.getByLabel("Label").fill(`E2E overlapping business schedule ${Date.now().toString(36)}`);
+  await form.getByLabel("Account type").selectOption("business");
+  await form.getByLabel("Status").selectOption("active");
+  await form.getByLabel("Effective from").fill("2026-06-01T00:00:00.000Z");
+  await form.getByLabel("Effective until").fill("");
+  await form.getByRole("button", { name: "Create schedule" }).click();
+
+  await expect(page.getByText(/already covers that account type and effective window/i)).toBeVisible();
+}
+
+async function createInactiveScheduleAndInspectHistory(page: Page, suffix: string) {
+  const label = `E2E inactive schedule ${suffix}`;
+  const form = createScheduleForm(page);
+  await form.getByLabel("Label").fill(label);
+  await form.getByLabel("Account type").selectOption("enterprise");
+  await fillCommercialTermsFeeFields(form, {
+    marketplaceSalesFeePercentageBps: "640",
+    marketplaceSalesFeeFixedAmount: "0.02",
+    shippingAllowancePercentageBps: "450",
+  });
+  await form.getByLabel("Status").selectOption("inactive");
+  await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
+  await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
+  await form.getByRole("button", { name: "Create schedule" }).click();
+
+  await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
+    timeout: 30_000,
+  });
+  await expectAdminPageReady(page, { heading: "Fee schedules" });
+  const row = page.getByRole("row").filter({ hasText: label });
+  await expect(row).toBeVisible();
+  await row.getByRole("link", { name: "Open" }).click();
+  await expectAdminPageReady(page, { heading: label });
+  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "commercial-terms.schedule.created" })).toBeVisible();
+}
+
+async function expectAgreementAccountValidation(page: Page) {
+  await expectPageOk(page, "/commerce/terms/agreements");
+  await expectAdminPageReady(page, { heading: "Commercial agreements" });
+
+  const form = createAgreementForm(page);
+  await form.getByLabel("Label").fill(`E2E invalid account agreement ${Date.now().toString(36)}`);
+  await form.getByLabel("Account ID").fill("acc_e2e_missing_account");
+  await form.getByLabel("Status").selectOption("inactive");
+  await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
+  await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
+  await form.getByRole("button", { name: "Create agreement" }).click();
+
+  await expect(page.getByText(/Account acc_e2e_missing_account is not available for commercial terms/i)).toBeVisible();
+}
+
+async function createInactiveAgreementAndInspectHistory(page: Page, suffix: string) {
+  const label = `E2E inactive agreement ${suffix}`;
+  const form = createAgreementForm(page);
+  await form.getByLabel("Label").fill(label);
+  await form.getByLabel("Account ID").fill(demoAccountId);
+  await fillCommercialTermsFeeFields(form, {
+    marketplaceSalesFeePercentageBps: "690",
+    marketplaceSalesFeeFixedAmount: "0.03",
+    shippingAllowancePercentageBps: "425",
+  });
+  await form.getByLabel("Status").selectOption("inactive");
+  await form.getByLabel("Effective from").fill("2027-01-01T00:00:00.000Z");
+  await form.getByLabel("Effective until").fill("2027-12-31T00:00:00.000Z");
+  await form.getByRole("button", { name: "Create agreement" }).click();
+
+  await page.waitForURL((url) => url.pathname === "/commerce/terms/agreements" && url.search.includes("afterWrite"), {
+    timeout: 30_000,
+  });
+  await expectAdminPageReady(page, { heading: "Commercial agreements" });
+  const row = page.getByRole("row").filter({ hasText: label });
+  await expect(row).toBeVisible();
+  await row.getByRole("link", { name: "Open" }).click();
+  await expectAdminPageReady(page, { heading: label });
+  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "commercial-terms.agreement.created" })).toBeVisible();
+}
+
+function createScheduleForm(page: Page): Locator {
+  return page.locator("form").filter({ has: page.getByRole("button", { name: "Create schedule" }) });
+}
+
+function createAgreementForm(page: Page): Locator {
+  return page.locator("form").filter({ has: page.getByRole("button", { name: "Create agreement" }) });
+}
+
+async function fillCommercialTermsFeeFields(
+  form: Locator,
+  values: {
+    marketplaceSalesFeePercentageBps: string;
+    marketplaceSalesFeeFixedAmount: string;
+    shippingAllowancePercentageBps: string;
+  },
+) {
+  await form.locator('[name="marketplaceSalesFeePercentageBps"]').fill(values.marketplaceSalesFeePercentageBps);
+  await form.locator('[name="marketplaceSalesFeeFixedAmount"]').fill(values.marketplaceSalesFeeFixedAmount);
+  await form.locator('[name="shippingAllowancePercentageBps"]').fill(values.shippingAllowancePercentageBps);
+}

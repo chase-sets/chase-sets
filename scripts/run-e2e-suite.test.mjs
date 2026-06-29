@@ -101,6 +101,21 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_commerce"]);
   });
 
+  it("routes commercial terms admin routes to commerce admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/commercial-terms/routes/admin/schedules.tsx")).toEqual([
+      "admin_commerce",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/commercial-terms/routes/admin/agreements.tsx")).toEqual([
+      "admin_commerce",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/commercial-terms/features/schedules/ui/schedule-list-page.tsx"),
+    ).toEqual(["admin_commerce"]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/commercial-terms/features/agreements/api/runtime.ts")).toEqual([
+      "admin_commerce",
+    ]);
+  });
+
   it("routes platform feedback admin routes to support admin coverage", () => {
     expect(
       e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/platform-feedback.tsx"),
