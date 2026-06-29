@@ -10,6 +10,8 @@ Every drill verifies the same contract: no wake-path failure loses data or perma
 
 `Platform Staging Wake Drills` (`.github/workflows/platform-staging-wake-drills.yml`, `workflow_dispatch`) runs the executable drills against deployed staging with the same credentials the staging operational workflows already hold (Terraform-state database URLs, staging marketplace/admin domains, platform admin credentials for wake-status snapshots). It wraps `pnpm run wake:drills` (`scripts/staging-wake-drills.mjs`, unit-tested by `scripts/staging-wake-drills.test.mjs`).
 
+`Platform Staging Mixed-Version Wake Evidence` (`.github/workflows/platform-staging-mixed-version-wake-drills.yml`, `workflow_dispatch`) is the #1365 evidence evaluator. It does not deploy or mutate staging. Operators intentionally run one or two normal staging wake drills while a normal Platform Deploy is rolling staging from baseline N to candidate N+1, then pass the Platform Deploy run id, wake drill run id(s), and the pre-deploy baseline commit to the evaluator. The evaluator writes `staging-mixed-version-wake-drill/v1` evidence and fails unless the wake traffic window overlaps the staging deploy window, baseline and candidate commits differ, the deploy succeeds, every supplied wake drill passes, any supplied no-secret load evaluator passes, and the composed evidence remains redacted.
+
 What the `reconciliation` drill does:
 
 1. Snapshots `GET /api/platform/projections/wake-status` (admin credentials, structural fields only).
@@ -29,7 +31,7 @@ What the `load` drill adds: a bounded synthetic burst (iterations hard-capped at
 
 After every `load` drill, the workflow runs the no-secret artifact evaluator (`pnpm run ops push-wake:load-evidence`) against the captured JSON and uploads `staging-wake-drill-load-evaluation.json`. The default `bounded-staging` profile checks the current bounded drill budget: at least 6 iterations, concurrency at least 2, zero config errors, every iteration producing evidence, durable exact-dependency convergence inside 120 seconds, no checkout relay/gated-checkpoint gap, an explicit accepted load-readiness decision when per-write readiness misses, and no failed or stale wake intents in the after snapshot when one is present. When the wake-status snapshot includes intent breakdown rows, the evaluator also records support-safe pressure attribution that separates hot-lane queued intents from standard, bulk, or unknown-lane backlog after the burst. Operators can dispatch the stricter `representative-volume` profile for a captured artifact that intentionally uses the hard caps (12 iterations, concurrency 4) and requires wake-status snapshots, an available wake store, at least one active wake-capable worker, and a lower post-load queue-age budget. The evaluator is CI-safe because it reads only the uploaded artifact; it does not read secrets or contact staging.
 
-Scheduling guidance: do not dispatch drills while a Platform Deploy run is mid-staging (the deploy's own canaries and worker restarts will skew convergence timing). Check the Actions queue first.
+Scheduling guidance: do not dispatch ordinary drills while a Platform Deploy run is mid-staging (the deploy's own canaries and worker restarts will skew convergence timing). Check the Actions queue first. The only exception is the explicit #1365 mixed-version exercise: record the currently deployed staging commit before the deploy, dispatch the wake drill(s) during the staging rollout window, and then run `Platform Staging Mixed-Version Wake Evidence` to prove and redact the overlap.
 
 ## Drill Catalog
 
@@ -46,6 +48,7 @@ Scheduling guidance: do not dispatch drills while a Platform Deploy run is mid-s
 | 9 | Provider-delivery outbox recovery (transactional email / notifications) | Outbox dispatcher replay from durable rows; scheduled/poll path, not wake-driven | Procedure documented below |
 | 10 | Cleanup lag | Observation drill via wake-status + cleanup logs | Procedure documented below |
 | 11 | Database failover / connection-limit catch-up | Operator-driven (DO maintenance window) + drill workflow | Procedure documented below; requires operator session |
+| 12 | Mixed-version wake envelope compatibility | Normal Platform Deploy + overlapping wake drill(s) + mixed-version evaluator | Executable evidence composition; requires operator timing |
 
 Honest status: drills 1-2 are fully executable from Actions on demand and produce uploaded evidence per run. Drills 3-6 and 11 have production-ready procedures but each live staging execution requires an operator (worker restarts, Terraform switches, and DO failovers are not reachable from a repo-scoped workflow). Drill 7 cannot be fault-injected without deploying fault-injection code; its detection surfaces (alerts, logs) and recovery semantics (durable catch-up re-fans-out unacknowledged positions) are covered by the unit-proofed recovery state machine evidence (#1222/#1231: crash-replay/coalescing, fenced takeover, durable catch-up). Do not report a drill as "run in staging" unless a dated workflow run or operator session log exists.
 
@@ -142,9 +145,26 @@ These dispatchers are scheduled/poll-driven over durable outbox rows (documented
 3. After the cluster reports healthy, run the reconciliation drill; pass = convergence within budget and a stable relay lease.
 4. Record: failover window, reconnect log spans, drill run URL.
 
+### 12. Mixed-version wake envelope compatibility (#1365)
+
+Goal: prove real staging API/worker/relay version skew during a rolling deploy does not lose wake traffic. This is the integration complement to the unit-proofed envelope rules: strict `schemaVersion`, additive `payloadVersion`, legacy payload compatibility, and durable catch-up as the correctness fallback.
+
+1. Before starting the candidate deploy, record the current staging commit/image tag as the baseline N. Use support-safe commit ids only; do not record database URLs, credentials, cookies, or raw logs.
+2. Start the normal Platform Deploy for candidate N+1 and note the run id. Do not bypass production gates for this drill; the evaluator only reads the staging deploy job window from the run metadata.
+3. While the Platform Deploy run is in the `Deploy Staging` job, dispatch one or two `Platform Staging Wake Drills` runs. Recommended pair: `reconciliation` plus `load` with `load_iterations=12`, `load_concurrency=4`, `load_flow=account`, and `load_evidence_profile=representative-volume`.
+4. After the Platform Deploy and wake drill(s) complete, run `Platform Staging Mixed-Version Wake Evidence` with:
+   - `platform_deploy_run_id`: the Platform Deploy run id;
+   - `wake_drill_run_id`: the overlapping wake drill run id;
+   - `secondary_wake_drill_run_id`: optional paired drill run id;
+   - `baseline_commit`: the pre-deploy 40-character baseline commit;
+   - `candidate_commit`: optional, only when the Platform Deploy head SHA should be overridden.
+5. Pass criteria: the evaluator artifact has `schemaVersion: staging-mixed-version-wake-drill/v1`, `verdict: pass`, distinct baseline/candidate commits, overlapping deploy/traffic windows, every wake drill verdict `pass`, any load evaluator verdict `pass`, durable convergence with checkout relay/checkpoint gaps `0`, and redaction `leakMatchCount: 0`.
+6. Failure handling: `wake-traffic-did-not-overlap-staging-deploy` means the wake drill missed the rolling window and must be rerun with better timing. `wake-drill-verdict-not-pass` or `load-evaluator-verdict-not-pass` is a normal wake-drill failure; triage by the preceding drill sections. `baseline-and-candidate-commit-match` is not mixed-version evidence.
+
 ## Evidence And Reporting
 
 - Executable drills: the workflow artifact (`staging-wake-drill-<kind>-<run>-<attempt>`) is the evidence of record — redacted JSON (`staging-wake-drills/v1`), wake-status snapshots, per-iteration canary evidence, the no-secret load evaluation (`push-wake-load-evidence/v1`) for `load` drills, and the step summary. Evidence never contains connection strings, credentials, tokens, or emails (the scripts fail closed on leak detection).
+- Mixed-version evidence: the evaluator artifact (`staging-mixed-version-wake-evidence-<run>-<attempt>`) is the evidence of record for #1365. It composes existing Platform Deploy and wake-drill artifacts into `staging-mixed-version-wake-drill/v1` without copying raw logs or secrets.
 - Release-health reporting: pass the redacted `staging-wake-drill-<kind>.json` artifact to `pnpm run ops release-health:report --file <artifact>` when preparing the release-health summary. The report surfaces wake-before-wait as low-cardinality single-write, load, and durable-convergence segment posture without copying correlation ids, database URLs, credentials, tokens, or full paths.
 - Operator drills: record the date, operator, switch/console actions, log line references, dashboard screenshots, and the bracketing drill-run URLs in the milestone issue (#1234) until a recurring drill log home exists.
 - Recovery metrics/alerts: every drill observes the #1228 surfaces (Projection Wake Pipeline dashboard, `platform-worker-wake-alerts`); a drill that trips an alert must say so in its record.

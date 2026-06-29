@@ -148,6 +148,10 @@ export const SUBCOMMANDS = {
     script: "staging-wake-drills.mjs",
     description: "Run staging wake recovery drills.",
   },
+  "wake:mixed-version-drill": {
+    script: "staging-mixed-version-wake-drill.mjs",
+    description: "Evaluate staging mixed-version wake drill evidence.",
+  },
   "worktree:add": {
     script: "worktree-add.mjs",
     description: "Add a pooled worktree with strict name/branch validation.",

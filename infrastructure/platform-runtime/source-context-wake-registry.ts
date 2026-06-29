@@ -161,7 +161,7 @@ export const sourceContextWakeRegistry = [
     affectedProjectionNames: [
       "catalog:catalog-source-observation-projection",
       "checkout:checkout-catalog-item-projection",
-      "checkout:checkout-marketplace-seller-options-projection",
+      "checkout:checkout-marketplace-listing-options-projection",
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
       "discovery:discovery-item-detail-projection",
@@ -293,7 +293,7 @@ export const sourceContextWakeRegistry = [
       "auth:auth-identity-invitation-projection",
       "auth:auth-identity-membership-projection",
       "auth:auth-identity-user-projection",
-      "checkout:checkout-marketplace-seller-options-projection",
+      "checkout:checkout-seller-accounts-projection",
       "commercial-terms:commercial-terms-account-projection",
       "discovery:discovery-market-projection",
       "fulfillment:fulfillment-account-projection",
@@ -341,7 +341,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
-      "checkout:checkout-marketplace-seller-options-projection",
+      "checkout:checkout-inventory-supply-projection",
       "discovery:discovery-market-projection",
       "inventory:inventory-hold-projection",
       "inventory:inventory-item-projection",
@@ -377,7 +377,8 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
-      "checkout:checkout-marketplace-seller-options-projection",
+      "checkout:checkout-marketplace-listing-options-projection",
+      "checkout:checkout-seller-accounts-projection",
       "checkout:checkout.sell-list-projection",
       "discovery:discovery-market-projection",
       "discovery:discovery-product-alert-notification-projection",
