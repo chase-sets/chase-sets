@@ -19,7 +19,7 @@ import {
   mockGetCheckoutSession,
   mockGetCheckoutStatus,
   MockMarketplaceApiError,
-  mockListShippingAddresses,
+  mockListSellListShipFromAddresses,
   mockMergeGuestCartToAccount,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -189,10 +189,11 @@ function signedInBuyNowCommittedOrderSession(paymentId: string | null = null) {
 }
 
 function mockSignedInSavedRows() {
-  mockListShippingAddresses.mockResolvedValue({
+  mockListSellListShipFromAddresses.mockResolvedValue({
     items: [
       {
         shipping_address_id: "adr_buyer",
+        account_id: "acc_buyer",
         label: "Home",
         recipient_name: "Jane Smith",
         company: null,
@@ -205,11 +206,9 @@ function mockSignedInSavedRows() {
         phone: "312-555-0100",
         email: "jane@example.com",
         is_default: true,
+        updated_at: "2026-04-01T00:00:00.000Z",
       },
     ],
-  });
-  mockCreateIdentityRequestApiClient.mockReturnValue({
-    listShippingAddresses: mockListShippingAddresses,
   });
   mockListSavedCheckoutInstruments.mockResolvedValue({
     items: [
@@ -333,6 +332,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     mockGetCheckoutSession.mockResolvedValue(signedInCartSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
     const checkoutReview = await checkoutSessionLoader({
@@ -393,6 +393,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
       selectShippingOption: mockSelectShippingOption,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
@@ -466,7 +467,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
           headers: { "content-type": "application/json" },
         }),
     );
-    mockListShippingAddresses.mockResolvedValue({ items: [] });
+    mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
     mockListSavedCheckoutInstruments.mockResolvedValue({ items: [] });
     mockPreviewCheckoutFulfillment.mockRejectedValue(
       new Error("fulfillment preview is unavailable after order commit"),
@@ -513,9 +514,6 @@ describe("checkout web routes: signed-in buy checkout", () => {
       status: "pending-confirmation",
       currency_code: "usd",
     });
-    mockCreateIdentityRequestApiClient.mockReturnValue({
-      listShippingAddresses: mockListShippingAddresses,
-    });
     mockCreateOrderingRequestApiClient.mockReturnValue({
       previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
     });
@@ -528,6 +526,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     mockGetCheckoutSession.mockResolvedValue(committedSession);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
     const resumeUrl =
@@ -582,6 +581,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
       selectShippingOption: mockSelectShippingOption,
       confirmCheckoutSession: mockConfirmCheckoutSession,
     });
