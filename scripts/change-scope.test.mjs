@@ -353,6 +353,7 @@ describe("change-scope", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_access",
     ]);
   });
 
@@ -442,7 +443,7 @@ describe("change-scope", () => {
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
       "admin_commerce,admin_support",
-      "admin_platform",
+      "admin_platform,admin_access",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -458,12 +459,14 @@ describe("change-scope", () => {
         "bounded-contexts/checkout/features/cart/api/cart-routes.ts",
         "bounded-contexts/inventory/features/inventory/ui/account-inventory.tsx",
         "bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx",
+        "bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx",
       ],
       workspaces: [
         workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery"),
         workspace(baseDir, "bounded-contexts", "checkout", "@test/checkout"),
         workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
         workspace(baseDir, "bounded-contexts", "ordering", "@test/ordering"),
+        workspace(baseDir, "bounded-contexts", "identity", "@test/identity"),
       ],
     });
 
@@ -473,6 +476,7 @@ describe("change-scope", () => {
       "marketplace_checkout",
       "marketplace_seller",
       "admin_commerce",
+      "admin_access",
     ]);
   });
 
@@ -497,6 +501,7 @@ describe("change-scope", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_access",
     ]);
   });
 
