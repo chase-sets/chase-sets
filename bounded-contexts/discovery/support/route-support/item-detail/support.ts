@@ -1,10 +1,9 @@
 import { t } from "@chase-sets/localization";
 import { DiscoveryApiError } from "../../request-support/api-client";
-import type { DiscoveryItemDetail, DiscoverySellerInventoryItem } from "../../client-support/contracts";
+import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import { buildDiscoveryProductAssetImage, selectDiscoveryProductAssetUrl } from "../../client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
-  type MarketplaceListingInventoryItemOption,
   type MarketplacePublicStandardTermsPreview,
 } from "@chase-sets/marketplace/server";
 
@@ -13,10 +12,6 @@ export const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 export const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
 export const LISTING_STOCK_SHIP_FROM_CODE = "LISTING-STOCK";
 export type ListingSetupLoadState = "not-applicable" | "ready" | "missing" | "fresh-write-recovering" | "load-failed";
-
-export function isListingStockLocation(location: Readonly<{ ship_from_code?: string | null; name?: string | null }>) {
-  return location.ship_from_code === LISTING_STOCK_SHIP_FROM_CODE || location.name === LISTING_STOCK_LOCATION_NAME;
-}
 
 export const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
@@ -180,21 +175,4 @@ export function readExplicitMarketSelectionId(searchParams: URLSearchParams, key
 
 export function hasInitialSelectedOptionFilters(searchParams: URLSearchParams) {
   return [...searchParams.entries()].some(([key, value]) => key.startsWith("dimension.") && value.trim().length > 0);
-}
-
-export function toSellerInventoryItem(
-  inventoryItem: MarketplaceListingInventoryItemOption,
-): DiscoverySellerInventoryItem {
-  return {
-    item_id: inventoryItem.item_id,
-    catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
-    product_id: inventoryItem.product_id,
-    item_title: inventoryItem.item_title,
-    item_subtitle: inventoryItem.item_subtitle,
-    selected_options: inventoryItem.selected_options,
-    product_summary: inventoryItem.product_summary,
-    storage_location_name: inventoryItem.storage_location_name,
-    ship_from_code: inventoryItem.ship_from_code,
-    available_quantity: inventoryItem.available_quantity,
-  };
 }

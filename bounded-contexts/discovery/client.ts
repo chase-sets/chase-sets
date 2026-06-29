@@ -12,6 +12,7 @@ import type {
 
 export type {
   DiscoveryItemDetail,
+  DiscoveryItemDetailSellerOverlay,
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
@@ -29,6 +30,7 @@ export type { ProductAlertPageRow } from "./features/product-alerts/read-model/q
 
 import type {
   DiscoveryItemDetail,
+  DiscoveryItemDetailSellerOverlay,
   DiscoveryPublicListing,
   DiscoveryPublicAccount,
   DiscoverySitemapUrl,
@@ -111,6 +113,21 @@ export function createDiscoveryApiClient({
         await client.items[":id"].$get({
           param: { id },
           header: headers,
+        }),
+      );
+    },
+    async getItemDetailSellerOverlay(
+      id: string,
+      query: Readonly<{ selectedListingId?: string | null }> = {},
+    ): Promise<DiscoveryItemDetailSellerOverlay> {
+      const params = new URLSearchParams();
+      if (query.selectedListingId) {
+        params.set("selectedListingId", query.selectedListingId);
+      }
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/items/${encodeURIComponent(id)}/seller-overlay${suffix}`), {
+          headers,
         }),
       );
     },

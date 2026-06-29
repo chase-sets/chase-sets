@@ -196,6 +196,7 @@ export const sourceContextWakeRegistry = [
       "checkout:checkout.cart-projection",
       "checkout:checkout.sell-list-projection",
       "checkout:checkout.session-projection",
+      "discovery:discovery-market-projection",
     ],
     routeDependencyIds: [
       "checkout.cart-self-refresh",

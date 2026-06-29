@@ -4,6 +4,12 @@ import {
   buyerVisibleListingPredicateSql,
   buyerVisibleListingQuantitySql,
 } from "../../../support/market-support/listing-visibility";
+import type {
+  DiscoveryAccountOfferMatchWithTerms,
+  DiscoveryItemDetailSellerOverlay,
+  DiscoveryMarketListing,
+  DiscoverySellerInventoryItem,
+} from "../../../support/client-support/contracts";
 
 export type DiscoveryItemDetailRow = Readonly<{
   catalog_item_id: string;
@@ -118,6 +124,10 @@ function normalizeCategoryRefs(value: unknown) {
 
 function normalizeStringArray(value: unknown) {
   return uniqueStrings(asArray<unknown>(value).filter((entry): entry is string => typeof entry === "string"));
+}
+
+function normalizeSelectedOptions(value: unknown): readonly { dimensionId: string; optionId: string }[] {
+  return Array.isArray(value) ? (value as { dimensionId: string; optionId: string }[]) : [];
 }
 
 export async function getDiscoveryItemDetail(
@@ -254,5 +264,194 @@ export async function getDiscoveryItemDetail(
       ...row,
       selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     })),
+  };
+}
+
+export async function getDiscoveryItemDetailSellerOverlay(
+  db: PgQueryable,
+  params: Readonly<{
+    accountId: string;
+    catalogItemId: string;
+    selectedListingId?: string | null;
+  }>,
+): Promise<DiscoveryItemDetailSellerOverlay> {
+  const accountOfferMatchesResult = await db.query<
+    Omit<DiscoveryAccountOfferMatchWithTerms, "selected_options" | "acceptance_terms"> & {
+      selected_options: unknown;
+    }
+  >(
+    `WITH seller_listing AS (
+       SELECT
+         offer.offer_id,
+         listing.listing_id,
+         ${buyerVisibleListingQuantitySql("listing")} AS seller_available_quantity
+       FROM discovery_offer_demand_matches AS offer
+       INNER JOIN LATERAL (
+         SELECT listing.*
+         FROM discovery_market_listings AS listing
+         INNER JOIN discovery_market_accounts AS seller
+           ON seller.account_id = listing.account_id
+         WHERE listing.account_id = $1
+           AND listing.catalog_catalog_item_id = $2
+           AND listing.product_id = offer.product_id
+           AND ${buyerVisibleListingPredicateSql("listing", "seller")}
+         ORDER BY
+           listing.price_amount::numeric ASC,
+           listing.updated_at DESC,
+           listing.listing_id ASC
+         LIMIT 1
+       ) AS listing ON true
+       WHERE offer.catalog_catalog_item_id = $2
+         AND offer.status = 'submitted'
+     )
+     SELECT
+       offer.offer_id,
+       offer.buyer_account_id,
+       buyer.seller_display_name AS buyer_display_name,
+       offer.catalog_catalog_item_id,
+       offer.product_id,
+       offer.item_title,
+       offer.item_subtitle,
+       offer.selected_options,
+       offer.product_summary,
+       offer.price_amount,
+       offer.quantity_requested,
+       offer.status,
+       offer.accepted_seller_account_id,
+       offer.accepted_at::text AS accepted_at,
+       buyer.seller_slug AS buyer_slug,
+       buyer.average_rating::text AS buyer_average_rating,
+       COALESCE(buyer.review_count, 0)::integer AS buyer_review_count,
+       COALESCE(seller_listing.seller_available_quantity, 0)::integer AS seller_available_quantity,
+       (COALESCE(seller_listing.seller_available_quantity, 0) >= offer.quantity_requested)::boolean AS can_fulfill,
+       EXISTS (
+         SELECT 1
+         FROM discovery_item_detail_sell_list_lines AS line
+         WHERE line.seller_account_id = $1
+           AND line.line_type = 'selected-offer'
+           AND line.offer_id = offer.offer_id
+       ) AS in_sell_list,
+       offer.created_at::text AS created_at,
+       offer.updated_at::text AS updated_at
+     FROM discovery_offer_demand_matches AS offer
+     INNER JOIN seller_listing
+       ON seller_listing.offer_id = offer.offer_id
+     LEFT JOIN discovery_market_accounts AS buyer
+       ON buyer.account_id = offer.buyer_account_id
+     ORDER BY
+       offer.price_amount::numeric DESC,
+       offer.quantity_requested DESC,
+       offer.created_at ASC,
+       offer.offer_id ASC`,
+    [params.accountId, params.catalogItemId],
+  );
+
+  const inventoryResult = await db.query<
+    Omit<DiscoverySellerInventoryItem, "selected_options"> & {
+      selected_options: unknown;
+    }
+  >(
+    `SELECT
+       supply.item_id,
+       supply.catalog_catalog_item_id,
+       supply.product_id,
+       item.title AS item_title,
+       item.subtitle AS item_subtitle,
+       supply.selected_options,
+       listing.product_summary,
+       location.name AS storage_location_name,
+       location.ship_from_code,
+       GREATEST(supply.total_quantity - COALESCE(holds.held_quantity, 0), 0)::integer AS available_quantity
+     FROM discovery_market_supply_items AS supply
+     INNER JOIN discovery_market_supply_locations AS location
+       ON location.storage_location_id = supply.storage_location_id
+      AND location.is_archived = false
+     LEFT JOIN discovery_item_detail_pages AS item
+       ON item.catalog_item_id = supply.catalog_catalog_item_id
+     LEFT JOIN LATERAL (
+       SELECT product_summary
+       FROM discovery_market_listings AS listing
+       WHERE listing.inventory_item_id = supply.item_id
+       ORDER BY listing.updated_at DESC, listing.listing_id ASC
+       LIMIT 1
+     ) AS listing ON true
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM discovery_market_supply_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS holds
+       ON holds.item_id = supply.item_id
+     WHERE supply.account_id = $1
+       AND supply.catalog_catalog_item_id = $2
+       AND supply.product_id IS NOT NULL
+       AND GREATEST(supply.total_quantity - COALESCE(holds.held_quantity, 0), 0) > 0
+     ORDER BY location.name ASC, supply.updated_at DESC, supply.item_id ASC`,
+    [params.accountId, params.catalogItemId],
+  );
+
+  const storageLocationResult = await db.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM discovery_market_supply_locations
+       WHERE account_id = $1
+         AND is_archived = false
+         AND (ship_from_code = 'LISTING-STOCK' OR name = 'Listing stock')
+     ) AS exists`,
+    [params.accountId],
+  );
+
+  const selectedListingResult = params.selectedListingId
+    ? await db.query<
+        Omit<DiscoveryMarketListing, "selected_options"> & {
+          selected_options: unknown;
+        }
+      >(
+        `SELECT
+           listing.*,
+           item.slug AS catalog_item_slug,
+           account.seller_slug,
+           account.seller_display_name,
+           account.seller_listing_availability_status,
+           account.seller_listing_availability_reason_category,
+           account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+           account.average_rating::text AS seller_average_rating,
+           COALESCE(account.review_count, 0)::integer AS seller_review_count,
+           ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
+         FROM discovery_market_listings AS listing
+         LEFT JOIN discovery_item_detail_pages AS item
+           ON item.catalog_item_id = listing.catalog_catalog_item_id
+         LEFT JOIN discovery_market_accounts AS account
+           ON account.account_id = listing.account_id
+         WHERE listing.listing_id = $1
+           AND listing.account_id = $2
+           AND listing.catalog_catalog_item_id = $3
+           AND listing.status IN ('draft', 'active', 'paused')
+         LIMIT 1`,
+        [params.selectedListingId, params.accountId, params.catalogItemId],
+      )
+    : { rows: [] };
+
+  const selectedListing = selectedListingResult.rows[0] ?? null;
+
+  return {
+    accountOfferMatches: accountOfferMatchesResult.rows.map((row) => ({
+      ...row,
+      selected_options: normalizeSelectedOptions(row.selected_options),
+      acceptance_terms: null,
+    })),
+    sellerInventoryItems: inventoryResult.rows.map((row) => ({
+      ...row,
+      storage_location_name: row.storage_location_name ?? "",
+      ship_from_code: row.ship_from_code ?? "",
+      selected_options: normalizeSelectedOptions(row.selected_options),
+    })),
+    hasListingStockLocation: Boolean(storageLocationResult.rows[0]?.exists),
+    selectedSellerListing: selectedListing
+      ? {
+          ...selectedListing,
+          selected_options: normalizeSelectedOptions(selectedListing.selected_options),
+        }
+      : null,
   };
 }

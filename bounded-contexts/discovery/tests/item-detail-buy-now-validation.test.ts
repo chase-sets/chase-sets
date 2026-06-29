@@ -129,12 +129,32 @@ function commandResult<T extends { id?: string }>(value: T, sourceContextName = 
   return value;
 }
 
+function sellerOverlay(
+  overrides: Partial<{
+    accountOfferMatches: unknown[];
+    sellerInventoryItems: unknown[];
+    hasListingStockLocation: boolean;
+    selectedSellerListing: Record<string, unknown> | null;
+  }> = {},
+) {
+  return {
+    accountOfferMatches: [],
+    sellerInventoryItems: [],
+    hasListingStockLocation: false,
+    selectedSellerListing: null,
+    ...overrides,
+  };
+}
+
 function sellerListingDetail(overrides: Record<string, unknown> = {}) {
   return {
     listing_id: "lst_item_detail",
+    listing_slug: "charizard-lst-item-detail",
+    product_slug: "charizard-raw",
     account_id: "acc_seller",
     inventory_item_id: "inv_listing_stock",
     catalog_catalog_item_id: "cat_charizard",
+    catalog_item_slug: "charizard-base-set",
     product_id: "cat_charizard::form:raw",
     item_language_code: null,
     item_title: "Charizard",
@@ -165,6 +185,14 @@ function sellerListingDetail(overrides: Record<string, unknown> = {}) {
     max_units_per_order: null,
     max_units_per_day: null,
     max_units_per_customer_account: null,
+    seller_listing_availability_status: "available",
+    seller_listing_availability_reason_category: null,
+    seller_listing_available_again_on: null,
+    seller_display_name: null,
+    seller_average_rating: null,
+    seller_review_count: 0,
+    google_shopping_structured_data_payload: null,
+    visible_quantity: 1,
     listing_photos: [],
     status: "active",
     created_at: "2026-06-20T00:00:00.000Z",
@@ -799,6 +827,7 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: vi.fn().mockResolvedValue(sellerOverlay({ hasListingStockLocation: true })),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListingInventory: vi.fn().mockRejectedValue(new Error("Marketplace inventory unavailable")),
@@ -836,6 +865,7 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: vi.fn().mockResolvedValue(sellerOverlay({ hasListingStockLocation: true })),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
@@ -877,6 +907,17 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+          status: 503,
+          body: {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+        }),
+      ),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
@@ -927,6 +968,17 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+          status: 503,
+          body: {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+        }),
+      ),
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
@@ -958,7 +1010,11 @@ describe("item detail buy now validation and watch intents", () => {
   });
 
   it("shows the selected owned seller listing while the Discovery item-detail projection catches up", async () => {
-    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
+    const getItemDetailSellerOverlay = vi
+      .fn()
+      .mockResolvedValue(
+        sellerOverlay({ hasListingStockLocation: true, selectedSellerListing: sellerListingDetail() }),
+      );
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["listings.view", "listings.manage"],
@@ -972,11 +1028,9 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay,
     });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-      getSellerListing,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -996,7 +1050,9 @@ describe("item detail buy now validation and watch intents", () => {
       context: {},
     } as never);
 
-    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(getItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
     expect(result.item?.market_listings).toEqual([
       expect.objectContaining({
         listing_id: "lst_item_detail",
@@ -1144,7 +1200,12 @@ describe("item detail buy now validation and watch intents", () => {
   it.each(["draft", "paused"] as const)(
     "shows the selected owned %s seller listing while the Discovery item-detail projection catches up",
     async (status) => {
-      const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail({ status }));
+      const getItemDetailSellerOverlay = vi.fn().mockResolvedValue(
+        sellerOverlay({
+          hasListingStockLocation: true,
+          selectedSellerListing: sellerListingDetail({ status }),
+        }),
+      );
       mockResolveActorFromAuthApi.mockResolvedValue({
         accountId: "acc_seller",
         permissions: ["listings.view", "listings.manage"],
@@ -1158,11 +1219,9 @@ describe("item detail buy now validation and watch intents", () => {
           market_listings: [],
           offer_demand_matches: [],
         }),
+        getItemDetailSellerOverlay,
       });
-      mockCreateMarketplaceRequestApiClient.mockReturnValue({
-        listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-        getSellerListing,
-      });
+      mockCreateMarketplaceRequestApiClient.mockReturnValue({});
       mockCreateCheckoutRequestApiClient.mockReturnValue({});
       mockCreateInventoryRequestApiClient.mockReturnValue({
         listStorageLocations: vi.fn().mockResolvedValue({
@@ -1182,7 +1241,9 @@ describe("item detail buy now validation and watch intents", () => {
         context: {},
       } as never);
 
-      expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+      expect(getItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+        selectedListingId: "lst_item_detail",
+      });
       expect(result.item?.market_listings).toEqual([
         expect.objectContaining({
           listing_id: "lst_item_detail",
@@ -1233,7 +1294,9 @@ describe("item detail buy now validation and watch intents", () => {
   });
 
   it("does not show a selected seller listing fallback for a different actor", async () => {
-    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail({ account_id: "acc_other_seller" }));
+    const getItemDetailSellerOverlay = vi
+      .fn()
+      .mockResolvedValue(sellerOverlay({ hasListingStockLocation: true, selectedSellerListing: null }));
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["listings.view", "listings.manage"],
@@ -1247,11 +1310,9 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay,
     });
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-      getSellerListing,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -1271,7 +1332,9 @@ describe("item detail buy now validation and watch intents", () => {
       context: {},
     } as never);
 
-    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(getItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
     expect(result.item?.market_listings).toEqual([]);
   });
 
@@ -1350,7 +1413,6 @@ describe("item detail buy now validation and watch intents", () => {
   });
 
   it("uses stale item details when the selected seller listing fresh write is still projecting", async () => {
-    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
     const freshGetItemDetail = vi.fn().mockRejectedValue(
       Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
         status: 503,
@@ -1370,6 +1432,22 @@ describe("item detail buy now validation and watch intents", () => {
       market_listings: [],
       offer_demand_matches: [],
     });
+    const freshGetItemDetailSellerOverlay = vi.fn().mockRejectedValue(
+      Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
+        status: 503,
+        body: {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        },
+      }),
+    );
+    const staleGetItemDetailSellerOverlay = vi
+      .fn()
+      .mockResolvedValue(
+        sellerOverlay({ hasListingStockLocation: true, selectedSellerListing: sellerListingDetail() }),
+      );
 
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
@@ -1377,13 +1455,10 @@ describe("item detail buy now validation and watch intents", () => {
     });
     mockCreateDiscoveryRequestApiClient.mockImplementation((request: Request) =>
       new URL(request.url).searchParams.has("afterWrite")
-        ? { getItemDetail: freshGetItemDetail }
-        : { getItemDetail: staleGetItemDetail },
+        ? { getItemDetail: freshGetItemDetail, getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay }
+        : { getItemDetail: staleGetItemDetail, getItemDetailSellerOverlay: staleGetItemDetailSellerOverlay },
     );
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-      getSellerListing,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -1405,7 +1480,12 @@ describe("item detail buy now validation and watch intents", () => {
 
     expect(freshGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
     expect(staleGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
-    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(freshGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
+    expect(staleGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
     expect(result.notFound).toBe(false);
     expect(result.error).toBeUndefined();
     expect(result.item?.market_listings).toEqual([
@@ -1421,7 +1501,6 @@ describe("item detail buy now validation and watch intents", () => {
   });
 
   it("uses stale item details when the selected seller listing fresh write returns a generic freshness timeout", async () => {
-    const getSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
     const freshGetItemDetail = vi.fn().mockRejectedValue(
       Object.assign(
         new Error(
@@ -1446,6 +1525,27 @@ describe("item detail buy now validation and watch intents", () => {
       market_listings: [],
       offer_demand_matches: [],
     });
+    const freshGetItemDetailSellerOverlay = vi.fn().mockRejectedValue(
+      Object.assign(
+        new Error(
+          "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+        ),
+        {
+          status: 500,
+          body: {
+            error: {
+              message:
+                "Projection read model did not catch up to the requested write receipt before the freshness timeout.",
+            },
+          },
+        },
+      ),
+    );
+    const staleGetItemDetailSellerOverlay = vi
+      .fn()
+      .mockResolvedValue(
+        sellerOverlay({ hasListingStockLocation: true, selectedSellerListing: sellerListingDetail() }),
+      );
 
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
@@ -1453,13 +1553,10 @@ describe("item detail buy now validation and watch intents", () => {
     });
     mockCreateDiscoveryRequestApiClient.mockImplementation((request: Request) =>
       new URL(request.url).searchParams.has("afterWrite")
-        ? { getItemDetail: freshGetItemDetail }
-        : { getItemDetail: staleGetItemDetail },
+        ? { getItemDetail: freshGetItemDetail, getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay }
+        : { getItemDetail: staleGetItemDetail, getItemDetailSellerOverlay: staleGetItemDetailSellerOverlay },
     );
-    mockCreateMarketplaceRequestApiClient.mockReturnValue({
-      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-      getSellerListing,
-    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -1481,7 +1578,12 @@ describe("item detail buy now validation and watch intents", () => {
 
     expect(freshGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
     expect(staleGetItemDetail).toHaveBeenCalledWith("charizard-base-set");
-    expect(getSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(freshGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
+    expect(staleGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
     expect(result.notFound).toBe(false);
     expect(result.error).toBeUndefined();
     expect(result.item?.market_listings).toEqual([
@@ -1496,8 +1598,8 @@ describe("item detail buy now validation and watch intents", () => {
     ]);
   });
 
-  it("uses stale seller listing details when the selected seller listing fresh read is still projecting", async () => {
-    const freshGetSellerListing = vi.fn().mockRejectedValue(
+  it("uses stale seller overlay details when the selected seller listing fresh read is still projecting", async () => {
+    const freshGetItemDetailSellerOverlay = vi.fn().mockRejectedValue(
       Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
         status: 503,
         body: {
@@ -1508,7 +1610,11 @@ describe("item detail buy now validation and watch intents", () => {
         },
       }),
     );
-    const staleGetSellerListing = vi.fn().mockResolvedValue(sellerListingDetail());
+    const staleGetItemDetailSellerOverlay = vi
+      .fn()
+      .mockResolvedValue(
+        sellerOverlay({ hasListingStockLocation: true, selectedSellerListing: sellerListingDetail() }),
+      );
 
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
@@ -1523,17 +1629,26 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay,
     });
-    mockCreateMarketplaceRequestApiClient.mockImplementation((request: Request) =>
+    mockCreateDiscoveryRequestApiClient.mockImplementation((request: Request) =>
       new URL(request.url).searchParams.has("afterWrite")
         ? {
-            listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-            getSellerListing: freshGetSellerListing,
+            getItemDetail: vi.fn().mockResolvedValue({
+              catalog_item_id: "cat_charizard",
+              slug: "charizard-base-set",
+              title: "Charizard",
+              market_summary: null,
+              market_listings: [],
+              offer_demand_matches: [],
+            }),
+            getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay,
           }
         : {
-            getSellerListing: staleGetSellerListing,
+            getItemDetailSellerOverlay: staleGetItemDetailSellerOverlay,
           },
     );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -1553,8 +1668,12 @@ describe("item detail buy now validation and watch intents", () => {
       context: {},
     } as never);
 
-    expect(freshGetSellerListing).toHaveBeenCalledWith("lst_item_detail");
-    expect(staleGetSellerListing).toHaveBeenCalledWith("lst_item_detail");
+    expect(freshGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
+    expect(staleGetItemDetailSellerOverlay).toHaveBeenCalledWith("charizard-base-set", {
+      selectedListingId: "lst_item_detail",
+    });
     expect(result.notFound).toBe(false);
     expect(result.error).toBeUndefined();
     expect(result.item?.market_listings).toEqual([
@@ -1569,8 +1688,8 @@ describe("item detail buy now validation and watch intents", () => {
     ]);
   });
 
-  it("does not retry selected seller listing fallback reads indefinitely", async () => {
-    const freshGetSellerListing = vi.fn().mockRejectedValue(
+  it("does not retry selected seller overlay reads indefinitely", async () => {
+    const freshGetItemDetailSellerOverlay = vi.fn().mockRejectedValue(
       Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
         status: 503,
         body: {
@@ -1581,7 +1700,7 @@ describe("item detail buy now validation and watch intents", () => {
         },
       }),
     );
-    const staleGetSellerListing = vi.fn().mockRejectedValue(
+    const staleGetItemDetailSellerOverlay = vi.fn().mockRejectedValue(
       Object.assign(new Error("Projection read model did not catch up before the freshness timeout."), {
         status: 503,
         body: {
@@ -1606,17 +1725,26 @@ describe("item detail buy now validation and watch intents", () => {
         market_listings: [],
         offer_demand_matches: [],
       }),
+      getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay,
     });
-    mockCreateMarketplaceRequestApiClient.mockImplementation((request: Request) =>
+    mockCreateDiscoveryRequestApiClient.mockImplementation((request: Request) =>
       new URL(request.url).searchParams.has("afterWrite")
         ? {
-            listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], count: 0, total: 0 }),
-            getSellerListing: freshGetSellerListing,
+            getItemDetail: vi.fn().mockResolvedValue({
+              catalog_item_id: "cat_charizard",
+              slug: "charizard-base-set",
+              title: "Charizard",
+              market_summary: null,
+              market_listings: [],
+              offer_demand_matches: [],
+            }),
+            getItemDetailSellerOverlay: freshGetItemDetailSellerOverlay,
           }
         : {
-            getSellerListing: staleGetSellerListing,
+            getItemDetailSellerOverlay: staleGetItemDetailSellerOverlay,
           },
     );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
     mockCreateInventoryRequestApiClient.mockReturnValue({
       listStorageLocations: vi.fn().mockResolvedValue({
@@ -1636,8 +1764,8 @@ describe("item detail buy now validation and watch intents", () => {
       context: {},
     } as never);
 
-    expect(freshGetSellerListing).toHaveBeenCalledTimes(1);
-    expect(staleGetSellerListing).toHaveBeenCalledTimes(1);
+    expect(freshGetItemDetailSellerOverlay).toHaveBeenCalledTimes(1);
+    expect(staleGetItemDetailSellerOverlay).toHaveBeenCalledTimes(1);
     expect(result.notFound).toBe(false);
     expect(result.error).toBeUndefined();
     expect(result.item?.market_listings).toEqual([]);

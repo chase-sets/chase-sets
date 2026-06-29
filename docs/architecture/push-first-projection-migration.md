@@ -55,7 +55,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-market-projection` | Discovery | **catalog**, **identity**, **inventory**, **marketplace** | push-enabled | 4/4 |
+| `discovery:discovery-market-projection` | Discovery | **catalog**, **checkout**, **identity**, **inventory**, **marketplace** | push-enabled | 5/5 |
 | `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
 | `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |

@@ -53,6 +53,12 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
     },
     detail: {
       getItemDetail: vi.fn(async () => null),
+      getSellerOverlay: vi.fn(async () => ({
+        accountOfferMatches: [],
+        sellerInventoryItems: [],
+        hasListingStockLocation: false,
+        selectedSellerListing: null,
+      })),
       projectors: [],
     },
     projectors: [],

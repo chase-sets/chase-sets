@@ -223,12 +223,28 @@
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
+        "inventory.storage-location.created",
+        "inventory.storage-location.updated",
+        "inventory.storage-location.archived",
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
       "order": 22,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
+    },
+    {
+      "sourceContextName": "checkout",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "checkout.sell-list.line-added",
+        "checkout.sell-list.line-quantity-set",
+        "checkout.sell-list.line-removed",
+        "checkout.sell-list.checkout-confirmed"
+      ],
+      "order": 23,
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },
     {
@@ -315,14 +331,16 @@
     },
     {
       "projectionName": "discovery-market-projection",
-      "sourceContextNames": ["catalog", "identity", "inventory", "marketplace"],
+      "sourceContextNames": ["catalog", "checkout", "identity", "inventory", "marketplace"],
       "ownedTables": [
+        "discovery_item_detail_sell_list_lines",
         "discovery_market_accounts",
         "discovery_market_account_reviews",
         "discovery_market_listings",
         "discovery_market_product_measures",
         "discovery_market_supply_holds",
         "discovery_market_supply_items",
+        "discovery_market_supply_locations",
         "discovery_offer_demand_matches"
       ],
       "requiredDuringBootstrap": true,
@@ -376,6 +394,36 @@
             },
             {
               "readModelTable": "discovery_market_listings"
+            },
+            {
+              "readModelTable": "discovery_offer_demand_matches"
+            }
+          ]
+        },
+        {
+          "routePath": "/items/:id/seller-overlay",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "discovery_item_detail_pages"
+            },
+            {
+              "readModelTable": "discovery_item_detail_sell_list_lines"
+            },
+            {
+              "readModelTable": "discovery_market_accounts"
+            },
+            {
+              "readModelTable": "discovery_market_listings"
+            },
+            {
+              "readModelTable": "discovery_market_supply_holds"
+            },
+            {
+              "readModelTable": "discovery_market_supply_items"
+            },
+            {
+              "readModelTable": "discovery_market_supply_locations"
             },
             {
               "readModelTable": "discovery_offer_demand_matches"
@@ -538,6 +586,11 @@
       "id": "discovery.item-detail-ship-from-setup-self-refresh",
       "owner": "discovery",
       "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
       "source": {
         "routeId": "item-detail",
         "actions": ["Save ship-from setup before quick listing"],
@@ -545,21 +598,13 @@
       },
       "destination": {
         "routeId": "item-detail",
-        "apiContextName": "inventory",
-        "apiRoutePath": "/storage-locations",
-        "readModelTables": ["inventory_storage_locations"],
+        "apiContextName": "discovery",
+        "apiRoutePath": "/items/:id/seller-overlay",
+        "readModelTables": ["discovery_market_supply_locations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Item detail forwards the Inventory storage-location commit receipt to the ship-from setup read and shows temporary recovery copy while the Inventory projection catches up."
+          "behavior": "Item detail forwards the Inventory storage-location commit receipt to the Discovery seller-overlay read and shows temporary recovery copy while the Discovery market projection catches up."
         }
-      },
-      "exception": {
-        "status": "not-post-write-read",
-        "owner": "discovery",
-        "reviewBy": "2026-07-31",
-        "reason": "Discovery carries the Inventory storage-location commit receipt through item-detail route-support and waits on the Inventory-owned storage-location read model. The authoritative post-write contract remains Inventory-owned; Discovery does not read a Discovery projection after this write.",
-        "helperUses": ["loadFreshlyWrittenResource"],
-        "files": ["bounded-contexts/discovery/support/route-support/item-detail/loader.ts"]
       }
     },
     {
@@ -961,7 +1006,7 @@
     },
     "route-support": {
       "classification": "support",
-      "purpose": "Provide item-detail route loader/action modules that compose Discovery item reads with Marketplace, Inventory, and Checkout server clients.",
+      "purpose": "Provide item-detail route loader/action modules that compose Discovery item reads with command-side Marketplace, Inventory, and Checkout clients.",
       "expectedConsumers": ["routes"]
     },
     "realtime-support": {

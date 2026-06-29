@@ -322,3 +322,24 @@ export interface DiscoverySellerInventoryItem {
   ship_from_code: string;
   available_quantity: number;
 }
+
+export interface DiscoveryListingTermsPreview {
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  source_label: string;
+  schedule_label: string;
+  source_updated_at: string;
+  resolved_at: string;
+}
+
+export interface DiscoveryAccountOfferMatchWithTerms extends DiscoveryAccountOfferMatch {
+  acceptance_terms: DiscoveryListingTermsPreview | null;
+}
+
+export interface DiscoveryItemDetailSellerOverlay {
+  accountOfferMatches: DiscoveryAccountOfferMatchWithTerms[];
+  sellerInventoryItems: DiscoverySellerInventoryItem[];
+  hasListingStockLocation: boolean;
+  selectedSellerListing: DiscoveryMarketListing | null;
+}
