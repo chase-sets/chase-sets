@@ -349,6 +349,7 @@ describe("change-scope", () => {
       "marketplace_checkout",
       "marketplace_seller",
       "catalog_admin_integrations",
+      "admin_growth",
     ]);
   });
 
@@ -436,7 +437,7 @@ describe("change-scope", () => {
     expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
-      "catalog_admin_integrations",
+      "catalog_admin_integrations,admin_growth",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -478,7 +479,7 @@ describe("change-scope", () => {
     });
 
     expect(scope.e2eTestsRequired).toBe(true);
-    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations"]);
+    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations", "admin_growth"]);
   });
 
   it("keeps current non-marketplace bounded-context routes out of marketplace E2E", () => {
