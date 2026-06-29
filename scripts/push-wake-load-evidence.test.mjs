@@ -163,6 +163,15 @@ describe("push wake load evidence evaluator", () => {
       mode: "projection-names",
       projectionNames: ["checkout.session-projection"],
     });
+    expect(evidence.observations.wakePressure.afterLoad).toMatchObject({
+      queuedIntentCount: 0,
+      hotLaneQueuedCount: 0,
+      nonHotQueuedCount: 0,
+      attribution: {
+        status: "no-queued-intents",
+        confidence: "high",
+      },
+    });
     expect(evidence.observations.wakeRuntime.afterLoad).toMatchObject({
       attempted: true,
       ready: true,
@@ -192,6 +201,7 @@ describe("push wake load evidence evaluator", () => {
     expect(markdown).toContain("Verdict: **pass**");
     expect(markdown).toContain("Iterations/concurrency: 6/2");
     expect(markdown).toContain("Load readiness decision: accepted-burst-saturation-degradation");
+    expect(markdown).toContain("Attribution: no-queued-intents (high confidence)");
   });
 
   it("fails warning-only load readiness misses without an explicit accepted decision", () => {
@@ -343,6 +353,75 @@ describe("push wake load evidence evaluator", () => {
         oldestAgeMs: 90_000,
         maxAttemptCount: 1,
       },
+    ]);
+    expect(evidence.observations.wakePressure.afterLoad).toMatchObject({
+      queuedIntentCount: 3,
+      hotLaneQueuedCount: 0,
+      nonHotQueuedCount: 3,
+      oldestHotQueuedAgeMs: null,
+      oldestNonHotQueuedAgeMs: 90_000,
+      queuedByLane: { standard: 3 },
+      queuedByOrigin: { relay: 3 },
+      attribution: {
+        status: "background-lane-pressure",
+        confidence: "high",
+      },
+    });
+  });
+
+  it("attributes mixed wake pressure when hot and non-hot lanes both remain queued", () => {
+    const evidence = buildPushWakeLoadEvidence({
+      artifact: passingArtifact({
+        wakeStatusAfter: wakeStatusSnapshot({ queuedCount: 5, oldestQueuedAgeMs: 4_000 }, [
+          {
+            priorityLane: "hot",
+            origin: "api-wait",
+            state: "queued",
+            sourceContextName: "checkout",
+            targetContextName: "checkout",
+            projectionName: "checkout-session-projection",
+            checkpointKey: "checkout.checkout-session-projection:checkout",
+            intentCount: 2,
+            oldestCreatedAt: "2026-06-24T00:01:56.000Z",
+            oldestAgeMs: 4_000,
+            maxAttemptCount: 1,
+          },
+          {
+            priorityLane: "bulk",
+            origin: "replay",
+            state: "queued",
+            sourceContextName: "catalog",
+            targetContextName: "checkout",
+            projectionName: "checkout-catalog-projection",
+            checkpointKey: "checkout.checkout-catalog-projection:catalog",
+            intentCount: 3,
+            oldestCreatedAt: "2026-06-24T00:01:57.000Z",
+            oldestAgeMs: 3_000,
+            maxAttemptCount: 1,
+          },
+        ]),
+      }),
+      checkedAt: "2026-06-24T00:03:00.000Z",
+      profile: "bounded-staging",
+      budgetOverrides: {},
+    });
+
+    expect(evidence.observations.wakePressure.afterLoad).toMatchObject({
+      queuedIntentCount: 5,
+      hotLaneQueuedCount: 2,
+      nonHotQueuedCount: 3,
+      oldestHotQueuedAgeMs: 4_000,
+      oldestNonHotQueuedAgeMs: 3_000,
+      queuedByLane: { bulk: 3, hot: 2 },
+      queuedByOrigin: { "api-wait": 2, replay: 3 },
+      attribution: {
+        status: "mixed-pressure",
+        confidence: "high",
+      },
+    });
+    expect(evidence.observations.wakePressure.afterLoad.queuedByLaneAndOrigin).toEqual([
+      { priorityLane: "bulk", origin: "replay", intentCount: 3, oldestAgeMs: 3_000 },
+      { priorityLane: "hot", origin: "api-wait", intentCount: 2, oldestAgeMs: 4_000 },
     ]);
   });
 
