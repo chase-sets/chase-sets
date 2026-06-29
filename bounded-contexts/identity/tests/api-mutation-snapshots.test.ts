@@ -123,6 +123,8 @@ function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys">> = 
         return commandResult(41, statusByCommand.get(input.command.type) ?? "pending");
       }),
       getInvitation: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
+      getInvitationForRead: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
+      getInvitationState: vi.fn(async () => null),
       getPendingInvitationByEmail: vi.fn(async () => null),
       listInvitations: vi.fn(async () => ({ items: [], total: 0 })),
       projectors: [],

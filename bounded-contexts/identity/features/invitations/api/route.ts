@@ -46,7 +46,7 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/resend", async (c) => {
     const invitationId = c.req.param("id");
-    const invitation = await services.getInvitation(invitationId);
+    const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
@@ -67,7 +67,7 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/cancel", async (c) => {
     const invitationId = c.req.param("id");
-    const invitation = await services.getInvitation(invitationId);
+    const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
@@ -87,7 +87,7 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/decline", async (c) => {
     const invitationId = c.req.param("id");
-    const invitation = await services.getInvitation(invitationId);
+    const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
@@ -118,7 +118,7 @@ export function invitationRoutes(services: InvitationServices) {
   });
 
   app.get("/:id", async (c) => {
-    const invitation = await services.getInvitation(c.req.param("id"));
+    const invitation = await services.getInvitationForRead(c.req.param("id"));
     if (!invitation) {
       return c.json(
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },

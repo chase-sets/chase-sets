@@ -512,10 +512,11 @@
         "routeId": "invitations-detail",
         "apiContextName": "identity",
         "apiRoutePath": "/invitations/:id",
+        "helperUses": ["loadAfterWrite"],
         "readModelTables": ["identity_invitations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Invitation detail redirects carry the Identity invitation command receipt so the detail loader reads after the invitation projection catches up."
+          "behavior": "Invitation detail redirects carry the Identity invitation command receipt so the detail loader reads after the invitation projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity invitation API can return committed command-side state."
         }
       },
       "proof": {
