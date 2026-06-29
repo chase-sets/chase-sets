@@ -98,6 +98,14 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain(
       "WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN 'queued'",
     );
+    expect(calls[0].sql).toContain("platform_projection_wake_intents.state = 'failed'");
+    expect(calls[0].sql).toContain(
+      "AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN 'queued'",
+    );
+    expect(calls[0].sql).toContain("attempt_count = CASE");
+    expect(calls[0].sql).toContain("THEN 0");
+    expect(calls[0].sql).toContain("last_error = CASE");
+    expect(calls[0].sql).toContain("THEN NULL");
     expect(calls[0].sql).toContain("xmax = 0");
     expect(calls[0].sql).toContain("requeued_completed");
     expect(calls[0].sql).toContain("requeued_expired");
@@ -207,6 +215,7 @@ describe("work signal store", () => {
       store.claimNextProjectionWakeIntent({
         claimOwnerId: "projection-worker-a",
         claimTtlMs: 60_000,
+        maxAttempts: 10,
         priorityLanes: ["hot"],
       }),
     ).resolves.toMatchObject({
@@ -215,8 +224,9 @@ describe("work signal store", () => {
       claimFencingToken: 7n,
     });
 
-    expect(calls[0].sql).toContain("(state IN ('queued', 'failed') AND next_eligible_at <= now())");
-    expect(calls[0].sql).toContain("(state = 'claimed' AND claimed_until <= now())");
+    expect(calls[0].sql).toContain("(state = 'queued' AND next_eligible_at <= now())");
+    expect(calls[0].sql).toContain("(state = 'failed' AND attempt_count < $6::integer AND next_eligible_at <= now())");
+    expect(calls[0].sql).toContain("(state = 'claimed' AND attempt_count < $6::integer AND claimed_until <= now())");
     expect(calls[0].sql).toContain("ORDER BY");
     expect(calls[0].sql).toContain("WHEN 'hot' THEN 0");
     expect(calls[0].sql).toContain("FOR UPDATE SKIP LOCKED");
@@ -228,6 +238,7 @@ describe("work signal store", () => {
     expect(calls[0].values[2]).toEqual(["hot"]);
     expect(calls[0].values[3]).toBeNull();
     expect(calls[0].values[4]).toBe("2026-06-10T12:01:10.000Z");
+    expect(calls[0].values[5]).toBe(10);
   });
 
   it("claims only hosted target contexts when a target filter is provided", async () => {

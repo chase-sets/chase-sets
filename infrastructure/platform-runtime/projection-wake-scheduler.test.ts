@@ -56,6 +56,7 @@ describe("projection wake scheduler", () => {
     expect(result).toMatchObject({ processed: 1, state: "running" });
     expect(store.claims[0]).toMatchObject({
       claimOwnerId: "worker-a:projection-wake-scheduler.hot.lane-1",
+      maxAttempts: 10,
       priorityLanes: ["hot"],
       targetContextNames: ["checkout"],
     });

@@ -228,6 +228,7 @@ export type EnqueueProjectionWakeIntentInput = Readonly<{
 export type ClaimProjectionWakeIntentInput = Readonly<{
   claimOwnerId: string;
   claimTtlMs: number;
+  maxAttempts?: number;
   priorityLanes?: readonly WorkSignalPriorityLane[];
   targetContextNames?: readonly string[];
 }>;
@@ -360,6 +361,7 @@ const DEFAULT_WAKE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_READINESS_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_WAITER_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CLEANUP_LIMIT = 500;
+const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const CURRENT_SCHEMA_VERSION = 1;
 const CURRENT_PAYLOAD_VERSION = 1;
 
@@ -597,28 +599,50 @@ export function createPostgresWorkSignalStore(
           metadata = platform_projection_wake_intents.metadata || EXCLUDED.metadata,
           state = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN 'queued'
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN 'queued'
             ELSE platform_projection_wake_intents.state
           END,
           claim_owner_id = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN NULL
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
             ELSE platform_projection_wake_intents.claim_owner_id
           END,
           claimed_until = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN NULL
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
             ELSE platform_projection_wake_intents.claimed_until
           END,
           claimed_required_position = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN NULL
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
             ELSE platform_projection_wake_intents.claimed_required_position
           END,
           claimed_required_cursor = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN NULL
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
             ELSE platform_projection_wake_intents.claimed_required_cursor
+          END,
+          attempt_count = CASE
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN 0
+            ELSE platform_projection_wake_intents.attempt_count
+          END,
+          last_error = CASE
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
+            ELSE platform_projection_wake_intents.last_error
           END,
           next_eligible_at = LEAST(platform_projection_wake_intents.next_eligible_at, EXCLUDED.next_eligible_at),
           expires_at = GREATEST(platform_projection_wake_intents.expires_at, EXCLUDED.expires_at),
           completed_at = CASE
             WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN NULL
+            WHEN platform_projection_wake_intents.state = 'failed'
+              AND EXCLUDED.required_position > platform_projection_wake_intents.required_position THEN NULL
             ELSE platform_projection_wake_intents.completed_at
           END,
           updated_at = EXCLUDED.updated_at
@@ -680,6 +704,8 @@ export function createPostgresWorkSignalStore(
       const claimExpiresAt = addMs(claimedUntil, defaultWakeTtlMs);
       const lanes = input.priorityLanes?.length ? [...input.priorityLanes] : ["hot", "standard", "bulk"];
       const targetContextNames = input.targetContextNames?.length ? [...input.targetContextNames] : null;
+      const maxAttempts =
+        input.maxAttempts === undefined ? MAX_POSTGRES_INTEGER : Math.max(1, Math.floor(input.maxAttempts));
       const result = await query<ProjectionWakeIntentRow>(
         db,
         `
@@ -687,8 +713,9 @@ export function createPostgresWorkSignalStore(
           SELECT wake_intent_id
           FROM platform_projection_wake_intents
           WHERE (
-              (state IN ('queued', 'failed') AND next_eligible_at <= now())
-              OR (state = 'claimed' AND claimed_until <= now())
+              (state = 'queued' AND next_eligible_at <= now())
+              OR (state = 'failed' AND attempt_count < $6::integer AND next_eligible_at <= now())
+              OR (state = 'claimed' AND attempt_count < $6::integer AND claimed_until <= now())
             )
             AND expires_at > now()
             AND priority_lane = ANY($3::text[])
@@ -719,7 +746,14 @@ export function createPostgresWorkSignalStore(
         WHERE wake.wake_intent_id = claimable.wake_intent_id
         RETURNING ${prefixColumns("wake", WAKE_INTENT_COLUMNS)}
         `,
-        [input.claimOwnerId, formatTimestamp(claimedUntil), lanes, targetContextNames, formatTimestamp(claimExpiresAt)],
+        [
+          input.claimOwnerId,
+          formatTimestamp(claimedUntil),
+          lanes,
+          targetContextNames,
+          formatTimestamp(claimExpiresAt),
+          maxAttempts,
+        ],
       );
 
       const row = result.rows[0];
