@@ -11,6 +11,7 @@ import {
   type ReadConsistencyProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import type { BcReadFreshnessRoute } from "@chase-sets/bounded-context-module";
+import { projectionFreshnessWakeEnqueueMetricRecord } from "@chase-sets/observability";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { CRITICAL_READ_CONSISTENCY_ROUTE_TUNING } from "../src/config";
 
@@ -666,6 +667,71 @@ describe("critical exact read-after-write waits", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("maps every critical route tuning entry into bounded wake enqueue telemetry labels", () => {
+    const violations: string[] = [];
+    const records: unknown[] = [];
+
+    for (const tuning of CRITICAL_READ_CONSISTENCY_ROUTE_TUNING) {
+      const matchingFreshnessRoutes = apiContextRegistry.flatMap((entry) =>
+        entry.module.apiMounts
+          .filter((mount) => mount.mountPath === tuning.mountPath)
+          .flatMap((mount) =>
+            (mount.readFreshnessRoutes ?? [])
+              .filter((route) => route.routePath === tuning.routePath)
+              .map((route) => ({ contextName: entry.contextName as string, route })),
+          ),
+      );
+
+      if (matchingFreshnessRoutes.length === 0) {
+        violations.push(`critical route '${tuning.mountPath}${tuning.routePath}' has no live freshness route`);
+        continue;
+      }
+
+      for (const { contextName, route } of matchingFreshnessRoutes) {
+        const dependencies = (route.dependencies ?? []).flatMap((dependency) =>
+          resolveReadConsistencyDependency(contextName, dependency, mountedProjectionGroups),
+        );
+        if (dependencies.length === 0) {
+          violations.push(
+            `critical route '${tuning.mountPath}${tuning.routePath}' has no exact dependency telemetry target`,
+          );
+          continue;
+        }
+
+        for (const dependency of dependencies) {
+          const record = projectionFreshnessWakeEnqueueMetricRecord({
+            outcome: "completed",
+            priorityLane: "hot",
+            requestCount: 1,
+            enqueuedCount: 1,
+            durationMs: 12.4,
+            sourceContextName: dependency.targetContextName,
+            targetContextName: dependency.targetContextName,
+            projectionName: dependency.projectionName,
+            mountPath: tuning.mountPath,
+            routePath: tuning.routePath,
+          });
+
+          records.push(record);
+          expect(record).toMatchObject({
+            attributes: {
+              mount_path: tuning.mountPath,
+              route_path: tuning.routePath,
+              target_context: dependency.targetContextName,
+              projection: dependency.projectionName,
+            },
+          });
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+    expect(records.length).toBeGreaterThanOrEqual(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING.length);
+    expect(JSON.stringify(records)).not.toContain("ord_");
+    expect(JSON.stringify(records)).not.toContain("pay_");
+    expect(JSON.stringify(records)).not.toContain("chk_");
   });
 
   it("covers every critical non-exception checkout inventory route with exact-dependency tuning", () => {
