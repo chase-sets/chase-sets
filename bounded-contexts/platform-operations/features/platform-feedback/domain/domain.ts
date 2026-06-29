@@ -76,11 +76,20 @@ export type ArchivePlatformFeedbackCommand = Readonly<{
   archivedAt: string;
 }>;
 
+export type RecordPlatformFeedbackOperatorNoteCommand = Readonly<{
+  type: "RecordPlatformFeedbackOperatorNote";
+  noteId: string;
+  body: string;
+  recordedByUserId: string;
+  recordedAt: string;
+}>;
+
 export type PlatformFeedbackCommand =
   | SubmitPlatformFeedbackCommand
   | DismissPlatformFeedbackPromptCommand
   | MarkPlatformFeedbackReviewedCommand
-  | ArchivePlatformFeedbackCommand;
+  | ArchivePlatformFeedbackCommand
+  | RecordPlatformFeedbackOperatorNoteCommand;
 
 export type PlatformFeedbackSubmittedEvent = DomainEvent<
   "experience.platform-feedback.submitted",
@@ -133,11 +142,29 @@ export type PlatformFeedbackArchivedEvent = DomainEvent<
   }>
 >;
 
+export type PlatformFeedbackOperatorNoteRecordedEvent = DomainEvent<
+  "experience.platform-feedback.operator-note-recorded",
+  Readonly<{
+    feedbackId: string;
+    noteId: string;
+    body: string;
+    recordedByUserId: string;
+    recordedAt: string;
+  }>
+>;
+
 export type PlatformFeedbackEvent =
   | PlatformFeedbackSubmittedEvent
   | PlatformFeedbackPromptDismissedEvent
   | PlatformFeedbackReviewedEvent
-  | PlatformFeedbackArchivedEvent;
+  | PlatformFeedbackArchivedEvent
+  | PlatformFeedbackOperatorNoteRecordedEvent;
+
+function normalizeOperatorNoteBody(value: string) {
+  const body = normalizeRequiredText(value, "Operator note is required.");
+  assert(body.length <= 2000, "Operator note must be 2000 characters or fewer.");
+  return body;
+}
 
 export const decidePlatformFeedback: AggregateDecider<
   PlatformFeedbackState,
@@ -222,6 +249,21 @@ export const decidePlatformFeedback: AggregateDecider<
           },
         },
       ];
+    case "RecordPlatformFeedbackOperatorNote":
+      assert(state.feedbackId !== null, "Platform feedback must be submitted first.");
+
+      return [
+        {
+          type: "experience.platform-feedback.operator-note-recorded",
+          data: {
+            feedbackId: state.feedbackId,
+            noteId: normalizeRequiredText(command.noteId, "Operator note ID is required."),
+            body: normalizeOperatorNoteBody(command.body),
+            recordedByUserId: normalizeRequiredText(command.recordedByUserId, "Operator is required."),
+            recordedAt: ensureIsoTimestamp(command.recordedAt, "Operator note must record a timestamp."),
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -261,6 +303,8 @@ export const evolvePlatformFeedback: AggregateEvolver<PlatformFeedbackState, Pla
         ...state,
         status: normalizeStatus("archived"),
       };
+    case "experience.platform-feedback.operator-note-recorded":
+      return state;
     default:
       return assertNever(event);
   }

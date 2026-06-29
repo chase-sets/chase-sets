@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
   HiddenInput,
@@ -22,6 +23,7 @@ import {
   StatGrid,
   Stat,
   Text,
+  Textarea,
 } from "@chase-sets/design-system";
 import type { PlatformFeedbackDetail, PlatformFeedbackListItem, PlatformFeedbackMetrics } from "../api/contracts";
 
@@ -127,11 +129,16 @@ export function PlatformFeedbackAdminListPage({
   feedback,
   metrics,
   filters,
+  exportHref,
 }: {
   feedback: ListResponse<PlatformFeedbackListItem>;
   metrics: PlatformFeedbackMetrics;
   filters: Readonly<{ status: string; topic: string; workflow: string }>;
+  exportHref: string;
 }) {
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
+  const selectedFeedbackIds = [...selectedKeys];
+
   return (
     <Page>
       <PageHeader
@@ -176,54 +183,81 @@ export function PlatformFeedbackAdminListPage({
               <Button type="submit" leadingIcon="filter">
                 {t("experience.platformFeedbackAdmin.applyFilters")}
               </Button>
+              <LinkButton href={exportHref} tone="secondary" leadingIcon="externalLink">
+                {t("experience.platformFeedbackAdmin.export")}
+              </LinkButton>
             </ActionBar>
           </Stack>
         </Form>
       </PageSection>
 
       <PageSection title={t("experience.platformFeedbackAdmin.reviewQueue")}>
-        <DataTable<PlatformFeedbackListItem>
-          columns={[
-            {
-              key: "submitted_at",
-              header: t("experience.platformFeedbackAdmin.submitted"),
-              cell: (item) => formatDate(item.submitted_at),
-            },
-            {
-              key: "rating",
-              header: t("experience.platformFeedbackAdmin.rating"),
-              cell: (item) => <Rating value={item.rating} size="sm" />,
-            },
-            {
-              key: "topic",
-              header: t("experience.platformFeedbackAdmin.topic"),
-              cell: (item) => topicLabel(item.topic),
-            },
-            {
-              key: "workflow",
-              header: t("experience.platformFeedbackAdmin.workflow"),
-              cell: (item) => workflowLabel(item.workflow),
-            },
-            {
-              key: "status",
-              header: t("experience.platformFeedbackAdmin.status"),
-              cell: (item) => <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>,
-            },
-            {
-              key: "action",
-              header: t("experience.platformFeedbackAdmin.action"),
-              cell: (item) => (
-                <LinkButton href={`/support/platform-feedback/${item.feedback_id}`} size="sm">
-                  {t("experience.platformFeedbackAdmin.open")}
-                </LinkButton>
-              ),
-            },
-          ]}
-          rows={[...feedback.items]}
-          getRowId={(item) => item.feedback_id}
-          emptyTitle={t("experience.platformFeedbackAdmin.emptyTitle")}
-          emptyDescription={t("experience.platformFeedbackAdmin.emptyDescription")}
-        />
+        <Stack gap={3}>
+          <ActionBar>
+            <Form spacing="none" method="post">
+              <HiddenInput type="hidden" name="intent" value="bulk-review" readOnly />
+              {selectedFeedbackIds.map((feedbackId) => (
+                <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
+              ))}
+              <Button type="submit" leadingIcon="check" disabled={selectedFeedbackIds.length === 0}>
+                {t("experience.platformFeedbackAdmin.bulkReview")}
+              </Button>
+            </Form>
+            <Form spacing="none" method="post">
+              <HiddenInput type="hidden" name="intent" value="bulk-archive" readOnly />
+              {selectedFeedbackIds.map((feedbackId) => (
+                <HiddenInput key={feedbackId} type="hidden" name="feedbackIds" value={feedbackId} readOnly />
+              ))}
+              <Button type="submit" tone="secondary" leadingIcon="package" disabled={selectedFeedbackIds.length === 0}>
+                {t("experience.platformFeedbackAdmin.bulkArchive")}
+              </Button>
+            </Form>
+          </ActionBar>
+          <DataTable<PlatformFeedbackListItem>
+            columns={[
+              {
+                key: "submitted_at",
+                header: t("experience.platformFeedbackAdmin.submitted"),
+                cell: (item) => formatDate(item.submitted_at),
+              },
+              {
+                key: "rating",
+                header: t("experience.platformFeedbackAdmin.rating"),
+                cell: (item) => <Rating value={item.rating} size="sm" />,
+              },
+              {
+                key: "topic",
+                header: t("experience.platformFeedbackAdmin.topic"),
+                cell: (item) => topicLabel(item.topic),
+              },
+              {
+                key: "workflow",
+                header: t("experience.platformFeedbackAdmin.workflow"),
+                cell: (item) => workflowLabel(item.workflow),
+              },
+              {
+                key: "status",
+                header: t("experience.platformFeedbackAdmin.status"),
+                cell: (item) => <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>,
+              },
+              {
+                key: "action",
+                header: t("experience.platformFeedbackAdmin.action"),
+                cell: (item) => (
+                  <LinkButton href={`/support/platform-feedback/${item.feedback_id}`} size="sm">
+                    {t("experience.platformFeedbackAdmin.open")}
+                  </LinkButton>
+                ),
+              },
+            ]}
+            rows={[...feedback.items]}
+            getRowId={(item) => item.feedback_id}
+            selectedKeys={selectedKeys}
+            onSelectionChange={setSelectedKeys}
+            emptyTitle={t("experience.platformFeedbackAdmin.emptyTitle")}
+            emptyDescription={t("experience.platformFeedbackAdmin.emptyDescription")}
+          />
+        </Stack>
         <Text tone="secondary" size="sm">
           {t("experience.platformFeedbackAdmin.countSummary", {
             count: feedback.count,
@@ -299,6 +333,36 @@ export function PlatformFeedbackAdminDetailPage({
           </Stack>
         </DetailPanel>
         <Stack gap={4}>
+          <DetailPanel title={t("experience.platformFeedbackAdmin.operatorNotes")}>
+            <Stack gap={3}>
+              <Form spacing="md" method="post">
+                <HiddenInput type="hidden" name="intent" value="record-note" readOnly />
+                <Textarea name="body" label={t("experience.platformFeedbackAdmin.operatorNote")} required rows={4} />
+                <Button type="submit" leadingIcon="message">
+                  {t("experience.platformFeedbackAdmin.recordNote")}
+                </Button>
+              </Form>
+              {feedback.operator_notes.length === 0 ? (
+                <Text tone="secondary">{t("experience.platformFeedbackAdmin.noOperatorNotes")}</Text>
+              ) : (
+                <Stack gap={2}>
+                  {feedback.operator_notes.map((note) => (
+                    <Inset key={note.noteId}>
+                      <Stack gap={2}>
+                        <Text>{note.body}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("experience.platformFeedbackAdmin.operatorNoteAttribution", {
+                            user: note.recordedByUserId,
+                            timestamp: formatDate(note.recordedAt),
+                          })}
+                        </Text>
+                      </Stack>
+                    </Inset>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          </DetailPanel>
           <DetailPanel title={t("experience.platformFeedbackAdmin.attribution")}>
             <KeyValueList
               items={[

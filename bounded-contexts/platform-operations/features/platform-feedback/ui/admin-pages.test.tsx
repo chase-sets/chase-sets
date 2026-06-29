@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { PlatformFeedbackListItem, PlatformFeedbackMetrics } from "../api/contracts";
 import { PlatformFeedbackAdminDetailPage, PlatformFeedbackAdminListPage } from "./admin-pages";
 
@@ -23,6 +23,14 @@ const feedbackItem = {
   reviewed_at: null,
   archived_by_user_id: null,
   archived_at: null,
+  operator_notes: [
+    {
+      noteId: "pfn_test",
+      body: "Follow up with checkout team.",
+      recordedByUserId: "usr_admin",
+      recordedAt: "2026-05-07T13:00:00.000Z",
+    },
+  ],
 } satisfies PlatformFeedbackListItem;
 
 const metrics = {
@@ -46,6 +54,7 @@ describe("platform feedback admin UI", () => {
         feedback={{ items: [feedbackItem], total: 1, count: 1 }}
         metrics={metrics}
         filters={{ status: "new", topic: "checkout-payment", workflow: "checkout-payment" }}
+        exportHref="/api/experience/platform-feedback/export?status=new"
       />,
     );
 
@@ -65,6 +74,13 @@ describe("platform feedback admin UI", () => {
     expect(screen.getAllByRole("link", { name: "Open" })[0]?.getAttribute("href")).toBe(
       "/support/platform-feedback/pfb_test",
     );
+    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
+      "/api/experience/platform-feedback/export?status=new",
+    );
+    const bulkReview = screen.getByRole("button", { name: "Mark selected reviewed" }) as HTMLButtonElement;
+    expect(bulkReview.disabled).toBe(true);
+    fireEvent.click(screen.getAllByLabelText("Select row pfb_test")[0]!);
+    expect(bulkReview.disabled).toBe(false);
     expect(screen.getByText("4.33")).toBeTruthy();
   });
 
@@ -81,6 +97,9 @@ describe("platform feedback admin UI", () => {
     expect(relatedLink.getAttribute("rel")).toBe("noreferrer");
     expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
+    expect(screen.getByLabelText("Operator note")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Record note" })).toBeTruthy();
+    expect(screen.getByText("Follow up with checkout team.")).toBeTruthy();
   });
 
   it("renders related entity text instead of an admin-host account link when no marketplace origin is configured", () => {

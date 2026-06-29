@@ -84,7 +84,8 @@ describe("platform feedback projections", () => {
     const dismissed = handlers["experience.platform-feedback.prompt-dismissed"];
     const reviewed = handlers["experience.platform-feedback.reviewed"];
     const archived = handlers["experience.platform-feedback.archived"];
-    if (!dismissed || !reviewed || !archived) {
+    const noted = handlers["experience.platform-feedback.operator-note-recorded"];
+    if (!dismissed || !reviewed || !archived || !noted) {
       throw new Error("Expected projection handlers.");
     }
 
@@ -115,6 +116,15 @@ describe("platform feedback projections", () => {
         archivedAt: "2026-05-07T14:00:00.000Z",
       }),
     );
+    await noted(
+      transportEvent("experience.platform-feedback.operator-note-recorded", {
+        feedbackId: "pfb_test",
+        noteId: "pfn_test",
+        body: "Follow up with checkout team.",
+        recordedByUserId: "usr_admin",
+        recordedAt: "2026-05-07T15:00:00.000Z",
+      }),
+    );
 
     expect(queries[0]).toEqual([
       "pfp_test",
@@ -129,5 +139,18 @@ describe("platform feedback projections", () => {
     ]);
     expect(queries[1]).toEqual(["pfb_test", "usr_admin", "2026-05-07T13:00:00.000Z"]);
     expect(queries[2]).toEqual(["pfb_test", "usr_admin", "2026-05-07T14:00:00.000Z"]);
+    expect(queries[3]).toEqual([
+      "pfb_test",
+      JSON.stringify([
+        {
+          noteId: "pfn_test",
+          body: "Follow up with checkout team.",
+          recordedByUserId: "usr_admin",
+          recordedAt: "2026-05-07T15:00:00.000Z",
+        },
+      ]),
+      "2026-05-07T15:00:00.000Z",
+      JSON.stringify([{ noteId: "pfn_test" }]),
+    ]);
   });
 });
