@@ -55,6 +55,13 @@ export const e2eSuites = Object.freeze([
     journeys: ["platform feedback triage"],
     grep: "@admin-support",
   },
+  {
+    id: "admin_platform",
+    label: "Admin Platform",
+    deployable: "admin-web",
+    journeys: ["projection operations"],
+    grep: "@admin-platform",
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -91,7 +98,7 @@ const contextSuiteOwnership = new Map([
   ["notifications", ["marketplace_account"]],
   ["ordering", ["marketplace_account", "marketplace_checkout", "admin_commerce"]],
   ["payments", ["marketplace_account", "marketplace_checkout"]],
-  ["platform-operations", ["marketplace_account", "admin_support"]],
+  ["platform-operations", ["marketplace_account", "admin_support", "admin_platform"]],
   ["pricing", ["marketplace_browse"]],
   ["public-presence", ["marketplace_browse", "admin_growth"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
@@ -151,6 +158,10 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/platform-operations\/routes\/admin\/platform-feedback/,
     suites: ["admin_support"],
+  },
+  {
+    pattern: /^bounded-contexts\/platform-operations\/routes\/admin\/projection-operations/,
+    suites: ["admin_platform"],
   },
   {
     pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations\./,
