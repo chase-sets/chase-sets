@@ -7,14 +7,18 @@ import {
   Cluster,
   DataTable,
   EmptyState,
+  Grid,
   Inline,
   LinkButton,
+  NativeSelect,
   Page,
   PageHeader,
   PageSection,
   Stack,
   Surface,
   Text,
+  Textarea,
+  TextInput,
 } from "@chase-sets/design-system";
 import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
@@ -26,6 +30,70 @@ type SupportOperationsPageProps = Readonly<{
 }>;
 
 type SupportTone = "neutral" | "warning" | "danger";
+
+const responseTypeItems = [
+  {
+    value: "request-support-review",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.requestSupportReview"),
+  },
+  {
+    value: "provide-tracking",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.provideTracking"),
+  },
+  {
+    value: "accept-return",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.acceptReturn"),
+  },
+  {
+    value: "offer-partial-refund",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.offerPartialRefund"),
+  },
+  {
+    value: "offer-replacement",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.offerReplacement"),
+  },
+  {
+    value: "issue-refund",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.issueRefund"),
+  },
+  {
+    value: "challenge-with-evidence",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.challengeWithEvidence"),
+  },
+  {
+    value: "confirm-cancellation",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.confirmCancellation"),
+  },
+  {
+    value: "confirm-cannot-fulfill",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.response.confirmCannotFulfill"),
+  },
+];
+
+const resolutionTypeItems = [
+  {
+    value: "support-reviewed",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.supportReviewed"),
+  },
+  { value: "full-refund", label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.fullRefund") },
+  {
+    value: "partial-refund",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.partialRefund"),
+  },
+  {
+    value: "return-for-refund",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.returnForRefund"),
+  },
+  {
+    value: "replacement",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.replacement"),
+  },
+  {
+    value: "cancel-order",
+    label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.cancelOrder"),
+  },
+  { value: "no-action", label: t("support.features.supportRequests.ui.supportOperationsPage.resolution.noAction") },
+];
 
 function statusTone(status: string) {
   return (
@@ -61,6 +129,29 @@ function checklistSummary(request: SupportRequestListItem) {
     satisfied: satisfied.length,
     required: required.length,
   });
+}
+
+function isTerminalStatus(status: string) {
+  return status === "resolved" || status === "closed" || status === "cancelled";
+}
+
+function actionResultMessage(actionResult: string | null | undefined) {
+  switch (actionResult) {
+    case "note":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.note");
+    case "response":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.response");
+    case "escalate":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.escalate");
+    case "resolve":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.resolve");
+    case "close":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.close");
+    case "cancel":
+      return t("support.features.supportRequests.ui.supportOperationsPage.actionResult.cancel");
+    default:
+      return null;
+  }
 }
 
 function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
@@ -160,7 +251,19 @@ function detailRows(request: SupportRequestDetail) {
   ] as const;
 }
 
-export function SupportOperationsDetailPage({ request }: Readonly<{ request: SupportRequestDetail }>) {
+export function SupportOperationsDetailPage({
+  request,
+  actionError,
+  actionResult,
+}: Readonly<{
+  request: SupportRequestDetail;
+  actionError?: string | null;
+  actionResult?: string | null;
+}>) {
+  const successMessage = actionResultMessage(actionResult);
+  const canMutate = !isTerminalStatus(request.status);
+  const canClose = request.status === "resolved";
+
   return (
     <Page>
       <PageHeader
@@ -174,6 +277,28 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
           </LinkButton>
         }
       />
+
+      {successMessage ? (
+        <Surface tone="muted">
+          <Inline gap={2}>
+            <Badge tone="success">{t("support.features.supportRequests.ui.supportOperationsPage.success")}</Badge>
+            <Text size="sm" weight="semibold">
+              {successMessage}
+            </Text>
+          </Inline>
+        </Surface>
+      ) : null}
+
+      {actionError ? (
+        <Surface tone="muted">
+          <Inline gap={2}>
+            <Badge tone="danger">{t("support.features.supportRequests.ui.supportOperationsPage.error")}</Badge>
+            <Text size="sm" weight="semibold">
+              {actionError}
+            </Text>
+          </Inline>
+        </Surface>
+      ) : null}
 
       <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.detail.summary")}>
         <Surface>
@@ -190,6 +315,131 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
             ))}
           </Stack>
         </Surface>
+      </PageSection>
+
+      <PageSection
+        title={t("support.features.supportRequests.ui.supportOperationsPage.detail.operatorActions")}
+        description={t("support.features.supportRequests.ui.supportOperationsPage.detail.operatorActions.description")}
+      >
+        <Grid columns={{ base: 1, lg: 2 }}>
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="note" readOnly />
+              <Textarea
+                label={t("support.features.supportRequests.ui.supportOperationsPage.note.summary")}
+                name="summary"
+                required
+                rows={4}
+              />
+              <Cluster justify="end">
+                <Button type="submit" disabled={!canMutate}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.note.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="response" readOnly />
+              <NativeSelect
+                label={t("support.features.supportRequests.ui.supportOperationsPage.response.type")}
+                name="responseType"
+                items={responseTypeItems}
+                defaultValue="request-support-review"
+                required
+              />
+              <Textarea
+                label={t("support.features.supportRequests.ui.supportOperationsPage.response.summary")}
+                name="summary"
+                required
+                rows={4}
+              />
+              <Cluster justify="end">
+                <Button type="submit" disabled={!canMutate}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.response.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="escalate" readOnly />
+              <Textarea
+                label={t("support.features.supportRequests.ui.supportOperationsPage.escalate.reason")}
+                name="reason"
+                required
+                rows={3}
+              />
+              <Cluster justify="end">
+                <Button type="submit" tone="secondary" disabled={!canMutate}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.escalate.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="resolve" readOnly />
+              <NativeSelect
+                label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.type")}
+                name="resolutionType"
+                items={resolutionTypeItems}
+                defaultValue="support-reviewed"
+                required
+              />
+              <Textarea
+                label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.summary")}
+                name="summary"
+                required
+                rows={3}
+              />
+              <TextInput
+                label={t("support.features.supportRequests.ui.supportOperationsPage.resolve.refundAmount")}
+                name="refundAmount"
+                inputMode="decimal"
+              />
+              <Cluster justify="end">
+                <Button type="submit" disabled={!canMutate}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="close" readOnly />
+              <Text size="sm" tone="secondary">
+                {t("support.features.supportRequests.ui.supportOperationsPage.close.description")}
+              </Text>
+              <Cluster justify="end">
+                <Button type="submit" tone="secondary" disabled={!canClose}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.close.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+
+          <Surface>
+            <RouterForm method="post" spacing="md">
+              <HiddenInput type="hidden" name="intent" value="cancel" readOnly />
+              <Textarea
+                label={t("support.features.supportRequests.ui.supportOperationsPage.cancel.reason")}
+                name="reason"
+                required
+                rows={3}
+              />
+              <Cluster justify="end">
+                <Button type="submit" tone="danger" disabled={!canMutate}>
+                  {t("support.features.supportRequests.ui.supportOperationsPage.cancel.submit")}
+                </Button>
+              </Cluster>
+            </RouterForm>
+          </Surface>
+        </Grid>
       </PageSection>
 
       <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.accounts")}>
@@ -232,6 +482,112 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
           ]}
         />
       </PageSection>
+
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.evidence")}>
+        <DataTable
+          density="compact"
+          rows={[...request.evidence]}
+          getRowId={(item) => item.evidenceId}
+          emptyTitle={t("support.features.supportRequests.ui.supportOperationsPage.no.evidence")}
+          emptyDescription={t("support.features.supportRequests.ui.supportOperationsPage.no.evidence.description")}
+          columns={[
+            {
+              key: "type",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.type"),
+              cell: (item) => item.evidenceType,
+            },
+            {
+              key: "role",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.role"),
+              cell: (item) => item.submittedByRole,
+            },
+            {
+              key: "summary",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.summary"),
+              cell: (item) => (
+                <Text element="span" wrap="anywhere">
+                  {item.summary}
+                </Text>
+              ),
+            },
+            {
+              key: "submitted",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
+              cell: (item) => formatDateTime(item.submittedAt),
+            },
+          ]}
+        />
+      </PageSection>
+
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.responses")}>
+        <DataTable
+          density="compact"
+          rows={[...request.responses]}
+          getRowId={(item) => item.responseId}
+          emptyTitle={t("support.features.supportRequests.ui.supportOperationsPage.no.responses")}
+          emptyDescription={t("support.features.supportRequests.ui.supportOperationsPage.no.responses.description")}
+          columns={[
+            {
+              key: "type",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.type"),
+              cell: (item) => item.responseType,
+            },
+            {
+              key: "role",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.role"),
+              cell: (item) => item.submittedByRole,
+            },
+            {
+              key: "summary",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.summary"),
+              cell: (item) => (
+                <Text element="span" wrap="anywhere">
+                  {item.summary}
+                </Text>
+              ),
+            },
+            {
+              key: "submitted",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.submitted"),
+              cell: (item) => formatDateTime(item.submittedAt),
+            },
+          ]}
+        />
+      </PageSection>
+
+      {request.resolution ? (
+        <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.resolution")}>
+          <Surface>
+            <Stack gap={3}>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.type")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {request.resolution.resolutionType}
+                </Text>
+              </Cluster>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.summary")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {request.resolution.summary}
+                </Text>
+              </Cluster>
+              <Cluster align="start" justify="between" gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("support.features.supportRequests.ui.supportOperationsPage.resolve.refundAmount")}
+                </Text>
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
+                  {request.resolution.refundAmount ??
+                    t("support.features.supportRequests.ui.supportOperationsPage.not.applicable")}
+                </Text>
+              </Cluster>
+            </Stack>
+          </Surface>
+        </PageSection>
+      ) : null}
     </Page>
   );
 }

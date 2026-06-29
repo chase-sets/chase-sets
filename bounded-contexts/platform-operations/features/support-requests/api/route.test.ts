@@ -147,6 +147,132 @@ describe("support request routes", () => {
     expect(escalateOverdueSupportRequests).toHaveBeenCalledWith({ limit: 10 }, expect.any(Object));
   });
 
+  it.each([
+    [
+      "submitEvidence",
+      "/support-requests/ops/sup_1/evidence",
+      { evidenceType: "support-note", summary: "Operator note" },
+      {
+        id: "sup_1",
+        version: 8,
+        status: "evidence-submitted",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          submittedByRole: "support",
+          evidenceType: "support-note",
+          summary: "Operator note",
+          occurredAt: null,
+          attachments: [],
+          scope: "operations",
+        },
+      },
+    ],
+    [
+      "recordResponse",
+      "/support-requests/ops/sup_1/responses",
+      { responseType: "request-support-review", summary: "Reviewed by support" },
+      {
+        id: "sup_1",
+        version: 9,
+        status: "response-recorded",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          submittedByRole: "support",
+          responseType: "request-support-review",
+          summary: "Reviewed by support",
+          scope: "operations",
+        },
+      },
+    ],
+    [
+      "escalateSupportRequest",
+      "/support-requests/ops/sup_1/escalate",
+      { reason: "Needs support owner" },
+      {
+        id: "sup_1",
+        version: 10,
+        status: "escalated",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          reason: "Needs support owner",
+          scope: "operations",
+        },
+      },
+    ],
+    [
+      "resolveSupportRequest",
+      "/support-requests/ops/sup_1/resolve",
+      { resolutionType: "support-reviewed", summary: "Reviewed", refundAmount: null },
+      {
+        id: "sup_1",
+        version: 11,
+        status: "resolved",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          resolutionType: "support-reviewed",
+          summary: "Reviewed",
+          refundAmount: null,
+          scope: "operations",
+        },
+      },
+    ],
+    [
+      "closeSupportRequest",
+      "/support-requests/ops/sup_1/close",
+      {},
+      {
+        id: "sup_1",
+        version: 12,
+        status: "closed",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          scope: "operations",
+        },
+      },
+    ],
+    [
+      "cancelSupportRequest",
+      "/support-requests/ops/sup_1/cancel",
+      { reason: "Duplicate case" },
+      {
+        id: "sup_1",
+        version: 13,
+        status: "cancelled",
+        expected: {
+          supportRequestId: "sup_1",
+          accountId: "acc_operator",
+          reason: "Duplicate case",
+          scope: "operations",
+        },
+      },
+    ],
+  ] as const)("returns an ops-scoped command snapshot for %s", async (methodName, path, body, expectation) => {
+    const command = vi.fn(async () => ({
+      supportRequestId: expectation.id,
+      version: expectation.version,
+    }));
+    const services = createServices({ [methodName]: command } as Partial<SupportRequestServices>);
+
+    const response = await buildApp(services).request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: expectation.id,
+      version: expectation.version,
+      status: expectation.status,
+    });
+    expect(command).toHaveBeenCalledWith(expectation.expected, expect.any(Object));
+  });
+
   it("lets support operators read request details outside participant account scope", async () => {
     const services = createServices();
     const response = await buildApp(services).request("/support-requests/ops/sup_1");

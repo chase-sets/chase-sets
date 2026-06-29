@@ -53,6 +53,8 @@ type SupportRequestRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
 }>;
 
+type SupportRequestMutationScope = "participant" | "operations";
+
 export type SupportOrderSource = Readonly<{
   order_id: string;
   buyer_account_id: string;
@@ -82,6 +84,7 @@ export type SupportRequestServices = Readonly<{
       summary: string;
       occurredAt?: string | null;
       attachments?: readonly string[];
+      scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
@@ -92,6 +95,7 @@ export type SupportRequestServices = Readonly<{
       submittedByRole: SupportRequesterRole | string;
       responseType: SupportResponseType | string;
       summary: string;
+      scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
@@ -100,6 +104,7 @@ export type SupportRequestServices = Readonly<{
       supportRequestId: string;
       accountId: string;
       reason: string;
+      scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
@@ -110,15 +115,21 @@ export type SupportRequestServices = Readonly<{
       resolutionType: SupportResolutionType | string;
       summary: string;
       refundAmount?: string | null;
+      scope?: SupportRequestMutationScope;
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   closeSupportRequest: (
-    params: Readonly<{ supportRequestId: string; accountId: string }>,
+    params: Readonly<{ supportRequestId: string; accountId: string; scope?: SupportRequestMutationScope }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   cancelSupportRequest: (
-    params: Readonly<{ supportRequestId: string; accountId: string; reason: string }>,
+    params: Readonly<{
+      supportRequestId: string;
+      accountId: string;
+      reason: string;
+      scope?: SupportRequestMutationScope;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
   escalateOverdueSupportRequests: (
@@ -185,6 +196,25 @@ async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: s
   return supportRequest;
 }
 
+async function requireMutableSupportRequest(
+  db: PgQueryable,
+  params: Readonly<{
+    supportRequestId: string;
+    accountId: string;
+    scope?: SupportRequestMutationScope;
+  }>,
+) {
+  if (params.scope === "operations") {
+    const supportRequest = await getSupportOperationsRequest(db, params.supportRequestId);
+    if (!supportRequest) {
+      throw new SupportDomainError("Support request not found.");
+    }
+    return supportRequest;
+  }
+
+  return requireAccountSupportRequest(db, params.supportRequestId, params.accountId);
+}
+
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const { commandHandler } = createAggregateCommandHandler({
@@ -238,7 +268,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId, version: result.version };
     },
     submitEvidence: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -258,7 +288,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     recordResponse: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -276,7 +306,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     escalateSupportRequest: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -290,7 +320,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     resolveSupportRequest: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -307,7 +337,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     closeSupportRequest: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
@@ -320,7 +350,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId: params.supportRequestId, version: result.version };
     },
     cancelSupportRequest: async (params, context) => {
-      await requireAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+      await requireMutableSupportRequest(deps.db, params);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
