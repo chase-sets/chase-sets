@@ -1,8 +1,9 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { t } from "@chase-sets/localization";
-import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
+import { getMutationResultCommandReceipt, readFreshWriteToken } from "@chase-sets/http/responses";
 import {
   hasPermission as hasActorPermission,
+  isTransientAuthResolutionError,
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
   type ResolvedActor,
@@ -138,6 +139,20 @@ export function createAuthRequestApiClient(request: Request) {
   return createAuthRequestApiClientInternal(request);
 }
 
+function requestWithoutFreshWrite(request: Request) {
+  const url = new URL(request.url);
+  url.searchParams.delete("afterWrite");
+  return new Request(url, {
+    headers: request.headers,
+    method: request.method,
+    signal: request.signal,
+  });
+}
+
+function shouldRetryWithoutFreshWrite(request: Request, error: unknown) {
+  return Boolean(readFreshWriteToken(request)) && isTransientAuthResolutionError(error);
+}
+
 function createAuthRequestApiClientInternal(request: Request) {
   return createAuthApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
@@ -152,12 +167,26 @@ export async function resolveActorFromAuthContext(
     fetch?: typeof globalThis.fetch;
   }>,
 ) {
-  return resolveActorFromAuthApi({
-    request: options.request,
-    authApiBaseUrl: resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth"),
-    sessionPath: "session",
-    fetch: options.fetch,
-  });
+  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
+  try {
+    return await resolveActorFromAuthApi({
+      request: options.request,
+      authApiBaseUrl,
+      sessionPath: "session",
+      fetch: options.fetch,
+    });
+  } catch (error) {
+    if (!shouldRetryWithoutFreshWrite(options.request, error)) {
+      throw error;
+    }
+
+    return resolveActorFromAuthApi({
+      request: requestWithoutFreshWrite(options.request),
+      authApiBaseUrl,
+      sessionPath: "session",
+      fetch: options.fetch,
+    });
+  }
 }
 
 export async function requireActorFromAuthContext(
@@ -169,14 +198,30 @@ export async function requireActorFromAuthContext(
     fetch?: typeof globalThis.fetch;
   }>,
 ) {
-  return requireActorFromAuthApi({
-    request: options.request,
-    permission: options.permission,
-    signInPath: options.signInPath,
-    authApiBaseUrl: resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth"),
-    sessionPath: "session",
-    fetch: options.fetch,
-  });
+  const authApiBaseUrl = resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
+  try {
+    return await requireActorFromAuthApi({
+      request: options.request,
+      permission: options.permission,
+      signInPath: options.signInPath,
+      authApiBaseUrl,
+      sessionPath: "session",
+      fetch: options.fetch,
+    });
+  } catch (error) {
+    if (!shouldRetryWithoutFreshWrite(options.request, error)) {
+      throw error;
+    }
+
+    return requireActorFromAuthApi({
+      request: requestWithoutFreshWrite(options.request),
+      permission: options.permission,
+      signInPath: options.signInPath,
+      authApiBaseUrl,
+      sessionPath: "session",
+      fetch: options.fetch,
+    });
+  }
 }
 
 function toActionError(error: unknown): AuthActionError {

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  appendFreshWriteToken,
   encodeCommitReceipt,
   readFreshWriteToken,
   type SourceCommitPosition,
@@ -144,6 +146,30 @@ describe("auth host", () => {
       ],
     };
   }
+
+  it("retries actor resolution without fresh-write metadata after transient auth freshness failures", async () => {
+    const observedHeaders: Headers[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      observedHeaders.push(new Headers(init?.headers));
+      if (observedHeaders.length === 1) {
+        return Response.json({ error: "Projection freshness timed out." }, { status: 503 });
+      }
+
+      return Response.json({ actor: createSessionStartedResult().session });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const request = new Request(
+      `https://admin.test${appendFreshWriteToken("/access/invitations/ivt_1", { commandReceipt: { commitPositions: [identitySource] } })}`,
+      { headers: { cookie: "chase_sets_session=session_token" } },
+    );
+
+    await expect(host.resolveActor(request)).resolves.toMatchObject({ session_id: "ses_1" });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+  });
 
   it("retries transient internal auth connection failures during password sign-in", async () => {
     const fetch = vi
