@@ -1,6 +1,11 @@
 import { t } from "@chase-sets/localization";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { ApiKeyId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
+import type { IdentitySecretAdapters } from "./secret-adapters";
+import { upsertApiKeySecret } from "./secret-store";
 import type { ApiKeyServices } from "./runtime";
 
 function canManageApiKey(actor: IdentityApiEnv["Variables"]["actor"], apiKey: Readonly<{ user_id: string }>) {
@@ -16,8 +21,94 @@ function forbidden() {
   };
 }
 
-export function apiKeyRoutes(services: ApiKeyServices) {
+export type ApiKeyRouteServices = ApiKeyServices &
+  Readonly<{
+    db: PgQueryable;
+    auth: IdentitySecretAdapters;
+  }>;
+
+export function apiKeyRoutes(services: ApiKeyRouteServices) {
   const app = new Hono<IdentityApiEnv>();
+
+  app.post("/", async (c) => {
+    const body = await c.req.json();
+    const actor = c.var.actor;
+    const userId = String(body.userId ?? "") as UserId;
+    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== userId) {
+      return c.json(forbidden(), 403);
+    }
+
+    const apiKeyId = createId("key") as ApiKeyId;
+    const secret = services.auth.issueOpaqueToken("key");
+    const keyPrefix = secret.slice(0, 12);
+    const result = await services.commandHandler({
+      streamId: `identity.api-key-${apiKeyId}`,
+      command: {
+        type: "CreateApiKey",
+        apiKeyId,
+        userId,
+        name: body.name,
+        keyPrefix,
+      },
+      context: c.get("context"),
+    });
+    await upsertApiKeySecret(services.db, {
+      apiKeyId,
+      userId,
+      keyPrefix,
+      secretHash: services.auth.hashSecret(secret),
+    });
+
+    return c.json(
+      {
+        id: apiKeyId,
+        version: result.version,
+        status: result.state.status,
+        secret,
+        keyPrefix,
+      },
+      201,
+    );
+  });
+
+  app.post("/:id/rotate", async (c) => {
+    const apiKeyId = c.req.param("id");
+    const apiKey = await services.getApiKey(apiKeyId);
+    if (!apiKey) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.apiKeys.api.route.api.key.not.found") } },
+        404,
+      );
+    }
+    if (!canManageApiKey(c.var.actor, apiKey)) {
+      return c.json(forbidden(), 403);
+    }
+
+    const secret = services.auth.issueOpaqueToken("key");
+    const keyPrefix = secret.slice(0, 12);
+    const result = await services.commandHandler({
+      streamId: `identity.api-key-${apiKeyId}`,
+      command: {
+        type: "RotateApiKey",
+        keyPrefix,
+      },
+      context: c.get("context"),
+    });
+    await upsertApiKeySecret(services.db, {
+      apiKeyId: apiKeyId as ApiKeyId,
+      userId: apiKey.user_id,
+      keyPrefix,
+      secretHash: services.auth.hashSecret(secret),
+    });
+
+    return c.json({
+      id: apiKeyId,
+      version: result.version,
+      status: result.state.status,
+      secret,
+      keyPrefix,
+    });
+  });
 
   app.post("/:id/revoke", async (c) => {
     const apiKeyId = c.req.param("id");
