@@ -70,6 +70,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordProjectionInterestIndexLookup,
+  recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
   recordProjectionWakeRelayFanOut,
@@ -98,7 +99,20 @@ const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
-const workSignalStore = createPostgresWorkSignalStore(pools.control);
+const workSignalStore = createPostgresWorkSignalStore(pools.control, {
+  observer: {
+    projectionWakeIntentEnqueued: (event) =>
+      recordProjectionWakeIntentEnqueueOutcome({
+        outcome: event.outcome,
+        sourceContextName: event.sourceContextName,
+        targetContextName: event.targetContextName,
+        projectionName: event.projectionName,
+        priorityLane: event.priorityLane,
+        origin: event.origin,
+        routingMode: event.routingMode,
+      }),
+  },
+});
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -842,6 +856,7 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         sourceContextName: event.sourceContextName,
         status: "skipped",
         reason: event.reason,
+        routingMode: event.routingMode,
         intentCount: 0,
         enqueuedCount: 0,
       });
@@ -870,6 +885,7 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         sourceContextName: event.sourceContextName,
         status: "skipped",
         reason: event.reason,
+        routingMode: event.routingMode,
         intentCount: 0,
         enqueuedCount: 0,
       });
@@ -883,6 +899,7 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         sourceContextName: event.sourceContextName,
         status: "enqueued",
         priorityLane: event.priorityLane,
+        routingMode: event.routingMode,
         intentCount: event.intentCount,
         enqueuedCount: event.enqueuedCount,
         notificationAgeMs: event.notificationAgeMs,
@@ -897,6 +914,7 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         sourceContextName: event.sourceContextName,
         status: "failed",
         reason: event.reason,
+        routingMode: event.routingMode,
         intentCount: event.intentCount,
         enqueuedCount: event.enqueuedCount,
       });

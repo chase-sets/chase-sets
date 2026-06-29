@@ -30,6 +30,14 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const marketplaceProviderProofStatusWorkflow = readFileSync(
+  resolve(".github/workflows/marketplace-provider-proof-status.yml"),
+  "utf8",
+);
+const platformStagingWakeDrillsWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-wake-drills.yml"),
+  "utf8",
+);
 const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
@@ -54,6 +62,29 @@ function workflowStep(source, stepName) {
 
   const next = source.indexOf("\n      - name:", start + 1);
   return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
+function workflowSteps(source, stepName) {
+  const steps = [];
+  const stepPattern = new RegExp(`- name: ${stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "gm");
+  let match = stepPattern.exec(source);
+  while (match) {
+    const start = match.index;
+    const next = source.indexOf("\n      - name:", start + 1);
+    steps.push(next === -1 ? source.slice(start) : source.slice(start, next));
+    match = stepPattern.exec(source);
+  }
+  expect(steps.length).toBeGreaterThan(0);
+  return steps;
+}
+
+function workflowJob(source, jobName) {
+  const start = source.indexOf(`  ${jobName}:`);
+  expect(start).not.toBe(-1);
+
+  const rest = source.slice(start + 1);
+  const next = rest.search(/\n  [A-Za-z0-9_-]+:/);
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
 }
 
 function terraformServiceBlock(source, serviceName) {
@@ -571,6 +602,71 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
+  it("captures rollback readiness before production cutover and rolls back failed post-cutover checks", () => {
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
+    const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
+    const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
+    const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
+
+    expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
+    expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+
+    const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
+    const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
+    const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
+    const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
+    const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
+    const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
+
+    expect(captureIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(applyIndex);
+    expect(smokeIndex).toBeLessThan(rollbackIndex);
+    expect(rollbackIndex).toBeLessThan(markerIndex);
+
+    expect(captureStep).toContain("terraform output -raw app_id");
+    expect(captureStep).toContain("git -C ../../.. fetch origin production --tags");
+    expect(captureStep).toContain("last_known_good_commit");
+    expect(captureStep).toContain("capture-rollback-target");
+    expect(captureStep).toContain("production-rollback-target.json");
+    expect(captureStep).toContain("docker buildx imagetools inspect");
+    expect(captureStep).toContain("smoke_verified=true");
+
+    expect(readinessStep).toContain(
+      "ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json",
+    );
+    expect(readinessStep).toContain("RECOVERY_MODE: rollback");
+    expect(readinessStep).toContain(
+      "ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}",
+    );
+    expect(readinessStep).toContain("ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}");
+    expect(readinessStep).toContain("pnpm run rollback:readiness");
+    expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
+
+    expect(rollbackStep).toContain(
+      "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'",
+    );
+    expect(rollbackStep).toContain("rollback-image");
+    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_digest");
+    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_tag");
+    expect(rollbackStep).toContain("automated-production-rollback");
+
+    expect(releaseHealthStep).toContain(
+      "RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback'",
+    );
+    expect(releaseHealthStep).toContain(
+      "RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}",
+    );
+    expect(releaseHealthStep).toContain(
+      "ROLLBACK_READINESS_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.rollback_readiness.outputs.result || 'failure' }}",
+    );
+    expect(releaseHealthStep).not.toContain("ROLLBACK_READINESS_RESULT: unknown");
+    expect(uploadStep).toContain("artifacts/release-health/production-rollback-target.json");
+    expect(uploadStep).toContain("artifacts/release-health/production-rollback-readiness.json");
+  });
+
   it("provisions databases for every platform-api bounded context", () => {
     const managedContexts = terraformStringList(platformLocals, "platform_context_names");
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
@@ -911,7 +1007,7 @@ describe("DigitalOcean platform configuration", () => {
       "EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
     );
     expect(workflowStep(platformProductionWorkflow, "Write release health summary")).toContain(
-      "RECOVERY_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
+      "RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}",
     );
     expect(platformProductionWorkflow.indexOf("- name: Evaluate production release lock")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Validate production configuration"),
@@ -1479,6 +1575,65 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("uses one checked-in script for Terraform-state database URL exports in operational workflows", () => {
+    const wakeDrillsStep = workflowStep(platformStagingWakeDrillsWorkflow, "Export staging database URLs");
+    const representativeStateStep = workflowStep(platformRepresentativeWorkflow, "Export staging database URLs");
+    const providerProofStep = workflowStep(
+      marketplaceProviderProofStatusWorkflow,
+      "Export provider proof database URLs",
+    );
+    const steps = [wakeDrillsStep, representativeStateStep, providerProofStep];
+
+    for (const step of steps) {
+      expect(step).toContain("terraform state pull");
+      expect(step).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+      expect(step).toContain('--state "$state_path"');
+      expect(step).toContain('--github-env "$GITHUB_ENV"');
+      expect(step).not.toContain("node <<'NODE'");
+      expect(step).not.toContain("digitalocean_database_cluster");
+    }
+    expect(providerProofStep).toContain("--contexts payments,settlement,fulfillment");
+  });
+
+  it("defines platform Terraform deployment inputs once per job instead of per plan/apply step", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const resetJob = workflowJob(platformStagingResetWorkflow, "reset-staging");
+
+    for (const job of [stagingJob, productionJob, resetJob]) {
+      expect(job).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+      expect(job).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
+      expect(job).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(job).toContain("TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}");
+      expect(job).toContain("TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}");
+      expect(job).toContain("TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}");
+      expect(job).toContain("TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}");
+      expect(job).toContain("TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}");
+      expect(job).toContain("TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}");
+    }
+
+    expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
+    expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
+    expect(productionJob).toContain(
+      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+    );
+    expect(productionJob).toContain(
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+    );
+    expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
+
+    const platformPlanApplySteps = [
+      ...workflowSteps(platformProductionWorkflow, "Terraform plan"),
+      ...workflowSteps(platformProductionWorkflow, "Terraform apply"),
+      ...workflowSteps(platformStagingResetWorkflow, "Terraform plan staging recreate"),
+      ...workflowSteps(platformStagingResetWorkflow, "Terraform apply staging recreate"),
+    ];
+
+    for (const step of platformPlanApplySteps) {
+      expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
+    }
+  });
+
   it("provisions the checked-in observability stack behind scoped public endpoints", () => {
     expect(observabilityMain).toContain('resource "digitalocean_droplet" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
@@ -1520,12 +1675,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
     expect(platformRepresentativeWorkflow).toContain('default: "300000"');
     expect(platformRepresentativeWorkflow).toContain("terraform state pull");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_cluster");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_db");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_user");
-    expect(platformRepresentativeWorkflow).toContain("Direct database state is incomplete");
-    expect(platformRepresentativeWorkflow).toContain("PLATFORM_CONTROL_DATABASE_URL");
-    expect(platformRepresentativeWorkflow).toContain("DATABASE_URL_${String(contextName).toUpperCase()");
+    expect(platformRepresentativeWorkflow).toContain("node ../../../scripts/terraform-state-database-urls.mjs");
+    expect(platformRepresentativeWorkflow).toContain("--environment staging");
+    expect(platformRepresentativeWorkflow).toContain('--github-env "$GITHUB_ENV"');
     expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",

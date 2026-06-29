@@ -6,14 +6,17 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createCheckoutCommercialTermsResolver } from "../../api";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
+import type { CheckoutCommercialTermsResolver } from "../../features/sell-list/read-model/queries";
 import type { CheckoutObservabilityTelemetry } from "../../features/sessions/api/checkout-observability-telemetry";
 import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtime";
 import { createCheckoutSupportLookupRuntime } from "../../features/support-lookup/api/runtime";
 
 export type CheckoutHostPorts = Readonly<{
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
+  commercialTermsResolver?: CheckoutCommercialTermsResolver;
 }>;
 
 export type CheckoutServices = Readonly<{
@@ -34,8 +37,9 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const commercialTermsResolver = ports.commercialTermsResolver ?? createCheckoutCommercialTermsResolver(db);
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
-  const sellList = createCheckoutSellListRuntime({ eventStore, checkpointStore, db });
+  const sellList = createCheckoutSellListRuntime({ eventStore, checkpointStore, db, commercialTermsResolver });
   const sessions = createCheckoutSessionRuntime({
     eventStore,
     checkpointStore,

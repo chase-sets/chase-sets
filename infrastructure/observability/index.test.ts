@@ -14,12 +14,14 @@ import {
   projectionFreshnessAuditMetricRecords,
   projectionFreshnessWakeEnqueueMetricRecord,
   projectionInterestIndexLookupMetricRecord,
+  projectionWakeIntentEnqueueOutcomeMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPostWriteConsistencyEvent,
   recordProjectionFreshnessWakeEnqueue,
   recordProjectionInterestIndexLookup,
+  recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
   recordProjectionWakeRelayCatchUp,
@@ -1046,6 +1048,7 @@ describe("projection wake pipeline observability", () => {
         sourceContextName: "checkout",
         status: "enqueued",
         priorityLane: "hot",
+        routingMode: "safe_over_wake",
         intentCount: 3,
         enqueuedCount: 3,
         notificationAgeMs: 12,
@@ -1056,6 +1059,7 @@ describe("projection wake pipeline observability", () => {
         sourceContextName: null,
         status: "failed",
         reason: "invalid-notification",
+        routingMode: "unspecified",
         intentCount: 0,
         enqueuedCount: 0,
         notificationAgeMs: Number.NaN,
@@ -1067,11 +1071,77 @@ describe("projection wake pipeline observability", () => {
         status: "skipped",
         reason: "no-interests",
         priorityLane: "hot",
+        routingMode: null,
         intentCount: 0,
         enqueuedCount: 0,
         notificationAgeMs: -5,
       }),
     ).not.toThrow();
+  });
+
+  it("records wake intent enqueue outcomes with bounded labels", () => {
+    const record = projectionWakeIntentEnqueueOutcomeMetricRecord({
+      outcome: "requeued_completed",
+      sourceContextName: "checkout",
+      targetContextName: "marketplace",
+      projectionName: "sellable-listing-pages",
+      priorityLane: "hot",
+      origin: "relay",
+      routingMode: "safe_over_wake",
+    });
+
+    expect(record).toEqual({
+      attributes: {
+        outcome: "requeued_completed",
+        source_context: "checkout",
+        target_context: "marketplace",
+        projection: "sellable-listing-pages",
+        priority_lane: "hot",
+        origin: "relay",
+        routing_mode: "safe_over_wake",
+      },
+    });
+
+    const counterAdds: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter,
+      createHistogram: vi.fn(),
+      createUpDownCounter: vi.fn(),
+    } as never);
+
+    try {
+      recordProjectionWakeIntentEnqueueOutcome({
+        outcome: "coalesced",
+        sourceContextName: "checkout",
+        targetContextName: "marketplace",
+        projectionName: "sellable-listing-pages",
+        priorityLane: "standard",
+        origin: "api-wait",
+        routingMode: null,
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(createCounter).toHaveBeenCalledWith("chase_sets_projection_wake_intent_enqueue_outcomes_total", undefined);
+    expect(counterAdds).toEqual([
+      {
+        name: "chase_sets_projection_wake_intent_enqueue_outcomes_total",
+        value: 1,
+        attributes: {
+          outcome: "coalesced",
+          source_context: "checkout",
+          target_context: "marketplace",
+          projection: "sellable-listing-pages",
+          priority_lane: "standard",
+          origin: "api-wait",
+          routing_mode: "none",
+        },
+      },
+    ]);
   });
 
   it("records interest-index lookup latency with support-safe labels", () => {

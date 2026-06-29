@@ -53,6 +53,8 @@ export const mockUpdateGuestCartLineFulfillment = vi.fn();
 export const mockRemoveCartLine = vi.fn();
 export const mockRemoveGuestCartLine = vi.fn();
 export const mockGetGuestSellList = vi.fn();
+export const mockGetSellListCompositeReview = vi.fn();
+export const mockGetGuestSellListOfferReviews = vi.fn();
 export const mockGetOfferMatch = vi.fn();
 export const mockGetPublicOffer = vi.fn();
 export const mockListOfferMatches = vi.fn();
@@ -69,6 +71,7 @@ export const mockConfirmSellListCheckout = vi.fn();
 export const mockRemoveGuestSellListLine = vi.fn();
 export const mockMergeGuestSellListToAccount = vi.fn();
 export const mockListShippingAddresses = vi.fn();
+export const mockListSellListShipFromAddresses = vi.fn();
 
 export function applyCheckoutRouteMockDefaults() {
   mockGetSellListConfirmation.mockRejectedValue(new MockCheckoutApiError(404, { error: { code: "not_found" } }));
@@ -104,25 +107,34 @@ export function applyCheckoutRouteMockDefaults() {
     }),
   });
   mockCreateIdentityRequestApiClient.mockReturnValue({
-    listShippingAddresses: mockListShippingAddresses.mockResolvedValue({
-      items: [
-        {
-          shipping_address_id: "adr_seller",
-          label: "Warehouse",
-          recipient_name: "Jane Seller",
-          company: null,
-          line1: "100 Market Street",
-          line2: null,
-          city: "Wichita",
-          state: "KS",
-          postal_code: "67202",
-          country: "US",
-          phone: "316-555-0110",
-          email: "seller@example.com",
-          is_default: true,
-        },
-      ],
-    }),
+    listShippingAddresses: mockListShippingAddresses.mockResolvedValue({ items: [] }),
+  });
+  mockGetSellListCompositeReview.mockResolvedValue({
+    offerReviews: [],
+    productOfferReviews: [],
+    inventoryItems: [],
+  });
+  mockGetGuestSellListOfferReviews.mockResolvedValue({ offerReviews: [] });
+  mockListSellListShipFromAddresses.mockResolvedValue({
+    items: [
+      {
+        shipping_address_id: "adr_seller",
+        account_id: "acc_seller",
+        label: "Warehouse",
+        recipient_name: "Jane Seller",
+        company: null,
+        line1: "100 Market Street",
+        line2: null,
+        city: "Wichita",
+        state: "KS",
+        postal_code: "67202",
+        country: "US",
+        phone: "316-555-0110",
+        email: "seller@example.com",
+        is_default: true,
+        updated_at: "2026-05-30T00:00:00.000Z",
+      },
+    ],
   });
   mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
   mockCreateSellListReadiness.mockResolvedValue(readySellListReadinessResponse());

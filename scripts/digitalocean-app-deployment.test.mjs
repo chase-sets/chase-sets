@@ -5,8 +5,10 @@ import {
   activeDeployments,
   approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
+  appRollbackTarget,
   appNotFound,
   appPlatformChanges,
+  captureRollbackTarget,
   collectDeploymentDiagnostics,
   destructiveResourceChanges,
   deployApp,
@@ -20,6 +22,8 @@ import {
   postgresClusterIdFromPlan,
   readPostgresClusterIdFromPlan,
   resetStaleDomainAttachment,
+  rollbackAppImage,
+  rollbackSpecToImage,
   waitForDomains,
   waitForDeployments,
 } from "./digitalocean-app-deployment.mjs";
@@ -48,6 +52,177 @@ function resourceChange(address, actions) {
 }
 
 describe("digitalocean-app-deployment", () => {
+  it("captures a uniform App Platform rollback target by digest", () => {
+    const target = appRollbackTarget(
+      {
+        id: "app-id",
+        spec: {
+          name: "production-platform",
+          services: [
+            {
+              name: "public-web",
+              image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+            },
+          ],
+          workers: [
+            {
+              name: "platform-worker",
+              image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+            },
+          ],
+        },
+      },
+      {
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        lastKnownGoodCommit: "b".repeat(40),
+        releaseTag: "release-20260628010101-bbbbbbbb",
+        checkedAt: "2026-06-28T01:02:03.000Z",
+      },
+    );
+
+    expect(target).toMatchObject({
+      appId: "app-id",
+      appName: "production-platform",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      digest: "sha256:" + "a".repeat(64),
+      imageRef: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
+      componentNames: ["platform-worker", "public-web"],
+      lastKnownGoodCommit: "b".repeat(40),
+      releaseTag: "release-20260628010101-bbbbbbbb",
+    });
+  });
+
+  it("refuses a mixed App Platform rollback target", () => {
+    expect(() =>
+      appRollbackTarget(
+        {
+          spec: {
+            services: [
+              {
+                name: "public-web",
+                image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+              },
+            ],
+            workers: [
+              {
+                name: "platform-worker",
+                image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "b".repeat(64) },
+              },
+            ],
+          },
+        },
+        { registryName: "chase-sets", repository: "chase-sets-platform" },
+      ),
+    ).toThrow("do not share a single rollback target");
+  });
+
+  it("rewrites matching App Platform component images to the rollback digest", () => {
+    const spec = {
+      services: [
+        {
+          name: "public-web",
+          image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+        },
+      ],
+      workers: [
+        {
+          name: "platform-worker",
+          image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+        },
+      ],
+    };
+
+    const updated = rollbackSpecToImage(spec, {
+      repository: "chase-sets-platform",
+      digest: "sha256:" + "c".repeat(64),
+    });
+
+    expect(updated.services[0].image).toMatchObject({
+      repository: "chase-sets-platform",
+      digest: "sha256:" + "c".repeat(64),
+    });
+    expect(updated.services[0].image).not.toHaveProperty("tag");
+    expect(updated.workers[0].image.digest).toBe("sha256:" + "c".repeat(64));
+    expect(spec.services[0].image.digest).toBe("sha256:" + "a".repeat(64));
+  });
+
+  it("captures and applies rollback image updates through doctl", async () => {
+    const calls = [];
+    const app = {
+      id: "app-id",
+      spec: {
+        name: "production-platform",
+        services: [
+          {
+            name: "public-web",
+            image: { registry_type: "DOCR", repository: "chase-sets-platform", digest: "sha256:" + "a".repeat(64) },
+          },
+        ],
+      },
+    };
+
+    await expect(
+      captureRollbackTarget("app-id", {
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        commandJson: async (command, args) => {
+          calls.push([command, args]);
+          return [app];
+        },
+      }),
+    ).resolves.toMatchObject({
+      imageRef: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"a".repeat(64)}`,
+    });
+
+    const rollback = await rollbackAppImage(
+      "app-id",
+      {
+        registryName: "chase-sets",
+        repository: "chase-sets-platform",
+        digest: "sha256:" + "d".repeat(64),
+      },
+      {
+        repository: "chase-sets-platform",
+        commandJson: async (command, args) => {
+          calls.push([command, args]);
+          return [app];
+        },
+        commandOutput: async (command, args, options) => {
+          calls.push([command, args, JSON.parse(options.input)]);
+          return "";
+        },
+      },
+    );
+
+    expect(rollback).toEqual({
+      appId: "app-id",
+      imageRef: `registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:${"d".repeat(64)}`,
+    });
+    expect(calls).toEqual([
+      ["doctl", ["apps", "get", "app-id", "--output", "json"]],
+      ["doctl", ["apps", "get", "app-id", "--output", "json"]],
+      [
+        "doctl",
+        ["apps", "update", "app-id", "--spec", "-", "--wait"],
+        {
+          name: "production-platform",
+          services: [
+            {
+              name: "public-web",
+              image: {
+                registry_type: "DOCR",
+                repository: "chase-sets-platform",
+                digest: "sha256:" + "d".repeat(64),
+              },
+            },
+          ],
+        },
+      ],
+    ]);
+  });
+
   it("detects create, update, and delete actions for the platform app", () => {
     expect(appPlatformChanges(planFor([appChange(["create"])]))).toBe(true);
     expect(appPlatformChanges(planFor([appChange(["update"])]))).toBe(true);

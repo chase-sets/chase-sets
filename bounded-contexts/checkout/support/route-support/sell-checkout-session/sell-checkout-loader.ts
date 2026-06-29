@@ -1,11 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 import {
   createCheckoutRequestApiClient,
   type CheckoutSellPayoutReadinessRow,
+  type CheckoutShipFromAddressRow,
   type SellListReadinessDecisionInput,
 } from "../../request-support/api-client";
 import { readAnonymousSellListId } from "../../request-support/guest-checkout";
@@ -46,26 +46,29 @@ export async function loadSavedShipFromAddresses(
   }
 
   try {
-    const identityApi = createIdentityRequestApiClient(request);
-    const response = await identityApi.listShippingAddresses<{ items: readonly ShippingAddress[] }>(actor.accountId);
-    return response.items.map((address) => ({
-      shippingAddressId: address.shipping_address_id,
-      label: address.label,
-      name: address.recipient_name,
-      company: address.company ?? "",
-      line1: address.line1,
-      line2: address.line2 ?? "",
-      city: address.city,
-      state: address.state,
-      postalCode: address.postal_code,
-      country: address.country,
-      phone: address.phone ?? "",
-      email: address.email ?? "",
-      isDefault: address.is_default,
-    }));
+    const response = await createCheckoutRequestApiClient(request).listSellListShipFromAddresses();
+    return response.items.map(shipFromAddressFromRow);
   } catch {
     return [];
   }
+}
+
+function shipFromAddressFromRow(row: CheckoutShipFromAddressRow): SignedInSellCheckoutShipFromAddress {
+  return {
+    shippingAddressId: row.shipping_address_id,
+    label: row.label,
+    name: row.recipient_name,
+    company: row.company ?? "",
+    line1: row.line1,
+    line2: row.line2 ?? "",
+    city: row.city,
+    state: row.state,
+    postalCode: row.postal_code,
+    country: row.country,
+    phone: row.phone ?? "",
+    email: row.email ?? "",
+    isDefault: row.is_default,
+  };
 }
 
 export async function loadPayoutSummary(request: Request): Promise<SignedInSellCheckoutPayoutSummary> {

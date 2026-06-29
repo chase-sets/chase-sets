@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { checkoutCatalogProjectionSchemaSql } from "../features/cart/integrations/catalog/catalog-schema";
+import { checkoutInventorySupplySchemaSql } from "../features/cart/integrations/inventory/inventory-schema";
 import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
 import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
@@ -90,6 +91,27 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).toContain("order_write_commit_positions jsonb NOT NULL DEFAULT '[]'::jsonb");
   });
 
+  it("keeps checkout inventory schema evolution before indexes that use evolved columns", () => {
+    const locationEvolution = checkoutInventorySupplySchemaSql.indexOf("ALTER TABLE checkout_supply_locations");
+    const locationAccountIndex = checkoutInventorySupplySchemaSql.indexOf(
+      "CREATE INDEX IF NOT EXISTS checkout_supply_locations_account_idx",
+    );
+    const itemEvolution = checkoutInventorySupplySchemaSql.indexOf("ALTER TABLE checkout_supply_items");
+    const itemAccountIndex = checkoutInventorySupplySchemaSql.indexOf(
+      "CREATE INDEX IF NOT EXISTS checkout_supply_items_account_idx",
+    );
+
+    expect(locationEvolution).toBeGreaterThanOrEqual(0);
+    expect(locationEvolution).toBeLessThan(locationAccountIndex);
+    expect(checkoutInventorySupplySchemaSql).toContain("ADD COLUMN IF NOT EXISTS account_id text NULL");
+    expect(checkoutInventorySupplySchemaSql).toContain("ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT ''");
+    expect(checkoutInventorySupplySchemaSql).toContain(
+      "ADD COLUMN IF NOT EXISTS ship_from_code text NOT NULL DEFAULT ''",
+    );
+    expect(itemEvolution).toBeGreaterThanOrEqual(0);
+    expect(itemEvolution).toBeLessThan(itemAccountIndex);
+  });
+
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {
     expect(checkoutSellListSchemaSql).toContain("checkout_sell_list_confirmation_pages");
     expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_execution_pages");
@@ -118,6 +140,13 @@ describe("fresh checkout read-model schemas", () => {
           dependencies: [
             { readModelTable: "checkout_sell_list_line_pages" },
             { readModelTable: "checkout_sell_list_confirmation_pages" },
+            { readModelTable: "checkout_sell_payout_readiness_pages" },
+            { readModelTable: "checkout_sell_offer_pages" },
+            { readModelTable: "checkout_marketplace_seller_options" },
+            { readModelTable: "checkout_supply_items" },
+            { readModelTable: "checkout_supply_locations" },
+            { readModelTable: "checkout_seller_accounts" },
+            { readModelTable: "checkout_ship_from_addresses" },
           ],
         }),
         expect.objectContaining({

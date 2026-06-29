@@ -13,6 +13,7 @@ import {
   PlatformCredibilityCue,
   SpecificationList,
   Stack,
+  Text,
   TextInput,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
@@ -37,7 +38,7 @@ function displayActorUserName(display: CurrentActorDisplay) {
 function AccountNameWithBadges({ badges, name }: { badges: readonly string[]; name: string }) {
   return (
     <InlineTextGroup>
-      <span>{name}</span>
+      <Text element="span">{name}</Text>
       <AccountBadgeList badges={badges} />
     </InlineTextGroup>
   );

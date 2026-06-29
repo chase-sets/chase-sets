@@ -48,21 +48,10 @@ jobs:
       - name: Resolve release commit
         run: |
           set -euo pipefail
-          git fetch origin main
-          release_ref="${{ inputs.release_ref }}"
-          git fetch origin "${release_ref}" || true
-          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-            release_commit="$(git rev-parse "${release_ref}^{commit}")"
-          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
-          else
-            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
-            exit 1
-          fi
-
-          git merge-base --is-ancestor "$release_commit" origin/main
-          git checkout --detach "$release_commit"
-          echo "release_commit=$release_commit" >> "$GITHUB_ENV"
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true \
+            --github-env "$GITHUB_ENV"
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -123,48 +112,11 @@ jobs:
           set -euo pipefail
           state_path="${RUNNER_TEMP}/platform-${DEPLOYMENT_ENVIRONMENT}.tfstate.json"
           terraform state pull > "$state_path"
-          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
-          const fs = require("node:fs");
-          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
-          const resources = Array.isArray(state.resources) ? state.resources : [];
-          const cluster = resources.find((resource) =>
-            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
-          );
-          const databases = resources.find((resource) =>
-            resource.type === "digitalocean_database_db" && resource.name === "contexts"
-          );
-          const users = resources.find((resource) =>
-            resource.type === "digitalocean_database_user" && resource.name === "contexts"
-          );
-          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
-          if (!clusterAttrs.host || !clusterAttrs.port) {
-            throw new Error("Terraform state does not contain a usable DigitalOcean database cluster.");
-          }
-
-          const databaseByContext = new Map(
-            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const userByContext = new Map(
-            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
-          );
-          const requiredContexts = ["payments", "settlement", "fulfillment"];
-          const lines = [];
-          for (const contextName of requiredContexts) {
-            const database = databaseByContext.get(contextName);
-            const user = userByContext.get(contextName);
-            if (!database?.name || !user?.name || !user?.password) {
-              throw new Error(`Terraform state is missing database/user data for '${contextName}'.`);
-            }
-
-            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
-              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
-            const envName = `DATABASE_URL_${contextName.toUpperCase().replaceAll("-", "_")}`;
-            console.log(`::add-mask::${url}`);
-            lines.push(`${envName}=${url}`);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
-          NODE
+          node ../../../scripts/terraform-state-database-urls.mjs \
+            --state "$state_path" \
+            --environment "$DEPLOYMENT_ENVIRONMENT" \
+            --contexts payments,settlement,fulfillment \
+            --github-env "$GITHUB_ENV"
 
       - name: Run provider proof status report
         run: |

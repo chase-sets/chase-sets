@@ -32,7 +32,7 @@ describe("checkout Sell List projection subscriptions", () => {
     ]);
     expect(
       sellListSubscriptions?.find((subscription) => subscription.sourceContextName === "marketplace")?.eventTypes,
-    ).toEqual(["marketplace.offer.accepted"]);
+    ).toEqual(["marketplace.offer.submitted", "marketplace.offer.accepted"]);
     expect(
       sellListSubscriptions?.find((subscription) => subscription.sourceContextName === "settlement")?.eventTypes,
     ).toEqual(["settlement.payout-readiness.recorded"]);

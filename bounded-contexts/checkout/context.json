@@ -9,6 +9,7 @@
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
+    "@chase-sets/commercial-terms",
     "@chase-sets/identity",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
@@ -16,7 +17,7 @@
     "@chase-sets/payments",
     "@chase-sets/settlement"
   ],
-  "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
+  "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
@@ -69,7 +70,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 1,
-      "eventTypes": ["marketplace.offer.accepted"],
+      "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.accepted"],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
@@ -127,7 +128,10 @@
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
-        "inventory.hold.released"
+        "inventory.hold.released",
+        "inventory.storage-location.created",
+        "inventory.storage-location.updated",
+        "inventory.storage-location.archived"
       ],
       "order": 21,
       "projectionHandlerSetNames": ["checkout.inventory-seller-options-supply-projection"]
@@ -137,7 +141,14 @@
       "projectionName": "checkout-marketplace-seller-options-projection",
       "subscriptionVersion": 1,
       "subscriptionName": "checkout.identity-seller-options-accounts-projection",
-      "eventTypes": ["identity.account.created", "identity.account.profile-updated"],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.shipping-address.added",
+        "identity.shipping-address.updated",
+        "identity.shipping-address.default-set",
+        "identity.shipping-address.archived"
+      ],
       "order": 22,
       "projectionHandlerSetNames": ["checkout.identity-seller-options-accounts-projection"]
     }
@@ -156,7 +167,8 @@
       "ownedTables": [
         "checkout_sell_list_line_pages",
         "checkout_sell_list_confirmation_pages",
-        "checkout_sell_payout_readiness_pages"
+        "checkout_sell_payout_readiness_pages",
+        "checkout_sell_offer_pages"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
@@ -186,12 +198,21 @@
       "ownedTables": [
         "checkout_marketplace_seller_options",
         "checkout_supply_items",
+        "checkout_supply_locations",
         "checkout_supply_holds",
         "checkout_seller_accounts",
+        "checkout_ship_from_addresses",
         "checkout_seller_account_reviews"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve seller-side Sell List offer terms inside Checkout-owned composite read models without request-time Marketplace reads."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -244,6 +265,27 @@
             },
             {
               "readModelTable": "checkout_sell_list_confirmation_pages"
+            },
+            {
+              "readModelTable": "checkout_sell_payout_readiness_pages"
+            },
+            {
+              "readModelTable": "checkout_sell_offer_pages"
+            },
+            {
+              "readModelTable": "checkout_marketplace_seller_options"
+            },
+            {
+              "readModelTable": "checkout_supply_items"
+            },
+            {
+              "readModelTable": "checkout_supply_locations"
+            },
+            {
+              "readModelTable": "checkout_seller_accounts"
+            },
+            {
+              "readModelTable": "checkout_ship_from_addresses"
             }
           ]
         },

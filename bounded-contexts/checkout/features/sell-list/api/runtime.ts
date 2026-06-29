@@ -9,6 +9,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CommandReceiptMetadata } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  listCheckoutShipFromAddresses,
+  type CheckoutShipFromAddressRow,
+} from "../../cart/integrations/identity/identity-queries";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import {
   CheckoutDomainError,
@@ -37,7 +41,11 @@ import {
   getLatestSellListConfirmation,
   getSellListConfirmation,
   getSellPayoutReadiness,
+  getCheckoutSellOfferMatch,
   listSellListLines,
+  loadCheckoutGuestSellListOfferReviews,
+  loadCheckoutSellListCompositeReview,
+  type CheckoutCommercialTermsResolver,
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListLineRow,
   type CheckoutSellPayoutReadinessRow,
@@ -143,6 +151,7 @@ export type CheckoutSellListRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  commercialTermsResolver?: CheckoutCommercialTermsResolver;
 }>;
 
 export type CheckoutSellListServices = Readonly<{
@@ -217,10 +226,20 @@ export type CheckoutSellListServices = Readonly<{
   getLatestConfirmation: (sellerAccountId: string) => ReturnType<typeof getLatestSellListConfirmation>;
   getConfirmation: (sellerAccountId: string, confirmationId: string) => ReturnType<typeof getSellListConfirmation>;
   getPayoutReadiness: (sellerAccountId: string) => Promise<CheckoutSellPayoutReadinessRow>;
+  listShipFromAddresses: (sellerAccountId: string) => Promise<readonly CheckoutShipFromAddressRow[]>;
+  getOfferMatch: (sellerAccountId: string, offerId: string) => ReturnType<typeof getCheckoutSellOfferMatch>;
+  loadCompositeReview: (
+    sellerAccountId: string,
+    options?: Readonly<{ includeStandardComparison?: boolean }>,
+  ) => ReturnType<typeof loadCheckoutSellListCompositeReview>;
+  loadGuestOfferReviews: (
+    ownerId: string,
+  ) => Promise<Awaited<ReturnType<typeof loadCheckoutGuestSellListOfferReviews>>>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps): CheckoutSellListServices {
+  const commercialTermsResolver = deps.commercialTermsResolver ?? createNoopCheckoutCommercialTermsResolver();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<CheckoutSellListEvent>(),
@@ -476,6 +495,20 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     getConfirmation: (sellerAccountId, confirmationId) =>
       getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
     getPayoutReadiness: (sellerAccountId) => getSellPayoutReadiness(deps.db, sellerAccountId),
+    listShipFromAddresses: (sellerAccountId) => listCheckoutShipFromAddresses(deps.db, sellerAccountId),
+    getOfferMatch: (sellerAccountId, offerId) => getCheckoutSellOfferMatch(deps.db, sellerAccountId, offerId),
+    loadCompositeReview: async (sellerAccountId, options = {}) => {
+      const lines = await listSellListLines(deps.db, sellerAccountId);
+      return loadCheckoutSellListCompositeReview(deps.db, commercialTermsResolver, {
+        sellerAccountId,
+        lines,
+        includeStandardComparison: options.includeStandardComparison,
+      });
+    },
+    loadGuestOfferReviews: async (ownerId) => {
+      const lines = await listSellListLines(deps.db, ownerId);
+      return loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines);
+    },
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listAggregateSellListLines(params.sourceOwnerId);
       let targetAggregate = await repository.load(sellListStreamId(params.targetAccountId));
@@ -561,5 +594,28 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     },
     listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
     projectors: [sellListProjector],
+  };
+}
+
+function createNoopCheckoutCommercialTermsResolver(): CheckoutCommercialTermsResolver {
+  const quote = (amount: string) => ({
+    accountType: "personal" as const,
+    basisAmount: amount,
+    marketplaceSalesFeeUnitAmount: "0.00",
+    sellerNetUnitAmount: amount,
+    shippingAllowancePercentageBps: 0,
+    scheduleId: "terms_noop",
+    agreementId: null,
+    scheduleLabel: "No-op terms",
+    scheduleUpdatedAt: new Date(0).toISOString(),
+    resolvedAt: new Date(0).toISOString(),
+  });
+
+  return {
+    resolveListingTerms: async ({ amount }) => quote(amount),
+    resolvePublicStandardListingTerms: async ({ amount }) => ({
+      ...quote(amount),
+      scheduleId: "terms_noop",
+    }),
   };
 }

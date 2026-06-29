@@ -4,105 +4,13 @@
   "generatedBy": "pnpm run ops design-system:legacy-inventory --write-ledger",
   "description": "Design-system legacy pattern inventory for milestone #12. Entries are file/category level and must map to a milestone issue with no permanent exceptions.",
   "summary": {
-    "fileCount": 7,
+    "fileCount": 0,
     "gatingFileCount": 0,
-    "warningFileCount": 7,
-    "categories": { "rawStructuralElement": 7 },
-    "severity": { "error": 0, "warning": 7 },
-    "owners": { "Catalog": 2, "Checkout": 2, "Discovery": 1, "Identity": 2 },
-    "issues": { "#1666": 7 }
+    "warningFileCount": 0,
+    "categories": {},
+    "severity": { "error": 0, "warning": 0 },
+    "owners": {},
+    "issues": {}
   },
-  "entries": [
-    {
-      "file": "bounded-contexts/catalog/features/source-observations/ui/workbench-workspace-renderers.tsx",
-      "owner": "Catalog",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 67, "column": 13, "detail": "div" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/catalog/support/shell-support/ui/entity-list-page.tsx",
-      "owner": "Catalog",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 185, "column": 18, "detail": "span" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/checkout/features/cart/ui/cart-page.tsx",
-      "owner": "Checkout",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 499, "column": 6, "detail": "div" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/checkout/features/sessions/ui/checkout-recovery-page.tsx",
-      "owner": "Checkout",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 46, "column": 16, "detail": "span" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/discovery/routes/public-account.tsx",
-      "owner": "Discovery",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 242, "column": 10, "detail": "div" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/identity/features/accounts/ui/account-list-page.tsx",
-      "owner": "Identity",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 13, "column": 10, "detail": "span" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    },
-    {
-      "file": "bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx",
-      "owner": "Identity",
-      "categories": { "rawStructuralElement": 1 },
-      "details": [{ "category": "rawStructuralElement", "line": 40, "column": 8, "detail": "span" }],
-      "phase": "Phase G3",
-      "issueTargets": ["#1666"],
-      "outcome": "migrate-or-promote-to-design-system",
-      "prerequisites": ["#1665"],
-      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
-      "status": "open",
-      "ownerStatus": "unassigned until scheduled by #960"
-    }
-  ]
+  "entries": []
 }

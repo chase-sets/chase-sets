@@ -199,6 +199,19 @@ doctl databases delete <restore-point-cluster-id> --force
 
 The production readiness gate remains warn-and-proceed by design: it records cold-start projection readiness in release-health and step summary evidence, while the proof canary remains the promotion gate. Keep `fetch-depth: 0` in this workflow until the production marker, release-health drift, and exact release-commit checks are split into a targeted fetch helper. Keep the synthetic staging Stripe seller password deterministic until the smoke registration path can receive a generated secret without losing reproducible rerun support; those accounts are staging/test-mode only and should not be used outside smoke evidence.
 
+## Automated Production Rollback
+
+Before production `terraform apply`, the production workflow captures the currently serving App Platform image from the active DigitalOcean app spec, resolves the smoke-verified `production` marker commit, finds the matching `release-*` tag, verifies the rollback image still exists in DOCR, and writes:
+
+- `artifacts/release-health/production-rollback-target.json`
+- `artifacts/release-health/production-rollback-readiness.json`
+
+The rollback readiness step fails closed before cutover when the prior known-good image, release tag, registry evidence, or smoke-verified marker cannot be proven. Production release-health records `ROLLBACK_READINESS_RESULT` as `success`, `failure`, or `skipped`; it should not be `unknown` for production deploy attempts.
+
+If post-cutover production smoke, Stage 1 canary, proof-mode Buy Now, or settlement provider-health verification fails after readiness succeeded, the workflow automatically rewrites all App Platform components that use `chase-sets-platform` back to the captured prior image digest/tag and waits for App Platform to finish deploying it. The production marker is not advanced for the failed revision. The release-health record reports recovery mode `rollback`, the rollback target commit, and the workflow-generated rollback reference.
+
+Manual override remains the audited emergency path: set `PRODUCTION_RELEASE_LOCKED=true` to pause normal promotion, then dispatch Platform Deploy with `emergency_release=true` and an `emergency_reference` that links the incident, rollback-readiness evidence, or fix-forward PR. Use `Platform Rollback Readiness` when validating a specific rollback target outside the automatic deploy path. Do not manually move the `production` marker until the rollback or fix-forward image has passed smoke and the incident issue contains the evidence.
+
 As of June 1, 2026, repository evidence shows `main` protected by strict `PR Required`, required conversation resolution, linear history, admin enforcement, and active GitHub native merge queue ruleset `17097957`, `Require merge queue for main`. The `production` marker remains protected by the `Protect production deployed marker` ruleset.
 
 ## One-Time State Bootstrap

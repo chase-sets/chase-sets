@@ -67,6 +67,7 @@ describe("projection wake relay fan-out", () => {
       lastGlobalPosition: "102",
       requiredCursor: "checkout:102",
       priorityLane: "hot",
+      routingMode: "unspecified",
       projectionInterestIndexVersion: index.indexVersion,
       intentCount: 1,
       enqueuedCount: 1,
@@ -111,6 +112,7 @@ describe("projection wake relay fan-out", () => {
       eventStoreWakeEventTypes: ["CheckoutSessionCreated"],
       sourceContextWakeRolloutState: "staging-enabled",
       sourceContextWakeRolloutWave: "wave-1-checkout-hot-path",
+      projectionWakeRoutingMode: "unspecified",
       projectionInterestIndexVersion: index.indexVersion,
     });
     expect(inputs[0].metadata).not.toHaveProperty("streamId");
@@ -138,6 +140,7 @@ describe("projection wake relay fan-out", () => {
     expect(result).toMatchObject({
       status: "enqueued",
       requiredCursor: "checkout:102",
+      routingMode: "safe_over_wake",
       enqueuedCount: 1,
     });
     expect(inputs).toHaveLength(1);
@@ -145,6 +148,7 @@ describe("projection wake relay fan-out", () => {
       eventStoreWakeSchemaVersion: 1,
       eventStoreWakePayloadVersion: 2,
       eventStoreWakeLastGlobalPosition: "102",
+      projectionWakeRoutingMode: "safe_over_wake",
     });
     expect(inputs[0].metadata).not.toHaveProperty("additiveRoutingHint");
     expect(inputs[0].metadata).not.toHaveProperty("additiveEnvelopeHint");
@@ -171,12 +175,14 @@ describe("projection wake relay fan-out", () => {
       intentCount: 0,
       enqueuedCount: 0,
       priorityLane: null,
+      routingMode: "unspecified",
     });
     expect(inputs).toEqual([]);
     expect(skipped).toMatchObject([
       {
         sourceContextName: "checkout",
         reason: "source-disabled",
+        routingMode: "unspecified",
         relayFanOutEnabled: false,
         rolloutState: null,
       },
@@ -303,6 +309,7 @@ describe("projection wake relay fan-out", () => {
       sourceContextName: "checkout",
       requiredCursor: "checkout:102",
       priorityLane: "hot",
+      routingMode: "unspecified",
       intentCount: 0,
       enqueuedCount: 0,
     });
@@ -317,7 +324,9 @@ describe("projection wake relay fan-out", () => {
         intentCount: 0,
       },
     ]);
-    expect(skipped).toMatchObject([{ reason: "no-interests", sourceContextName: "checkout" }]);
+    expect(skipped).toMatchObject([
+      { reason: "no-interests", sourceContextName: "checkout", routingMode: "unspecified" },
+    ]);
   });
 
   it("reports enqueue failures after intent creation", async () => {

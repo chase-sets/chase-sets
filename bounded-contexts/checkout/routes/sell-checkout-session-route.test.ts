@@ -21,6 +21,7 @@ import {
   mockGetGuestSellList,
   mockGetPayoutReadiness,
   mockGetSellListConfirmation,
+  mockListSellListShipFromAddresses,
   MockMarketplaceApiError,
   mockPreviewOfferAcceptanceTerms,
   mockPublishListing,
@@ -207,6 +208,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
     const result = await sellCheckoutSessionLoader({
@@ -242,6 +244,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
 
     const result = await sellCheckoutSessionLoader({
@@ -339,6 +342,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -495,14 +499,11 @@ describe("checkout web routes: sell checkout session", () => {
 
     await expectSellConfirmationRedirect(result);
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(mockPreviewOfferAcceptanceTerms.mock.invocationCallOrder[0]).toBeLessThan(
-      mockAcceptOfferMatch.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-    );
     expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         confirmationId: "slc_chk_sell_1",
@@ -630,7 +631,7 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("fails signed-in seller checkout into Sell List recovery when selected offer terms changed before handoff", async () => {
+  it("accepts selected-offer handoff without re-reading Marketplace offer terms", async () => {
     mockSignedInSellCheckoutState();
     mockPreviewOfferAcceptanceTerms.mockResolvedValueOnce({
       account_type: "personal",
@@ -654,19 +655,15 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.recovery : null).toEqual({
-      kind: "readiness-stale",
-      detail: "Acerola's Mischief: offer terms need refresh.",
+    await expectSellConfirmationRedirect(result);
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      feeQuoteFingerprint: "quote_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(result.status === "error" ? result.fieldErrors.form : "").toBe(
-      "Acerola's Mischief: offer terms need refresh.",
-    );
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
-    expectNoSellerCommitSideEffects();
   });
 
-  it("fails signed-in seller checkout into Sell List recovery when current offer terms are unavailable", async () => {
+  it("does not block selected-offer handoff when Marketplace terms preview is unavailable", async () => {
     mockSignedInSellCheckoutState();
     mockPreviewOfferAcceptanceTerms.mockRejectedValueOnce(new Error("terms unavailable"));
 
@@ -680,13 +677,12 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.recovery : null).toEqual({
-      kind: "readiness-stale",
-      detail: "Acerola's Mischief: offer terms need refresh.",
+    await expectSellConfirmationRedirect(result);
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      feeQuoteFingerprint: "quote_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
-    expectNoSellerCommitSideEffects();
   });
 
   it("rejects hidden fallback listing facts on selected-offer confirmation before side effects", async () => {
@@ -757,6 +753,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -824,7 +821,7 @@ describe("checkout web routes: sell checkout session", () => {
     );
   });
 
-  it("fails signed-in seller checkout before Smart Match handoff when offer terms changed", async () => {
+  it("performs Smart Match handoff without re-reading Marketplace offer terms", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
       readiness: {
@@ -853,6 +850,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
     mockPreviewOfferAcceptanceTerms.mockResolvedValueOnce({
       account_type: "personal",
@@ -905,13 +903,12 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("error");
-    expect(result.status === "error" ? result.recovery : null).toEqual({
-      kind: "readiness-stale",
-      detail: "Acerola's Mischief: offer terms need refresh.",
+    await expectSellConfirmationRedirect(result);
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      feeQuoteFingerprint: "quote_product_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",
     });
-    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_product_1");
-    expectNoSellerCommitSideEffects();
   });
 
   it("records Smart Match and fallback listing work with remaining Sell List quantity on publish replay", async () => {
@@ -943,6 +940,7 @@ describe("checkout web routes: sell checkout session", () => {
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
+      listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
     mockCreateListing.mockResolvedValue({
       id: "lst_slc_chk_sell_1_sll_product",

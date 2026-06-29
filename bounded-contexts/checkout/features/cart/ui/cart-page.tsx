@@ -496,7 +496,7 @@ function QuantityControl({
   }
 
   return (
-    <div
+    <Box
       data-optimistic-strategy="optimistic-with-correction"
       data-correction-source="fresh-read:loader-revalidation"
       data-optimistic-resource={line.lineIds.join(":")}
@@ -520,7 +520,7 @@ function QuantityControl({
         decrementLabel={t("checkout.features.cart.ui.cartPage.decrease")}
         incrementLabel={t("checkout.features.cart.ui.cartPage.increase")}
       />
-    </div>
+    </Box>
   );
 }
 
