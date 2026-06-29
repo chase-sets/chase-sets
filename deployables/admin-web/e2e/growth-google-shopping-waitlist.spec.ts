@@ -51,7 +51,7 @@ async function expectGoogleShoppingOperations(page: Page) {
 async function expectWaitlistReview(page: Page) {
   await expectPageOk(page, "/growth/waitlist");
   await expect(page).toHaveURL(/\/growth\/waitlist$/);
-  await expectAdminPageReady(page, { heading: "Waitlist" });
+  await expectAdminPageReady(page, { heading: "Waitlist", headingLevel: 1 });
 
   await expect(page.getByRole("link", { name: "Export CSV" })).toHaveAttribute(
     "href",
