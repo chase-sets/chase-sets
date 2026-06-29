@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
 const DEPLOYMENT_SUMMARY_API_PAGE_SIZE = 20;
 const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
+const APP_SPEC_IMAGE_COLLECTIONS = ["jobs", "services", "workers", "static_sites", "functions"];
+const ROLLBACK_TARGET_SCHEMA_VERSION = "digitalocean-app-rollback-target/v1";
 
 function truncateDiagnosticMessage(message, maxLength = MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH) {
   if (message.length <= maxLength) {
@@ -256,6 +258,67 @@ function cloneSpec(spec) {
   return JSON.parse(JSON.stringify(spec));
 }
 
+function componentImageEntries(spec, repository = "") {
+  const entries = [];
+  const expectedRepository = String(repository ?? "").trim();
+
+  for (const collectionName of APP_SPEC_IMAGE_COLLECTIONS) {
+    for (const component of spec?.[collectionName] ?? []) {
+      const image = component?.image;
+      if (!image || typeof image !== "object") {
+        continue;
+      }
+
+      if (expectedRepository && image.repository !== expectedRepository) {
+        continue;
+      }
+
+      entries.push({
+        collectionName,
+        componentName: component.name ?? "",
+        image,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function imageIdentity(image) {
+  return JSON.stringify({
+    registryType: image.registry_type ?? "",
+    repository: image.repository ?? "",
+    tag: image.tag ?? "",
+    digest: image.digest ?? "",
+  });
+}
+
+function imageReference({ registryName, repository, tag, digest }) {
+  const registry = String(registryName ?? "").trim();
+  if (!registry) {
+    throw new Error("A DigitalOcean registry name is required to build the rollback image reference.");
+  }
+
+  if (digest) {
+    return `registry.digitalocean.com/${registry}/${repository}@${digest}`;
+  }
+
+  return `registry.digitalocean.com/${registry}/${repository}:${tag}`;
+}
+
+function writeGithubOutput(filePath, values) {
+  if (!filePath) {
+    return;
+  }
+
+  appendFileSync(
+    filePath,
+    `${Object.entries(values)
+      .map(([key, value]) => `${key}=${value ?? ""}`)
+      .join("\n")}\n`,
+  );
+}
+
 function removeDomainAttachment(spec, hostname) {
   const nextSpec = cloneSpec(spec);
   nextSpec.domains = (nextSpec.domains ?? []).filter((domain) => domain.domain !== hostname);
@@ -457,6 +520,76 @@ export function deploymentComponentNames(app) {
       ...componentNamesFromSpecCollection(spec.functions),
     ]),
   ];
+}
+
+export function appRollbackTarget(app, options = {}) {
+  const entries = componentImageEntries(app?.spec ?? {}, options.repository);
+  if (entries.length === 0) {
+    throw new Error(
+      options.repository
+        ? `App Platform app does not contain image components for repository '${options.repository}'.`
+        : "App Platform app does not contain image components.",
+    );
+  }
+
+  const identities = new Set(entries.map((entry) => imageIdentity(entry.image)));
+  if (identities.size !== 1) {
+    const summary = entries
+      .map((entry) => `- ${entry.componentName || entry.collectionName}: ${imageIdentity(entry.image)}`)
+      .join("\n");
+    throw new Error(`App Platform image components do not share a single rollback target:\n${summary}`);
+  }
+
+  const image = entries[0].image;
+  const repository = image.repository ?? "";
+  const tag = image.tag ?? "";
+  const digest = image.digest ?? "";
+  if (!repository) {
+    throw new Error("Rollback target image repository is missing from the App Platform spec.");
+  }
+  if (!tag && !digest) {
+    throw new Error("Rollback target image must include a tag or digest in the App Platform spec.");
+  }
+
+  return {
+    schemaVersion: ROLLBACK_TARGET_SCHEMA_VERSION,
+    capturedAt: options.checkedAt ?? new Date().toISOString(),
+    appId: app?.id ?? app?.ID ?? "",
+    appName: app?.spec?.name ?? app?.name ?? "",
+    registryName: options.registryName ?? "",
+    repository,
+    tag,
+    digest,
+    imageRef: imageReference({ registryName: options.registryName, repository, tag, digest }),
+    componentNames: entries.map((entry) => entry.componentName || entry.collectionName).sort(),
+    lastKnownGoodCommit: options.lastKnownGoodCommit ?? "",
+    releaseTag: options.releaseTag ?? "",
+  };
+}
+
+export function rollbackSpecToImage(spec, target, options = {}) {
+  const nextSpec = cloneSpec(spec);
+  const entries = componentImageEntries(nextSpec, options.repository ?? target.repository);
+  if (entries.length === 0) {
+    throw new Error(`App Platform spec does not contain image components for repository '${target.repository}'.`);
+  }
+
+  if (!target.digest && !target.tag) {
+    throw new Error("Rollback target image must include a digest or tag.");
+  }
+
+  for (const entry of entries) {
+    entry.image.repository = target.repository;
+    if (target.digest) {
+      entry.image.digest = target.digest;
+      delete entry.image.tag;
+    } else {
+      entry.image.tag = target.tag;
+      delete entry.image.digest;
+    }
+  }
+
+  return nextSpec;
 }
 
 export function pendingDomains(app, hostnames) {
@@ -700,6 +833,35 @@ export async function resetStaleDomainAttachment(appId, hostname, options = {}) 
   return true;
 }
 
+export async function captureRollbackTarget(appId, options = {}) {
+  const runJson = options.commandJson ?? commandJson;
+  const appResponse = await runJson("doctl", ["apps", "get", appId, "--output", "json"], options);
+  const app = normalizeAppResponse(appResponse);
+  return appRollbackTarget(app, { ...options, registryName: options.registryName });
+}
+
+export async function rollbackAppImage(appId, target, options = {}) {
+  const runJson = options.commandJson ?? commandJson;
+  const command = options.commandOutput ?? commandOutput;
+  const appResponse = await runJson("doctl", ["apps", "get", appId, "--output", "json"], options);
+  const app = normalizeAppResponse(appResponse);
+  const nextSpec = rollbackSpecToImage(app?.spec ?? {}, target, options);
+
+  await command("doctl", ["apps", "update", appId, "--spec", "-", "--wait"], {
+    input: JSON.stringify(nextSpec),
+  });
+
+  return {
+    appId,
+    imageRef: imageReference({
+      registryName: target.registryName,
+      repository: target.repository,
+      tag: target.tag,
+      digest: target.digest,
+    }),
+  };
+}
+
 export async function deployApp(appId, options = {}) {
   const command = options.commandOutput ?? commandOutput;
   const createArgs = ["apps", "create-deployment", appId, "--wait", "--format", "ID", "--no-header"];
@@ -838,8 +1000,66 @@ async function main(argv) {
     return;
   }
 
+  if (command === "capture-rollback-target") {
+    const [appId, ...options] = args;
+    if (!appId) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs capture-rollback-target <app-id> --registry-name=<name> [--repository=<repository>] [--last-known-good-commit=<sha>] [--release-tag=<tag>] [--out=<path>] [--github-output=<path>]",
+      );
+    }
+
+    const target = await captureRollbackTarget(appId, {
+      registryName: readStringOption(options, "--registry-name"),
+      repository: readStringOption(options, "--repository"),
+      lastKnownGoodCommit: readStringOption(options, "--last-known-good-commit", ""),
+      releaseTag: readStringOption(options, "--release-tag", ""),
+    });
+    const outPath = readStringOption(options, "--out");
+    if (outPath) {
+      const { writeJsonRecord } = await import("./lib/output-file.mjs");
+      await writeJsonRecord(outPath, target);
+    }
+
+    writeGithubOutput(readStringOption(options, "--github-output"), {
+      rollback_app_id: target.appId,
+      rollback_image_ref: target.imageRef,
+      rollback_image_digest: target.digest,
+      rollback_image_tag: target.tag,
+      rollback_repository: target.repository,
+      rollback_components: target.componentNames.join(","),
+      rollback_registry_name: target.registryName,
+      rollback_target_commit: target.lastKnownGoodCommit,
+      rollback_release_tag: target.releaseTag,
+    });
+
+    console.log(JSON.stringify(target, null, 2));
+    return;
+  }
+
+  if (command === "rollback-image") {
+    const [appId, ...options] = args;
+    if (!appId) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs rollback-image <app-id> --registry-name=<name> --repository=<repository> [--digest=<sha256:...>|--tag=<tag>]",
+      );
+    }
+
+    const result = await rollbackAppImage(
+      appId,
+      {
+        registryName: readStringOption(options, "--registry-name"),
+        repository: readStringOption(options, "--repository"),
+        digest: readStringOption(options, "--digest", ""),
+        tag: readStringOption(options, "--tag", ""),
+      },
+      { repository: readStringOption(options, "--repository") },
+    );
+    console.log(`Rolled back App Platform app ${result.appId} to ${result.imageRef}.`);
+    return;
+  }
+
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|postgres-cluster-id|wait|diagnostics|deploy|wait-domains|reset-domain>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|postgres-cluster-id|wait|diagnostics|deploy|wait-domains|reset-domain|capture-rollback-target|rollback-image>",
   );
 }
 

@@ -602,6 +602,71 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
+  it("captures rollback readiness before production cutover and rolls back failed post-cutover checks", () => {
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
+    const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
+    const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
+    const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
+
+    expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
+    expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+
+    const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
+    const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
+    const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
+    const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
+    const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
+    const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
+
+    expect(captureIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(applyIndex);
+    expect(smokeIndex).toBeLessThan(rollbackIndex);
+    expect(rollbackIndex).toBeLessThan(markerIndex);
+
+    expect(captureStep).toContain("terraform output -raw app_id");
+    expect(captureStep).toContain("git -C ../../.. fetch origin production --tags");
+    expect(captureStep).toContain("last_known_good_commit");
+    expect(captureStep).toContain("capture-rollback-target");
+    expect(captureStep).toContain("production-rollback-target.json");
+    expect(captureStep).toContain("docker buildx imagetools inspect");
+    expect(captureStep).toContain("smoke_verified=true");
+
+    expect(readinessStep).toContain(
+      "ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json",
+    );
+    expect(readinessStep).toContain("RECOVERY_MODE: rollback");
+    expect(readinessStep).toContain(
+      "ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}",
+    );
+    expect(readinessStep).toContain("ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}");
+    expect(readinessStep).toContain("pnpm run rollback:readiness");
+    expect(readinessStep).toContain('echo "result=${result}" >> "$GITHUB_OUTPUT"');
+
+    expect(rollbackStep).toContain(
+      "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'",
+    );
+    expect(rollbackStep).toContain("rollback-image");
+    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_digest");
+    expect(rollbackStep).toContain("steps.rollback_target.outputs.rollback_image_tag");
+    expect(rollbackStep).toContain("automated-production-rollback");
+
+    expect(releaseHealthStep).toContain(
+      "RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback'",
+    );
+    expect(releaseHealthStep).toContain(
+      "RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}",
+    );
+    expect(releaseHealthStep).toContain(
+      "ROLLBACK_READINESS_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.rollback_readiness.outputs.result || 'failure' }}",
+    );
+    expect(releaseHealthStep).not.toContain("ROLLBACK_READINESS_RESULT: unknown");
+    expect(uploadStep).toContain("artifacts/release-health/production-rollback-target.json");
+    expect(uploadStep).toContain("artifacts/release-health/production-rollback-readiness.json");
+  });
+
   it("provisions databases for every platform-api bounded context", () => {
     const managedContexts = terraformStringList(platformLocals, "platform_context_names");
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
@@ -942,7 +1007,7 @@ describe("DigitalOcean platform configuration", () => {
       "EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
     );
     expect(workflowStep(platformProductionWorkflow, "Write release health summary")).toContain(
-      "RECOVERY_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference }}",
+      "RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}",
     );
     expect(platformProductionWorkflow.indexOf("- name: Evaluate production release lock")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Validate production configuration"),
