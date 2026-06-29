@@ -32,6 +32,22 @@ CREATE TABLE IF NOT EXISTS checkout_supply_holds (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE checkout_supply_locations
+  ADD COLUMN IF NOT EXISTS account_id text NULL,
+  ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS ship_from_code text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE checkout_supply_items
+  ADD COLUMN IF NOT EXISTS account_id text NULL,
+  ADD COLUMN IF NOT EXISTS catalog_catalog_item_id text NULL,
+  ADD COLUMN IF NOT EXISTS product_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS graded_card jsonb NULL,
+  ADD COLUMN IF NOT EXISTS storage_location_id text NULL;
+
 CREATE INDEX IF NOT EXISTS checkout_supply_holds_item_idx
   ON checkout_supply_holds (item_id, status);
 
@@ -43,15 +59,4 @@ CREATE INDEX IF NOT EXISTS checkout_supply_items_account_idx
 
 CREATE INDEX IF NOT EXISTS checkout_supply_items_product_idx
   ON checkout_supply_items (product_id);
-
-ALTER TABLE checkout_supply_locations
-  ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb;
-
-ALTER TABLE checkout_supply_items
-  ADD COLUMN IF NOT EXISTS account_id text NULL,
-  ADD COLUMN IF NOT EXISTS catalog_catalog_item_id text NULL,
-  ADD COLUMN IF NOT EXISTS product_id text NULL,
-  ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS graded_card jsonb NULL,
-  ADD COLUMN IF NOT EXISTS storage_location_id text NULL;
 `;
