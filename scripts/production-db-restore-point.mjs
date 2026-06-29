@@ -104,9 +104,25 @@ export async function createProductionDbRestorePoint(options, exec) {
     "--output",
     "json",
   ];
-  const { stdout } = await exec(options.doctlPath ?? "doctl", args, {
-    maxBuffer: 1024 * 1024 * 4,
-  });
+  let stdout;
+  try {
+    ({ stdout } = await exec(options.doctlPath ?? "doctl", args, {
+      maxBuffer: 1024 * 1024 * 4,
+    }));
+  } catch (error) {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          ...baseRecord.restorePoint,
+          name: restorePointName,
+          status: "create-failed",
+        },
+        errors: describeDoctlFailure(error),
+      },
+      passesRestorePointGate: false,
+    };
+  }
   const fork = parseDoctlForkOutput(stdout);
   const record = {
     ...baseRecord,
@@ -127,6 +143,29 @@ export async function createProductionDbRestorePoint(options, exec) {
   }
 
   return { record, passesRestorePointGate: record.errors.length === 0 };
+}
+
+function describeDoctlFailure(error) {
+  const details = ["doctl database fork failed before a restore-point cluster id was returned."];
+  const code = readErrorField(error, "code");
+  const signal = readErrorField(error, "signal");
+  const stderr = diagnosticSnippet(readErrorField(error, "stderr"));
+  const stdout = diagnosticSnippet(readErrorField(error, "stdout"));
+
+  if (code !== null) {
+    details.push(`exit code: ${code}`);
+  }
+  if (signal !== null) {
+    details.push(`signal: ${signal}`);
+  }
+  if (stderr) {
+    details.push(`stderr: ${stderr}`);
+  }
+  if (stdout) {
+    details.push(`stdout: ${stdout}`);
+  }
+
+  return details;
 }
 
 export function parseDoctlForkOutput(stdout) {
@@ -191,6 +230,24 @@ function readField(record, ...names) {
     }
   }
   return null;
+}
+
+function readErrorField(error, fieldName) {
+  if (typeof error === "object" && error !== null && fieldName in error) {
+    const value = error[fieldName];
+    if (typeof value === "string" || typeof value === "number") {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function diagnosticSnippet(value) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  return value.replace(/\s+/g, " ").trim().slice(0, 1000);
 }
 
 function parseBoolean(value, name) {
