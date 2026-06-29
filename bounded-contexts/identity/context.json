@@ -986,8 +986,8 @@
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/identity/api.ts:POST /api-keys",
-        "api-route:bounded-contexts/identity/api.ts:POST /api-keys/:id/rotate",
+        "api-route:bounded-contexts/identity/features/api-keys/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/api-keys/api/route.ts:POST /:id/rotate",
         "api-route:bounded-contexts/identity/api.ts:POST /api-keys/resolve",
         "api-route:bounded-contexts/identity/features/api-keys/api/route.ts:POST /:id/revoke"
       ],

@@ -24,15 +24,15 @@ function commandResult(version: number, status: string, state: Record<string, un
   };
 }
 
-function buildApp(services: IdentityServices) {
+function buildApp(services: IdentityServices, requestActor: ResolvedActor = actor) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor);
+    c.set("actor", requestActor);
     c.set("context", {
       tenantId: "tnt_identity" as never,
       audit: {
-        performedByUserId: actor.userId as never,
-        forAccountId: actor.accountId as never,
+        performedByUserId: requestActor.userId as never,
+        forAccountId: requestActor.accountId as never,
       },
       trace: {},
     } as EventStoreContext);
@@ -42,7 +42,7 @@ function buildApp(services: IdentityServices) {
   return app;
 }
 
-function createServices() {
+function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys">> = {}) {
   return {
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
@@ -160,6 +160,7 @@ function createServices() {
       projectors: [],
     },
     projectors: [],
+    ...overrides,
   } as unknown as IdentityServices;
 }
 
@@ -573,5 +574,43 @@ describe("Identity API mutation snapshots", () => {
       version: 51,
       status: "revoked",
     });
+  });
+
+  it("keeps API-key create and rotate behind owner or platform-admin access", async () => {
+    const requestActor = { ...actor, userId: "usr_requester" };
+    const app = buildApp(createServices(), requestActor);
+
+    const createForbidden = await requestJson(app, "/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_other", name: "Automation" }),
+    });
+    expect(createForbidden.response.status).toBe(403);
+    expect(createForbidden.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+
+    const rotateForbidden = await requestJson(app, "/api-keys/key_existing/rotate", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(rotateForbidden.response.status).toBe(403);
+    expect(rotateForbidden.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+  });
+
+  it("returns not found when rotating a missing API key", async () => {
+    const baseServices = createServices();
+    const services = createServices({
+      apiKeys: {
+        ...baseServices.apiKeys,
+        getApiKey: vi.fn(async () => null) as unknown as IdentityServices["apiKeys"]["getApiKey"],
+      },
+    });
+    const app = buildApp(services);
+
+    const rotated = await requestJson(app, "/api-keys/key_missing/rotate", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    expect(rotated.response.status).toBe(404);
+    expect(rotated.body).toMatchObject({ error: { code: "not_found" } });
   });
 });

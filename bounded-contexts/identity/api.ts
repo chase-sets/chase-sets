@@ -3,9 +3,9 @@ import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AccountId, ApiKeyId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { getApiKeySecretByPrefix, upsertApiKeySecret } from "./features/api-keys/api/secret-store";
+import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
 import type { PermissionKey, RoleKey } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
@@ -706,109 +706,9 @@ export function buildIdentityApi(services: IdentityServices) {
   app.route("/users", userRoutes(services.users));
   app.route("/memberships", membershipRoutes(services.memberships));
   app.route("/invitations", invitationRoutes(services.invitations));
-  app.route("/api-keys", apiKeyRoutes(services.apiKeys));
+  app.route("/api-keys", apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth }));
   app.route("/consents", consentRoutes(services.consents));
   app.route("/preferences", userPreferencesRoutes(services.preferences));
-
-  app.post("/api-keys", async (c) => {
-    const body = await c.req.json();
-    const actor = c.var.actor;
-    const userId = String(body.userId ?? "") as UserId;
-    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== userId) {
-      return c.json(
-        {
-          error: {
-            code: "authorization_forbidden",
-            message: "Forbidden.",
-          },
-        },
-        403,
-      );
-    }
-    const context = getRequiredContext(c);
-    const apiKeyId = createId("key") as ApiKeyId;
-    const secret = services.auth.issueOpaqueToken("key");
-    const keyPrefix = secret.slice(0, 12);
-    const result = await services.apiKeys.commandHandler({
-      streamId: `identity.api-key-${apiKeyId}`,
-      command: {
-        type: "CreateApiKey",
-        apiKeyId,
-        userId,
-        name: body.name,
-        keyPrefix,
-      },
-      context,
-    });
-    await upsertApiKeySecret(services.db, {
-      apiKeyId,
-      userId,
-      keyPrefix,
-      secretHash: services.auth.hashSecret(secret),
-    });
-    return c.json(
-      {
-        id: apiKeyId,
-        version: result.version,
-        status: result.state.status,
-        secret,
-        keyPrefix,
-      },
-      201,
-    );
-  });
-
-  app.post("/api-keys/:id/rotate", async (c) => {
-    const apiKeyId = c.req.param("id");
-    const apiKey = await services.apiKeys.getApiKey(apiKeyId);
-    if (!apiKey) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: "API key not found.",
-          },
-        },
-        404,
-      );
-    }
-    const actor = c.var.actor;
-    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== apiKey.user_id) {
-      return c.json(
-        {
-          error: {
-            code: "authorization_forbidden",
-            message: "Forbidden.",
-          },
-        },
-        403,
-      );
-    }
-    const context = getRequiredContext(c);
-    const secret = services.auth.issueOpaqueToken("key");
-    const keyPrefix = secret.slice(0, 12);
-    const result = await services.apiKeys.commandHandler({
-      streamId: `identity.api-key-${apiKeyId}`,
-      command: {
-        type: "RotateApiKey",
-        keyPrefix,
-      },
-      context,
-    });
-    await upsertApiKeySecret(services.db, {
-      apiKeyId: apiKeyId as ApiKeyId,
-      userId: apiKey.user_id,
-      keyPrefix,
-      secretHash: services.auth.hashSecret(secret),
-    });
-    return c.json({
-      id: apiKeyId,
-      version: result.version,
-      status: result.state.status,
-      secret,
-      keyPrefix,
-    });
-  });
 
   app.post("/api-keys/resolve", async (c) => {
     const body = await c.req.json();
