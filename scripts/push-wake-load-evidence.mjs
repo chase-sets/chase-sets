@@ -87,6 +87,7 @@ export function buildPushWakeLoadEvidence(input) {
   const convergence = normalizeConvergence(artifact.convergence);
   const wakeStatusBefore = normalizeWakeStatus(artifact.wakeStatusBefore);
   const wakeStatusAfter = normalizeWakeStatus(artifact.wakeStatusAfter);
+  const wakePressure = normalizeWakePressure(wakeStatusBefore, wakeStatusAfter);
   const wakeRuntimeAfterLoad = normalizeWakeRuntimeReadiness(artifact.wakeRuntimeAfterLoad);
   const sourceContexts = readStringArray(artifact.sourceContexts);
   const verdictReasons = [];
@@ -183,7 +184,7 @@ export function buildPushWakeLoadEvidence(input) {
   return {
     schemaVersion: PUSH_WAKE_LOAD_EVIDENCE_VERSION,
     checkedAt: input.checkedAt,
-    issueNumbers: [1363],
+    issueNumbers: [1363, 2515],
     sourceArtifact: {
       path: input.artifactPath ? sanitizeEvidenceString(input.artifactPath) : null,
       schemaVersion: sanitizeEvidenceString(artifact.schemaVersion),
@@ -216,6 +217,7 @@ export function buildPushWakeLoadEvidence(input) {
         before: wakeStatusBefore.summary,
         after: wakeStatusAfter.summary,
       },
+      wakePressure,
       wakeRuntime: {
         afterLoad: wakeRuntimeAfterLoad.summary,
       },
@@ -235,6 +237,7 @@ export function buildPushWakeLoadEvidence(input) {
 export function renderPushWakeLoadEvidenceMarkdown(evidence) {
   const load = evidence.observations.loadSummary;
   const convergence = evidence.observations.durableConvergence;
+  const wakePressure = evidence.observations.wakePressure?.afterLoad;
   return [
     "# Push-Wake Load Evidence",
     "",
@@ -257,6 +260,12 @@ export function renderPushWakeLoadEvidenceMarkdown(evidence) {
     "",
     `- Converged: ${convergence.converged}`,
     `- Converged after: ${convergence.convergedAfterMs ?? "not measured"} ms`,
+    "",
+    "## Wake Pressure",
+    "",
+    `- Attribution: ${wakePressure?.attribution.status ?? "not recorded"} (${wakePressure?.attribution.confidence ?? "unknown"} confidence)`,
+    `- Queued intents after load: ${wakePressure?.queuedIntentCount ?? "not measured"} total; ${wakePressure?.hotLaneQueuedCount ?? "not measured"} hot-lane; ${wakePressure?.nonHotQueuedCount ?? "not measured"} non-hot`,
+    `- Oldest queued age: hot ${wakePressure?.oldestHotQueuedAgeMs ?? "not measured"} ms; non-hot ${wakePressure?.oldestNonHotQueuedAgeMs ?? "not measured"} ms`,
     "",
     ...evidence.warnings.map((warning) => `> ${warning}`),
     "",
@@ -422,6 +431,153 @@ function normalizeWakeIntentBreakdown(value) {
       maxAttemptCount: toFiniteNumber(row.maxAttemptCount),
     };
   });
+}
+
+function normalizeWakePressure(before, after) {
+  return {
+    beforeLoad: summarizeWakeIntentPressure(before),
+    afterLoad: summarizeWakeIntentPressure(after),
+  };
+}
+
+function summarizeWakeIntentPressure(snapshot) {
+  if (!snapshot.present) {
+    return emptyWakePressureSummary("insufficient-wake-status", "low", ["wake-status snapshot was not captured"]);
+  }
+
+  const queuedRows = snapshot.intentBreakdown.filter((entry) => entry.state === "queued");
+  const summaryQueuedCount = snapshot.intentSummary.queuedCount;
+  if (queuedRows.length === 0 && summaryQueuedCount > 0) {
+    return {
+      ...emptyWakePressureSummary("insufficient-wake-breakdown", "low", [
+        "wake-status summary reported queued intents without lane breakdown rows",
+      ]),
+      queuedIntentCount: summaryQueuedCount,
+    };
+  }
+  if (queuedRows.length === 0) {
+    return emptyWakePressureSummary("no-queued-intents", "high", ["no queued wake intents were present"]);
+  }
+
+  const queuedByLane = {};
+  const queuedByOrigin = {};
+  const groupByLaneAndOrigin = new Map();
+  let queuedIntentCount = 0;
+  let hotLaneQueuedCount = 0;
+  let nonHotQueuedCount = 0;
+  let oldestHotQueuedAgeMs = null;
+  let oldestNonHotQueuedAgeMs = null;
+
+  for (const row of queuedRows) {
+    const priorityLane = normalizePressureDimension(row.priorityLane);
+    const origin = normalizePressureDimension(row.origin);
+    const intentCount = row.intentCount;
+    queuedIntentCount += intentCount;
+    queuedByLane[priorityLane] = (queuedByLane[priorityLane] ?? 0) + intentCount;
+    queuedByOrigin[origin] = (queuedByOrigin[origin] ?? 0) + intentCount;
+
+    const groupKey = `${priorityLane}\u0000${origin}`;
+    const group = groupByLaneAndOrigin.get(groupKey) ?? {
+      priorityLane,
+      origin,
+      intentCount: 0,
+      oldestAgeMs: null,
+    };
+    group.intentCount += intentCount;
+    group.oldestAgeMs = maxNullableNumber(group.oldestAgeMs, row.oldestAgeMs);
+    groupByLaneAndOrigin.set(groupKey, group);
+
+    if (priorityLane === "hot") {
+      hotLaneQueuedCount += intentCount;
+      oldestHotQueuedAgeMs = maxNullableNumber(oldestHotQueuedAgeMs, row.oldestAgeMs);
+    } else {
+      nonHotQueuedCount += intentCount;
+      oldestNonHotQueuedAgeMs = maxNullableNumber(oldestNonHotQueuedAgeMs, row.oldestAgeMs);
+    }
+  }
+
+  return {
+    queuedIntentCount,
+    hotLaneQueuedCount,
+    nonHotQueuedCount,
+    oldestHotQueuedAgeMs,
+    oldestNonHotQueuedAgeMs,
+    queuedByLane: sortCountMap(queuedByLane),
+    queuedByOrigin: sortCountMap(queuedByOrigin),
+    queuedByLaneAndOrigin: [...groupByLaneAndOrigin.values()].sort(compareWakePressureGroups),
+    attribution: classifyWakePressureAttribution(hotLaneQueuedCount, nonHotQueuedCount),
+  };
+}
+
+function emptyWakePressureSummary(status, confidence, reasons) {
+  return {
+    queuedIntentCount: 0,
+    hotLaneQueuedCount: 0,
+    nonHotQueuedCount: 0,
+    oldestHotQueuedAgeMs: null,
+    oldestNonHotQueuedAgeMs: null,
+    queuedByLane: {},
+    queuedByOrigin: {},
+    queuedByLaneAndOrigin: [],
+    attribution: {
+      status,
+      confidence,
+      reasons,
+    },
+  };
+}
+
+function normalizePressureDimension(value) {
+  const normalized = sanitizeEvidenceString(value).trim().toLowerCase();
+  return normalized || "unknown";
+}
+
+function classifyWakePressureAttribution(hotLaneQueuedCount, nonHotQueuedCount) {
+  if (hotLaneQueuedCount > 0 && nonHotQueuedCount > 0) {
+    return {
+      status: "mixed-pressure",
+      confidence: "high",
+      reasons: ["hot-lane and non-hot wake intents remained queued after load"],
+    };
+  }
+  if (hotLaneQueuedCount > 0) {
+    return {
+      status: "hot-lane-pressure",
+      confidence: "high",
+      reasons: ["hot-lane wake intents remained queued after load"],
+    };
+  }
+  return {
+    status: "background-lane-pressure",
+    confidence: "high",
+    reasons: ["queued wake intents were isolated to standard, bulk, or unknown lanes"],
+  };
+}
+
+function sortCountMap(counts) {
+  return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function compareWakePressureGroups(left, right) {
+  if (right.intentCount !== left.intentCount) {
+    return right.intentCount - left.intentCount;
+  }
+  const rightAge = right.oldestAgeMs ?? -1;
+  const leftAge = left.oldestAgeMs ?? -1;
+  if (rightAge !== leftAge) {
+    return rightAge - leftAge;
+  }
+  return `${left.priorityLane}:${left.origin}`.localeCompare(`${right.priorityLane}:${right.origin}`);
+}
+
+function maxNullableNumber(left, right) {
+  if (left === null) {
+    return right;
+  }
+  if (right === null) {
+    return left;
+  }
+  return Math.max(left, right);
 }
 
 function normalizeOldestQueuedIntentGroups(intentBreakdown) {
