@@ -33,7 +33,11 @@ import {
   navigateAfterWriteWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
 } from "@chase-sets/platform-runtime/post-write-tokens";
-import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import {
+  CheckoutApiError,
+  createCheckoutRequestApiClient,
+  type CheckoutShipFromAddressRow,
+} from "../support/request-support/api-client";
 import {
   checkoutRecoveryForError,
   checkoutRecoveryForFreshWriteError,
@@ -41,7 +45,7 @@ import {
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
-import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
+import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import {
   createPaymentsRequestApiClient,
@@ -116,7 +120,7 @@ function shippingAddressFromForm(formData: FormData) {
   };
 }
 
-function shippingAddressFromSavedAddress(address: ShippingAddress) {
+function shippingAddressFromSavedAddress(address: CheckoutShipFromAddressRow) {
   return {
     shippingAddressId: address.shipping_address_id,
     name: address.recipient_name,
@@ -175,10 +179,7 @@ async function loadSavedShippingAddresses(
   ) {
     return [];
   }
-  const identityApi = createIdentityRequestApiClient(request);
-  const response = await identityApi.listShippingAddresses<{
-    items: readonly ShippingAddress[];
-  }>(actor.accountId);
+  const response = await createCheckoutRequestApiClient(request).listSellListShipFromAddresses();
   return response.items;
 }
 
@@ -254,7 +255,6 @@ async function resolveCheckoutShippingAddress(
     };
   }
 
-  const identityApi = createIdentityRequestApiClient(request);
   const savedAddresses =
     selectedShippingAddressId && selectedShippingAddressId !== "__manual"
       ? await loadSavedShippingAddresses(request, actor)
@@ -271,6 +271,7 @@ async function resolveCheckoutShippingAddress(
 
   if (addressBookAction === "update-selected" && selectedSavedAddress && actorAccountId) {
     assertServiceable(formAddress);
+    const identityApi = createIdentityRequestApiClient(request);
     await identityApi.updateShippingAddress(actorAccountId!, selectedSavedAddress.shipping_address_id, {
       label: selectedSavedAddress.label,
       ...formAddress,
@@ -284,6 +285,7 @@ async function resolveCheckoutShippingAddress(
 
   if (addressBookAction === "save-new" && actorAccountId) {
     assertServiceable(formAddress);
+    const identityApi = createIdentityRequestApiClient(request);
     const result = await identityApi.createShippingAddress<{ id: string }>(actorAccountId!, {
       ...formAddress,
       makeDefault,

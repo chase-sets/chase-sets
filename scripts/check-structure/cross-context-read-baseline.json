@@ -25,19 +25,6 @@
       "migration": "Serve payment confirmation status from a Checkout-owned payment mirror with wake-before-wait (#2512) instead of a Payments request read."
     },
     {
-      "id": "bounded-contexts/checkout/routes/checkout-session.tsx:identity:createIdentityRequestApiClient.listShippingAddresses#1",
-      "consumerContextName": "checkout",
-      "sourceContextName": "identity",
-      "file": "bounded-contexts/checkout/routes/checkout-session.tsx",
-      "line": 179,
-      "clientFactory": "createIdentityRequestApiClient",
-      "methodName": "listShippingAddresses",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "poll-only",
-      "issue": "#2778",
-      "migration": "Mirror account shipping addresses into the Checkout buy-session projection; Identity remains poll-only until #1364 expands push coverage."
-    },
-    {
       "id": "bounded-contexts/checkout/routes/checkout-session.tsx:ordering:createOrderingRequestApiClient.previewCheckoutFulfillment#1",
       "consumerContextName": "checkout",
       "sourceContextName": "ordering",
