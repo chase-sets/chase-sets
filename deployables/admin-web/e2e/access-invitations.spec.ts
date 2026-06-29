@@ -30,7 +30,7 @@ test.describe("access admin invitations", () => {
     await expect(page.getByText("pending").first()).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page).toHaveURL(new RegExp(`/access/invitations/${invitationId}(?:\\?|$)`));
-    await expectCancelledInvitation(page, invitationId);
+    await expectCancelledInvitation(page, invitationId, invitationEmail);
   });
 });
 
@@ -86,8 +86,8 @@ async function waitForInvitationStatus(page: Page, invitationId: string, status:
   await page.reload({ waitUntil: "domcontentloaded" });
 }
 
-async function expectCancelledInvitation(page: Page, invitationId: string) {
+async function expectCancelledInvitation(page: Page, invitationId: string, invitationEmail: string) {
   await waitForInvitationStatus(page, invitationId, "cancelled");
-  await expect(page.getByText("cancelled").first()).toBeVisible();
+  await expectAdminPageReady(page, { heading: invitationEmail });
   await expect(page.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 }
