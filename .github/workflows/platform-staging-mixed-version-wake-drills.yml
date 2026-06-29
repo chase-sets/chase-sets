@@ -1,0 +1,139 @@
+name: Platform Staging Mixed-Version Wake Evidence
+
+# Evaluates #1365 mixed-version wake-envelope proof from an existing Platform
+# Deploy run and one or two overlapping Platform Staging Wake Drill runs. This
+# workflow does not deploy or mutate staging; it fails unless the supplied wake
+# traffic window overlaps the staging deploy window for distinct commits.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "evaluate mixed-version wake evidence" to confirm.
+        required: true
+        type: string
+      platform_deploy_run_id:
+        description: Platform Deploy run id that rolled staging from baseline N to candidate N+1.
+        required: true
+        type: string
+      wake_drill_run_id:
+        description: Platform Staging Wake Drill run id whose traffic overlapped staging deploy.
+        required: true
+        type: string
+      secondary_wake_drill_run_id:
+        description: Optional second wake drill run id, for paired reconciliation/load evidence.
+        required: false
+        default: ""
+        type: string
+      baseline_commit:
+        description: 40-character staging commit/image tag observed before the deploy began.
+        required: true
+        type: string
+      candidate_commit:
+        description: Optional candidate commit. Defaults to the Platform Deploy run head SHA.
+        required: false
+        default: ""
+        type: string
+      release_ref:
+        description: Ref containing the evaluator tooling. Defaults to main.
+        required: false
+        default: main
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: platform-staging-mixed-version-wake-evidence
+  cancel-in-progress: false
+
+jobs:
+  evaluate-mixed-version-wake-evidence:
+    name: Evaluate Mixed-Version Wake Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: inputs.confirm == 'evaluate mixed-version wake evidence'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVIDENCE_DIR: artifacts/wake-drills/mixed-version
+    steps:
+      - name: Confirm mixed-version evidence evaluation
+        run: |
+          set -euo pipefail
+          echo "Evaluating mixed-version wake evidence for deploy run ${{ inputs.platform_deploy_run_id }}."
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Download source evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/platform-deploy" "$EVIDENCE_DIR/wake-primary"
+
+          gh run view "${{ inputs.platform_deploy_run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs \
+            > "$EVIDENCE_DIR/platform-deploy/platform-deploy-run.json"
+
+          gh run download "${{ inputs.wake_drill_run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$EVIDENCE_DIR/wake-primary"
+
+          if [ -n "${{ inputs.secondary_wake_drill_run_id }}" ]; then
+            mkdir -p "$EVIDENCE_DIR/wake-secondary"
+            gh run download "${{ inputs.secondary_wake_drill_run_id }}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir "$EVIDENCE_DIR/wake-secondary"
+          fi
+
+      - name: Evaluate mixed-version evidence
+        run: |
+          set -euo pipefail
+          mapfile -t wake_jsons < <(find "$EVIDENCE_DIR" -type f -name 'staging-wake-drill-*.json' ! -name '*evaluation*' | sort)
+          mapfile -t evaluation_jsons < <(find "$EVIDENCE_DIR" -type f -name 'staging-wake-drill-load-evaluation.json' | sort)
+
+          if [ "${#wake_jsons[@]}" -eq 0 ]; then
+            echo "No staging wake drill JSON artifact was found." >&2
+            exit 1
+          fi
+
+          args=(
+            --deploy-run-json "$EVIDENCE_DIR/platform-deploy/platform-deploy-run.json"
+            --baseline-commit "${{ inputs.baseline_commit }}"
+            --out "$EVIDENCE_DIR/staging-mixed-version-wake-drill-evidence.json"
+          )
+
+          if [ -n "${{ inputs.candidate_commit }}" ]; then
+            args+=(--candidate-commit "${{ inputs.candidate_commit }}")
+          fi
+
+          for wake_json in "${wake_jsons[@]}"; do
+            args+=(--wake-drill-json "$wake_json")
+          done
+          for evaluation_json in "${evaluation_jsons[@]}"; do
+            args+=(--load-evaluation-json "$evaluation_json")
+          done
+
+          pnpm run wake:mixed-version-drill -- "${args[@]}"
+
+      - name: Upload mixed-version wake evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-mixed-version-wake-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/wake-drills/mixed-version
+          if-no-files-found: error
+          retention-days: 30
