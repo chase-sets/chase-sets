@@ -1,8 +1,8 @@
 export type DurableJobBrowserStatus = Readonly<{
-  status: "queued" | "running" | "completed" | "failed";
+  status?: "queued" | "running" | "completed" | "failed";
 }>;
 
-export type DurableJobStatusSubscription<TJob extends DurableJobBrowserStatus> = Readonly<{
+export type DurableJobStatusSubscription<TJob extends object> = Readonly<{
   close: () => void;
   current: () => TJob | null;
 }>;
@@ -12,16 +12,17 @@ type DurableJobSyncRequiredMessage<TJob extends DurableJobBrowserStatus> = Reado
   snapshot: TJob;
 }>;
 
-export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
+export function subscribeDurableJobStatus<TJob extends object>(
   options: Readonly<{
     url: string;
     onStatus: (job: TJob) => void;
     onTerminal?: (job: TJob) => void;
     onError?: (error: Event) => void;
+    isTerminal?: (job: TJob) => boolean;
     reconnectDelayMs?: number;
   }>,
 ): DurableJobStatusSubscription<TJob> {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || typeof EventSource === "undefined") {
     return {
       close: () => undefined,
       current: () => null,
@@ -56,7 +57,7 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
     const applyJob = (job: TJob) => {
       currentJob = job;
       options.onStatus(job);
-      if (job.status === "completed" || job.status === "failed") {
+      if (isTerminalJob(job, options.isTerminal)) {
         closeSource();
         options.onTerminal?.(job);
       }
@@ -70,7 +71,7 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
       lastEventId = (event as MessageEvent).lastEventId || lastEventId;
       const message = JSON.parse((event as MessageEvent).data) as DurableJobSyncRequiredMessage<TJob>;
       applyJob(message.snapshot);
-      if (!closed && message.snapshot.status !== "completed" && message.snapshot.status !== "failed") {
+      if (!closed && !isTerminalJob(message.snapshot, options.isTerminal)) {
         closeSource();
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
@@ -82,7 +83,7 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
     });
     source.addEventListener("error", (event) => {
       options.onError?.(event);
-      if (currentJob?.status === "completed" || currentJob?.status === "failed") {
+      if (currentJob && isTerminalJob(currentJob, options.isTerminal)) {
         closeSource();
         return;
       }
@@ -108,4 +109,13 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
     },
     current: () => currentJob,
   };
+}
+
+function isTerminalJob<TJob extends object>(job: TJob, isTerminal?: (job: TJob) => boolean) {
+  if (isTerminal) {
+    return isTerminal(job);
+  }
+
+  const status = "status" in job ? (job as DurableJobBrowserStatus).status : undefined;
+  return status === "completed" || status === "failed";
 }

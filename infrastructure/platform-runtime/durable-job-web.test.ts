@@ -98,4 +98,26 @@ describe("durable job web subscriptions", () => {
 
     subscription.close();
   });
+
+  it("supports custom terminal predicates for non-durable-job status vocabularies", () => {
+    const statuses: unknown[] = [];
+    const terminal = vi.fn();
+    const subscription = subscribeDurableJobStatus({
+      url: "/api/platform/projections/operations/op_1/events",
+      isTerminal: (job: { state: string }) => job.state === "succeeded",
+      onStatus: (job) => statuses.push(job),
+      onTerminal: terminal,
+    });
+
+    FakeEventSource.instances[0]?.emit("status", { state: "succeeded" }, "3");
+    FakeEventSource.instances[0]?.emit("error", {});
+    vi.advanceTimersByTime(1_000);
+
+    expect(statuses).toEqual([{ state: "succeeded" }]);
+    expect(terminal).toHaveBeenCalledWith({ state: "succeeded" });
+    expect(FakeEventSource.instances[0]?.close).toHaveBeenCalled();
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    subscription.close();
+  });
 });
