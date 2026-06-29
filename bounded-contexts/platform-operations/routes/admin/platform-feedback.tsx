@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import { PlatformFeedbackAdminListPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
@@ -46,16 +47,17 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const feedbackIds = formData.getAll("feedbackIds").map(String).filter(Boolean);
+  let result: unknown = null;
 
   if (intent === "bulk-review") {
-    await api.bulkMarkReviewed({ feedbackIds });
+    result = await api.bulkMarkReviewed({ feedbackIds });
   }
 
   if (intent === "bulk-archive") {
-    await api.bulkArchive({ feedbackIds });
+    result = await api.bulkArchive({ feedbackIds });
   }
 
-  throw redirect(`/support/platform-feedback${url.search}`);
+  throw redirect(navigateAfterWrite(result, `/support/platform-feedback${url.search}`));
 }
 
 export const meta: MetaFunction = () => [

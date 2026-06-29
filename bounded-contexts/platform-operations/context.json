@@ -49,6 +49,13 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "experience-platform-feedback-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["experience_platform_feedback_pages", "experience_platform_feedback_prompt_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "support-order-source-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["support_order_sources"],
@@ -61,6 +68,66 @@
       "ownedTables": ["support_shipment_sources"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "platform-operations.platform-feedback-detail-fresh-read",
+      "owner": "platform-operations",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "platform-feedback-detail",
+        "actions": ["Mark reviewed", "Archive", "Record note"],
+        "command": "Platform feedback lifecycle commands",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "platform-feedback-detail",
+        "apiContextName": "platform-operations",
+        "apiRoutePath": "/platform-feedback/:id",
+        "readModelTables": ["experience_platform_feedback_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Platform feedback detail redirects carry the Platform Operations command receipt so the detail loader reads after the platform feedback projection catches up."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "platform-operations.platform-feedback-list-fresh-read",
+      "owner": "platform-operations",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "platform-feedback",
+        "actions": ["Mark selected reviewed", "Archive selected"],
+        "command": "Platform feedback bulk lifecycle commands",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "platform-feedback",
+        "apiContextName": "platform-operations",
+        "apiRoutePath": "/platform-feedback",
+        "readModelTables": ["experience_platform_feedback_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Platform feedback queue redirects carry the Platform Operations command receipt so list and metric reads happen after the platform feedback projection catches up."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"]
+      }
     }
   ],
   "hostPorts": [
@@ -80,7 +147,27 @@
     {
       "mountPath": "/api/experience",
       "kind": "additional",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/platform-feedback",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "experience_platform_feedback_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/platform-feedback/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "experience_platform_feedback_pages"
+            }
+          ]
+        }
+      ]
     },
     {
       "mountPath": "/api/marketplace",

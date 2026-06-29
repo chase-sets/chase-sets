@@ -33,6 +33,7 @@ describe("push wake capacity evidence", () => {
       "marketplace",
       "ordering",
       "payments",
+      "platform-operations",
       "settlement",
     ]);
 
@@ -57,6 +58,7 @@ describe("push wake capacity evidence", () => {
 
     expect(evidence.registryToInfrastructureGap.activeRelayContextsWithoutDirectListenerUrls).toEqual([
       "catalog",
+      "platform-operations",
       "settlement",
     ]);
     expect(evidence.registryToInfrastructureGap.wave2ContextsWithoutDirectListenerUrls).toEqual([

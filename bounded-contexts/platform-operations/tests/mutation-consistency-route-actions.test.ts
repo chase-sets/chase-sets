@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
 
 const { mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
@@ -30,10 +31,25 @@ function formRequest(url: string, form: URLSearchParams) {
   });
 }
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
+function commandJsonResponse(body: unknown, position = "42") {
+  return jsonResponse(body, 200, {
+    "Chase-Sets-Consistency": "eventual",
+    "Chase-Sets-Commit-Position": position,
+    "Chase-Sets-Commit-Event-Ids": `evt_platform_operations_${position}`,
+    [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([
+      {
+        sourceContextName: "platform-operations",
+        maxGlobalPosition: position,
+        eventIds: [`evt_platform_operations_${position}`],
+      },
+    ]),
   });
 }
 
@@ -81,7 +97,7 @@ describe("platform operations mutation consistency route actions", () => {
   });
 
   it("refetches platform feedback detail after review snapshots", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ id: "pfb_1", version: 2, status: "reviewed" }));
+    const fetchMock = vi.fn(async () => commandJsonResponse({ id: "pfb_1", version: 2, status: "reviewed" }));
     vi.stubGlobal("fetch", fetchMock);
     const form = new URLSearchParams({ intent: "review" });
 
@@ -98,7 +114,28 @@ describe("platform operations mutation consistency route actions", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");
+    expect(response.headers.get("Location")).toContain("/support/platform-feedback/pfb_1?afterWrite=");
+  });
+
+  it("refetches platform feedback detail after archive snapshots", async () => {
+    const fetchMock = vi.fn(async () => commandJsonResponse({ id: "pfb_1", version: 3, status: "archived" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new URLSearchParams({ intent: "archive" });
+
+    const response = await captureRedirect(
+      platformFeedbackDetailAction({
+        request: formRequest("http://localhost/support/platform-feedback/pfb_1", form),
+        params: { id: "pfb_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/experience/platform-feedback/pfb_1/archive",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/support/platform-feedback/pfb_1?afterWrite=");
   });
 
   it("refetches platform feedback detail after archive snapshots", async () => {
@@ -124,7 +161,7 @@ describe("platform operations mutation consistency route actions", () => {
 
   it("refetches platform feedback queues after bulk snapshots", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse({
+      commandJsonResponse({
         action: "reviewed",
         updated: 1,
         skipped: 0,
@@ -150,11 +187,11 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/support/platform-feedback?status=new");
+    expect(response.headers.get("Location")).toContain("/support/platform-feedback?status=new&afterWrite=");
   });
 
   it("refetches platform feedback detail after operator note snapshots", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ id: "pfb_1", version: 3, noteId: "pfn_1" }));
+    const fetchMock = vi.fn(async () => commandJsonResponse({ id: "pfb_1", version: 3, noteId: "pfn_1" }));
     vi.stubGlobal("fetch", fetchMock);
     const form = new URLSearchParams({ intent: "record-note", body: "Follow up." });
 
@@ -174,7 +211,7 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/support/platform-feedback/pfb_1");
+    expect(response.headers.get("Location")).toContain("/support/platform-feedback/pfb_1?afterWrite=");
   });
 
   it("redirects support operations with the escalation snapshot counts", async () => {
