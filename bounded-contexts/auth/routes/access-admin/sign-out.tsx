@@ -1,6 +1,6 @@
-import { accessAdminAuthHost } from "../../support/route-support/auth-host.server";
+import { adminAuthHost } from "../../support/route-support/auth-host.server";
 
-export const action = accessAdminAuthHost.createSignOutAction();
+export const action = adminAuthHost.createSignOutAction();
 
 export default function AccessAdminSignOutRoute() {
   return null;

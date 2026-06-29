@@ -457,7 +457,7 @@ test.describe("catalog staging provider sync UAT", () => {
 });
 
 async function signInThroughVisibleForm(page: Page): Promise<void> {
-  await page.goto("/catalog/sign-in?returnTo=%2Fcatalog%2Fintegrations", {
+  await page.goto("/access/sign-in?returnTo=%2Fcatalog%2Fintegrations", {
     waitUntil: "domcontentloaded",
     timeout: pageReadyTimeoutMs,
   });

@@ -283,7 +283,7 @@ async function expectMarketplaceSocialLoginStarts(marketplaceOrigin) {
 }
 
 async function expectAdminGoogleWorkspaceSsoStart(adminOrigin) {
-  const input = `${adminOrigin}/api/auth/social/google/start?journey=catalog-admin&returnTo=%2Fcatalog`;
+  const input = `${adminOrigin}/api/auth/social/google/start?journey=admin&returnTo=%2Fcatalog`;
   const response = await fetchWithRetry(
     "admin Google Workspace SSO start",
     input,

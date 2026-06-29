@@ -66,7 +66,7 @@ async function addSessionCookie(page: Page, origin: string, sessionToken: string
 }
 
 async function authenticateCatalogAdmin(page: Page) {
-  await expectPageOk(page, "/catalog/sign-in?returnTo=%2Fcatalog%2Fintegrations");
+  await expectPageOk(page, "/access/sign-in?returnTo=%2Fcatalog%2Fintegrations");
   const origin = new URL(page.url()).origin;
   const deadline = Date.now() + authApiTimeoutMs;
   let response = await page.request.post(`${origin}/api/auth/password-sign-in`, {

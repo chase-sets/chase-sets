@@ -28,29 +28,12 @@ export const marketplaceAuthHostConfig = {
   },
 } satisfies AuthHostDefinition;
 
-export const catalogAdminAuthHostConfig = {
-  hostLabel: "Catalog Admin",
-  signInPath: "/catalog/sign-in",
-  fallbackPath: "/catalog/dimensions",
-  defaultSuccessPath: "/catalog/dimensions",
-  accountSelectionPath: "/catalog/account-select",
-  requiredPermission: "catalog.view",
-  signedOutReturnTo: "/catalog/sign-in",
-  signInMethods: ["password", "phone-code", "magic-link", "passkey"],
-  allowManualMagicLinkTokenEntry: false,
-  titles: {
-    signIn: "Sign In | Catalog Admin",
-    accountSelection: "Select Account | Catalog Admin",
-  },
-} satisfies AuthHostDefinition;
-
-export const accessAdminAuthHostConfig = {
+export const adminAuthHostConfig = {
   hostLabel: "Admin",
   signInPath: "/access/sign-in",
-  fallbackPath: "/access/accounts",
-  defaultSuccessPath: "/access/accounts",
+  fallbackPath: "/",
+  defaultSuccessPath: "/",
   accountSelectionPath: "/access/account-select",
-  requiredPermission: "accounts.view",
   signedOutReturnTo: "/access/sign-in",
   signInMethods: ["password", "phone-code", "magic-link", "passkey"],
   allowManualMagicLinkTokenEntry: false,

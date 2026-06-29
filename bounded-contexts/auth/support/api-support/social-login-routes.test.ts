@@ -411,7 +411,7 @@ describe("social login routes", () => {
     });
     const app = buildApp(services);
 
-    const response = await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
+    const response = await app.request("/social/google/start?journey=admin&returnTo=/access/accounts");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
@@ -422,7 +422,7 @@ describe("social login routes", () => {
     );
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_social_login_states"),
-      expect.arrayContaining(["hashed:social_token", "google", "access-admin", "/access/accounts"]),
+      expect.arrayContaining(["hashed:social_token", "google", "admin", "/access/accounts"]),
     );
   });
 
@@ -432,12 +432,12 @@ describe("social login routes", () => {
     });
     const app = buildApp(services);
 
-    const response = await app.request("/social/google/start?journey=access-admin&returnTo=//evil.example/access");
+    const response = await app.request("/social/google/start?journey=admin&returnTo=//evil.example/access");
 
     expect(response.status).toBe(302);
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_social_login_states"),
-      expect.arrayContaining(["hashed:social_token", "google", "access-admin", "/access/accounts"]),
+      expect.arrayContaining(["hashed:social_token", "google", "admin", "/"]),
     );
   });
 
@@ -453,7 +453,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
+    await app.request("/social/google/start?journey=admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -474,7 +474,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
+    await app.request("/social/google/start?journey=admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -511,7 +511,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
+    await app.request("/social/google/start?journey=admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -540,7 +540,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/support/platform-feedback");
+    await app.request("/social/google/start?journey=admin&returnTo=/support/platform-feedback");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -577,7 +577,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/growth/waitlist");
+    await app.request("/social/google/start?journey=admin&returnTo=/growth/waitlist");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -607,7 +607,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/commerce/terms/schedules");
+    await app.request("/social/google/start?journey=admin&returnTo=/commerce/terms/schedules");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -636,7 +636,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/commerce");
+    await app.request("/social/google/start?journey=admin&returnTo=/commerce");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -665,7 +665,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/");
+    await app.request("/social/google/start?journey=admin&returnTo=/");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
@@ -694,7 +694,7 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=access-admin&returnTo=/support/platform-feedback");
+    await app.request("/social/google/start?journey=admin&returnTo=/support/platform-feedback");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);

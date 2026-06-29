@@ -22,11 +22,11 @@ describe("admin social login route support", () => {
   });
 
   it("builds Google Workspace SSO links with the requested route", () => {
-    expect(createAdminGoogleWorkspaceSocialLoginHref("access-admin", "/support/platform-feedback")).toBe(
-      "/api/auth/social/google/start?journey=access-admin&returnTo=%2Fsupport%2Fplatform-feedback",
+    expect(createAdminGoogleWorkspaceSocialLoginHref("/support/platform-feedback")).toBe(
+      "/api/auth/social/google/start?journey=admin&returnTo=%2Fsupport%2Fplatform-feedback",
     );
-    expect(createAdminGoogleWorkspaceSocialLoginHref("catalog-admin", "/catalog/integrations")).toBe(
-      "/api/auth/social/google/start?journey=catalog-admin&returnTo=%2Fcatalog%2Fintegrations",
+    expect(createAdminGoogleWorkspaceSocialLoginHref("/catalog/integrations")).toBe(
+      "/api/auth/social/google/start?journey=admin&returnTo=%2Fcatalog%2Fintegrations",
     );
   });
 });
