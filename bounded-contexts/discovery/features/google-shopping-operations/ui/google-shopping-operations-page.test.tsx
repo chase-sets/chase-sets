@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
+
 import type { ReactNode } from "react";
+import { render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoogleShoppingOperationsPage } from "./google-shopping-operations-page";
 import type { GoogleShoppingFeedRowList } from "./contracts";
 
@@ -13,7 +16,40 @@ vi.mock("react-router", () => ({
   ),
 }));
 
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  readonly listeners = new Map<string, Set<(event: Event) => void>>();
+  readonly close = vi.fn();
+
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void) {
+    const listeners = this.listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  emit(type: string, data: unknown, lastEventId = "") {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: JSON.stringify(data), lastEventId } as MessageEvent);
+    }
+  }
+}
+
 describe("GoogleShoppingOperationsPage", () => {
+  const originalEventSource = globalThis.EventSource;
+
+  afterEach(() => {
+    FakeEventSource.instances = [];
+    Object.defineProperty(globalThis, "EventSource", {
+      value: originalEventSource,
+      configurable: true,
+    });
+  });
+
   it("renders filtered feed row remediation context without exposing raw provider state", () => {
     const markup = renderToString(
       <GoogleShoppingOperationsPage
@@ -44,6 +80,75 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).toContain("https://github.com/chase-sets/chase-sets/issues/3032");
     expect(markup).not.toContain("lastProviderResponse");
     expect(markup).not.toContain("secret-token");
+  });
+
+  it("subscribes to latest Google Shopping sync job events and renders terminal progress", async () => {
+    Object.defineProperty(globalThis, "EventSource", {
+      value: FakeEventSource,
+      configurable: true,
+    });
+    const onJobTerminal = vi.fn();
+
+    render(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{
+          filter: "failed",
+          search: "lst_1",
+          limit: 25,
+          refreshWindowDays: 30,
+          selected: "",
+        }}
+        latestJobIds={["job_sync"]}
+        onJobTerminal={onJobTerminal}
+      />,
+    );
+
+    expect(FakeEventSource.instances[0]?.url).toBe("/api/marketplace/google-shopping/sync-jobs/job_sync/events");
+    expect(screen.getByText("Waiting for live job status.")).toBeTruthy();
+
+    FakeEventSource.instances[0]?.emit(
+      "status",
+      {
+        jobId: "job_sync",
+        jobKind: "full-sync",
+        status: "completed",
+        progress: {
+          phase: "completed",
+          completed: 3,
+          total: 3,
+          currentRowId: "google-shopping:listing:lst_1",
+          submitted: 1,
+          skipped: 1,
+          deleted: 0,
+          failed: 1,
+          excluded: 0,
+          message: "Google Shopping full sync completed.",
+        },
+        result: {
+          mode: "dry-run",
+          submitted: 1,
+          skipped: 1,
+          deleted: 0,
+          failed: 1,
+          excluded: 0,
+          total: 3,
+        },
+        errorMessage: null,
+        createdAt: "2026-06-03T12:00:00.000Z",
+        startedAt: "2026-06-03T12:01:00.000Z",
+        completedAt: "2026-06-03T12:02:00.000Z",
+        updatedAt: "2026-06-03T12:02:00.000Z",
+      },
+      "2",
+    );
+
+    expect(await screen.findByText("Google Shopping full sync completed.")).toBeTruthy();
+    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getByText("3 of 3")).toBeTruthy();
+    expect(screen.getAllByText("google-shopping:listing:lst_1").length).toBeGreaterThan(0);
+    expect(onJobTerminal).toHaveBeenCalledOnce();
+    expect(FakeEventSource.instances[0]?.close).toHaveBeenCalled();
   });
 
   it("hides cross-section remediation links from growth-only actors", () => {

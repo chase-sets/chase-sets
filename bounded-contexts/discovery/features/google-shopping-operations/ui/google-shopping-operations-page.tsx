@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
+import { useEffect, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   HiddenInput,
@@ -30,6 +32,7 @@ import type {
   GoogleShoppingFeedRowFilter,
   GoogleShoppingFeedRowList,
   GoogleShoppingFeedRowListItem,
+  GoogleShoppingFullSyncJobStatus,
   GoogleShoppingOperationsFilters,
   GoogleShoppingOperationsNotice,
 } from "./contracts";
@@ -47,6 +50,8 @@ export function GoogleShoppingOperationsPage({
   unavailableMessage,
   actionError,
   actorPermissions = [],
+  latestJobIds = [],
+  onJobTerminal,
 }: Readonly<{
   data: GoogleShoppingFeedRowList;
   filters: GoogleShoppingOperationsFilters;
@@ -54,8 +59,30 @@ export function GoogleShoppingOperationsPage({
   unavailableMessage?: string | null;
   actionError?: string | null;
   actorPermissions?: readonly string[];
+  latestJobIds?: readonly string[];
+  onJobTerminal?: () => void;
 }>) {
+  const latestJobId = latestJobIds.at(-1) ?? null;
+  const [streamedJob, setStreamedJob] = useState<GoogleShoppingFullSyncJobStatus | null>(null);
   const selectedRow = resolveSelectedRow(data.rows, filters.selected);
+
+  useEffect(() => {
+    setStreamedJob(null);
+    if (!latestJobId) {
+      return;
+    }
+
+    const subscription = subscribeDurableJobStatus<GoogleShoppingFullSyncJobStatus>({
+      url: googleShoppingJobEventsUrl(latestJobId),
+      onStatus: setStreamedJob,
+      onTerminal: (job) => {
+        setStreamedJob(job);
+        onJobTerminal?.();
+      },
+    });
+
+    return () => subscription.close();
+  }, [latestJobId, onJobTerminal]);
 
   return (
     <Page>
@@ -113,6 +140,7 @@ export function GoogleShoppingOperationsPage({
       {unavailableMessage ? <Notice tone="warning" message={unavailableMessage} /> : null}
       {notice ? <Notice tone={notice.tone} message={notice.message} /> : null}
       {actionError ? <Notice tone="danger" message={actionError} /> : null}
+      {latestJobId ? <GoogleShoppingJobSummary jobId={latestJobId} job={streamedJob} /> : null}
 
       <Surface>
         <Cluster align="center" justify="between">
@@ -219,6 +247,52 @@ export function GoogleShoppingOperationsPage({
         />
       </PageSection>
     </Page>
+  );
+}
+
+function GoogleShoppingJobSummary({
+  jobId,
+  job,
+}: Readonly<{ jobId: string; job: GoogleShoppingFullSyncJobStatus | null }>) {
+  const progress = job?.progress;
+
+  return (
+    <Surface>
+      <Stack gap={3}>
+        <Cluster align="center" justify="between">
+          <Stack gap={1}>
+            <Text weight="semibold">{t(`${routeKey}.latestJob`)}</Text>
+            <Text size="sm" tone="secondary">
+              {job?.progress.message ?? t(`${routeKey}.latestJobWaiting`)}
+            </Text>
+          </Stack>
+          <Badge tone={jobStatusTone(job?.status)}>{job?.status ?? t(`${routeKey}.jobStatus.pending`)}</Badge>
+        </Cluster>
+        <KeyValueList
+          density="compact"
+          items={[
+            { key: t(`${routeKey}.jobId`), value: breakable(jobId) },
+            { key: t(`${routeKey}.jobKind`), value: job?.jobKind ?? t(`${routeKey}.none`) },
+            { key: t(`${routeKey}.currentRow`), value: breakable(progress?.currentRowId ?? null) },
+            { key: t(`${routeKey}.updated`), value: formatDateTime(job?.updatedAt ?? null) },
+          ]}
+        />
+        <StatGrid columns={{ base: 1, md: 4 }}>
+          <Stat
+            label={t(`${routeKey}.jobProcessed`)}
+            value={t(`${routeKey}.jobProcessedValue`, {
+              completed: progress?.completed ?? 0,
+              total: progress?.total ?? 0,
+            })}
+          />
+          <Stat label={t(`${routeKey}.jobSubmitted`)} value={formatCount(progress?.submitted ?? 0)} />
+          <Stat label={t(`${routeKey}.jobSkipped`)} value={formatCount(progress?.skipped ?? 0)} />
+          <Stat label={t(`${routeKey}.jobDeleted`)} value={formatCount(progress?.deleted ?? 0)} />
+          <Stat label={t(`${routeKey}.jobFailed`)} value={formatCount(progress?.failed ?? 0)} />
+          <Stat label={t(`${routeKey}.jobExcluded`)} value={formatCount(progress?.excluded ?? 0)} />
+        </StatGrid>
+      </Stack>
+    </Surface>
   );
 }
 
@@ -496,6 +570,20 @@ function resolveSelectedRow(rows: readonly GoogleShoppingFeedRowListItem[], sele
 function withSelected(rowId: string) {
   const query = new URLSearchParams({ selected: rowId });
   return `${routePath}?${query.toString()}`;
+}
+
+function googleShoppingJobEventsUrl(jobId: string) {
+  return `/api/marketplace/google-shopping/sync-jobs/${encodeURIComponent(jobId)}/events`;
+}
+
+function jobStatusTone(status: GoogleShoppingFullSyncJobStatus["status"] | undefined): Tone {
+  return status === "completed"
+    ? "success"
+    : status === "failed"
+      ? "danger"
+      : status === "running"
+        ? "info"
+        : "warning";
 }
 
 function summaryTone(count: number): Tone {
