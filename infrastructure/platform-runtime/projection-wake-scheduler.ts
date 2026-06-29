@@ -476,6 +476,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
             const intent = await options.workSignalStore.claimNextProjectionWakeIntent({
               claimOwnerId: `${options.workerId}:${laneRunnerName}`,
               claimTtlMs,
+              maxAttempts,
               priorityLanes: [laneConfig.lane],
               targetContextNames: hostedTargetContextNames,
             });
