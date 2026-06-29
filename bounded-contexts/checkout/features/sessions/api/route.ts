@@ -782,6 +782,23 @@ export function createAccountCheckoutSessionRoutes(
     return c.json(session);
   });
 
+  app.get("/checkout-payment-summaries/:paymentId", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const paymentSummary = await services.getPaymentSummary(c.req.param("paymentId"));
+    if (!paymentSummary) {
+      return c.json(
+        { error: { code: "not_found", message: t("checkout.features.sessions.api.route.payment.summary.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(paymentSummary);
+  });
+
   app.post("/checkout-sessions/:sessionId/shipping-option", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {

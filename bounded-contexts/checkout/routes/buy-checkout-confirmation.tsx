@@ -5,7 +5,6 @@ import { loadFreshlyWrittenResource, readCompactPostWriteToken } from "@chase-se
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
-import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import {
   checkoutRecoveryForFreshWriteError,
@@ -38,9 +37,9 @@ function paymentPathWithFreshWrite(request: Request, paymentPath: string) {
   return afterWrite ? `${paymentPath}?afterWrite=${encodeURIComponent(afterWrite)}` : paymentPath;
 }
 
-async function loadPaymentSummary(request: Request, paymentId: string) {
+async function loadPaymentSummary(api: ReturnType<typeof createCheckoutRequestApiClient>, paymentId: string) {
   try {
-    const payment = await createPaymentsRequestApiClient(request).getAccountPayment(paymentId);
+    const payment = await api.getCheckoutPaymentSummary(paymentId);
     return {
       amount: payment.amount,
       status: payment.status,
@@ -86,7 +85,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     session,
     paymentPath: paymentPathWithFreshWrite(request, paymentPathForActor(actor, session.payment_id)),
-    paymentSummary: await loadPaymentSummary(resolvedRequest, session.payment_id),
+    paymentSummary: await loadPaymentSummary(api, session.payment_id),
   };
 }
 

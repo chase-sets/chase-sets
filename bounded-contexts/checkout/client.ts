@@ -21,6 +21,7 @@ import type {
   SellListSellerConfirmationEvidence,
 } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
+import type { CheckoutPaymentSummaryRow } from "./features/sessions/integrations/payments/payment-summary-queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -646,6 +647,14 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async getCheckoutPaymentSummary(paymentId: string): Promise<CheckoutPaymentSummaryRow> {
+      return parseJsonResponse(
+        await client.account["checkout-payment-summaries"][":paymentId"].$get({
+          param: { paymentId },
+          header: headers,
+        }),
+      );
+    },
     async selectShippingOption(
       sessionId: string,
       body: SelectCheckoutShippingOptionRequest,
@@ -735,5 +744,6 @@ export type {
   CheckoutSellPayoutReadinessRow,
   CheckoutShipFromAddressRow,
   CheckoutSessionRow,
+  CheckoutPaymentSummaryRow,
 };
 export const checkoutApi = createCheckoutApiClient();

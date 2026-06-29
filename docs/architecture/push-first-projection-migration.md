@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (77)
+## Projection Groups (79)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -45,6 +45,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-marketplace-seller-options-projection` | Checkout | **catalog**, **identity**, **inventory**, **marketplace** | push-enabled | 4/4 |
+| `checkout:checkout.payment-summary-projection` | Checkout | **payments** | push-enabled | 1/1 |
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
@@ -92,6 +93,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `ordering:ordering-inventory-supply-input-projection` | Ordering | **inventory** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
 | `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
+| `ordering:ordering-order-review-opportunity-projection` | Ordering | fulfillment, **marketplace**, **ordering**, platform-operations | push-eligible | 2/4 |
 | `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
 | `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
 | `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
@@ -115,7 +117,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
 
-Totals: 61 `push-enabled`, 16 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 62 `push-enabled`, 17 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (62)
 
