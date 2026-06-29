@@ -147,6 +147,67 @@ describe("bounded context projection freshness waits", () => {
     expect(waiterCalls[0].timeoutMs).toBe(100);
   });
 
+  it("keeps exact-dependency waits correct without a work-signal gateway", async () => {
+    let checkoutRefreshCount = 0;
+    let paymentsRefreshCount = 0;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "checkout",
+              checkpointKey: "checkout.session-projection:checkout:v1",
+              refreshStatus: async () => {
+                checkoutRefreshCount += 1;
+                return {
+                  lastGlobalPosition: checkoutRefreshCount > 1 ? "5" : "1",
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+        {
+          targetContextName: "payments",
+          projectionName: "payments.payment-detail-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "payments",
+              checkpointKey: "payments.payment-detail-projection:payments:v1",
+              refreshStatus: async () => {
+                paymentsRefreshCount += 1;
+                return {
+                  lastGlobalPosition: "0",
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["checkout", "payments"],
+      dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      receipt: {
+        observedAtMs: 1,
+        sources: [
+          { sourceContextName: "checkout", maxGlobalPosition: "5", eventIds: ["evt_checkout_5"] },
+          { sourceContextName: "payments", maxGlobalPosition: "5", eventIds: ["evt_payment_5"] },
+        ],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+    });
+
+    expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+    expect(checkoutRefreshCount).toBe(2);
+    expect(paymentsRefreshCount).toBe(0);
+  });
+
   it("does not request wakes when projections are already fresh", async () => {
     let wakeRequested = false;
 
