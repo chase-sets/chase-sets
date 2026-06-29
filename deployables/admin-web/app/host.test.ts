@@ -15,6 +15,7 @@ describe("admin web host context registry", () => {
       "google-shopping.view",
       "platform-feedback.view",
       "postage-policies.view",
+      "projection-operations.view",
       "public-presence.view",
       "security.manage",
       "support.manage",
@@ -136,7 +137,7 @@ describe("admin web host context registry", () => {
   });
 
   it("contributes Platform Operations navigation to Platform", () => {
-    expect(resolveAdminWebNavItems({ permissions: ["security.manage"] }, { section: "platform" })).toEqual(
+    expect(resolveAdminWebNavItems({ permissions: ["projection-operations.view"] }, { section: "platform" })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           href: "/platform/projections",
@@ -146,15 +147,11 @@ describe("admin web host context registry", () => {
     );
   });
 
-  it("treats security.manage as intentionally shared by Access security and Platform operations", () => {
+  it("separates Access security from Platform operations navigation", () => {
     const sectionItems = resolveAdminWebSectionNavItems({ permissions: ["security.manage"] });
 
-    expect(sectionItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ key: "access", href: "/access" }),
-        expect.objectContaining({ key: "platform", href: "/platform" }),
-      ]),
-    );
+    expect(sectionItems).toEqual(expect.arrayContaining([expect.objectContaining({ key: "access", href: "/access" })]));
+    expect(sectionItems).not.toEqual(expect.arrayContaining([expect.objectContaining({ key: "platform" })]));
     expect(resolveAdminWebNavItems({ permissions: ["security.manage"] }, { section: "access" })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ href: "/access/users", label: "Users" }),

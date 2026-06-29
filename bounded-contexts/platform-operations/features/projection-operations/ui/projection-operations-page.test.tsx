@@ -109,10 +109,69 @@ describe("ProjectionOperationsPage", () => {
       ],
     });
 
-    render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, selected: "op_running" }} />);
+    render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={{ ...emptyFilters, selected: "op_running" }}
+        actorPermissions={["projection-operations.view", "projection-operations.operate"]}
+      />,
+    );
 
     expect(screen.getByText("rebuild-projection-group / running")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("hides operate and rebuild actions for projection operations view actors", () => {
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+      operations: [
+        {
+          operationId: "op_running",
+          operationKind: "rebuild-projection-group",
+          state: "running",
+          contextName: "catalog",
+          projectionName: "catalog-item-projection",
+          requestedAt: "2026-05-26T00:00:00.000Z",
+          updatedAt: "2026-05-26T00:01:00.000Z",
+        },
+      ],
+      projectionGroups: [
+        {
+          projectionName: "catalog-item-projection",
+          targetContextName: "catalog",
+          state: "caught-up",
+          outstandingEventCount: "0",
+        },
+      ],
+      blockedProjections: [
+        {
+          projectionKey: "catalog.catalog-item-projection",
+          blockedStreams: [
+            {
+              streamId: "catalog.item-1",
+              firstBlockedGlobalPosition: "10",
+              lastSeenGlobalPosition: "20",
+              firstBlockedStreamVersion: 2,
+              deferredEventCount: 3,
+              state: "blocked",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={{ ...emptyFilters, selected: "op_running" }}
+        actorPermissions={["projection-operations.view"]}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Refresh status" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rebuild context" })).toBeNull();
   });
 
   it("renders a quiet healthy overview when no attention signals exist", () => {
@@ -402,6 +461,7 @@ describe("ProjectionOperationsPage", () => {
           search: "catalog",
           selected: "catalog:catalog-item-projection",
         }}
+        actorPermissions={["projection-operations.view", "projection-operations.rebuild"]}
       />,
     );
 

@@ -11,8 +11,14 @@ export const ADMIN_PARTIAL_ACTORS = [
   {
     id: "AS-ACTOR-SECURITY-MANAGE",
     permission: "security.manage",
-    expectedSections: ["Access", "Platform"],
-    expectedEntryPaths: ["/access", "/platform"],
+    expectedSections: ["Access"],
+    expectedEntryPaths: ["/access"],
+  },
+  {
+    id: "AS-ACTOR-PROJECTION-OPERATIONS-VIEW",
+    permission: "projection-operations.view",
+    expectedSections: ["Platform"],
+    expectedEntryPaths: ["/platform", "/platform/projections"],
   },
   {
     id: "AS-ACTOR-MEMBERSHIPS-VIEW",

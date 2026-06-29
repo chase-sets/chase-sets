@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createProjectionOperationsRoutes } from "./projection-operations-routes";
 import type { ResolvedActor } from "./auth";
 import type { ApiHostRuntime } from "./api";
-import type { PlatformControlPlane } from "./control-plane";
+import type { PlatformControlPlane, ProjectionOperationKind, ProjectionOperationRecord } from "./control-plane";
 
 const platformActor = {
   sessionId: "sess_1",
@@ -12,7 +12,7 @@ const platformActor = {
   accountId: "account_1",
   membershipId: "member_1",
   roleKey: "platform-admin",
-  permissions: ["security.manage"],
+  permissions: ["projection-operations.view", "projection-operations.operate", "projection-operations.rebuild"],
 } satisfies ResolvedActor;
 
 function createRouteApp(
@@ -58,6 +58,33 @@ function createControlPlane(overrides: Partial<PlatformControlPlane> = {}): Plat
   } as unknown as PlatformControlPlane;
 }
 
+function projectionOperation(
+  operationId: string,
+  operationKind: ProjectionOperationKind = "retry-blocked-stream",
+): ProjectionOperationRecord {
+  return {
+    operationId,
+    operationKind,
+    state: "queued",
+    contextName: "catalog",
+    projectionName: operationKind === "retry-blocked-stream" ? null : "catalog-item-projection",
+    projectionKey: operationKind === "retry-blocked-stream" ? "catalog.projection" : null,
+    streamId: operationKind === "retry-blocked-stream" ? "stream_1" : null,
+    requestedByUserId: platformActor.userId,
+    requestedByAccountId: platformActor.accountId,
+    claimOwnerId: null,
+    claimFencingToken: null,
+    claimedUntil: null,
+    progress: {},
+    result: null,
+    error: null,
+    requestedAt: "2026-06-29T00:00:00.000Z",
+    startedAt: null,
+    updatedAt: "2026-06-29T00:00:00.000Z",
+    completedAt: null,
+  };
+}
+
 describe("projection operations routes", () => {
   it("requires an authenticated actor", async () => {
     const app = createRouteApp(null);
@@ -76,6 +103,87 @@ describe("projection operations routes", () => {
     const response = await app.request("/");
 
     expect(response.status).toBe(403);
+  });
+
+  it("allows projection operations view actors to inspect the console", async () => {
+    const app = createRouteApp({
+      ...platformActor,
+      permissions: ["projection-operations.view"],
+    });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+  });
+
+  it("requires operate permission for refresh, retry, and cancel actions", async () => {
+    const controlPlane = createControlPlane({
+      enqueueProjectionOperation: vi.fn(async () => projectionOperation("op_retry")),
+      cancelProjectionOperation: vi.fn(async () => true),
+    });
+    const viewOnlyApp = createRouteApp(
+      { ...platformActor, permissions: ["projection-operations.view"] },
+      createRuntime(),
+      {
+        controlPlane,
+      },
+    );
+    const operatorApp = createRouteApp(
+      { ...platformActor, permissions: ["projection-operations.view", "projection-operations.operate"] },
+      createRuntime(),
+      { controlPlane },
+    );
+
+    expect((await viewOnlyApp.request("/refresh", { method: "POST" })).status).toBe(403);
+    expect(
+      (await viewOnlyApp.request("/catalog.projection/blocked-streams/stream_1/retry", { method: "POST" })).status,
+    ).toBe(403);
+    expect((await viewOnlyApp.request("/operations/op_1/cancel", { method: "POST" })).status).toBe(403);
+
+    expect((await operatorApp.request("/refresh", { method: "POST" })).status).toBe(200);
+    expect(
+      (await operatorApp.request("/catalog.projection/blocked-streams/stream_1/retry", { method: "POST" })).status,
+    ).toBe(202);
+    expect((await operatorApp.request("/operations/op_1/cancel", { method: "POST" })).status).toBe(200);
+  });
+
+  it("requires rebuild permission and records actor attribution for destructive rebuilds", async () => {
+    const enqueueProjectionOperation = vi.fn(async () => projectionOperation("op_rebuild", "rebuild-projection-group"));
+    const controlPlane = createControlPlane({ enqueueProjectionOperation });
+    const operatorApp = createRouteApp(
+      { ...platformActor, permissions: ["projection-operations.view", "projection-operations.operate"] },
+      createRuntime(),
+      { controlPlane },
+    );
+    const rebuildApp = createRouteApp(
+      {
+        ...platformActor,
+        permissions: ["projection-operations.view", "projection-operations.operate", "projection-operations.rebuild"],
+      },
+      createRuntime(),
+      { controlPlane },
+    );
+
+    const operatorResponse = await operatorApp.request("/groups/catalog/catalog-item-projection/rebuild", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "rebuild" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const rebuildResponse = await rebuildApp.request("/groups/catalog/catalog-item-projection/rebuild", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "rebuild" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(operatorResponse.status).toBe(403);
+    expect(rebuildResponse.status).toBe(202);
+    expect(enqueueProjectionOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationKind: "rebuild-projection-group",
+        requestedByUserId: platformActor.userId,
+        requestedByAccountId: platformActor.accountId,
+      }),
+    );
   });
 
   it("summarizes runtime-memory projection status", async () => {

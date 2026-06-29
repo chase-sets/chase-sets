@@ -324,7 +324,7 @@
       "section": "platform",
       "order": 10,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["projection-operations.view"]
     }
   ],
   "directoryIntent": {

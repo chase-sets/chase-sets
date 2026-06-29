@@ -4,7 +4,7 @@ import { createAdminSectionLoader } from "../admin-section-loader.server";
 const config = {
   section: "platform",
   brand: "Platform",
-  fallbackPermission: "security.manage",
+  fallbackPermission: "projection-operations.view",
   defaultActiveKey: "projection-operations",
   activeKeys: {
     projections: "projection-operations",

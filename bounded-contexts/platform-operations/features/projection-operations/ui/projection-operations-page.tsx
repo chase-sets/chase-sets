@@ -55,6 +55,8 @@ const projectionWakeGrafanaHref =
   "https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline";
 const projectionWakeRunbookHref =
   "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/push-wake-operations.md";
+const projectionOperationsOperatePermission = "projection-operations.operate";
+const projectionOperationsRebuildPermission = "projection-operations.rebuild";
 
 export function ProjectionOperationsPage({
   data,
@@ -80,7 +82,9 @@ export function ProjectionOperationsPage({
   const workerRows = [...data.runners, ...data.workers];
   const filteredWorkers = filterRows(workerRows, filters, workerSearchText);
   const defaultTab = filters.tab || (attentionItems.length > 0 ? "attention" : "overview");
-  const selectedDetail = resolveSelectedDetail(data, filters.selected);
+  const canOperate = hasPermission(actorPermissions, projectionOperationsOperatePermission);
+  const canRebuild = hasPermission(actorPermissions, projectionOperationsRebuildPermission);
+  const selectedDetail = resolveSelectedDetail(data, filters.selected, { canOperate, canRebuild });
   const selectedContext = filters.contextName || singleContextName(data);
 
   return (
@@ -92,12 +96,14 @@ export function ProjectionOperationsPage({
       />
 
       <ActionBar>
-        <Form spacing="none" method="post">
-          <HiddenInput type="hidden" name="intent" value="refresh-status" readOnly />
-          <Button type="submit" leadingIcon="refreshCcw">
-            {t(`${routeKey}.refresh`)}
-          </Button>
-        </Form>
+        {canOperate ? (
+          <Form spacing="none" method="post">
+            <HiddenInput type="hidden" name="intent" value="refresh-status" readOnly />
+            <Button type="submit" leadingIcon="refreshCcw">
+              {t(`${routeKey}.refresh`)}
+            </Button>
+          </Form>
+        ) : null}
         {hasPermission(actorPermissions, "catalog.view") ? (
           <LinkButton href="/catalog/dimensions" tone="secondary">
             {t(`${routeKey}.catalog`)}
@@ -108,7 +114,7 @@ export function ProjectionOperationsPage({
             {t(`${routeKey}.identity`)}
           </LinkButton>
         ) : null}
-        {selectedContext ? <RebuildContextDialog contextName={selectedContext} /> : null}
+        {selectedContext && canRebuild ? <RebuildContextDialog contextName={selectedContext} /> : null}
       </ActionBar>
 
       <OperationsSummary
@@ -149,7 +155,9 @@ export function ProjectionOperationsPage({
             value: "operations",
             label: t(`${routeKey}.operations`),
             badge: data.operations.length > 0 ? String(data.operations.length) : undefined,
-            content: <OperationsTable rows={filteredOperations} selectedId={filters.selected} />,
+            content: (
+              <OperationsTable rows={filteredOperations} selectedId={filters.selected} canOperate={canOperate} />
+            ),
           },
           {
             value: "groups",
@@ -172,7 +180,9 @@ export function ProjectionOperationsPage({
             value: "blocked",
             label: t(`${routeKey}.blockedStreams`),
             badge: blockedRows.length > 0 ? String(blockedRows.length) : undefined,
-            content: <BlockedStreamsTable rows={filteredBlockedRows} selectedId={filters.selected} />,
+            content: (
+              <BlockedStreamsTable rows={filteredBlockedRows} selectedId={filters.selected} canOperate={canOperate} />
+            ),
           },
           {
             value: "workers",
@@ -459,7 +469,11 @@ function AttentionPanel({ items }: Readonly<{ items: readonly AttentionItem[] }>
   );
 }
 
-function OperationsTable({ rows, selectedId }: Readonly<{ rows: readonly ProjectionOperation[]; selectedId: string }>) {
+function OperationsTable({
+  rows,
+  selectedId,
+  canOperate,
+}: Readonly<{ rows: readonly ProjectionOperation[]; selectedId: string; canOperate: boolean }>) {
   return (
     <DataTable
       density="compact"
@@ -507,7 +521,9 @@ function OperationsTable({ rows, selectedId }: Readonly<{ rows: readonly Project
               >
                 {t(`${routeKey}.details`)}
               </LinkButton>
-              {isCancellable(operation.state) ? <CancelOperationForm operationId={operation.operationId} /> : null}
+              {canOperate && isCancellable(operation.state) ? (
+                <CancelOperationForm operationId={operation.operationId} />
+              ) : null}
             </Inline>
           ),
         },
@@ -640,7 +656,11 @@ function SubscriptionsTable({
   );
 }
 
-function BlockedStreamsTable({ rows, selectedId }: Readonly<{ rows: readonly BlockedStream[]; selectedId: string }>) {
+function BlockedStreamsTable({
+  rows,
+  selectedId,
+  canOperate,
+}: Readonly<{ rows: readonly BlockedStream[]; selectedId: string; canOperate: boolean }>) {
   return (
     <DataTable
       density="compact"
@@ -669,7 +689,7 @@ function BlockedStreamsTable({ rows, selectedId }: Readonly<{ rows: readonly Blo
               >
                 {t(`${routeKey}.details`)}
               </LinkButton>
-              <RetryStreamForm row={row} />
+              {canOperate ? <RetryStreamForm row={row} /> : null}
             </Inline>
           ),
         },
@@ -930,7 +950,11 @@ type SelectedRecord = Readonly<{
   poisonEvents?: readonly PoisonEvent[];
 }>;
 
-function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: string): SelectedRecord | null {
+function resolveSelectedDetail(
+  data: ProjectionOperationsSnapshot,
+  selected: string,
+  permissions: Readonly<{ canOperate: boolean; canRebuild: boolean }>,
+): SelectedRecord | null {
   if (!selected) {
     return null;
   }
@@ -939,7 +963,10 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
   if (operation) {
     return {
       title: t(`${routeKey}.operationDetailTitle`, { kind: operation.operationKind, state: operation.state }),
-      actions: isCancellable(operation.state) ? <CancelOperationForm operationId={operation.operationId} /> : undefined,
+      actions:
+        permissions.canOperate && isCancellable(operation.state) ? (
+          <CancelOperationForm operationId={operation.operationId} />
+        ) : undefined,
       error: operation.error ? JSON.stringify(operation.error) : null,
       items: [
         { key: t(`${routeKey}.operationId`), value: operation.operationId },
@@ -964,7 +991,7 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
         context: group.targetContextName,
         projection: group.projectionName,
       }),
-      actions: <RebuildGroupDialog group={group} />,
+      actions: permissions.canRebuild ? <RebuildGroupDialog group={group} /> : undefined,
       error: group.lastError,
       items: [
         { key: t(`${routeKey}.state`), value: group.state },
@@ -1032,7 +1059,7 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
         projection: blocked.projectionKey,
         stream: blocked.streamId,
       }),
-      actions: <RetryStreamForm row={blocked} />,
+      actions: permissions.canOperate ? <RetryStreamForm row={blocked} /> : undefined,
       poisonEvents: projection?.poisonEvents.filter((event) => event.streamId === blocked.streamId) ?? [],
       items: [
         { key: t(`${routeKey}.state`), value: blocked.state },
