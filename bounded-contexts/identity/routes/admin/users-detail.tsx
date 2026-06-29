@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type { User } from "../../support/request-support/api-client";
 import { UserDetailPage } from "../../features/users/ui/user-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -35,6 +36,26 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   if (intent === "reactivate") {
     result = await api.reactivateUser(userId);
+  }
+
+  if (intent === "add-contact-method") {
+    result = await api.addUserContactMethod(userId, {
+      contactMethodId: createId("ctm"),
+      contactMethodType: String(formData.get("contactMethodType") ?? ""),
+      value: String(formData.get("contactMethodValue") ?? ""),
+    });
+  }
+
+  if (intent === "verify-contact-method") {
+    result = await api.verifyUserContactMethod(userId, String(formData.get("contactMethodId") ?? ""));
+  }
+
+  if (intent === "enable-auth-method") {
+    result = await api.enableUserAuthMethod(userId, String(formData.get("authMethod") ?? ""));
+  }
+
+  if (intent === "disable-auth-method") {
+    result = await api.disableUserAuthMethod(userId, String(formData.get("authMethod") ?? ""));
   }
 
   return redirect(navigateAfterWrite(result, `/access/users/${userId}`));

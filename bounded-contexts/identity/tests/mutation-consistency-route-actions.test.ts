@@ -167,6 +167,43 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/users/usr_identity",
       },
       {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "add-contact-method",
+          contactMethodType: "email",
+          contactMethodValue: "alex@example.com",
+        }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "verify-contact-method",
+          contactMethodId: "ctm_1",
+        }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "enable-auth-method",
+          authMethod: "sms-code",
+        }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "disable-auth-method",
+          authMethod: "sms-code",
+        }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
         action: accountAction,
         request: formRequest("/account", {
           intent: "update-profile",

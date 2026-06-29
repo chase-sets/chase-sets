@@ -1,7 +1,15 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, NativeSelect, Stack, Text, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { User } from "./contracts";
+
+const authMethodItems = [
+  { value: "password", label: "password" },
+  { value: "magic-link", label: "magic-link" },
+  { value: "passkey", label: "passkey" },
+  { value: "sms-code", label: "sms-code" },
+  { value: "social-login", label: "social-login" },
+];
 
 export function UserDetailPage({ data }: { data: User }) {
   return (
@@ -13,47 +21,87 @@ export function UserDetailPage({ data }: { data: User }) {
       title={data.display_name}
       status={data.status}
       actions={
-        <Inline gap={2}>
-          <Form spacing="none" method="post">
-            <Stack direction="row" align="end" gap={2}>
-              <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />
-              <TextInput
-                name="displayName"
-                label={t("identity.features.users.ui.userDetailPage.display.name")}
-                defaultValue={data.display_name}
-                required
-              />
-              <TextInput
-                name="givenName"
-                label={t("identity.features.users.ui.userDetailPage.given.name")}
-                defaultValue={data.given_name}
-              />
-              <TextInput
-                name="familyName"
-                label={t("identity.features.users.ui.userDetailPage.family.name")}
-                defaultValue={data.family_name}
-              />
-              <Button type="submit" tone="secondary">
-                {t("identity.features.users.ui.userDetailPage.update.profile")}
-              </Button>
-            </Stack>
-          </Form>
-          {data.status === "active" ? (
+        <Stack gap={3}>
+          <Inline gap={2}>
             <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
-              <Button type="submit" tone="danger">
-                {t("identity.features.users.ui.userDetailPage.suspend")}
-              </Button>
+              <Stack direction="row" align="end" gap={2}>
+                <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />
+                <TextInput
+                  name="displayName"
+                  label={t("identity.features.users.ui.userDetailPage.display.name")}
+                  defaultValue={data.display_name}
+                  required
+                />
+                <TextInput
+                  name="givenName"
+                  label={t("identity.features.users.ui.userDetailPage.given.name")}
+                  defaultValue={data.given_name}
+                />
+                <TextInput
+                  name="familyName"
+                  label={t("identity.features.users.ui.userDetailPage.family.name")}
+                  defaultValue={data.family_name}
+                />
+                <Button type="submit" tone="secondary">
+                  {t("identity.features.users.ui.userDetailPage.update.profile")}
+                </Button>
+              </Stack>
             </Form>
-          ) : (
+            {data.status === "active" ? (
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("identity.features.users.ui.userDetailPage.suspend")}
+                </Button>
+              </Form>
+            ) : (
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="reactivate" readOnly />
+                <Button type="submit" tone="primary">
+                  {t("identity.features.users.ui.userDetailPage.reactivate")}
+                </Button>
+              </Form>
+            )}
+          </Inline>
+          <Inline gap={2}>
             <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="reactivate" readOnly />
-              <Button type="submit" tone="primary">
-                {t("identity.features.users.ui.userDetailPage.reactivate")}
-              </Button>
+              <Stack direction="row" align="end" gap={2}>
+                <HiddenInput type="hidden" name="intent" value="add-contact-method" readOnly />
+                <NativeSelect
+                  name="contactMethodType"
+                  label={t("identity.features.users.ui.userDetailPage.contact.method.type")}
+                  items={[
+                    { value: "email", label: t("identity.features.users.ui.userDetailPage.email") },
+                    { value: "phone", label: t("identity.features.users.ui.userDetailPage.phone") },
+                  ]}
+                  required
+                />
+                <TextInput
+                  name="contactMethodValue"
+                  label={t("identity.features.users.ui.userDetailPage.contact.method.value")}
+                  required
+                />
+                <Button type="submit" tone="secondary">
+                  {t("identity.features.users.ui.userDetailPage.add.contact.method")}
+                </Button>
+              </Stack>
             </Form>
-          )}
-        </Inline>
+            <Form spacing="none" method="post">
+              <Stack direction="row" align="end" gap={2}>
+                <HiddenInput type="hidden" name="intent" value="enable-auth-method" readOnly />
+                <NativeSelect
+                  name="authMethod"
+                  label={t("identity.features.users.ui.userDetailPage.auth.method")}
+                  items={authMethodItems}
+                  required
+                />
+                <Button type="submit" tone="secondary">
+                  {t("identity.features.users.ui.userDetailPage.enable.auth.method")}
+                </Button>
+              </Stack>
+            </Form>
+          </Inline>
+        </Stack>
       }
       sections={[
         { label: t("identity.features.users.ui.userDetailPage.user.id"), value: data.user_id },
@@ -70,8 +118,47 @@ export function UserDetailPage({ data }: { data: User }) {
           value: data.family_name || t("identity.features.users.ui.userDetailPage.none.2"),
         },
         {
+          label: t("identity.features.users.ui.userDetailPage.contact.methods"),
+          value:
+            data.contact_methods.length > 0
+              ? data.contact_methods.map((method) => (
+                  <Stack key={method.contactMethodId} gap={1}>
+                    <Text>
+                      {method.type}: {method.value}{" "}
+                      {method.verifiedAt
+                        ? t("identity.features.users.ui.userDetailPage.verified")
+                        : t("identity.features.users.ui.userDetailPage.unverified")}
+                    </Text>
+                    {!method.verifiedAt ? (
+                      <Form spacing="none" method="post">
+                        <HiddenInput type="hidden" name="intent" value="verify-contact-method" readOnly />
+                        <HiddenInput type="hidden" name="contactMethodId" value={method.contactMethodId} readOnly />
+                        <Button type="submit" size="sm" tone="secondary">
+                          {t("identity.features.users.ui.userDetailPage.verify")}
+                        </Button>
+                      </Form>
+                    ) : null}
+                  </Stack>
+                ))
+              : t("identity.features.users.ui.userDetailPage.none.3"),
+        },
+        {
           label: t("identity.features.users.ui.userDetailPage.auth.methods"),
-          value: data.auth_methods.join(", ") || t("identity.features.users.ui.userDetailPage.none.3"),
+          value:
+            data.auth_methods.length > 0
+              ? data.auth_methods.map((authMethod) => (
+                  <Inline key={authMethod} align="center" gap={2}>
+                    <Text>{authMethod}</Text>
+                    <Form spacing="none" method="post">
+                      <HiddenInput type="hidden" name="intent" value="disable-auth-method" readOnly />
+                      <HiddenInput type="hidden" name="authMethod" value={authMethod} readOnly />
+                      <Button type="submit" size="sm" tone="danger">
+                        {t("identity.features.users.ui.userDetailPage.disable")}
+                      </Button>
+                    </Form>
+                  </Inline>
+                ))
+              : t("identity.features.users.ui.userDetailPage.none.4"),
         },
         { label: t("identity.features.users.ui.userDetailPage.updated.at"), value: data.updated_at },
       ]}

@@ -91,6 +91,11 @@ export type EnableAuthMethodCommand = Readonly<{
   authMethod: AuthMethodKey;
 }>;
 
+export type DisableAuthMethodCommand = Readonly<{
+  type: "DisableAuthMethod";
+  authMethod: AuthMethodKey;
+}>;
+
 export type AttachPasswordCredentialCommand = Readonly<{
   type: "AttachPasswordCredential";
   credentialId: string;
@@ -118,6 +123,7 @@ export type UserCommand =
   | AddContactMethodCommand
   | VerifyContactMethodCommand
   | EnableAuthMethodCommand
+  | DisableAuthMethodCommand
   | AttachPasswordCredentialCommand
   | RegisterPasskeyCredentialCommand
   | LinkSocialLoginCommand
@@ -167,6 +173,13 @@ export type AuthMethodEnabledEvent = DomainEvent<
   }>
 >;
 
+export type AuthMethodDisabledEvent = DomainEvent<
+  "identity.user.auth-method-disabled",
+  Readonly<{
+    authMethod: AuthMethodKey;
+  }>
+>;
+
 export type PasswordCredentialAttachedEvent = DomainEvent<
   "identity.user.password-credential-attached",
   Readonly<{
@@ -192,6 +205,7 @@ export type UserEvent =
   | ContactMethodAddedEvent
   | ContactMethodVerifiedEvent
   | AuthMethodEnabledEvent
+  | AuthMethodDisabledEvent
   | PasswordCredentialAttachedEvent
   | PasskeyCredentialRegisteredEvent
   | SocialLoginLinkedEvent
@@ -271,6 +285,17 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       return [
         {
           type: "identity.user.auth-method-enabled",
+          data: { authMethod: command.authMethod },
+        },
+      ];
+    case "DisableAuthMethod":
+      requireCreatedUser(state);
+      if (!state.authMethods.includes(command.authMethod)) {
+        return [];
+      }
+      return [
+        {
+          type: "identity.user.auth-method-disabled",
           data: { authMethod: command.authMethod },
         },
       ];
@@ -382,6 +407,11 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event)
       return {
         ...state,
         authMethods: toSortedUniqueList([...state.authMethods, event.data.authMethod]),
+      };
+    case "identity.user.auth-method-disabled":
+      return {
+        ...state,
+        authMethods: state.authMethods.filter((authMethod) => authMethod !== event.data.authMethod),
       };
     case "identity.user.password-credential-attached":
       return {

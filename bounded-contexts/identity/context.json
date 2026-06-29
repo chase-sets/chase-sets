@@ -322,7 +322,15 @@
       },
       "source": {
         "routeId": "users-detail",
-        "actions": ["Update user profile", "Suspend user", "Reactivate user"],
+        "actions": [
+          "Update user profile",
+          "Add user contact method",
+          "Verify user contact method",
+          "Enable user auth method",
+          "Disable user auth method",
+          "Suspend user",
+          "Reactivate user"
+        ],
         "command": "Identity user commands",
         "helperUses": ["navigateAfterWrite"]
       },
@@ -677,6 +685,10 @@
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#6",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#7",
         "route-action:bounded-contexts/identity/routes/admin/users-detail.tsx",
         "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
       ],
@@ -687,7 +699,7 @@
         "readModelTables": ["identity_users"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "User profile and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
+          "behavior": "User profile, contact-method, auth-method, and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
         }
       },
       "proof": {
@@ -1071,6 +1083,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:DELETE /:id/auth-methods/:authMethod",
         "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/auth-methods",
         "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/contact-methods",
         "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/contact-methods/:contactMethodId/verify",

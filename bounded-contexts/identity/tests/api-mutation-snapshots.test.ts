@@ -373,6 +373,12 @@ describe("Identity API mutation snapshots", () => {
         expected: { id: "usr_1", version: 21, status: "active" },
       },
       {
+        method: "DELETE",
+        path: "/users/usr_1/auth-methods/password",
+        status: 200,
+        expected: { id: "usr_1", version: 21, status: "active" },
+      },
+      {
         method: "POST",
         path: "/users/usr_1/suspend",
         status: 200,

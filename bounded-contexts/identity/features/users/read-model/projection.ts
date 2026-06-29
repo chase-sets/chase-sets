@@ -248,6 +248,23 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         [userId, JSON.stringify(authMethods), event.timing.recordedAt],
       );
     },
+    "identity.user.auth-method-disabled": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const current = await db.query<{ auth_methods: string[] }>(
+        `SELECT auth_methods FROM identity_users WHERE user_id = $1`,
+        [userId],
+      );
+      const authMethods = (current.rows[0]?.auth_methods ?? [])
+        .filter((authMethod) => authMethod !== (event.data as { authMethod: string }).authMethod)
+        .sort((left, right) => left.localeCompare(right));
+      await db.query(
+        `UPDATE identity_users
+         SET auth_methods = $2::jsonb,
+             updated_at = $3
+         WHERE user_id = $1`,
+        [userId, JSON.stringify(authMethods), event.timing.recordedAt],
+      );
+    },
     "identity.user.password-credential-attached": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(

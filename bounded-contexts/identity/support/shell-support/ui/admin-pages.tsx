@@ -127,7 +127,11 @@ export function AdminDetailPage({
               {sections.map((section) => (
                 <Stack key={section.label} gap={1}>
                   <Text weight="semibold">{section.label}</Text>
-                  <Text tone="secondary">{section.value}</Text>
+                  {typeof section.value === "string" || typeof section.value === "number" ? (
+                    <Text tone="secondary">{section.value}</Text>
+                  ) : (
+                    section.value
+                  )}
                 </Stack>
               ))}
             </Stack>

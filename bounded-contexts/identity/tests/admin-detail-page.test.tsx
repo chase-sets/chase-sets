@@ -2,6 +2,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AccountDetailPage } from "../features/accounts/ui/account-detail-page";
 import { ApiKeyDetailPage } from "../features/api-keys/ui/api-key-detail-page";
+import { UserDetailPage } from "../features/users/ui/user-detail-page";
 import { AdminDetailPage } from "../support/shell-support/ui/admin-pages";
 
 const account = {
@@ -23,6 +24,25 @@ const apiKey = {
   key_prefix: "cs_live",
   status: "active",
   last_used_at: null,
+  updated_at: "2026-05-13T12:00:00.000Z",
+};
+
+const user = {
+  user_id: "usr_alex",
+  display_name: "Alex Clerk",
+  given_name: "Alex",
+  family_name: "Clerk",
+  primary_email: "alex@example.com",
+  status: "active",
+  contact_methods: [
+    {
+      contactMethodId: "ctm_email",
+      type: "email",
+      value: "alex@example.com",
+      verifiedAt: null,
+    },
+  ],
+  auth_methods: ["password"],
   updated_at: "2026-05-13T12:00:00.000Z",
 };
 
@@ -82,5 +102,16 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain("Ops Console");
     expect(html).toContain("Rotate");
     expect(html).toContain("Revoke");
+  });
+
+  it("surfaces user contact-method and auth-method management controls", () => {
+    const html = renderToString(<UserDetailPage data={user} />);
+
+    expect(html).toContain("Add Contact Method");
+    expect(html).toContain("Verify");
+    expect(html).toContain("Enable Auth Method");
+    expect(html).toContain("Disable");
+    expect(html).toContain("alex@example.com");
+    expect(html).toContain("password");
   });
 });
