@@ -52,7 +52,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_commerce",
     label: "Admin Commerce",
     deployable: "admin-web",
-    journeys: ["postage policy management"],
+    journeys: ["commercial terms management", "postage policy management"],
     grep: "@admin-commerce",
   },
   {
@@ -164,6 +164,14 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/identity\/features\/invitations\/(?:api|ui)\//,
     suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/commercial-terms\/routes\/admin\//,
+    suites: ["admin_commerce"],
+  },
+  {
+    pattern: /^bounded-contexts\/commercial-terms\/features\/(?:schedules|agreements|resolutions)\/(?:api|ui)\//,
+    suites: ["admin_commerce"],
   },
   {
     pattern: /^bounded-contexts\/ordering\/routes\/admin\/postage-policies/,
