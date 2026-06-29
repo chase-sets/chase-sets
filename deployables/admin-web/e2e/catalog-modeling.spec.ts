@@ -20,6 +20,7 @@ test.describe("catalog admin modeling", () => {
     await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
     await page.getByRole("button", { name: /More filters/ }).click();
     await expect(page.getByRole("combobox", { name: "Value kind" })).toBeVisible();
+    await page.getByRole("button", { name: "Close filters" }).click();
     await expect(page.locator('a[href="/catalog/dimensions"]').first()).toHaveAttribute("aria-current", "page");
 
     await page.getByRole("button", { name: "New Dimension" }).click();
