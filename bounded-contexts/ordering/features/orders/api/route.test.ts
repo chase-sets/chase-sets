@@ -55,11 +55,133 @@ function createServices(): OrderingOrderServices {
       materialChangeReasons: [],
     })),
     listPurchases: vi.fn(async () => ({ items: [], total: 0 })),
+    getPurchase: vi.fn(async () => null),
+    listSales: vi.fn(async () => ({ items: [], total: 0 })),
+    getSale: vi.fn(async () => null),
+    getOrderReviewOpportunity: vi.fn(async () => null),
     projectors: [],
   } as unknown as OrderingOrderServices;
 }
 
 describe("ordering purchase routes", () => {
+  const order = {
+    order_id: "ord_1",
+    source_type: "cart-checkout",
+    source_reference_id: null,
+    buyer_account_id: "acc_buyer",
+    buyer_display_name: "Buyer",
+    seller_account_id: "acc_seller",
+    seller_display_name: "Seller",
+    shipping_option: "standard",
+    item_subtotal_amount: "20.00",
+    shipping_base_amount: "4.99",
+    shipping_discount_amount: "0.00",
+    shipping_allowance_amount: "4.99",
+    shipping_overage_amount: "0.00",
+    shipping_charge_amount: "4.99",
+    sales_tax_amount: "0.00",
+    marketplace_sales_fee_amount: "1.00",
+    seller_net_amount: "19.00",
+    seller_item_net_amount: "19.00",
+    seller_payout_amount: "23.99",
+    shipping_allowance_percentage_bps: 500,
+    taxable_amount: "24.99",
+    tax_jurisdiction_country: "US",
+    tax_jurisdiction_state: "IL",
+    tax_rate_bps: 0,
+    tax_provider_name: "local-tax-stub",
+    tax_provider_quote_reference: null,
+    tax_quoted_at: "2026-04-02T00:00:00.000Z",
+    total_amount: "24.99",
+    terms_schedule_id: "cts_default",
+    terms_agreement_id: null,
+    terms_resolved_at: "2026-04-02T00:00:00.000Z",
+    shipping_destination_snapshot: {},
+    shipping_origin_snapshot: {},
+    status: "ready-for-fulfillment",
+    created_at: "2026-04-02T00:00:00.000Z",
+    updated_at: "2026-04-02T00:00:00.000Z",
+    cancelled_at: null,
+    cancellation_reason: null,
+    ready_for_fulfillment_at: "2026-04-02T00:15:00.000Z",
+    self_service_cancellation_available: false,
+    cancellation_unavailable_reason: null,
+    line_count: 1,
+    total_quantity: 1,
+    lines: [],
+    inventory_holds: [],
+  };
+
+  it("adds a local Ordering review opportunity to purchase details when the actor can manage reviews", async () => {
+    const services = {
+      ...createServices(),
+      getPurchase: vi.fn(async () => order),
+      getOrderReviewOpportunity: vi.fn(async () => ({
+        order_id: "ord_1",
+        subject_account_id: "acc_seller",
+        subject_display_name: "Seller",
+        author_role: "buyer",
+        eligible_at: "2026-04-02T00:00:00.000Z",
+        active_review_id: null,
+      })),
+    } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://ordering.test/account/purchases/ord_1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      order_id: "ord_1",
+      reviewOpportunity: {
+        subject_account_id: "acc_seller",
+        author_role: "buyer",
+      },
+    });
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
+  });
+
+  it("omits purchase review opportunities without reputation permissions", async () => {
+    const services = {
+      ...createServices(),
+      getPurchase: vi.fn(async () => order),
+      getOrderReviewOpportunity: vi.fn(async () => {
+        throw new Error("should not read reputation overlay");
+      }),
+    } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_buyer",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://ordering.test/account/purchases/ord_1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      order_id: "ord_1",
+      reviewOpportunity: null,
+    });
+    expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
+  });
+
   it("cancels a buyer purchase through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({
@@ -152,6 +274,48 @@ describe("ordering purchase routes", () => {
         }),
       }),
     );
+  });
+
+  it("adds a local Ordering review opportunity to sale details when the actor can manage reviews", async () => {
+    const services = {
+      ...createServices(),
+      getSale: vi.fn(async () => order),
+      getOrderReviewOpportunity: vi.fn(async () => ({
+        order_id: "ord_1",
+        subject_account_id: "acc_buyer",
+        subject_display_name: "Buyer",
+        author_role: "seller",
+        eligible_at: "2026-04-02T00:00:00.000Z",
+        active_review_id: "rev_1",
+      })),
+    } as unknown as OrderingOrderServices;
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      });
+      await next();
+    });
+    app.route("/account", createAccountSaleOrderRoutes(services));
+
+    const response = await app.fetch(new Request("http://ordering.test/account/sales/ord_1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      order_id: "ord_1",
+      reviewOpportunity: {
+        subject_account_id: "acc_buyer",
+        author_role: "seller",
+        active_review_id: "rev_1",
+      },
+    });
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");
   });
 
   it("lets signed-in buyers without order-management permissions preview checkout fulfillment", async () => {

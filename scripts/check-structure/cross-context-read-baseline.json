@@ -192,32 +192,6 @@
       "sourceWakePosture": "poll-only",
       "issue": "#2779",
       "migration": "Mirror storage location summaries into Discovery's item-detail overlay; Inventory remains poll-only until #1364 expands push coverage."
-    },
-    {
-      "id": "bounded-contexts/ordering/routes/account-purchase.tsx:marketplace:createReputationRequestApiClient.getOrderReviewOpportunity#1",
-      "consumerContextName": "ordering",
-      "sourceContextName": "marketplace",
-      "file": "bounded-contexts/ordering/routes/account-purchase.tsx",
-      "line": 53,
-      "clientFactory": "createReputationRequestApiClient",
-      "methodName": "getOrderReviewOpportunity",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2780",
-      "migration": "Project review opportunity summaries from Marketplace into Ordering account purchase views."
-    },
-    {
-      "id": "bounded-contexts/ordering/routes/account-sale.tsx:marketplace:createReputationRequestApiClient.getOrderReviewOpportunity#1",
-      "consumerContextName": "ordering",
-      "sourceContextName": "marketplace",
-      "file": "bounded-contexts/ordering/routes/account-sale.tsx",
-      "line": 55,
-      "clientFactory": "createReputationRequestApiClient",
-      "methodName": "getOrderReviewOpportunity",
-      "classification": "composite-projection-servable",
-      "sourceWakePosture": "wave-1-listened",
-      "issue": "#2780",
-      "migration": "Project review opportunity summaries from Marketplace into Ordering account sale views."
     }
   ]
 }

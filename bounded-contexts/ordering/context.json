@@ -77,6 +77,42 @@
       ],
       "order": 70,
       "projectionHandlerSetNames": ["ordering-fulfillment-cancellation-inputs"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["ordering.order.created"],
+      "order": 69,
+      "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered"],
+      "order": 71,
+      "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 72,
+      "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "order": 73,
+      "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
     }
   ],
   "eventReactions": [
@@ -179,6 +215,18 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "ordering-order-review-opportunity-projection",
+      "sourceContextNames": ["ordering", "fulfillment", "platform-operations", "marketplace"],
+      "ownedTables": [
+        "ordering_order_review_shipment_sources",
+        "ordering_order_review_support_request_sources",
+        "ordering_order_review_eligibility_pages",
+        "ordering_order_review_pages"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "ordering-postage-policy-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
@@ -218,6 +266,12 @@
             },
             {
               "readModelTable": "ordering_order_hold_pages"
+            },
+            {
+              "readModelTable": "ordering_order_review_eligibility_pages"
+            },
+            {
+              "readModelTable": "ordering_order_review_pages"
             }
           ]
         },
@@ -233,6 +287,12 @@
             },
             {
               "readModelTable": "ordering_order_hold_pages"
+            },
+            {
+              "readModelTable": "ordering_order_review_eligibility_pages"
+            },
+            {
+              "readModelTable": "ordering_order_review_pages"
             }
           ]
         },

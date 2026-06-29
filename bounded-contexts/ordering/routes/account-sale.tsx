@@ -9,9 +9,11 @@ import {
   OrderingApiError,
   type SaleDetail,
 } from "../support/request-support/api-client";
-import { createReputationRequestApiClient, type ReviewOpportunity } from "@chase-sets/marketplace/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
-import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
+import {
+  OrderReviewOpportunityCallout,
+  type OrderReviewOpportunity,
+} from "../features/orders/ui/order-review-opportunity-callout";
 
 const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountSale.inspect.a.sale.cancel.it.while");
 
@@ -32,7 +34,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const orderingApi = createOrderingRequestApiClient(request);
-  const reputationApi = createReputationRequestApiClient(request);
 
   try {
     const saleRead = await loadAfterWrite({
@@ -47,22 +48,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       throw "error" in saleRead ? saleRead.error : new Response("Sale handoff is no longer valid.", { status: 410 });
     }
 
-    const sale = saleRead.data;
-    let reviewOpportunity: ReviewOpportunity | null = null;
-
-    if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
-      try {
-        reviewOpportunity = await reputationApi.getOrderReviewOpportunity(params.orderId!);
-      } catch (error) {
-        if (!(error instanceof Error && "status" in error && error.status === 404)) {
-          throw error;
-        }
-      }
-    }
-
     return {
-      sale,
-      reviewOpportunity,
+      sale: saleRead.data,
+      reviewOpportunity: saleRead.data.reviewOpportunity ?? null,
     };
   } catch (error) {
     if (error instanceof OrderingApiError && error.status === 404) {
@@ -102,7 +90,7 @@ export const meta: MetaFunction = () =>
 export default function OrderingAccountSaleRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const reviewOpportunity = data.reviewOpportunity as ReviewOpportunity | null;
+  const reviewOpportunity = data.reviewOpportunity as OrderReviewOpportunity | null;
 
   return (
     <OrderingOrderDetailPage
