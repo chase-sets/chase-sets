@@ -52,7 +52,7 @@ The effective reservation is observable: each loop's status (in `/internal/worke
 Before enabling an additional hot-path source context (registry `priorityLane: "hot"`) or raising lane throughput, walk the chain:
 
 1. **Worker loop:** `WORKER_WAKE_MAX_CONCURRENT_RUNNERS >= WORKER_WAKE_HOT_LANE_RUNNER_COUNT + 1`. Raise the hot lane runner count when the hot-lane queue age p95 alert (`platform-worker-wake-alerts`) fires or the wake-intent summary shows sustained queued hot intents with idle standard/bulk lanes; raise wake concurrency alongside it to keep the reservation real.
-2. **Worker database pool:** the sum of all runner group concurrencies (projections, jobs, dispatch, scheduled, wakes) must stay at or below `DATABASE_POOL_MAX`; the worker capacity assertion fails startup and the Terraform `worker_runner_capacity` check fails the plan otherwise. Staging and production both run wake concurrency 2 with 1/1/1 lane runners (reserved hot slot 1), and both runner concurrency sums currently equal their worker pool maxima (staging 11/11, production 7/7), so any wake increase needs `worker_database_pool_max` raised first.
+2. **Worker database pool:** the sum of all runner group concurrencies (projections, jobs, dispatch, scheduled, wakes) must stay at or below `DATABASE_POOL_MAX`; the worker capacity assertion fails startup and the Terraform `worker_runner_capacity` check fails the plan otherwise. Staging runs wake concurrency 3 with 1/2/1 lane runners (reserved hot slot 1, two shared wake slots) and a worker pool maximum of 12. Production runs wake concurrency 2 with 1/1/1 lane runners and a worker pool maximum of 7, so any production wake increase needs `worker_database_pool_max` raised first.
 3. **Control-plane wake store:** every lane runner adds one claim query per poll interval plus claim/complete/fail traffic per intent against `platform_projection_wake_intents`; the registry's `wakeStoreLoadEstimate` for the new source context indicates expected intent volume. Watch the wake-intent summary (stale claims, oldest ages) after enabling.
 4. **Cluster connection budget and deployment overlap:** pool maxima, relay listener connections, and rolling-deploy doubling are modeled in the plan-time `wake_connection_budget` check; see `docs/architecture/push-wake-connection-budget.md` before changing pool sizes or instance counts.
 
@@ -73,10 +73,10 @@ Platform worker environment variables, all with safe defaults:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED` | `true` | Consumer-side kill switch for the wake scheduler runners. |
-| `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` | Concurrency budget for the `wakes` runner group (counted by the worker capacity assertion and the Terraform worker capacity check). Keep it at least the hot lane runner count + 1 so the hot-lane reservation is effective. |
+| `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` (`3` in staging) | Concurrency budget for the `wakes` runner group (counted by the worker capacity assertion and the Terraform worker capacity check). Keep it at least the hot lane runner count + 1 so the hot-lane reservation is effective. |
 | `WORKER_WAKE_POLL_INTERVAL_MS` | `1000` | Poll cadence of the `wakes` runner group loop. |
 | `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` | `1` | Hot lane runner instances; also the requested reserved-slot count for the wakes loop (clamped to wake concurrency - 1 while other lanes exist). |
-| `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` | `1` | Standard lane runner instances. |
+| `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` | `1` (`2` in staging) | Standard lane runner instances. |
 | `WORKER_WAKE_BULK_LANE_RUNNER_COUNT` | `1` | Bulk lane runner instances. |
 | `WORKER_WAKE_MAX_CLAIMS_PER_RUN` | `10` | Bounded claims per runner pass. |
 | `WORKER_WAKE_CLAIM_TTL_MS` | `120000` | Wake-intent claim TTL; expired claims become reclaimable. |

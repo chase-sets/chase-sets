@@ -15,6 +15,10 @@ export type WakeIntentBreakdownRow = Readonly<{
   priorityLane: string;
   origin: string;
   state: string;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  checkpointKey: string;
   intentCount: number;
   oldestCreatedAt: string | null;
   oldestAgeMs: number | null;
@@ -262,6 +266,10 @@ function normalizeWakeStoreStatus(value: unknown): WakeStoreStatus {
         priorityLane: readString(row.priorityLane),
         origin: readString(row.origin),
         state: readString(row.state),
+        sourceContextName: readString(row.sourceContextName),
+        targetContextName: readString(row.targetContextName),
+        projectionName: readString(row.projectionName),
+        checkpointKey: readString(row.checkpointKey),
         intentCount: readNumber(row.intentCount),
         oldestCreatedAt: readNullableString(row.oldestCreatedAt),
         oldestAgeMs: readNullableNumber(row.oldestAgeMs),

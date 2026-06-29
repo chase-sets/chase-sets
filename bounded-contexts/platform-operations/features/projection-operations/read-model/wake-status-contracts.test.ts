@@ -22,6 +22,10 @@ describe("wake status contracts", () => {
             priorityLane: "hot",
             origin: "api-wait",
             state: "queued",
+            sourceContextName: "catalog",
+            targetContextName: "checkout",
+            projectionName: "checkout-session-projection",
+            checkpointKey: "checkout.checkout-session-projection:catalog",
             intentCount: 3,
             oldestCreatedAt: "2026-06-11T11:58:00.000Z",
             oldestAgeMs: 120000,
@@ -142,6 +146,10 @@ describe("wake status contracts", () => {
       priorityLane: "hot",
       origin: "api-wait",
       state: "queued",
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      checkpointKey: "checkout.checkout-session-projection:catalog",
       intentCount: 3,
     });
     expect(snapshot.relay.lease).toMatchObject({ ownerId: "platform-worker-1", state: "active" });

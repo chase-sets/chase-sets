@@ -377,6 +377,7 @@ function normalizeWakeStatus(value) {
   const wakeStore = isRecord(snapshot.wakeStore) ? snapshot.wakeStore : {};
   const intentSummary = isRecord(wakeStore.intentSummary) ? wakeStore.intentSummary : {};
   const schedulers = isRecord(snapshot.schedulers) ? snapshot.schedulers : {};
+  const intentBreakdown = normalizeWakeIntentBreakdown(wakeStore.intentBreakdown);
   const normalized = {
     present: isRecord(value),
     wakeStoreAvailable: wakeStore.available === true,
@@ -389,6 +390,7 @@ function normalizeWakeStatus(value) {
       staleClaimCount: toFiniteNumber(intentSummary.staleClaimCount),
       oldestQueuedAgeMs: toNullableNumber(intentSummary.oldestQueuedAgeMs),
     },
+    intentBreakdown,
   };
 
   return {
@@ -398,8 +400,39 @@ function normalizeWakeStatus(value) {
       wakeStoreAvailable: normalized.wakeStoreAvailable,
       activeWakeCapableWorkerCount: normalized.activeWakeCapableWorkerCount,
       intentSummary: normalized.intentSummary,
+      oldestQueuedIntentGroups: normalizeOldestQueuedIntentGroups(intentBreakdown),
     },
   };
+}
+
+function normalizeWakeIntentBreakdown(value) {
+  return (Array.isArray(value) ? value : []).map((entry) => {
+    const row = isRecord(entry) ? entry : {};
+    return {
+      priorityLane: sanitizeEvidenceString(row.priorityLane),
+      origin: sanitizeEvidenceString(row.origin),
+      state: sanitizeEvidenceString(row.state),
+      sourceContextName: sanitizeEvidenceString(row.sourceContextName),
+      targetContextName: sanitizeEvidenceString(row.targetContextName),
+      projectionName: sanitizeEvidenceString(row.projectionName),
+      checkpointKey: sanitizeEvidenceString(row.checkpointKey),
+      intentCount: toFiniteNumber(row.intentCount),
+      oldestCreatedAt: row.oldestCreatedAt === null ? null : sanitizeEvidenceString(row.oldestCreatedAt),
+      oldestAgeMs: toNullableNumber(row.oldestAgeMs),
+      maxAttemptCount: toFiniteNumber(row.maxAttemptCount),
+    };
+  });
+}
+
+function normalizeOldestQueuedIntentGroups(intentBreakdown) {
+  return intentBreakdown
+    .filter((entry) => entry.state === "queued")
+    .sort((left, right) => {
+      const leftAge = left.oldestAgeMs ?? -1;
+      const rightAge = right.oldestAgeMs ?? -1;
+      return rightAge - leftAge;
+    })
+    .slice(0, 10);
 }
 
 function normalizeWakeRuntimeReadiness(value) {

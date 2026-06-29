@@ -318,13 +318,13 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 11 : 7");
+    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_staging ? 12 : 7");
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
     expectTerraformAssignment(platformLocals, "worker_projection_concurrency", 'local.is_staging ? "2" : "1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "3" : "2"');
     expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
-    expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", '"1"');
+    expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", 'local.is_staging ? "2" : "1"');
     expectTerraformAssignment(platformLocals, "worker_wake_bulk_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_wake_statement_timeout_ms", '"30000"');
     expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");

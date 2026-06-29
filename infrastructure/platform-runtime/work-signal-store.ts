@@ -181,6 +181,10 @@ export type ProjectionWakeIntentBreakdownEntry = Readonly<{
   priorityLane: WorkSignalPriorityLane;
   origin: WorkSignalWakeOrigin;
   state: ProjectionWakeIntentState;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  checkpointKey: string;
   intentCount: number;
   oldestCreatedAt: Date | null;
   maxAttemptCount: number;
@@ -1212,12 +1216,16 @@ export function createPostgresWorkSignalStore(
           priority_lane,
           origin,
           state,
+          source_context_name,
+          target_context_name,
+          projection_name,
+          checkpoint_key,
           COUNT(*)::integer AS intent_count,
           MIN(created_at) AS oldest_created_at,
           MAX(attempt_count)::integer AS max_attempt_count
         FROM platform_projection_wake_intents
-        GROUP BY priority_lane, origin, state
-        ORDER BY priority_lane, origin, state
+        GROUP BY priority_lane, origin, state, source_context_name, target_context_name, projection_name, checkpoint_key
+        ORDER BY priority_lane, origin, state, source_context_name, target_context_name, projection_name, checkpoint_key
         `,
       );
 
@@ -1225,6 +1233,10 @@ export function createPostgresWorkSignalStore(
         priorityLane: row.priority_lane,
         origin: row.origin,
         state: row.state,
+        sourceContextName: row.source_context_name,
+        targetContextName: row.target_context_name,
+        projectionName: row.projection_name,
+        checkpointKey: row.checkpoint_key,
         intentCount: Number(row.intent_count),
         oldestCreatedAt: toNullableDate(row.oldest_created_at),
         maxAttemptCount: Number(row.max_attempt_count),
@@ -1615,6 +1627,10 @@ type ProjectionWakeIntentBreakdownRow = {
   priority_lane: WorkSignalPriorityLane;
   origin: WorkSignalWakeOrigin;
   state: ProjectionWakeIntentState;
+  source_context_name: string;
+  target_context_name: string;
+  projection_name: string;
+  checkpoint_key: string;
   intent_count: number | string;
   oldest_created_at: Date | string | null;
   max_attempt_count: number | string;
