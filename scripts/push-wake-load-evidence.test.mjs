@@ -91,7 +91,7 @@ function passingArtifact(overrides = {}) {
   };
 }
 
-function wakeStatusSnapshot(intentSummary = {}) {
+function wakeStatusSnapshot(intentSummary = {}, intentBreakdown = []) {
   return {
     generatedAt: "2026-06-24T00:02:00.000Z",
     wakeStore: {
@@ -105,6 +105,7 @@ function wakeStatusSnapshot(intentSummary = {}) {
         oldestQueuedAgeMs: null,
         ...intentSummary,
       },
+      intentBreakdown,
       checkpointSignals: {},
     },
     schedulers: {
@@ -285,7 +286,34 @@ describe("push wake load evidence evaluator", () => {
             },
           },
         },
-        wakeStatusAfter: wakeStatusSnapshot({ failedCount: 1, oldestQueuedAgeMs: 90_000 }),
+        wakeStatusAfter: wakeStatusSnapshot({ failedCount: 1, oldestQueuedAgeMs: 90_000 }, [
+          {
+            priorityLane: "standard",
+            origin: "relay",
+            state: "queued",
+            sourceContextName: "marketplace",
+            targetContextName: "checkout",
+            projectionName: "checkout-session-projection",
+            checkpointKey: "checkout.checkout-session-projection:marketplace",
+            intentCount: 3,
+            oldestCreatedAt: "2026-06-24T00:01:00.000Z",
+            oldestAgeMs: 90_000,
+            maxAttemptCount: 1,
+          },
+          {
+            priorityLane: "hot",
+            origin: "api-wait",
+            state: "completed",
+            sourceContextName: "checkout",
+            targetContextName: "checkout",
+            projectionName: "checkout-session-projection",
+            checkpointKey: "checkout.checkout-session-projection:checkout",
+            intentCount: 1,
+            oldestCreatedAt: "2026-06-24T00:02:00.000Z",
+            oldestAgeMs: 1_000,
+            maxAttemptCount: 1,
+          },
+        ]),
       }),
       checkedAt: "2026-06-24T00:03:00.000Z",
       profile: "representative-volume",
@@ -301,6 +329,21 @@ describe("push wake load evidence evaluator", () => {
         "wake-queue-age-after-load-exceeded-budget",
       ]),
     );
+    expect(evidence.observations.wakeStatus.after.oldestQueuedIntentGroups).toEqual([
+      {
+        priorityLane: "standard",
+        origin: "relay",
+        state: "queued",
+        sourceContextName: "marketplace",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:marketplace",
+        intentCount: 3,
+        oldestCreatedAt: "2026-06-24T00:01:00.000Z",
+        oldestAgeMs: 90_000,
+        maxAttemptCount: 1,
+      },
+    ]);
   });
 
   it("fails when the source drill records no wake runtime recovery after load", () => {

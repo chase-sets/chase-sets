@@ -770,6 +770,10 @@ describe("work signal store", () => {
               priority_lane: "hot",
               origin: "api-wait",
               state: "queued",
+              source_context_name: "catalog",
+              target_context_name: "checkout",
+              projection_name: "checkout-session-projection",
+              checkpoint_key: "checkout.checkout-session-projection:catalog",
               intent_count: "3",
               oldest_created_at: "2026-06-10T11:58:00.000Z",
               max_attempt_count: "0",
@@ -778,6 +782,10 @@ describe("work signal store", () => {
               priority_lane: "standard",
               origin: "relay",
               state: "failed",
+              source_context_name: "ordering",
+              target_context_name: "settlement",
+              projection_name: "settlement-payout-readiness-projection",
+              checkpoint_key: "settlement.payout-readiness:ordering",
               intent_count: 1,
               oldest_created_at: null,
               max_attempt_count: 4,
@@ -793,6 +801,10 @@ describe("work signal store", () => {
         priorityLane: "hot",
         origin: "api-wait",
         state: "queued",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:catalog",
         intentCount: 3,
         oldestCreatedAt: new Date("2026-06-10T11:58:00.000Z"),
         maxAttemptCount: 0,
@@ -801,13 +813,19 @@ describe("work signal store", () => {
         priorityLane: "standard",
         origin: "relay",
         state: "failed",
+        sourceContextName: "ordering",
+        targetContextName: "settlement",
+        projectionName: "settlement-payout-readiness-projection",
+        checkpointKey: "settlement.payout-readiness:ordering",
         intentCount: 1,
         oldestCreatedAt: null,
         maxAttemptCount: 4,
       },
     ]);
 
-    expect(calls[0].sql).toContain("GROUP BY priority_lane, origin, state");
+    expect(calls[0].sql).toContain(
+      "GROUP BY priority_lane, origin, state, source_context_name, target_context_name, projection_name, checkpoint_key",
+    );
     // Operator summary must stay aggregated: no metadata or error payloads.
     expect(calls[0].sql).not.toContain("metadata");
     expect(calls[0].sql).not.toContain("last_error");

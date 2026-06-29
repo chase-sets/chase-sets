@@ -104,7 +104,7 @@ locals {
   }
 
   api_database_pool_max               = "6"
-  worker_default_database_pool_max    = local.is_staging ? 11 : 7
+  worker_default_database_pool_max    = local.is_staging ? 12 : 7
   worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
@@ -123,12 +123,15 @@ locals {
   # like staging so the reservation is provisioned before production proof
   # mode (#1237) enables the relay; the worker_runner_capacity check sums
   # production runner concurrency to 7 = worker_database_pool_max and staging
-  # to 11 = worker_database_pool_max. Production keeps one projection runner
-  # by default so the current database tier can budget the Identity listener
-  # added for cross-device presentation preference freshness (#2744).
-  worker_wake_concurrency           = "2"
+  # to 12 = worker_database_pool_max. Staging runs an extra shared wake slot
+  # and standard-lane runner so representative load drills do not leave
+  # standard relay intents aging behind bulk work while the hot reservation is
+  # active. Production keeps one projection runner by default so the current
+  # database tier can budget the Identity listener added for cross-device
+  # presentation preference freshness (#2744).
+  worker_wake_concurrency           = local.is_staging ? "3" : "2"
   worker_wake_hot_lane_runners      = "1"
-  worker_wake_standard_lane_runners = "1"
+  worker_wake_standard_lane_runners = local.is_staging ? "2" : "1"
   worker_wake_bulk_lane_runners     = "1"
   worker_wake_statement_timeout_ms  = "30000"
 
