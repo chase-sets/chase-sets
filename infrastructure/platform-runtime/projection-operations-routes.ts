@@ -21,7 +21,9 @@ import {
 import { listWorkSignalOriginDispositions } from "./work-signal-composite";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 
-const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
+const PROJECTION_OPERATIONS_VIEW_PERMISSION = "projection-operations.view";
+const PROJECTION_OPERATIONS_OPERATE_PERMISSION = "projection-operations.operate";
+const PROJECTION_OPERATIONS_REBUILD_PERMISSION = "projection-operations.rebuild";
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
 const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
@@ -49,7 +51,7 @@ export function createProjectionOperationsRoutes(
   const app = new Hono<ProjectionOperationsRouteEnv>();
 
   app.get("/", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -73,7 +75,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.post("/refresh", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_OPERATE_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -92,7 +94,7 @@ export function createProjectionOperationsRoutes(
   // states, positions, owners, and timestamps — never wake-intent metadata,
   // error bodies, or stream identifiers.
   app.get("/wake-status", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -121,7 +123,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.get("/:projectionKey/blocked-streams", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -134,7 +136,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.post("/:projectionKey/blocked-streams/:streamId/retry", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_OPERATE_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -155,7 +157,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.post("/groups/:contextName/:projectionName/rebuild", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_REBUILD_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -188,7 +190,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.post("/groups/:contextName/rebuild", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_REBUILD_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -219,7 +221,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.get("/operations", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -246,7 +248,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.get("/operations/:operationId", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -264,7 +266,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.get("/operations/:operationId/events", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_VIEW_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -300,7 +302,7 @@ export function createProjectionOperationsRoutes(
   });
 
   app.post("/operations/:operationId/cancel", async (c) => {
-    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"), PROJECTION_OPERATIONS_OPERATE_PERMISSION);
     if (actorResponse instanceof Response) {
       return actorResponse;
     }
@@ -506,12 +508,12 @@ function toAgeMs(value: Date | null, now: number): number | null {
   return value ? Math.max(0, now - value.getTime()) : null;
 }
 
-function requireProjectionOperationsActor(actor: ResolvedActor | null): ResolvedActor | Response {
+function requireProjectionOperationsActor(actor: ResolvedActor | null, permission: string): ResolvedActor | Response {
   if (!actor) {
     return Response.json(authenticationRequiredResponse(), { status: 401 });
   }
 
-  if (!actor.permissions.includes(PROJECTION_OPERATIONS_PERMISSION)) {
+  if (!actor.permissions.includes(permission)) {
     return Response.json(forbiddenResponse(), { status: 403 });
   }
 

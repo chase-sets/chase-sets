@@ -138,7 +138,7 @@ describe("admin section loader", () => {
     ["growth", "google-shopping.view", "public-presence.view", "/growth/waitlist"],
     ["commerce", "commercial-terms.view", "postage-policies.view", "/commerce/postage-policies"],
     ["support", "support.manage", "platform-feedback.view", "/support/platform-feedback"],
-    ["platform", "security.manage", "security.manage", "/platform/projections"],
+    ["platform", "projection-operations.view", "projection-operations.view", "/platform/projections"],
   ] as const)(
     "redirects %s section home actors with %s to their first visible route",
     async (section, fallbackPermission, actorPermission, expectedLocation) => {

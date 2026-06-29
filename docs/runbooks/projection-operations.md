@@ -58,10 +58,20 @@ Do not ask publishers to re-run the command as the first response. Publishers al
 - Mark a poison event ignored only when the owning context documents why the event is irrelevant or safely lossy for that projection.
 - Rebuild the projection group when the projection definition changed or when many blocked streams indicate replay is safer than individual repair.
 
-Blocked-stream operations require `security.manage`:
+## Permissions
 
-- `GET /api/platform/projections/:projectionKey/blocked-streams` lists active blocked stream and poison details for one projection key.
-- `POST /api/platform/projections/:projectionKey/blocked-streams/:streamId/retry` replays one blocked stream in stream-version order.
+Projection Operations uses incident-focused permissions instead of the broader Access security gate:
+
+- `projection-operations.view` can inspect projection, wake, worker, blocked-stream, and durable operation state.
+- `projection-operations.operate` can refresh live status, retry blocked streams, and request cancellation for queued or running operations.
+- `projection-operations.rebuild` can queue projection-group or context rebuilds. Rebuild operations record the requesting user and account in the durable control-plane operation.
+
+Catalog keeps its launch-ready `catalog.view` / `catalog.manage` split for now. The catalog control plane already distinguishes safe reads from destructive writes and enforces `catalog.manage` for provider profile authoring, lifecycle actions, imports, promotion, review, rollback, reapply, and replay. Revisit catalog author/provider/governance sub-tiers after Admin Workflows Staging QA if operator evidence shows the two-tier model blocks real staffing or audit needs.
+
+Blocked-stream operations use those tiers:
+
+- `GET /api/platform/projections/:projectionKey/blocked-streams` lists active blocked stream and poison details for one projection key and requires `projection-operations.view`.
+- `POST /api/platform/projections/:projectionKey/blocked-streams/:streamId/retry` replays one blocked stream in stream-version order and requires `projection-operations.operate`.
 
 ### Escalate as a projection correctness incident when
 

@@ -246,7 +246,7 @@ describe("admin-support API app", () => {
         accountId: "acc_test",
         membershipId: "mem_test",
         roleKey: "platform-admin",
-        permissions: ["security.manage"],
+        permissions: ["projection-operations.view"],
       }),
     });
 
@@ -293,7 +293,7 @@ describe("admin-support API app", () => {
         accountId: "acc_test",
         membershipId: "mem_test",
         roleKey: "platform-admin",
-        permissions: ["security.manage"],
+        permissions: ["projection-operations.view"],
       }),
       controlPlane: {
         listLeases: async () => [
@@ -489,7 +489,7 @@ describe("admin-support API app", () => {
         accountId: "acc_test",
         membershipId: "mem_test",
         roleKey: "platform-admin",
-        permissions: ["security.manage"],
+        permissions: ["projection-operations.view"],
       }),
     });
 

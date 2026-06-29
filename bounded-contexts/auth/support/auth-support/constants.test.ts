@@ -15,6 +15,9 @@ describe("auth role permissions", () => {
         "memberships.view",
         "postage-policies.manage",
         "postage-policies.view",
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
         "platform-feedback.manage",
         "platform-feedback.view",
         "public-presence.manage",
@@ -33,6 +36,9 @@ describe("auth role permissions", () => {
         "commercial-terms.view",
         "postage-policies.manage",
         "postage-policies.view",
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
       ]),
     );
     expect(AUTH_ROLE_PERMISSIONS.manager).toEqual(

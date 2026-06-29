@@ -49,7 +49,8 @@ These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL
 
 | ID | Permission | Entry Paths | Expected Sections | Required Evidence |
 | --- | --- | --- | --- | --- |
-| AS-ACTOR-SECURITY-MANAGE | `security.manage` | `/access`, `/platform` | Access, Platform | Direct route entry, section root resolution, and no misleading cross-section links. |
+| AS-ACTOR-SECURITY-MANAGE | `security.manage` | `/access` | Access | Direct route entry, section root resolution, and no misleading cross-section links. |
+| AS-ACTOR-PROJECTION-OPERATIONS-VIEW | `projection-operations.view` | `/platform`, `/platform/projections` | Platform | Direct route entry, section root resolution, and no misleading cross-section links. |
 | AS-ACTOR-MEMBERSHIPS-VIEW | `memberships.view` | `/access`, `/access/memberships` | Access | Direct route entry and section root resolution. |
 | AS-ACTOR-PUBLIC-PRESENCE-VIEW | `public-presence.view` | `/growth`, `/growth/waitlist` | Growth | Direct route entry, section root resolution, and no unauthorized Platform/Access/Catalog shortcuts. |
 | AS-ACTOR-POSTAGE-POLICIES-VIEW | `postage-policies.view` | `/commerce`, `/commerce/postage-policies` | Commerce | Direct route entry and section root resolution. |
@@ -62,6 +63,7 @@ These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test --
 | ID | Actor Row | Evidence Files |
 | --- | --- | --- |
 | EVIDENCE-AS-ACTOR-SECURITY-MANAGE | AS-ACTOR-SECURITY-MANAGE | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+| EVIDENCE-AS-ACTOR-PROJECTION-OPERATIONS-VIEW | AS-ACTOR-PROJECTION-OPERATIONS-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
 | EVIDENCE-AS-ACTOR-MEMBERSHIPS-VIEW | AS-ACTOR-MEMBERSHIPS-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
 | EVIDENCE-AS-ACTOR-PUBLIC-PRESENCE-VIEW | AS-ACTOR-PUBLIC-PRESENCE-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
 | EVIDENCE-AS-ACTOR-POSTAGE-POLICIES-VIEW | AS-ACTOR-POSTAGE-POLICIES-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |

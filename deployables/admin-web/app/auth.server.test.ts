@@ -33,21 +33,21 @@ describe("admin web auth helpers", () => {
     mockResolveActor.mockResolvedValue({ permissions: ["commercial-terms.view"] });
 
     await expect(
-      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "security.manage"),
+      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "projection-operations.view"),
     ).rejects.toMatchObject({
       status: 403,
     });
   });
 
   it("delegates signed-out section actors to the auth challenge", async () => {
-    const challengedActor = { permissions: ["security.manage"] };
+    const challengedActor = { permissions: ["projection-operations.view"] };
     mockResolveActor.mockResolvedValue(null);
     mockRequireActor.mockResolvedValue(challengedActor);
 
     await expect(
-      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "security.manage"),
+      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "projection-operations.view"),
     ).resolves.toBe(challengedActor);
-    expect(mockRequireActor).toHaveBeenCalledWith(expect.any(Request), "security.manage");
+    expect(mockRequireActor).toHaveBeenCalledWith(expect.any(Request), "projection-operations.view");
   });
 
   it("allows root hub loading for any signed-in actor before section filtering", async () => {

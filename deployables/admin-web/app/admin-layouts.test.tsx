@@ -43,6 +43,7 @@ const allSectionsActor = {
     "google-shopping.view",
     "platform-feedback.view",
     "postage-policies.view",
+    "projection-operations.view",
     "public-presence.view",
     "security.manage",
     "support.manage",

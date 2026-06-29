@@ -110,7 +110,7 @@ describe("platform api app wiring", () => {
 
   it("mounts projection operations under the same-origin API prefix", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime(), {
-      resolveActor: vi.fn(async () => platformActor(["security.manage"])),
+      resolveActor: vi.fn(async () => platformActor(["projection-operations.view"])),
     });
 
     const response = await app.request("/api/platform/projections");
