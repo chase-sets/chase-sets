@@ -156,6 +156,9 @@ const projectionInterestIndexLookupCounter = lazyCounter("chase_sets_projection_
 const projectionInterestIndexLookupDuration = lazyHistogram("chase_sets_projection_interest_index_lookup_duration_ms", {
   unit: "ms",
 });
+const projectionWakeIntentEnqueueOutcomeCounter = lazyCounter(
+  "chase_sets_projection_wake_intent_enqueue_outcomes_total",
+);
 const projectionWakeIntentCounter = lazyCounter("chase_sets_projection_wake_intents_total");
 const projectionWakeIntentAttemptsExhaustedCounter = lazyCounter(
   "chase_sets_projection_wake_intent_attempts_exhausted_total",
@@ -379,6 +382,7 @@ export type ProjectionWakeRelayFanOutSignal = Readonly<{
   status: "enqueued" | "skipped" | "failed";
   reason?: string | null;
   priorityLane?: string | null;
+  routingMode?: string | null;
   intentCount: number;
   enqueuedCount: number;
   notificationAgeMs?: number | null;
@@ -413,6 +417,20 @@ export type ProjectionWakeIntentOutcomeSignal = Readonly<{
   attemptCount: number;
   processingDurationMs?: number | null;
   requeued?: boolean;
+}>;
+
+export type ProjectionWakeIntentEnqueueOutcomeSignal = Readonly<{
+  outcome: "created" | "coalesced" | "requeued_completed" | "requeued_expired";
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  priorityLane: string;
+  origin: string;
+  routingMode?: string | null;
+}>;
+
+export type ProjectionWakeIntentEnqueueOutcomeMetric = Readonly<{
+  attributes: Attributes;
 }>;
 
 let runtime: ObservabilityRuntime | null = null;
@@ -1204,16 +1222,19 @@ export function recordProjectionWakeRelayCatchUp(event: ProjectionWakeRelayCatch
 export function recordProjectionWakeRelayFanOut(event: ProjectionWakeRelayFanOutSignal): void {
   const sourceContext = boundedMetricLabel(event.sourceContextName);
   const priorityLane = boundedMetricLabel(event.priorityLane);
+  const routingMode = boundedMetricLabel(event.routingMode);
   projectionWakeRelayFanOutCounter.add(1, {
     source_context: sourceContext,
     status: boundedMetricLabel(event.status),
     reason: boundedMetricLabel(event.reason),
     priority_lane: priorityLane,
+    routing_mode: routingMode,
   });
   if (event.enqueuedCount > 0) {
     projectionWakeRelayFanOutIntentsCounter.add(event.enqueuedCount, {
       source_context: sourceContext,
       priority_lane: priorityLane,
+      routing_mode: routingMode,
     });
   }
   if (
@@ -1225,6 +1246,27 @@ export function recordProjectionWakeRelayFanOut(event: ProjectionWakeRelayFanOut
       source_context: sourceContext,
     });
   }
+}
+
+export function projectionWakeIntentEnqueueOutcomeMetricRecord(
+  event: ProjectionWakeIntentEnqueueOutcomeSignal,
+): ProjectionWakeIntentEnqueueOutcomeMetric {
+  return {
+    attributes: {
+      outcome: boundedMetricLabel(event.outcome),
+      source_context: boundedMetricLabel(event.sourceContextName),
+      target_context: boundedMetricLabel(event.targetContextName),
+      projection: boundedMetricLabel(event.projectionName),
+      priority_lane: boundedMetricLabel(event.priorityLane),
+      origin: boundedMetricLabel(event.origin),
+      routing_mode: boundedMetricLabel(event.routingMode),
+    },
+  };
+}
+
+export function recordProjectionWakeIntentEnqueueOutcome(event: ProjectionWakeIntentEnqueueOutcomeSignal): void {
+  const record = projectionWakeIntentEnqueueOutcomeMetricRecord(event);
+  projectionWakeIntentEnqueueOutcomeCounter.add(1, record.attributes);
 }
 
 export function projectionInterestIndexLookupMetricRecord(

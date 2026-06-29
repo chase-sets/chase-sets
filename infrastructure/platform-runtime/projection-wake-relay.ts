@@ -45,6 +45,7 @@ const DEFAULT_PROJECTION_WAKE_RELAY_RECONNECT_BACKOFF_MS = 1_000;
 export type ProjectionWakeRelayFanOutStatus = "enqueued" | "skipped";
 export type ProjectionWakeRelaySkippedReason = "source-disabled" | "no-interests";
 export type ProjectionWakeRelayCatchUpReason = "startup" | "notification" | "reconnect";
+export type ProjectionWakeRelayRoutingMode = "safe_over_wake" | "unspecified";
 export type ProjectionWakeRelayFanOutFailureReason =
   | "invalid-notification"
   | "stale-interest-index"
@@ -127,6 +128,7 @@ export type ProjectionWakeRelayFanOutResult = Readonly<{
   lastGlobalPosition: string;
   requiredCursor: string;
   priorityLane: WorkSignalPriorityLane | null;
+  routingMode: ProjectionWakeRelayRoutingMode;
   projectionInterestIndexVersion: string;
   intentCount: number;
   enqueuedCount: number;
@@ -223,6 +225,7 @@ export type ProjectionWakeRelaySourceSkippedEvent = Readonly<{
   streamCategory: string;
   lastGlobalPosition: string;
   reason: "source-disabled";
+  routingMode: ProjectionWakeRelayRoutingMode;
   relayFanOutEnabled: boolean;
   rolloutState: SourceContextWakeRelayConfig["rolloutState"] | null;
 }>;
@@ -233,6 +236,7 @@ export type ProjectionWakeRelayFanOutSkippedEvent = Readonly<{
   lastGlobalPosition: string;
   requiredCursor: string;
   reason: "no-interests";
+  routingMode: ProjectionWakeRelayRoutingMode;
   projectionInterestIndexVersion: string;
 }>;
 
@@ -243,6 +247,7 @@ export type ProjectionWakeRelayFanOutSucceededEvent = Readonly<{
   lastGlobalPosition: string;
   requiredCursor: string;
   priorityLane: WorkSignalPriorityLane;
+  routingMode: ProjectionWakeRelayRoutingMode;
   projectionInterestIndexVersion: string;
   intentCount: number;
   enqueuedCount: number;
@@ -255,6 +260,7 @@ export type ProjectionWakeRelayFanOutFailedEvent = Readonly<{
   streamCategory: string | null;
   lastGlobalPosition: string | null;
   reason: ProjectionWakeRelayFanOutFailureReason;
+  routingMode: ProjectionWakeRelayRoutingMode;
   intentCount: number;
   enqueuedCount: number;
   error: unknown;
@@ -270,6 +276,14 @@ export type ProjectionInterestIndexLookupCompletedEvent = Readonly<{
   intentCount: number;
   durationMs: number;
 }>;
+
+type ProjectionWakeRelayNotificationEnvelope = EventStoreWakeNotificationEnvelope &
+  Readonly<{
+    payload: EventStoreWakeNotificationPayload &
+      Readonly<{
+        projectionWakeRoutingMode: ProjectionWakeRelayRoutingMode;
+      }>;
+  }>;
 
 export class ProjectionWakeRelayNotificationRejectedError extends Error {
   readonly reason: string;
@@ -547,7 +561,7 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 export async function fanOutEventStoreWakeNotification(
   input: ProjectionWakeRelayFanOutInput,
 ): Promise<ProjectionWakeRelayFanOutResult> {
-  let notification: EventStoreWakeNotificationEnvelope;
+  let notification: ProjectionWakeRelayNotificationEnvelope;
 
   try {
     notification = parseEventStoreWakeNotificationEnvelope(input.notification);
@@ -561,6 +575,7 @@ export async function fanOutEventStoreWakeNotification(
       streamCategory: null,
       lastGlobalPosition: null,
       reason: "invalid-notification",
+      routingMode: "unspecified",
       intentCount: 0,
       enqueuedCount: 0,
       error,
@@ -569,12 +584,14 @@ export async function fanOutEventStoreWakeNotification(
   }
 
   const notificationContext = eventStoreWakeNotificationContext(notification);
+  const routingMode = notification.payload.projectionWakeRoutingMode;
   const relayConfig = findRelayConfig(notification.payload.sourceContextName, input.relayConfigs);
 
   if (!relayConfig?.relayFanOutEnabled) {
     input.observer?.sourceSkipped?.({
       ...notificationContext,
       reason: "source-disabled",
+      routingMode,
       relayFanOutEnabled: relayConfig?.relayFanOutEnabled ?? false,
       rolloutState: relayConfig?.rolloutState ?? null,
     });
@@ -586,6 +603,7 @@ export async function fanOutEventStoreWakeNotification(
       eventTypes: notification.payload.eventTypes,
       requiredCursor: sourceScopedCursor(notification.payload),
       priorityLane: relayConfig?.priorityLane ?? null,
+      routingMode,
       projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
       intentCount: 0,
       enqueuedCount: 0,
@@ -607,7 +625,7 @@ export async function fanOutEventStoreWakeNotification(
       origin: "relay",
       priorityLane: relayConfig.priorityLane,
       correlationId: notification.correlationId ?? null,
-      metadata: projectionWakeRelayMetadata(notification, relayConfig, input.metadata),
+      metadata: projectionWakeRelayMetadata(notification, relayConfig, input.metadata, routingMode),
     });
     input.observer?.interestIndexLookupCompleted?.(
       createInterestIndexLookupCompletedEvent({
@@ -633,6 +651,7 @@ export async function fanOutEventStoreWakeNotification(
     input.observer?.fanOutFailed?.({
       ...notificationContext,
       reason: fanOutFailureReason(error),
+      routingMode,
       intentCount: 0,
       enqueuedCount: 0,
       error,
@@ -645,6 +664,7 @@ export async function fanOutEventStoreWakeNotification(
       ...notificationContext,
       requiredCursor,
       reason: "no-interests",
+      routingMode,
       projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
     });
 
@@ -655,6 +675,7 @@ export async function fanOutEventStoreWakeNotification(
       eventTypes: notification.payload.eventTypes,
       requiredCursor,
       priorityLane: relayConfig.priorityLane,
+      routingMode,
       projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
       intentCount: 0,
       enqueuedCount: 0,
@@ -673,6 +694,7 @@ export async function fanOutEventStoreWakeNotification(
     input.observer?.fanOutFailed?.({
       ...notificationContext,
       reason: "enqueue-failed",
+      routingMode,
       intentCount: intentInputs.length,
       enqueuedCount: records.length,
       error,
@@ -687,6 +709,7 @@ export async function fanOutEventStoreWakeNotification(
     eventTypes: notification.payload.eventTypes,
     requiredCursor,
     priorityLane: relayConfig.priorityLane,
+    routingMode,
     projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
     intentCount: intentInputs.length,
     enqueuedCount: records.length,
@@ -698,6 +721,7 @@ export async function fanOutEventStoreWakeNotification(
     ...notificationContext,
     requiredCursor,
     priorityLane: relayConfig.priorityLane,
+    routingMode,
     projectionInterestIndexVersion: input.projectionInterestIndex.indexVersion,
     intentCount: result.intentCount,
     enqueuedCount: result.enqueuedCount,
@@ -1136,7 +1160,9 @@ function waitForProjectionWakeRelayAbort(signal: AbortSignal): Promise<void> {
   });
 }
 
-export function parseEventStoreWakeNotificationEnvelope(notification: unknown): EventStoreWakeNotificationEnvelope {
+export function parseEventStoreWakeNotificationEnvelope(
+  notification: unknown,
+): ProjectionWakeRelayNotificationEnvelope {
   const value = parseJsonNotification(notification);
 
   if (!isRecord(value)) {
@@ -1158,7 +1184,10 @@ export function parseEventStoreWakeNotificationEnvelope(notification: unknown): 
   const source = requireNonEmptyString(value, "source");
   const emittedAt = requireIsoTimestamp(value, "emittedAt");
   const correlationId = optionalNonEmptyString(value, "correlationId");
-  const payload = parseEventStoreWakeNotificationPayload(value.payload);
+  const payload = {
+    ...parseEventStoreWakeNotificationPayload(value.payload),
+    projectionWakeRoutingMode: projectionWakeRoutingMode(value.payload),
+  };
 
   return {
     schemaVersion: EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION,
@@ -1207,6 +1236,14 @@ function parseEventStoreWakeNotificationPayload(payload: unknown): EventStoreWak
     eventCount,
     eventTypes,
   };
+}
+
+function projectionWakeRoutingMode(payload: unknown): ProjectionWakeRelayRoutingMode {
+  if (!isRecord(payload)) {
+    return "unspecified";
+  }
+
+  return payload.additiveRoutingHint === "safe-over-wake-only" ? "safe_over_wake" : "unspecified";
 }
 
 function findRelayConfig(
@@ -1266,6 +1303,7 @@ function projectionWakeRelayMetadata(
   notification: EventStoreWakeNotificationEnvelope,
   relayConfig: SourceContextWakeRelayConfig,
   metadata: JsonRecord | undefined,
+  routingMode: ProjectionWakeRelayRoutingMode,
 ): JsonRecord {
   assertSafeRelayMetadata(metadata);
 
@@ -1273,6 +1311,7 @@ function projectionWakeRelayMetadata(
     ...(metadata ?? {}),
     projectionWakeRelaySchemaVersion: PROJECTION_WAKE_RELAY_FAN_OUT_SCHEMA_VERSION,
     projectionWakeRelayMetadataVersion: PROJECTION_WAKE_RELAY_FAN_OUT_METADATA_VERSION,
+    projectionWakeRoutingMode: routingMode,
     eventStoreWakeSource: notification.source,
     eventStoreWakeEmittedAt: notification.emittedAt,
     eventStoreWakeStreamCategory: notification.payload.streamCategory,

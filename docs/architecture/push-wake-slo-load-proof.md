@@ -34,7 +34,7 @@ Classes: **ratified** (numeric gate enforced today; see Dual-SLO Ratification), 
 | Relay catch-up (restart/failover recovery) | instrumented | `chase_sets_projection_wake_relay_catch_up_duration_ms` / `_events_total`; takeover drill in recovery-drills runbook |
 | Relay high-water lag (review-update segment) | instrumented + drill-audited | Wake panel cursor age; reconciliation drill `relayCursorGap` (fails on sustained gap) |
 | Relay fan-out | instrumented + alerted | `chase_sets_projection_wake_relay_fan_out_total` failure-rate alert (`platform-worker-wake-alerts`) |
-| Control-plane store enqueue/claim | instrumented | `chase_sets_projection_wake_intents_total` by outcome; intent processing p95 |
+| Control-plane store enqueue/claim | instrumented | `chase_sets_projection_wake_intent_enqueue_outcomes_total` by enqueue outcome/lane/origin/routing mode; `chase_sets_projection_wake_intents_total` by scheduler outcome; intent processing p95 |
 | Worker queue age (hot lane) | **alert-gated: hot-lane queue age p95 SLO alert** | `chase_sets_projection_wake_intent_queue_age_ms{priority_lane="hot"}` |
 | Projection execution → checkpoint advance | instrumented + drill-audited | Projection group lag surfaces; reconciliation drill checkpoint gaps |
 | Checkpoint readiness (persistence-to-wake) + waiter registration | instrumented | Wake-status `checkpointSignals` (readiness/waiter counts and ages) |
@@ -44,7 +44,7 @@ Classes: **ratified** (numeric gate enforced today; see Dual-SLO Ratification), 
 | Projection operation SSE wake/replay | fallback-classed | Same composite path; operator-class latency |
 | Realtime SSE wake/replay | fallback-classed | Outbox-cursor replay; 1 s polling fallback where listeners are best-effort |
 | Interest-index lookup time/staleness | partially instrumented | Index version per cursor + full summary (status, stale reason, generatedAt, disabled/opt-out counts) on worker status; no lookup-latency metric — accepted gap (in-memory map) |
-| Safe over-wake rate | not-instrumented | Accepted gap; coalescing bounds it structurally, no live measurement |
+| Safe over-wake rate | instrumented | `chase_sets_projection_wake_intent_enqueue_outcomes_total` with `routing_mode=safe_over_wake`; raw additive routing hints are not stored |
 | Cleanup lag | instrumented | `work-signals.cleanup.completed` logs + expired counts on wake-status; observation drill 10 |
 | Provider outbox enqueue-to-claim / claim-to-dispatch / retry / terminal recording | fallback-classed, **excluded from push-first SLO gates** | Scheduled/poll dispatchers over durable outbox rows (documented exception in the composite origin inventory); recovery drill 9 |
 
@@ -125,7 +125,7 @@ Supporting decisions:
 ## Honest Gaps
 
 - Production-like volume load proof: not done (deferred scope above, with owners/path recorded there). The dual SLOs above are ratified on staging gate evidence plus bounded drills; production-scale distributions may justify revisiting the numbers but do not block the ratified values from gating today.
-- Safe over-wake rate: unmeasured.
+- Safe over-wake is measured as a bounded routing-mode classification on enqueue outcomes; per-payload attribution remains intentionally unavailable.
 - Wake-before-wait enqueue latency and interest-index lookup latency now have histograms; the remaining open reporting gap is sustained-window automation and release-health comparison, not raw segment emission.
 - Staging wake drill artifacts now include `segmentSlo` summaries for browser-visible canary segments, scoped durable convergence, and metric gaps. Missing checkout-ready observations remain unmeasured rather than zero-latency. Load artifacts that miss per-write readiness must also include `loadReadinessDecision` naming the accepted burst/saturation SLO; server-side notify/relay/store/claim distributions are still joined through Grafana by the drill/canary correlation window rather than embedded in the artifact.
 - Sustained-observation windows (30-day p95 by segment) have no automated reporting; dashboards exist, reporting is manual.
