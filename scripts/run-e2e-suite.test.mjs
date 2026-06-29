@@ -8,6 +8,7 @@ describe("run e2e suite", () => {
       "marketplace_browse,marketplace_account",
       "marketplace_checkout marketplace_seller",
       "catalog_admin_integrations",
+      "catalog_admin_modeling",
       "admin_growth",
       "admin_commerce",
       "admin_support",
@@ -21,6 +22,7 @@ describe("run e2e suite", () => {
       "marketplace_checkout",
       "marketplace_seller",
       "catalog_admin_integrations",
+      "catalog_admin_modeling",
       "admin_growth",
       "admin_commerce",
       "admin_support",
@@ -43,6 +45,7 @@ describe("run e2e suite", () => {
         "marketplace_browse",
         "marketplace_checkout",
         "marketplace_account",
+        "catalog_admin_modeling",
         "admin_growth",
         "admin_commerce",
         "admin_support",
@@ -52,9 +55,10 @@ describe("run e2e suite", () => {
     ).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
-      "catalog_admin_integrations,admin_growth",
-      "admin_commerce,admin_support",
-      "admin_platform,admin_access",
+      "catalog_admin_integrations,catalog_admin_modeling",
+      "admin_growth,admin_commerce",
+      "admin_support,admin_platform",
+      "admin_access",
     ]);
   });
 
@@ -66,6 +70,18 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/catalog/routes/admin/integrations.tsx")).toEqual([
       "catalog_admin_integrations",
     ]);
+  });
+
+  it("routes catalog admin modeling routes to modeling admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/catalog/routes/admin/dimensions.tsx")).toEqual([
+      "catalog_admin_modeling",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/catalog/routes/admin/dimensions-detail.tsx")).toEqual([
+      "catalog_admin_modeling",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/catalog/features/dimensions/ui/dimension-list-page.tsx"),
+    ).toEqual(["catalog_admin_modeling"]);
   });
 
   it("routes promo bar admin routes to growth admin coverage", () => {

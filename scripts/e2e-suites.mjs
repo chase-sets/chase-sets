@@ -35,6 +35,13 @@ export const e2eSuites = Object.freeze([
     grep: "@catalog-admin-integrations",
   },
   {
+    id: "catalog_admin_modeling",
+    label: "Catalog Admin Modeling",
+    deployable: "admin-web",
+    journeys: ["dimensions", "catalog model authoring"],
+    grep: "@catalog-admin-modeling",
+  },
+  {
     id: "admin_growth",
     label: "Admin Growth",
     deployable: "admin-web",
@@ -181,6 +188,14 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations\./,
     suites: ["catalog_admin_integrations"],
+  },
+  {
+    pattern: /^bounded-contexts\/catalog\/routes\/admin\/dimensions(?:-detail)?\./,
+    suites: ["catalog_admin_modeling"],
+  },
+  {
+    pattern: /^bounded-contexts\/catalog\/features\/dimensions\/(?:api|ui)\//,
+    suites: ["catalog_admin_modeling"],
   },
   {
     pattern: /^bounded-contexts\/[^/]+\/routes\/admin\//,
