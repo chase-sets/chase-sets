@@ -11,6 +11,7 @@ const BUY_NOW_FRESHNESS_PROBE_PREFIX = "guest-buy-now-freshness-probe/";
 const WAKE_DRILL_VERSION = "staging-wake-drills/v1";
 const ACCOUNT_CART_PROBE_VERSION = "account-cart-consistency-probe/v1";
 const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
+const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
 const FRESHNESS_EVIDENCE_SCHEMA_VERSIONS = new Set([
   WAKE_DRILL_VERSION,
   ACCOUNT_CART_PROBE_VERSION,
@@ -123,6 +124,10 @@ export function buildReleaseHealthReport(input) {
     `- Batch-size reason: ${summary.slo.batchSizeReason}`,
     `- Projection freshness evidence posture: ${summary.freshness.posture}`,
     `- Projection freshness evidence reason: ${summary.freshness.reason}`,
+    `- Projection freshness sustained window: ${summary.freshness.sustainedWindow.status}`,
+    `- Projection freshness sustained span: ${formatEvidenceWindow(summary.freshness.sustainedWindow)}`,
+    `- Projection freshness ready p95: ${formatOptionalMs(summary.freshness.sustainedWindow.readyLatencyP95Ms)}`,
+    `- Projection freshness durable convergence p95: ${formatOptionalMs(summary.freshness.sustainedWindow.durableConvergenceP95Ms)}`,
     "",
     "## CI Flake Posture",
     "",
@@ -143,6 +148,11 @@ export function buildReleaseHealthReport(input) {
     `- Wake-before-wait drill failures: ${summary.freshness.wakeDrillFailureCount}`,
     `- Account cart probe failures: ${summary.freshness.accountCartFailureCount}`,
     `- Non-Buy-Now UAT failures: ${summary.freshness.nonBuyNowUatFailureCount}`,
+    `- Sustained-window target: ${FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS}d`,
+    `- Sustained-window status: ${summary.freshness.sustainedWindow.status}`,
+    `- Sustained-window artifact span: ${formatEvidenceWindow(summary.freshness.sustainedWindow)}`,
+    `- Ready-latency p95 across included freshness artifacts: ${formatOptionalMs(summary.freshness.sustainedWindow.readyLatencyP95Ms)}`,
+    `- Durable-convergence p95 across included wake drills: ${formatOptionalMs(summary.freshness.sustainedWindow.durableConvergenceP95Ms)}`,
     "",
     "| Surface | Environment | Flow or route | Decision | Segment evidence | Status |",
     "| --- | --- | --- | --- | --- | --- |",
@@ -331,6 +341,7 @@ function summarizeFreshnessEvidence(artifacts) {
   const accountCartFailureCount = rows.filter((row) => row.kind === "account-cart" && row.status === "fail").length;
   const nonBuyNowUatFailureCount = rows.filter((row) => row.kind === "non-buy-now-uat" && row.status === "fail").length;
   const artifactCount = rows.length;
+  const sustainedWindow = summarizeFreshnessSustainedWindow(rows);
   const failureCount =
     redactionFailureCount +
     buyNowAbortCount +
@@ -346,6 +357,7 @@ function summarizeFreshnessEvidence(artifacts) {
     wakeDrillFailureCount,
     accountCartFailureCount,
     nonBuyNowUatFailureCount,
+    sustainedWindow,
     posture: artifactCount === 0 ? "not-provided" : failureCount === 0 ? "pass" : "fail",
     reason:
       artifactCount === 0
@@ -365,11 +377,15 @@ function summarizeFreshnessArtifact(record) {
       flowOrRoute: normalizeEvidenceLabel(record.flow),
       decision: normalizeEvidenceLabel(record.promotionDecision),
       segmentEvidence: formatBuyNowSegmentEvidence(record),
+      timestampMs: freshnessEvidenceTimestampMs(record),
+      readyLatencyMs: nonNegativeIntegerOrNull(record.readyLatencyMs),
       status: record.promotionDecision === "promote" || record.promotionDecision === "warn" ? "pass" : "fail",
     };
   }
   if (record.schemaVersion === WAKE_DRILL_VERSION) {
     const segmentSlo = record.segmentSlo ?? {};
+    const singleWriteReadyP95Ms = nonNegativeIntegerOrNull(segmentSlo.browser?.singleWrite?.readyLatencyMs?.p95);
+    const loadReadyP95Ms = nonNegativeIntegerOrNull(segmentSlo.browser?.load?.readyLatencyMs?.p95);
     return {
       kind: "wake-drill",
       surface: "wake-before-wait",
@@ -381,6 +397,9 @@ function summarizeFreshnessArtifact(record) {
         `load ${segmentSlo.browser?.load?.sloStatus ?? "unknown"}`,
         `durable ${segmentSlo.durableConvergence?.status ?? "unknown"}`,
       ].join("; "),
+      timestampMs: freshnessEvidenceTimestampMs(record),
+      readyLatencyMs: loadReadyP95Ms ?? singleWriteReadyP95Ms,
+      durableConvergenceMs: nonNegativeIntegerOrNull(segmentSlo.durableConvergence?.convergedAfterMs),
       status: record.verdict === "pass" ? "pass" : "fail",
     };
   }
@@ -392,6 +411,7 @@ function summarizeFreshnessArtifact(record) {
       flowOrRoute: normalizeEvidenceLabel(record.routeTemplate),
       decision: normalizeEvidenceLabel(record.promotionDecision),
       segmentEvidence: `${record.observedOutcomes?.length ?? 0} outcomes; ${record.blockers?.length ?? 0} blockers`,
+      timestampMs: freshnessEvidenceTimestampMs(record),
       status: record.promotionDecision === "promote" ? "pass" : "fail",
     };
   }
@@ -404,6 +424,7 @@ function summarizeFreshnessArtifact(record) {
       flowOrRoute: "account-cart/sell-list/payout/listing",
       decision: evaluation.failures.length === 0 ? "complete" : "incomplete",
       segmentEvidence: `${evaluation.coveredFlows}/${REQUIRED_NON_BUY_NOW_UAT_FLOWS.length} flows; ${evaluation.coveredTelemetry}/${REQUIRED_NON_BUY_NOW_UAT_TELEMETRY.length} telemetry`,
+      timestampMs: freshnessEvidenceTimestampMs(record),
       status: evaluation.failures.length === 0 ? "pass" : "fail",
     };
   }
@@ -415,7 +436,42 @@ function summarizeFreshnessArtifact(record) {
     flowOrRoute: "unknown",
     decision: "ignored",
     segmentEvidence: "unknown schema",
+    timestampMs: freshnessEvidenceTimestampMs(record),
     status: "fail",
+  };
+}
+
+function summarizeFreshnessSustainedWindow(rows) {
+  const evidenceTimes = rows.map((row) => row.timestampMs).filter((time) => Number.isInteger(time));
+  const readyLatencySamples = rows.map((row) => row.readyLatencyMs).filter((value) => Number.isInteger(value));
+  const durableConvergenceSamples = rows
+    .map((row) => row.durableConvergenceMs)
+    .filter((value) => Number.isInteger(value));
+  if (evidenceTimes.length === 0) {
+    return {
+      targetDays: FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS,
+      artifactCountWithTimestamps: 0,
+      firstEvidenceAt: null,
+      latestEvidenceAt: null,
+      spanDays: null,
+      status: "not-measured",
+      readyLatencyP95Ms: percentile(readyLatencySamples, 0.95),
+      durableConvergenceP95Ms: percentile(durableConvergenceSamples, 0.95),
+    };
+  }
+
+  const firstEvidenceMs = Math.min(...evidenceTimes);
+  const latestEvidenceMs = Math.max(...evidenceTimes);
+  const spanDays = Math.floor((latestEvidenceMs - firstEvidenceMs) / (24 * 60 * 60 * 1000));
+  return {
+    targetDays: FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS,
+    artifactCountWithTimestamps: evidenceTimes.length,
+    firstEvidenceAt: new Date(firstEvidenceMs).toISOString(),
+    latestEvidenceAt: new Date(latestEvidenceMs).toISOString(),
+    spanDays,
+    status: spanDays >= FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS ? "meets-window" : "short-window",
+    readyLatencyP95Ms: percentile(readyLatencySamples, 0.95),
+    durableConvergenceP95Ms: percentile(durableConvergenceSamples, 0.95),
   };
 }
 
@@ -689,6 +745,27 @@ function formatOptionalSeconds(seconds) {
 function formatOptionalMs(value) {
   const normalized = nonNegativeInteger(value);
   return normalized === 0 && value !== 0 ? "unknown" : `${normalized}ms`;
+}
+
+function formatEvidenceWindow(window) {
+  if (!Number.isInteger(window.spanDays) || !window.firstEvidenceAt || !window.latestEvidenceAt) {
+    return "unknown";
+  }
+  return `${window.spanDays}d (${window.artifactCountWithTimestamps} timestamped artifacts; ${window.firstEvidenceAt} to ${window.latestEvidenceAt})`;
+}
+
+function freshnessEvidenceTimestampMs(record) {
+  for (const value of [record.completedAt, record.checkedAt, record.startedAt, record.createdAt]) {
+    const timestamp = Date.parse(value ?? "");
+    if (!Number.isNaN(timestamp)) {
+      return timestamp;
+    }
+  }
+  return null;
+}
+
+function nonNegativeIntegerOrNull(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function normalizeEvidenceLabel(value) {

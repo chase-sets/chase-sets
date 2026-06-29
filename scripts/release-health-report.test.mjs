@@ -124,6 +124,7 @@ describe("release health report", () => {
           record: {
             schemaVersion: "guest-buy-now-freshness-probe/v2",
             environment: "production",
+            checkedAt: "2026-05-31T13:00:00.000Z",
             flow: "account",
             promotionDecision: "abort",
             failureReason: "checkout-ready-slo-exceeded",
@@ -135,11 +136,15 @@ describe("release health report", () => {
           record: {
             schemaVersion: "staging-wake-drills/v1",
             environment: "staging",
+            checkedAt: "2026-06-29T13:00:00.000Z",
             drillKind: "load",
             verdict: "pass",
             segmentSlo: {
-              browser: { singleWrite: { sloStatus: "pass" }, load: { sloStatus: "pass" } },
-              durableConvergence: { status: "pass" },
+              browser: {
+                singleWrite: { sloStatus: "pass", readyLatencyMs: { p95: 1200 } },
+                load: { sloStatus: "pass", readyLatencyMs: { p95: 2500 } },
+              },
+              durableConvergence: { status: "pass", convergedAfterMs: 900 },
             },
           },
         },
@@ -147,6 +152,7 @@ describe("release health report", () => {
           record: {
             schemaVersion: "account-cart-consistency-probe/v1",
             environment: "staging",
+            checkedAt: "2026-06-15T13:00:00.000Z",
             routeTemplate: "/account/cart",
             promotionDecision: "promote",
             observedOutcomes: ["optimistic_applied", "reconciliation", "stale_response_discard"],
@@ -157,6 +163,7 @@ describe("release health report", () => {
           record: {
             schemaVersion: "non-buy-now-post-write-freshness-uat/v1",
             environment: "staging",
+            checkedAt: "2026-06-30T13:00:00.000Z",
             flows: [
               { name: "account-cart", routeTemplate: "/account/cart", outcome: "promote" },
               { name: "sell-list-accept-to-checkout", routeTemplate: "/account/sell", outcome: "fresh" },
@@ -187,8 +194,19 @@ describe("release health report", () => {
       wakeDrillFailureCount: 0,
       accountCartFailureCount: 0,
       nonBuyNowUatFailureCount: 0,
+      sustainedWindow: {
+        status: "meets-window",
+        spanDays: 30,
+        artifactCountWithTimestamps: 4,
+        readyLatencyP95Ms: 14000,
+        durableConvergenceP95Ms: 900,
+      },
     });
     expect(result.markdown).toContain("Projection freshness evidence posture: fail");
+    expect(result.markdown).toContain("Projection freshness sustained window: meets-window");
+    expect(result.markdown).toContain("Projection freshness sustained span: 30d (4 timestamped artifacts;");
+    expect(result.markdown).toContain("Projection freshness ready p95: 14000ms");
+    expect(result.markdown).toContain("Projection freshness durable convergence p95: 900ms");
     expect(result.markdown).toContain(
       "| buy-now-checkout | production | account | abort | ready 14000ms; write-ready 14000ms; doc-ready 12000ms; failure checkout-ready-slo-exceeded | fail |",
     );
