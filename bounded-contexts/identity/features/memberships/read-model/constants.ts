@@ -29,6 +29,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "public-presence.manage",
     "public-presence.view",
     "security.manage",
+    "support.manage",
+    "support.view",
   ],
   owner: [
     "accounts.manage",
