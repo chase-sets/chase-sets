@@ -197,6 +197,22 @@ After the release window closes, delete the forked restore-point cluster to stop
 doctl databases delete <restore-point-cluster-id> --force
 ```
 
+When production deploys fail with DigitalOcean database quota errors, first inspect old restore-point forks with the dry-run cleanup helper. The helper lists managed databases, selects only clusters whose names start with `cs-prod-rp-`, and defaults to forks at least 24 hours old:
+
+```bash
+node ./scripts/production-db-restore-point-cleanup.mjs \
+  --out artifacts/release-health/production-db-restore-point-cleanup.json
+```
+
+Review the `restorePoints.candidates` list before applying. To delete the selected restore-point forks, rerun with `--apply`; lower `--min-age-hours` only when the linked release issue already confirms the rollback/fix-forward window has closed for the candidate forks:
+
+```bash
+node ./scripts/production-db-restore-point-cleanup.mjs \
+  --min-age-hours 24 \
+  --apply \
+  --out artifacts/release-health/production-db-restore-point-cleanup.json
+```
+
 The production readiness gate remains warn-and-proceed by design: it records cold-start projection readiness in release-health and step summary evidence, while the proof canary remains the promotion gate. Keep `fetch-depth: 0` in this workflow until the production marker, release-health drift, and exact release-commit checks are split into a targeted fetch helper. Keep the synthetic staging Stripe seller password deterministic until the smoke registration path can receive a generated secret without losing reproducible rerun support; those accounts are staging/test-mode only and should not be used outside smoke evidence.
 
 ## Automated Production Rollback
