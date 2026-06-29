@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { ReactNode } from "react";
+import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   HiddenInput,
   Form,
@@ -63,29 +64,69 @@ export function ProjectionOperationsPage({
   filters,
   actorPermissions = [],
   wakeStatus = null,
+  onOperationTerminal,
 }: Readonly<{
   data: ProjectionOperationsSnapshot;
   filters: ProjectionOperationsFilters;
   actorPermissions?: readonly string[];
   wakeStatus?: WakeStatusSnapshot | null;
+  onOperationTerminal?: () => void;
 }>) {
-  const blockedRows = buildBlockedRows(data);
-  const subscriptionRows = buildProjectionSubscriptionRows(data);
+  const [streamedOperations, setStreamedOperations] = useState<Readonly<Record<string, ProjectionOperation>>>({});
+  const liveData = useMemo(
+    () => ({ ...data, operations: mergeProjectionOperations(data.operations, streamedOperations) }),
+    [data, streamedOperations],
+  );
+  const operationIdsToWatch = useMemo(
+    () =>
+      liveData.operations
+        .filter(isLiveProjectionOperation)
+        .map((operation) => operation.operationId)
+        .sort(),
+    [liveData.operations],
+  );
+  const watchKey = operationIdsToWatch.join("\u0000");
+
+  useEffect(() => {
+    const watchedOperationIds = watchKey ? watchKey.split("\u0000") : [];
+    const subscriptions = watchedOperationIds.map((operationId) =>
+      subscribeDurableJobStatus<ProjectionOperation>({
+        url: projectionOperationEventsUrl(operationId),
+        isTerminal: isTerminalProjectionOperation,
+        onStatus: (operation) => {
+          setStreamedOperations((current) => ({ ...current, [operation.operationId]: operation }));
+        },
+        onTerminal: (operation) => {
+          setStreamedOperations((current) => ({ ...current, [operation.operationId]: operation }));
+          onOperationTerminal?.();
+        },
+      }),
+    );
+
+    return () => {
+      for (const subscription of subscriptions) {
+        subscription.close();
+      }
+    };
+  }, [watchKey, onOperationTerminal]);
+
+  const blockedRows = buildBlockedRows(liveData);
+  const subscriptionRows = buildProjectionSubscriptionRows(liveData);
   const wakeAttentionItems = buildWakeAttentionItems(wakeStatus);
-  const attentionItems = [...buildAttentionItems(data), ...wakeAttentionItems];
-  const activeCount = activeWorkerCount(data);
-  const staleCount = staleWorkerCount(data);
-  const filteredOperations = filterRows(data.operations, filters, operationSearchText);
-  const filteredGroups = filterRows(data.projectionGroups, filters, groupSearchText);
+  const attentionItems = [...buildAttentionItems(liveData), ...wakeAttentionItems];
+  const activeCount = activeWorkerCount(liveData);
+  const staleCount = staleWorkerCount(liveData);
+  const filteredOperations = filterRows(liveData.operations, filters, operationSearchText);
+  const filteredGroups = filterRows(liveData.projectionGroups, filters, groupSearchText);
   const filteredSubscriptions = filterRows(subscriptionRows, filters, subscriptionSearchText);
   const filteredBlockedRows = filterRows(blockedRows, filters, blockedStreamSearchText);
-  const workerRows = [...data.runners, ...data.workers];
+  const workerRows = [...liveData.runners, ...liveData.workers];
   const filteredWorkers = filterRows(workerRows, filters, workerSearchText);
   const defaultTab = filters.tab || (attentionItems.length > 0 ? "attention" : "overview");
   const canOperate = hasPermission(actorPermissions, projectionOperationsOperatePermission);
   const canRebuild = hasPermission(actorPermissions, projectionOperationsRebuildPermission);
-  const selectedDetail = resolveSelectedDetail(data, filters.selected, { canOperate, canRebuild });
-  const selectedContext = filters.contextName || singleContextName(data);
+  const selectedDetail = resolveSelectedDetail(liveData, filters.selected, { canOperate, canRebuild });
+  const selectedContext = filters.contextName || singleContextName(liveData);
 
   return (
     <Page>
@@ -118,14 +159,14 @@ export function ProjectionOperationsPage({
       </ActionBar>
 
       <OperationsSummary
-        data={data}
+        data={liveData}
         attentionItems={attentionItems}
         activeWorkerCount={activeCount}
         staleWorkerCount={staleCount}
         blockedStreamCount={blockedRows.length}
       />
 
-      <ProjectionOperationFilters filters={filters} data={data} />
+      <ProjectionOperationFilters filters={filters} data={liveData} />
 
       {selectedDetail ? <SelectedDetail detail={selectedDetail} /> : null}
 
@@ -137,7 +178,7 @@ export function ProjectionOperationsPage({
             label: t(`${routeKey}.overview`),
             content: (
               <OverviewPanel
-                data={data}
+                data={liveData}
                 attentionItems={attentionItems}
                 activeWorkerCount={activeCount}
                 staleWorkerCount={staleCount}
@@ -154,7 +195,7 @@ export function ProjectionOperationsPage({
           {
             value: "operations",
             label: t(`${routeKey}.operations`),
-            badge: data.operations.length > 0 ? String(data.operations.length) : undefined,
+            badge: liveData.operations.length > 0 ? String(liveData.operations.length) : undefined,
             content: (
               <OperationsTable rows={filteredOperations} selectedId={filters.selected} canOperate={canOperate} />
             ),
@@ -162,7 +203,7 @@ export function ProjectionOperationsPage({
           {
             value: "groups",
             label: t(`${routeKey}.projectionGroups`),
-            badge: data.projectionGroups.length > 0 ? String(data.projectionGroups.length) : undefined,
+            badge: liveData.projectionGroups.length > 0 ? String(liveData.projectionGroups.length) : undefined,
             content: <ProjectionGroupsTable rows={filteredGroups} selectedId={filters.selected} />,
           },
           {
@@ -199,7 +240,7 @@ export function ProjectionOperationsPage({
           {
             value: "diagnostics",
             label: t(`${routeKey}.diagnostics`),
-            content: <DiagnosticsPanel data={data} />,
+            content: <DiagnosticsPanel data={liveData} />,
           },
         ]}
       />
@@ -209,6 +250,32 @@ export function ProjectionOperationsPage({
 
 function hasPermission(actorPermissions: readonly string[], permission: string) {
   return actorPermissions.includes(permission);
+}
+
+function projectionOperationEventsUrl(operationId: string) {
+  return `/api/platform/projections/operations/${encodeURIComponent(operationId)}/events`;
+}
+
+function isLiveProjectionOperation(operation: ProjectionOperation) {
+  return operation.state === "queued" || operation.state === "running" || operation.state === "cancel_requested";
+}
+
+function isTerminalProjectionOperation(operation: ProjectionOperation) {
+  return operation.state === "succeeded" || operation.state === "failed" || operation.state === "cancelled";
+}
+
+function mergeProjectionOperations(
+  operations: readonly ProjectionOperation[],
+  streamedOperations: Readonly<Record<string, ProjectionOperation>>,
+): readonly ProjectionOperation[] {
+  return operations.map((operation) => {
+    const streamed = streamedOperations[operation.operationId];
+    if (!streamed) {
+      return operation;
+    }
+
+    return Date.parse(streamed.updatedAt) >= Date.parse(operation.updatedAt) ? streamed : operation;
+  });
 }
 
 function OperationsSummary({

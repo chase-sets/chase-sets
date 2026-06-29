@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData, useMatches } from "react-router";
+import { redirect, useLoaderData, useMatches, useRevalidator } from "react-router";
 import { t } from "@chase-sets/localization";
 import {
   cancelProjectionOperation,
@@ -66,12 +66,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function ProjectionOperationsRoute() {
   const { data, filters, wakeStatus } = useLoaderData<typeof loader>();
+  const revalidator = useRevalidator();
   return (
     <ProjectionOperationsPage
       data={data}
       filters={filters}
       wakeStatus={wakeStatus}
       actorPermissions={useAdminActorPermissions()}
+      onOperationTerminal={revalidator.revalidate}
     />
   );
 }

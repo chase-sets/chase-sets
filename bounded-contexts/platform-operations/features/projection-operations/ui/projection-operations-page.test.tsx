@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
 import { normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
 import { normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
@@ -14,7 +14,40 @@ const emptyFilters = {
   selected: "",
 };
 
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  readonly listeners = new Map<string, Set<(event: Event) => void>>();
+  readonly close = vi.fn();
+
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void) {
+    const listeners = this.listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  emit(type: string, data: unknown, lastEventId = "") {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: JSON.stringify(data), lastEventId } as MessageEvent);
+    }
+  }
+}
+
 describe("ProjectionOperationsPage", () => {
+  const originalEventSource = globalThis.EventSource;
+
+  afterEach(() => {
+    FakeEventSource.instances = [];
+    Object.defineProperty(globalThis, "EventSource", {
+      value: originalEventSource,
+      configurable: true,
+    });
+  });
+
   it("renders an attention-first console for failed operations and blocked streams", () => {
     const data = normalizeProjectionOperationsSnapshot({
       summary: {
@@ -172,6 +205,52 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Rebuild context" })).toBeNull();
+  });
+
+  it("updates selected operation detail from live status events", async () => {
+    Object.defineProperty(globalThis, "EventSource", {
+      value: FakeEventSource,
+      configurable: true,
+    });
+    const onOperationTerminal = vi.fn();
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+      operations: [
+        {
+          operationId: "op_running",
+          operationKind: "rebuild-projection-group",
+          state: "running",
+          contextName: "catalog",
+          projectionName: "catalog-item-projection",
+          requestedAt: "2026-05-26T00:00:00.000Z",
+          updatedAt: "2026-05-26T00:01:00.000Z",
+        },
+      ],
+    });
+
+    render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={{ ...emptyFilters, selected: "op_running" }}
+        onOperationTerminal={onOperationTerminal}
+      />,
+    );
+
+    expect(FakeEventSource.instances[0]?.url).toBe("/api/platform/projections/operations/op_running/events");
+    FakeEventSource.instances[0]?.emit(
+      "status",
+      {
+        ...data.operations[0],
+        state: "succeeded",
+        completedAt: "2026-05-26T00:02:00.000Z",
+        updatedAt: "2026-05-26T00:02:00.000Z",
+      },
+      "2",
+    );
+
+    expect(await screen.findByText("rebuild-projection-group / succeeded")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(onOperationTerminal).toHaveBeenCalledOnce();
   });
 
   it("renders a quiet healthy overview when no attention signals exist", () => {
