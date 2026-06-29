@@ -221,6 +221,72 @@ describe("release health report", () => {
     );
   });
 
+  it("summarizes support-safe route-matrix wake evidence per route", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-06-29T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          file: "route-matrix.json",
+          record: {
+            schemaVersion: "read-consistency-route-matrix-evidence/v1",
+            environment: "staging",
+            checkedAt: "2026-06-29T13:00:00.000Z",
+            routes: [
+              {
+                routeTemplate: "/checkout/buy/session/:sessionId",
+                projectionName: "checkout.session-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 420, p99Ms: 710, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+              {
+                routeTemplate: "/account/cart",
+                projectionName: "checkout.cart-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 300, p99Ms: 500, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+              {
+                routeTemplate: "/account/sell-list",
+                projectionName: "checkout.sell-list-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 510, p99Ms: 900, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+              {
+                routeTemplate: "/account/payouts/:payoutId",
+                projectionName: "settlement.payout-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 610, p99Ms: 950, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+              {
+                routeTemplate: "/account/payments/:paymentId",
+                projectionName: "payments.payment-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 450, p99Ms: 720, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+              {
+                routeTemplate: "/account/listings/:listingId",
+                projectionName: "marketplace.listing-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 380, p99Ms: 680, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.freshness).toMatchObject({
+      artifactCount: 1,
+      posture: "pass",
+      routeMatrixFailureCount: 0,
+      sustainedWindow: {
+        artifactCountWithTimestamps: 1,
+        readyLatencyP95Ms: 610,
+      },
+    });
+    expect(result.markdown).toContain("Route matrix failures: 0");
+    expect(result.markdown).toContain(
+      "| wake-route-matrix | staging | /checkout/buy/session/:sessionid | pass | wake pass; p95 420ms; p99 710ms; timeout 0%; errors 0%; missing-receipt 0; missing-target 0; fallback 0; projection checkout.session-projection | pass |",
+    );
+    expect(result.markdown).toContain(
+      "| wake-route-matrix | staging | coverage | complete | 6/6 required routes | pass |",
+    );
+  });
+
   it("fails freshness evidence when UAT coverage is incomplete or support-safe redaction fails", () => {
     const result = buildReleaseHealthReport({
       checkedAt: "2026-05-31T13:00:00.000Z",
@@ -251,6 +317,44 @@ describe("release health report", () => {
       "| chrome-uat | staging | account-cart/sell-list/payout/listing | redaction-failed |",
     );
     expect(result.markdown).not.toContain("operator@example.com");
+  });
+
+  it("fails route-matrix evidence when required routes are missing or raw identifiers leak", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-06-29T13:00:00.000Z",
+      records: [record()],
+      evidenceArtifacts: [
+        {
+          record: {
+            schemaVersion: "read-consistency-route-matrix-evidence/v1",
+            environment: "staging",
+            checkedAt: "2026-06-29T13:00:00.000Z",
+            note: "https://staging.example.test/account/payments/pay_123",
+            routes: [
+              {
+                routeTemplate: "/account/cart",
+                projectionName: "checkout.cart-projection",
+                wakeBeforeWait: { status: "pass", p95Ms: 300, p99Ms: 500, timeoutRate: 0, workSignalErrorRate: 0 },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.summary.freshness).toMatchObject({
+      posture: "fail",
+      redactionFailureCount: 1,
+      routeMatrixFailureCount: 2,
+      sustainedWindow: {
+        artifactCountWithTimestamps: 1,
+      },
+    });
+    expect(result.markdown).toContain(
+      "| wake-route-matrix | staging | coverage | redaction-failed | 1/6 required routes; missing checkout,sell-list,payout,payment,listing | fail |",
+    );
+    expect(result.markdown).not.toContain("https://staging.example.test");
+    expect(result.markdown).not.toContain("pay_123");
   });
 
   it("recommends a batch increase only after enough healthy deployable attempts", () => {
