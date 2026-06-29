@@ -37,7 +37,11 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).toContain("Catalog, Public Presence, Platform Runtime, Ops / Google Merchant Center");
     expect(markup).toContain("/access/accounts/acc_1");
     expect(markup).toContain("/catalog/catalog-items/cit_1");
-    expect(markup).toContain("Targeted retry deferred");
+    expect(markup).toContain("Live writes gated");
+    expect(markup).toContain("Live full sync gated");
+    expect(markup).toContain("Live maintenance gated");
+    expect(markup).toContain("Targeted retry gated");
+    expect(markup).toContain("https://github.com/chase-sets/chase-sets/issues/3032");
     expect(markup).not.toContain("lastProviderResponse");
     expect(markup).not.toContain("secret-token");
   });

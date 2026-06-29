@@ -914,6 +914,14 @@ export const discoveryEnglishTranslations = {
   "discovery.googleShoppingOperations.lastSubmittedPayloadHash": "Submitted payload hash",
   "discovery.googleShoppingOperations.limit": "Limit",
   "discovery.googleShoppingOperations.limitFilter": "Limit: {limit}",
+  "discovery.googleShoppingOperations.liveFullSyncGated": "Live full sync gated",
+  "discovery.googleShoppingOperations.liveGateAction": "Launch gate #3032",
+  "discovery.googleShoppingOperations.liveGateBadge": "Live writes gated",
+  "discovery.googleShoppingOperations.liveGateError":
+    "Live Google Shopping writes remain gated by launch-readiness issue #3032.",
+  "discovery.googleShoppingOperations.liveGateMessage":
+    "Live Merchant writes and targeted retry remain blocked until Google Shopping launch-readiness issue #3032 is complete.",
+  "discovery.googleShoppingOperations.liveMaintenanceGated": "Live maintenance gated",
   "discovery.googleShoppingOperations.listing": "Listing",
   "discovery.googleShoppingOperations.maintenancePreviewed": "Maintenance dry-run found {total} candidate rows.",
   "discovery.googleShoppingOperations.maintenanceQueued":
@@ -958,6 +966,7 @@ export const discoveryEnglishTranslations = {
   "discovery.googleShoppingOperations.staleRows": "Stale rows",
   "discovery.googleShoppingOperations.status": "Status",
   "discovery.googleShoppingOperations.sync": "Sync",
+  "discovery.googleShoppingOperations.targetedRetryGated": "Targeted retry gated",
   "discovery.googleShoppingOperations.sync.diagnosticsCompleted": "Google Shopping diagnostics refresh completed.",
   "discovery.googleShoppingOperations.sync.diagnosticsProcessing": "Processing Google Shopping diagnostics refresh.",
   "discovery.googleShoppingOperations.sync.diagnosticsQueued": "Google Shopping diagnostics refresh queued.",

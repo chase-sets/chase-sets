@@ -36,6 +36,7 @@ import type {
 
 const routeKey = "discovery.googleShoppingOperations";
 const routePath = "/growth/google-shopping";
+const liveGateIssueHref = "https://github.com/chase-sets/chase-sets/issues/3032";
 
 type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
 
@@ -87,6 +88,12 @@ export function GoogleShoppingOperationsPage({
             {t(`${routeKey}.dryRunDiagnostics`)}
           </Button>
         </RouterForm>
+        <Button type="button" tone="secondary" leadingIcon="lock" disabled>
+          {t(`${routeKey}.liveFullSyncGated`)}
+        </Button>
+        <Button type="button" tone="secondary" leadingIcon="lock" disabled>
+          {t(`${routeKey}.liveMaintenanceGated`)}
+        </Button>
         {hasPermission(actorPermissions, "security.manage") ? (
           <LinkButton href="/platform/projections?contextName=discovery" tone="secondary">
             {t(`${routeKey}.projections`)}
@@ -106,6 +113,18 @@ export function GoogleShoppingOperationsPage({
       {unavailableMessage ? <Notice tone="warning" message={unavailableMessage} /> : null}
       {notice ? <Notice tone={notice.tone} message={notice.message} /> : null}
       {actionError ? <Notice tone="danger" message={actionError} /> : null}
+
+      <Surface>
+        <Cluster align="center" justify="between">
+          <Inline gap={2}>
+            <Badge tone="warning">{t(`${routeKey}.liveGateBadge`)}</Badge>
+            <Text weight="semibold">{t(`${routeKey}.liveGateMessage`)}</Text>
+          </Inline>
+          <LinkButton href={liveGateIssueHref} tone="secondary" target="_blank" rel="noreferrer">
+            {t(`${routeKey}.liveGateAction`)}
+          </LinkButton>
+        </Cluster>
+      </Surface>
 
       <Surface>
         <Stack gap={4}>
@@ -361,8 +380,11 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
       actions={
         <Inline>
           <Button type="button" tone="secondary" size="sm" disabled>
-            {t(`${routeKey}.targetedRetryDeferred`)}
+            {t(`${routeKey}.targetedRetryGated`)}
           </Button>
+          <LinkButton href={liveGateIssueHref} tone="secondary" size="sm" target="_blank" rel="noreferrer">
+            {t(`${routeKey}.liveGateAction`)}
+          </LinkButton>
           <LinkButton href={routePath} tone="secondary" size="sm">
             {t(`${routeKey}.closeDetail`)}
           </LinkButton>
