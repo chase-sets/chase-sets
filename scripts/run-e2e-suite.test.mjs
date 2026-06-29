@@ -13,6 +13,7 @@ describe("run e2e suite", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_auth",
       "admin_access",
     ]);
 
@@ -27,6 +28,7 @@ describe("run e2e suite", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_auth",
       "admin_access",
     ]);
   });
@@ -50,6 +52,7 @@ describe("run e2e suite", () => {
         "admin_commerce",
         "admin_support",
         "admin_platform",
+        "admin_auth",
         "admin_access",
       ]),
     ).toEqual([
@@ -58,12 +61,19 @@ describe("run e2e suite", () => {
       "catalog_admin_integrations,catalog_admin_modeling",
       "admin_growth,admin_commerce",
       "admin_support,admin_platform",
-      "admin_access",
+      "admin_auth,admin_access",
     ]);
   });
 
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
+  });
+
+  it("routes shared auth changes to marketplace and admin auth coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx")).toEqual([
+      "marketplace_account",
+      "admin_auth",
+    ]);
   });
 
   it("routes catalog admin integration routes to admin coverage", () => {

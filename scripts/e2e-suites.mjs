@@ -70,6 +70,13 @@ export const e2eSuites = Object.freeze([
     grep: "@admin-platform",
   },
   {
+    id: "admin_auth",
+    label: "Admin Auth",
+    deployable: "admin-web",
+    journeys: ["admin sign-in", "shell session", "RBAC entry"],
+    grep: "@admin-auth",
+  },
+  {
     id: "admin_access",
     label: "Admin Access",
     deployable: "admin-web",
@@ -100,7 +107,7 @@ const browserRuntimePatterns = [
 ];
 
 const contextSuiteOwnership = new Map([
-  ["auth", ["marketplace_account"]],
+  ["auth", ["marketplace_account", "admin_auth"]],
   ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
