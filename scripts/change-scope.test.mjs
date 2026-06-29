@@ -352,6 +352,7 @@ describe("change-scope", () => {
       "admin_growth",
       "admin_commerce",
       "admin_support",
+      "admin_platform",
     ]);
   });
 
@@ -441,6 +442,7 @@ describe("change-scope", () => {
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
       "admin_commerce,admin_support",
+      "admin_platform",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -494,6 +496,7 @@ describe("change-scope", () => {
       "admin_growth",
       "admin_commerce",
       "admin_support",
+      "admin_platform",
     ]);
   });
 
@@ -509,23 +512,16 @@ describe("change-scope", () => {
     expect(scope.e2eSuiteIds).toEqual(["admin_support"]);
   });
 
-  it("keeps current non-marketplace bounded-context routes without admin e2e coverage out of marketplace E2E", () => {
+  it("routes platform projection operations admin routes to admin platform E2E", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
-      changedFiles: [
-        "bounded-contexts/insights/features/dashboards/api/route.ts",
-        "bounded-contexts/platform-operations/routes/admin/projection-operations.tsx",
-      ],
-      workspaces: [
-        workspace(baseDir, "bounded-contexts", "experience", "@test/experience"),
-        workspace(baseDir, "bounded-contexts", "insights", "@test/insights"),
-        workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations"),
-      ],
+      changedFiles: ["bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"],
+      workspaces: [workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations")],
     });
 
-    expect(scope.e2eTestsRequired).toBe(false);
-    expect(scope.e2eSuiteIds).toEqual([]);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["admin_platform"]);
   });
 
   it("routes bounded-context marketplace routes by owned journey and excludes admin routes", () => {

@@ -11,6 +11,7 @@ describe("run e2e suite", () => {
       "admin_growth",
       "admin_commerce",
       "admin_support",
+      "admin_platform",
     ]);
 
     expect(suites.map((suite) => suite.id)).toEqual([
@@ -22,6 +23,7 @@ describe("run e2e suite", () => {
       "admin_growth",
       "admin_commerce",
       "admin_support",
+      "admin_platform",
     ]);
   });
 
@@ -42,12 +44,14 @@ describe("run e2e suite", () => {
         "admin_growth",
         "admin_commerce",
         "admin_support",
+        "admin_platform",
       ]),
     ).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
       "catalog_admin_integrations,admin_growth",
       "admin_commerce,admin_support",
+      "admin_platform",
     ]);
   });
 
@@ -82,5 +86,11 @@ describe("run e2e suite", () => {
     expect(
       e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/platform-feedback.tsx"),
     ).toEqual(["admin_support"]);
+  });
+
+  it("routes projection operations admin routes to platform admin coverage", () => {
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"),
+    ).toEqual(["admin_platform"]);
   });
 });
