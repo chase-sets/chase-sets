@@ -19,6 +19,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { PromoBarMessage } from "../api/contracts";
+import { isPromoBarMessageLiveAt, promoBarMessageStatusAt, type PromoBarMessageStatus } from "../domain/status";
 
 const toneItems = [
   { value: "info", label: t("publicPresence.promoBar.tone.info") },
@@ -30,21 +31,24 @@ function dateTimeValue(value: string | null) {
   return value ? new Date(value).toISOString().slice(0, 16) : "";
 }
 
-function messageStatus(message: PromoBarMessage) {
-  if (!message.is_active) {
-    return t("publicPresence.promoBar.status.inactive");
+function messageStatusLabel(status: PromoBarMessageStatus) {
+  return t(`publicPresence.promoBar.status.${status}`);
+}
+
+function messageStatusTone(status: PromoBarMessageStatus) {
+  if (status === "active") {
+    return "success";
   }
 
-  const now = Date.now();
-  if (message.starts_at && new Date(message.starts_at).getTime() > now) {
-    return t("publicPresence.promoBar.status.scheduled");
+  if (status === "scheduled") {
+    return "info";
   }
 
-  if (message.ends_at && new Date(message.ends_at).getTime() <= now) {
-    return t("publicPresence.promoBar.status.expired");
+  if (status === "expired") {
+    return "warning";
   }
 
-  return t("publicPresence.promoBar.status.active");
+  return "neutral";
 }
 
 function resolveAdminPreviewHref(href: string | null, marketplaceOrigin: string | null) {
@@ -122,14 +126,14 @@ export function PromoBarAdminPage({
   messages,
   actionMessage,
   marketplaceOrigin,
+  currentTime = new Date().toISOString(),
 }: {
   messages: readonly PromoBarMessage[];
   actionMessage?: string | null;
   marketplaceOrigin?: string | null;
+  currentTime?: string;
 }) {
-  const activeMessages = messages.filter(
-    (message) => messageStatus(message) === t("publicPresence.promoBar.status.active"),
-  );
+  const activeMessages = messages.filter((message) => isPromoBarMessageLiveAt(message, currentTime));
 
   return (
     <Page>
@@ -181,9 +185,10 @@ export function PromoBarAdminPage({
             {
               key: "status",
               header: t("publicPresence.promoBar.column.status"),
-              cell: (message) => (
-                <Badge tone={message.is_active ? "success" : "neutral"}>{messageStatus(message)}</Badge>
-              ),
+              cell: (message) => {
+                const status = promoBarMessageStatusAt(message, currentTime);
+                return <Badge tone={messageStatusTone(status)}>{messageStatusLabel(status)}</Badge>;
+              },
             },
             {
               key: "title",

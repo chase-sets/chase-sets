@@ -36,7 +36,7 @@ function resolveMarketplaceOrigin(request: Request) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createPublicPresenceRequestApiClient(request);
   const messages = await api.listPromoBarMessages();
-  return { ...messages, marketplaceOrigin: resolveMarketplaceOrigin(request) };
+  return { ...messages, currentTime: new Date().toISOString(), marketplaceOrigin: resolveMarketplaceOrigin(request) };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -64,7 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const refreshed = await api.listPromoBarMessages();
-  return { message, items: refreshed.items };
+  return { message, currentTime: new Date().toISOString(), items: refreshed.items };
 }
 
 export const meta: MetaFunction = () => [{ title: t("publicPresence.routes.admin.promoBar.meta.title") }];
@@ -78,6 +78,7 @@ export default function PromoBarAdminRoute() {
     <PromoBarAdminPage
       messages={messages}
       actionMessage={actionData?.message ?? null}
+      currentTime={actionData?.currentTime ?? data.currentTime}
       marketplaceOrigin={data.marketplaceOrigin}
     />
   );
