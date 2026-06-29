@@ -710,93 +710,6 @@ jobs:
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
-      - name: Capture production rollback target
-        if: env.SHOULD_DEPLOY != 'false'
-        id: rollback_target
-        working-directory: infrastructure/digitalocean/platform
-        env:
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-
-          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
-          if [ -z "$app_id" ]; then
-            echo "Production Terraform state did not expose an App Platform app id; refusing cutover without a rollback target." >&2
-            exit 1
-          fi
-
-          git -C ../../.. fetch origin production --tags
-          last_known_good_commit="$(git -C ../../.. rev-parse origin/production)"
-          release_tag="$(
-            git -C ../../.. tag --points-at "$last_known_good_commit" --list 'release-*' \
-              | sort \
-              | tail -n 1
-          )"
-          if [ -z "$release_tag" ]; then
-            echo "Production marker ${last_known_good_commit} has no release-* tag; rollback readiness will fail closed." >&2
-          fi
-
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            echo "DigitalOcean Container Registry does not exist; refusing cutover without rollback image evidence." >&2
-            exit 1
-          fi
-
-          mkdir -p ../../../artifacts/release-health
-          target_path="../../../artifacts/release-health/production-rollback-target.json"
-          node ../../../scripts/digitalocean-app-deployment.mjs capture-rollback-target "$app_id" \
-            --registry-name="$registry_name" \
-            --repository="$PLATFORM_IMAGE_REPOSITORY" \
-            --last-known-good-commit="$last_known_good_commit" \
-            --release-tag="$release_tag" \
-            --out="$target_path" \
-            --github-output="$GITHUB_OUTPUT"
-
-          image_ref="$(jq -r '.imageRef // ""' "$target_path")"
-          doctl registry login --expiry-seconds 3600
-          if docker buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
-            image_exists=true
-          else
-            image_exists=false
-          fi
-
-          smoke_verified=false
-          if [ -n "$release_tag" ] && git -C ../../.. rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
-            tag_commit="$(git -C ../../.. rev-list -n 1 "$release_tag")"
-            if [ "$tag_commit" = "$last_known_good_commit" ]; then
-              smoke_verified=true
-            fi
-          fi
-
-          {
-            echo "image_exists=${image_exists}"
-            echo "smoke_verified=${smoke_verified}"
-            echo "last_known_good_commit=${last_known_good_commit}"
-            echo "rollback_release_tag=${release_tag}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Evaluate production rollback readiness
-        if: env.SHOULD_DEPLOY != 'false'
-        id: rollback_readiness
-        env:
-          ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json
-          RECOVERY_MODE: rollback
-          ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
-          LAST_KNOWN_GOOD_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
-          ROLLBACK_RELEASE_TAG: ${{ steps.rollback_target.outputs.rollback_release_tag }}
-          ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}
-          ROLLBACK_IMAGE_EXISTS: ${{ steps.rollback_target.outputs.image_exists }}
-          ROLLBACK_SMOKE_VERIFIED: ${{ steps.rollback_target.outputs.smoke_verified }}
-          ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: "false"
-          EMERGENCY_RELEASE_REFERENCE: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          pnpm run rollback:readiness
-          result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
-          echo "result=${result}" >> "$GITHUB_OUTPUT"
-
       - name: Terraform apply
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -1863,6 +1776,93 @@ jobs:
           fi
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
+
+      - name: Capture production rollback target
+        if: env.SHOULD_DEPLOY != 'false'
+        id: rollback_target
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "Production Terraform state did not expose an App Platform app id; refusing cutover without a rollback target." >&2
+            exit 1
+          fi
+
+          git -C ../../.. fetch origin production --tags
+          last_known_good_commit="$(git -C ../../.. rev-parse origin/production)"
+          release_tag="$(
+            git -C ../../.. tag --points-at "$last_known_good_commit" --list 'release-*' \
+              | sort \
+              | tail -n 1
+          )"
+          if [ -z "$release_tag" ]; then
+            echo "Production marker ${last_known_good_commit} has no release-* tag; rollback readiness will fail closed." >&2
+          fi
+
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry does not exist; refusing cutover without rollback image evidence." >&2
+            exit 1
+          fi
+
+          mkdir -p ../../../artifacts/release-health
+          target_path="../../../artifacts/release-health/production-rollback-target.json"
+          node ../../../scripts/digitalocean-app-deployment.mjs capture-rollback-target "$app_id" \
+            --registry-name="$registry_name" \
+            --repository="$PLATFORM_IMAGE_REPOSITORY" \
+            --last-known-good-commit="$last_known_good_commit" \
+            --release-tag="$release_tag" \
+            --out="$target_path" \
+            --github-output="$GITHUB_OUTPUT"
+
+          image_ref="$(jq -r '.imageRef // ""' "$target_path")"
+          doctl registry login --expiry-seconds 3600
+          if docker buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
+            image_exists=true
+          else
+            image_exists=false
+          fi
+
+          smoke_verified=false
+          if [ -n "$release_tag" ] && git -C ../../.. rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            tag_commit="$(git -C ../../.. rev-list -n 1 "$release_tag")"
+            if [ "$tag_commit" = "$last_known_good_commit" ]; then
+              smoke_verified=true
+            fi
+          fi
+
+          {
+            echo "image_exists=${image_exists}"
+            echo "smoke_verified=${smoke_verified}"
+            echo "last_known_good_commit=${last_known_good_commit}"
+            echo "rollback_release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate production rollback readiness
+        if: env.SHOULD_DEPLOY != 'false'
+        id: rollback_readiness
+        env:
+          ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json
+          RECOVERY_MODE: rollback
+          ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
+          LAST_KNOWN_GOOD_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
+          ROLLBACK_RELEASE_TAG: ${{ steps.rollback_target.outputs.rollback_release_tag }}
+          ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}
+          ROLLBACK_IMAGE_EXISTS: ${{ steps.rollback_target.outputs.image_exists }}
+          ROLLBACK_SMOKE_VERIFIED: ${{ steps.rollback_target.outputs.smoke_verified }}
+          ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: "false"
+          EMERGENCY_RELEASE_REFERENCE: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          pnpm run rollback:readiness
+          result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
 
       - name: Terraform apply
         if: env.SHOULD_DEPLOY != 'false'

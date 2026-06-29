@@ -603,18 +603,23 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("captures rollback readiness before production cutover and rolls back failed post-cutover checks", () => {
-    const captureStep = workflowStep(platformProductionWorkflow, "Capture production rollback target");
-    const readinessStep = workflowStep(platformProductionWorkflow, "Evaluate production rollback readiness");
-    const rollbackStep = workflowStep(platformProductionWorkflow, "Roll back production App Platform image");
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const captureStep = workflowStep(deployProductionJob, "Capture production rollback target");
+    const readinessStep = workflowStep(deployProductionJob, "Evaluate production rollback readiness");
+    const rollbackStep = workflowStep(deployProductionJob, "Roll back production App Platform image");
     const releaseHealthStep = workflowSteps(platformProductionWorkflow, "Write release health summary").at(-1);
     const uploadStep = workflowSteps(platformProductionWorkflow, "Upload release health summary").at(-1);
 
-    const captureIndex = platformProductionWorkflow.indexOf("- name: Capture production rollback target");
-    const readinessIndex = platformProductionWorkflow.indexOf("- name: Evaluate production rollback readiness");
-    const applyIndex = platformProductionWorkflow.indexOf("- name: Terraform apply", readinessIndex);
-    const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
-    const rollbackIndex = platformProductionWorkflow.indexOf("- name: Roll back production App Platform image");
-    const markerIndex = platformProductionWorkflow.indexOf("- name: Mark production release");
+    expect(deployStagingJob).not.toContain("- name: Capture production rollback target");
+    expect(deployStagingJob).not.toContain("- name: Evaluate production rollback readiness");
+
+    const captureIndex = deployProductionJob.indexOf("- name: Capture production rollback target");
+    const readinessIndex = deployProductionJob.indexOf("- name: Evaluate production rollback readiness");
+    const applyIndex = deployProductionJob.indexOf("- name: Terraform apply", readinessIndex);
+    const smokeIndex = deployProductionJob.lastIndexOf("- name: Smoke check");
+    const rollbackIndex = deployProductionJob.indexOf("- name: Roll back production App Platform image");
+    const markerIndex = deployProductionJob.indexOf("- name: Mark production release");
 
     expect(captureIndex).toBeLessThan(readinessIndex);
     expect(readinessIndex).toBeLessThan(applyIndex);
