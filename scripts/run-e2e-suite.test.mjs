@@ -177,4 +177,14 @@ describe("run e2e suite", () => {
       e2eSuiteIdsForChangedFile("bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx"),
     ).toEqual(["admin_access"]);
   });
+
+  it("routes API key admin routes to access admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/api-keys.tsx")).toEqual(["admin_access"]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/api-keys-detail.tsx")).toEqual([
+      "admin_access",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx")).toEqual(
+      ["admin_access"],
+    );
+  });
 });
