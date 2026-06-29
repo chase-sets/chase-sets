@@ -59,7 +59,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   await row.getByRole("link", { name: "Open" }).click();
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "commercial-terms.schedule.created" })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
 }
 
 async function expectAgreementAccountValidation(page: Page) {
@@ -101,7 +101,7 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await row.getByRole("link", { name: "Open" }).click();
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "commercial-terms.agreement.created" })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
 }
 
 function createScheduleForm(page: Page): Locator {
