@@ -1,36 +1,11 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-
-const configuredCatalogAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
-const configuredCatalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
-const catalogAdminAccount = {
-  email: configuredCatalogAdminEmail || "demo@chasesets.test",
-  password: configuredCatalogAdminPassword || "demo1234",
-};
-const skipDeployedAdminE2e =
-  process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true" &&
-  (configuredCatalogAdminEmail.length === 0 || configuredCatalogAdminPassword.length === 0);
-const authApiTimeoutMs = 90_000;
-const pageReadyTimeoutMs = 90_000;
-
-async function expectPageOk(page: Page, path: string) {
-  const deadline = Date.now() + pageReadyTimeoutMs;
-  let lastError: Error | null = null;
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await page.goto(path, { waitUntil: "domcontentloaded", timeout: 15_000 });
-      if (response && response.status() < 400) {
-        return;
-      }
-      lastError = new Error(response ? `${path} returned HTTP ${response.status()}` : `${path} returned no response`);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-    await page.waitForTimeout(1_000);
-  }
-
-  throw lastError ?? new Error(`${path} did not become ready`);
-}
+import { expect, test, type Locator } from "@playwright/test";
+import {
+  authenticateAdmin,
+  expectAdminWebHydrated,
+  expectPageOk,
+  expectVisibleText,
+  skipDeployedAdminE2e,
+} from "./support/admin-e2e";
 
 async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean) {
   const expectedValue = String(expanded);
@@ -49,57 +24,6 @@ async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean)
     .toBe(expectedValue);
 }
 
-async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
-  await page.context().addCookies([
-    {
-      name: "chase_sets_session",
-      value: sessionToken,
-      url: origin,
-      httpOnly: true,
-      sameSite: "Lax",
-      secure: origin.startsWith("https://"),
-    },
-  ]);
-
-  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
-  expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
-}
-
-async function authenticateCatalogAdmin(page: Page) {
-  await expectPageOk(page, "/access/sign-in?returnTo=%2Fcatalog%2Fintegrations");
-  const origin = new URL(page.url()).origin;
-  const deadline = Date.now() + authApiTimeoutMs;
-  let response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: {
-      email: catalogAdminAccount.email,
-      password: catalogAdminAccount.password,
-    },
-  });
-
-  while ([502, 503, 504].includes(response.status()) && Date.now() < deadline) {
-    await page.waitForTimeout(1_000);
-    response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-      data: {
-        email: catalogAdminAccount.email,
-        password: catalogAdminAccount.password,
-      },
-    });
-  }
-
-  expect(response.status(), "catalog admin password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "catalog admin sign-in should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-}
-
-async function expectVisibleText(page: Page, text: string) {
-  await expect(page.getByText(text).filter({ visible: true }).first()).toBeVisible();
-}
-
-async function expectAdminWebHydrated(page: Page) {
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
-}
-
 test.describe("catalog admin integrations", () => {
   test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
@@ -110,7 +34,7 @@ test.describe("catalog admin integrations", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateCatalogAdmin(page);
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
     await expectPageOk(page, "/catalog/integrations");
     // #1970: the daily loader now DEFERS the source-option fan-out and the
     // supplementary alias-review behind streamed Suspense boundaries, so the shell,

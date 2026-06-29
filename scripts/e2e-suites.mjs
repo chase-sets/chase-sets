@@ -34,6 +34,13 @@ export const e2eSuites = Object.freeze([
     journeys: ["provider profile management", "catalog integrations"],
     grep: "@catalog-admin-integrations",
   },
+  {
+    id: "admin_growth",
+    label: "Admin Growth",
+    deployable: "admin-web",
+    journeys: ["promo bar management"],
+    grep: "@admin-growth",
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -72,7 +79,7 @@ const contextSuiteOwnership = new Map([
   ["payments", ["marketplace_account", "marketplace_checkout"]],
   ["platform-operations", ["marketplace_account"]],
   ["pricing", ["marketplace_browse"]],
-  ["public-presence", ["marketplace_browse"]],
+  ["public-presence", ["marketplace_browse", "admin_growth"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
 ]);
 
@@ -115,6 +122,10 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/public-presence\/routes\/admin\/promo-bar\./,
+    suites: ["admin_growth"],
+  },
   {
     pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations\./,
     suites: ["catalog_admin_integrations"],
