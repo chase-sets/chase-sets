@@ -53,12 +53,12 @@ In the current deployment the worker builds the index once at startup from its h
 | Worker `GET /internal/workers/status` → `projectionWakeRelay.interestIndex` | Full index summary: version, schema/payload versions, `generatedAt`, status + stale reason, entry/enabled/disabled counts, route-dependency count, enabled source contexts, per-source and per-lane enabled entry counts |
 | Worker status → `projectionWakeRelay.interestIndexVersion` | Loaded version (kept for runbook compatibility) |
 | `GET .../projections/wake-status` | Structural index version per relay cursor, rollout state per source context, and push-first migration status (owner, status, opt-out) per projection group. Grafana remains canonical for wake telemetry trends and alerts. |
-| `projection-wake-pipeline` dashboard | `chase_sets_projection_wake_relay_fan_out_total` by `status`/`reason` — no-interest skip counts, stale-index failures, fan-out successes; intents per lane |
+| `projection-wake-pipeline` dashboard | `chase_sets_projection_wake_relay_fan_out_total` by `status`/`reason`, `chase_sets_projection_wake_intent_enqueue_outcomes_total` by outcome/lane/origin/routing mode, and intents per lane |
 
 ## Honest Gaps
 
 Tracked in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md):
 
 - No lookup-latency histogram (accepted: in-memory map lookups).
-- Safe over-wake rate is structurally bounded but not measured live.
+- Safe over-wake has bounded live classification through `routing_mode=safe_over_wake`; there is no per-payload or per-entity attribution by design.
 - The worker builds its index without resolved API mounts, so worker-side route-dependency coverage reports zero; route-dependency truth for operators is the registry-derived migration inventory, and API-side waits resolve dependencies from the same declarations directly.

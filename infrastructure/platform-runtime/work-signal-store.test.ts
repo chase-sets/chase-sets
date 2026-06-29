@@ -41,6 +41,7 @@ describe("work signal store", () => {
 
   it("enqueues projection wake intents with hot-path coalescing semantics", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const enqueuedEvents: unknown[] = [];
     const store = createPostgresWorkSignalStore(
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
@@ -59,7 +60,12 @@ describe("work signal store", () => {
           };
         },
       },
-      { now: () => NOW },
+      {
+        observer: {
+          projectionWakeIntentEnqueued: (event) => enqueuedEvents.push(event),
+        },
+        now: () => NOW,
+      },
     );
 
     await expect(
@@ -83,6 +89,8 @@ describe("work signal store", () => {
       origin: "api-wait",
     });
 
+    expect(calls[0].sql).toContain("WITH existing AS MATERIALIZED");
+    expect(calls[0].sql).toContain("FOR UPDATE");
     expect(calls[0].sql).toContain("ON CONFLICT (coalescing_key)");
     expect(calls[0].sql).toContain("required_position = GREATEST");
     expect(calls[0].sql).toContain("next_eligible_at = LEAST");
@@ -90,6 +98,9 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain(
       "WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN 'queued'",
     );
+    expect(calls[0].sql).toContain("xmax = 0");
+    expect(calls[0].sql).toContain("requeued_completed");
+    expect(calls[0].sql).toContain("requeued_expired");
     expect(String(calls[0].values[1])).toBe(
       "projection-wake:catalog:checkout:checkout-session-projection:checkout.checkout-session-projection:catalog:hot",
     );
@@ -97,6 +108,76 @@ describe("work signal store", () => {
     expect(calls[0].values[8]).toBe("hot");
     expect(calls[0].values[9]).toBe("api-wait");
     expect(calls[0].values[13]).toBe(JSON.stringify({ sourceEventId: "evt_1" }));
+    expect(enqueuedEvents).toEqual([
+      {
+        outcome: "created",
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        priorityLane: "hot",
+        origin: "api-wait",
+        routingMode: "unspecified",
+      },
+    ]);
+  });
+
+  it("reports bounded enqueue outcomes and routing mode without disrupting writes", async () => {
+    const outcomes = ["created", "coalesced", "requeued_completed", "requeued_expired"] as const;
+    const enqueuedEvents: unknown[] = [];
+    let outcomeIndex = 0;
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async () => {
+          const outcome = outcomes[outcomeIndex++] ?? "coalesced";
+          return {
+            rows: [
+              wakeIntentRow({
+                enqueue_outcome: outcome,
+                metadata: { projectionWakeRoutingMode: "safe_over_wake" },
+              }),
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      {
+        observer: {
+          projectionWakeIntentEnqueued: (event) => {
+            enqueuedEvents.push(event);
+            throw new Error("metrics down");
+          },
+        },
+        now: () => NOW,
+      },
+    );
+
+    await expect(
+      Promise.all(
+        outcomes.map(() =>
+          store.enqueueProjectionWakeIntent({
+            sourceContextName: "catalog",
+            targetContextName: "checkout",
+            projectionName: "checkout-session-projection",
+            checkpointKey: "checkout.checkout-session-projection:catalog",
+            requiredPosition: 12,
+            origin: "relay",
+            metadata: { projectionWakeRoutingMode: "safe_over_wake" },
+          }),
+        ),
+      ),
+    ).resolves.toHaveLength(4);
+
+    expect(enqueuedEvents).toHaveLength(4);
+    expect(enqueuedEvents).toEqual(
+      outcomes.map((outcome) =>
+        expect.objectContaining({
+          outcome,
+          priorityLane: "standard",
+          origin: "relay",
+          routingMode: "safe_over_wake",
+        }),
+      ),
+    );
   });
 
   it("claims due and stale projection wake intents with deterministic priority and fencing", async () => {
@@ -355,6 +436,7 @@ describe("work signal store", () => {
           eventStoreWakeEventTypes: ["checkout.session.created"],
           eventStoreWakePayloadVersion: 1,
           sourceContextWakeRolloutState: "staging-enabled",
+          projectionWakeRoutingMode: "safe_over_wake",
           // Scheduler readiness metadata (projection-wake-scheduler.ts).
           recordedBy: "projection-wake-scheduler",
           wakeIntentId: "projection-wake-1",
@@ -996,6 +1078,7 @@ function wakeIntentRow(overrides: Partial<Record<string, unknown>> = {}) {
     updated_at: "2026-06-10T12:00:00.000Z",
     expires_at: "2026-06-10T12:05:00.000Z",
     completed_at: null,
+    enqueue_outcome: "created",
     ...overrides,
   };
 }

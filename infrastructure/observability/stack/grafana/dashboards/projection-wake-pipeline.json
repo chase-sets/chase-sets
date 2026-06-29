@@ -113,8 +113,20 @@
     },
     {
       "type": "timeseries",
-      "title": "Wake-before-wait enqueue latency p95",
+      "title": "Wake intent enqueue outcomes rate",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (outcome, priority_lane, origin, routing_mode) (rate(chase_sets_projection_wake_intent_enqueue_outcomes_total[5m]))",
+          "legendFormat": "{{outcome}} {{priority_lane}} {{origin}} {{routing_mode}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Wake-before-wait enqueue latency p95",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
@@ -126,7 +138,7 @@
     {
       "type": "logs",
       "title": "Wake pipeline logs",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },

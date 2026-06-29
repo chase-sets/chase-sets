@@ -101,6 +101,8 @@ CREATE INDEX IF NOT EXISTS idx_platform_projection_checkpoint_waiters_expiry
 export type WorkSignalPriorityLane = "hot" | "standard" | "bulk";
 export type WorkSignalWakeOrigin = "relay" | "api-wait" | "reconciliation" | "operator";
 export type ProjectionWakeIntentState = "queued" | "claimed" | "completed" | "failed" | "expired";
+export type ProjectionWakeIntentEnqueueOutcome = "created" | "coalesced" | "requeued_completed" | "requeued_expired";
+export type ProjectionWakeRoutingMode = "safe_over_wake" | "unspecified";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -318,7 +320,22 @@ export type WorkSignalStoreOptions = Readonly<{
   defaultReadinessTtlMs?: number;
   defaultWaiterTtlMs?: number;
   readConsistencyGateway?: WorkSignalReadConsistencyGatewayOptions;
+  observer?: WorkSignalStoreObserver;
   now?: () => Date;
+}>;
+
+export type ProjectionWakeIntentEnqueuedEvent = Readonly<{
+  outcome: ProjectionWakeIntentEnqueueOutcome;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  priorityLane: WorkSignalPriorityLane;
+  origin: WorkSignalWakeOrigin;
+  routingMode: ProjectionWakeRoutingMode;
+}>;
+
+export type WorkSignalStoreObserver = Readonly<{
+  projectionWakeIntentEnqueued?: (event: ProjectionWakeIntentEnqueuedEvent) => void;
 }>;
 
 export type ProjectionWakeIntentCompletionResult = "completed" | "requeued" | "lost";
@@ -514,9 +531,16 @@ export function createPostgresWorkSignalStore(
           priorityLane,
         });
 
-      const result = await query<ProjectionWakeIntentRow>(
+      const result = await query<ProjectionWakeIntentEnqueueRow>(
         db,
         `
+        WITH existing AS MATERIALIZED (
+          SELECT state
+          FROM platform_projection_wake_intents
+          WHERE coalescing_key = $2
+          FOR UPDATE
+        ),
+        upsert AS (
         INSERT INTO platform_projection_wake_intents (
           wake_intent_id,
           coalescing_key,
@@ -598,7 +622,19 @@ export function createPostgresWorkSignalStore(
             ELSE platform_projection_wake_intents.completed_at
           END,
           updated_at = EXCLUDED.updated_at
-        RETURNING ${WAKE_INTENT_COLUMNS}
+        -- For INSERT ... ON CONFLICT, xmax = 0 is Postgres' inserted-row signal.
+        RETURNING ${WAKE_INTENT_COLUMNS}, (xmax = 0) AS inserted_by_upsert
+        )
+        SELECT
+          ${prefixColumns("upsert", WAKE_INTENT_COLUMNS)},
+          CASE
+            WHEN upsert.inserted_by_upsert THEN 'created'
+            WHEN existing.state = 'completed' THEN 'requeued_completed'
+            WHEN existing.state = 'expired' THEN 'requeued_expired'
+            ELSE 'coalesced'
+          END AS enqueue_outcome
+        FROM upsert
+        LEFT JOIN existing ON true
         `,
         [
           `projection-wake-${randomUUID()}`,
@@ -621,7 +657,18 @@ export function createPostgresWorkSignalStore(
         ],
       );
 
-      return mapProjectionWakeIntentRow(requireSingleRow(result.rows));
+      const row = requireSingleRow(result.rows);
+      const record = mapProjectionWakeIntentRow(row);
+      notifyProjectionWakeIntentEnqueued(options.observer, {
+        outcome: row.enqueue_outcome,
+        sourceContextName: record.sourceContextName,
+        targetContextName: record.targetContextName,
+        projectionName: record.projectionName,
+        priorityLane: record.priorityLane,
+        origin: record.origin,
+        routingMode: workSignalRoutingMode(input.metadata),
+      });
+      return record;
     },
 
     async claimNextProjectionWakeIntent(input) {
@@ -1322,6 +1369,21 @@ function notifyReadConsistencyWakeEnqueueCompleted(
   }
 }
 
+function notifyProjectionWakeIntentEnqueued(
+  observer: WorkSignalStoreObserver | undefined,
+  event: ProjectionWakeIntentEnqueuedEvent,
+): void {
+  try {
+    observer?.projectionWakeIntentEnqueued?.(event);
+  } catch {
+    // Observability must never disrupt wake enqueue delivery.
+  }
+}
+
+function workSignalRoutingMode(metadata: JsonRecord | undefined): ProjectionWakeRoutingMode {
+  return metadata?.projectionWakeRoutingMode === "safe_over_wake" ? "safe_over_wake" : "unspecified";
+}
+
 function singleLowCardinalityLabel(values: readonly (string | null | undefined)[]): string | null {
   const uniqueValues = [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])].sort(
     (left, right) => left.localeCompare(right),
@@ -1468,6 +1530,10 @@ type ProjectionWakeIntentRow = {
   updated_at: Date | string;
   expires_at: Date | string;
   completed_at: Date | string | null;
+};
+
+type ProjectionWakeIntentEnqueueRow = ProjectionWakeIntentRow & {
+  enqueue_outcome: ProjectionWakeIntentEnqueueOutcome;
 };
 
 type CheckpointReadinessRow = {
