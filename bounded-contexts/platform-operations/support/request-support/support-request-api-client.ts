@@ -104,6 +104,103 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           body: JSON.stringify(body),
         }),
       ),
+    recordSupportOperationsNote: async (
+      supportRequestId: string,
+      body: Readonly<{
+        summary: string;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/evidence`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify({
+            evidenceType: "support-note",
+            summary: body.summary,
+          }),
+        }),
+      ),
+    recordSupportOperationsResponse: async (
+      supportRequestId: string,
+      body: Readonly<{
+        responseType: string;
+        summary: string;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/responses`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
+    escalateSupportOperationsRequest: async (
+      supportRequestId: string,
+      body: Readonly<{
+        reason: string;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/escalate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
+    resolveSupportOperationsRequest: async (
+      supportRequestId: string,
+      body: Readonly<{
+        resolutionType: string;
+        summary: string;
+        refundAmount?: string | null;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/resolve`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
+    closeSupportOperationsRequest: async (supportRequestId: string) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/close`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify({}),
+        }),
+      ),
+    cancelSupportOperationsRequest: async (
+      supportRequestId: string,
+      body: Readonly<{
+        reason: string;
+      }>,
+    ) =>
+      parseJsonResponse<SupportRequestCommandSnapshot>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
   };
 }
 

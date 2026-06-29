@@ -18,6 +18,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 import { action as accountSupportAction } from "../routes/marketplace/account-support";
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
+import { action as supportOperationsDetailAction } from "../routes/admin/request-detail";
 import { action as supportOperationsAction } from "../routes/admin/requests";
 
 function formRequest(url: string, form: URLSearchParams) {
@@ -116,6 +117,75 @@ describe("platform operations mutation consistency route actions", () => {
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/support/requests?escalated=2&skipped=1");
+  });
+
+  it.each([
+    [
+      "note",
+      new URLSearchParams({ intent: "note", summary: "Operator note" }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/evidence",
+      { evidenceType: "support-note", summary: "Operator note" },
+    ],
+    [
+      "response",
+      new URLSearchParams({
+        intent: "response",
+        responseType: "request-support-review",
+        summary: "Reviewed by support",
+      }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/responses",
+      { responseType: "request-support-review", summary: "Reviewed by support" },
+    ],
+    [
+      "escalate",
+      new URLSearchParams({ intent: "escalate", reason: "Needs support owner" }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/escalate",
+      { reason: "Needs support owner" },
+    ],
+    [
+      "resolve",
+      new URLSearchParams({
+        intent: "resolve",
+        resolutionType: "support-reviewed",
+        summary: "Reviewed",
+        refundAmount: "",
+      }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/resolve",
+      { resolutionType: "support-reviewed", summary: "Reviewed", refundAmount: null },
+    ],
+    [
+      "close",
+      new URLSearchParams({ intent: "close" }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/close",
+      {},
+    ],
+    [
+      "cancel",
+      new URLSearchParams({ intent: "cancel", reason: "Duplicate case" }),
+      "http://localhost/api/marketplace/support-requests/ops/sup_1/cancel",
+      { reason: "Duplicate case" },
+    ],
+  ] as const)("refetches support request detail after %s actions", async (intent, form, url, body) => {
+    const fetchMock = vi.fn(async () => jsonResponse({ id: "sup_1", version: 2, status: intent }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await captureRedirect(
+      supportOperationsDetailAction({
+        request: formRequest("http://localhost/support/requests/sup_1", form),
+        params: { id: "sup_1" },
+        context: undefined,
+      } as never),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(`/support/requests/sup_1?action=${intent}`);
   });
 
   it("redirects account support with the opened request snapshot id for list refetch", async () => {
