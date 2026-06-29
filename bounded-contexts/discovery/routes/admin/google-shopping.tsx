@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useMatches, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useMatches, useRevalidator, useSearchParams } from "react-router";
 import {
   createGoogleShoppingOperationsRequestApiClient,
   googleShoppingOperationsListQuery,
@@ -103,6 +103,7 @@ export default function GoogleShoppingOperationsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
+  const revalidator = useRevalidator();
 
   return (
     <GoogleShoppingOperationsPage
@@ -112,6 +113,8 @@ export default function GoogleShoppingOperationsRoute() {
       notice={noticeFromSearchParams(searchParams)}
       actionError={actionData?.error ?? null}
       actorPermissions={useAdminActorPermissions()}
+      latestJobIds={jobIdsFromSearchParams(searchParams)}
+      onJobTerminal={revalidator.revalidate}
     />
   );
 }
@@ -170,4 +173,11 @@ function noticeFromSearchParams(searchParams: URLSearchParams): GoogleShoppingOp
   }
 
   return null;
+}
+
+function jobIdsFromSearchParams(searchParams: URLSearchParams): readonly string[] {
+  return ["fullSyncJobId", "maintenanceJobId", "diagnosticsJobId"].flatMap((key) => {
+    const value = searchParams.get(key);
+    return value ? [value] : [];
+  });
 }
