@@ -117,7 +117,7 @@ export async function recoverAdminError(page: Page, options: { timeoutMs?: numbe
 
 export async function expectAdminPageReady(
   page: Page,
-  expected: { heading: string | RegExp },
+  expected: { heading: string | RegExp; headingLevel?: 1 | 2 | 3 | 4 | 5 | 6 },
   options: { timeoutMs?: number } = {},
 ) {
   const deadline = Date.now() + (options.timeoutMs ?? pageReadyTimeoutMs);
@@ -129,7 +129,9 @@ export async function expectAdminPageReady(
 
     try {
       await expectAdminWebHydrated(page);
-      await expect(page.getByRole("heading", { name: expected.heading })).toBeVisible({ timeout: 5_000 });
+      await expect(page.getByRole("heading", { name: expected.heading, level: expected.headingLevel })).toBeVisible({
+        timeout: 5_000,
+      });
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
