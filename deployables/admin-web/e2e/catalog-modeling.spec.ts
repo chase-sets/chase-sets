@@ -18,6 +18,7 @@ test.describe("catalog admin modeling", () => {
 
     await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
+    await page.getByRole("button", { name: /More filters/ }).click();
     await expect(page.getByRole("combobox", { name: "Value kind" })).toBeVisible();
     await expect(page.locator('a[href="/catalog/dimensions"]').first()).toHaveAttribute("aria-current", "page");
 
