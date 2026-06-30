@@ -165,11 +165,19 @@ const marketplaceRouteSuiteOwnership = [
 
 const boundedContextRouteSuiteOwnership = [
   {
+    pattern: /^bounded-contexts\/identity\/routes\/admin\/accounts/,
+    suites: ["admin_access"],
+  },
+  {
     pattern: /^bounded-contexts\/identity\/routes\/admin\/invitations/,
     suites: ["admin_access"],
   },
   {
     pattern: /^bounded-contexts\/identity\/routes\/admin\/api-keys/,
+    suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/features\/accounts\/(?:api|ui)\//,
     suites: ["admin_access"],
   },
   {

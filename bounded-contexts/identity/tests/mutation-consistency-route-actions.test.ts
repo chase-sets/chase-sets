@@ -131,6 +131,60 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/accounts/acc_1",
       },
       {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "founding-account",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "founding-account",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "manual-payout-review",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "manual-payout-review",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "trusted-seller",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "trusted-seller",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
         action: apiKeysAction,
         request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
         params: {},

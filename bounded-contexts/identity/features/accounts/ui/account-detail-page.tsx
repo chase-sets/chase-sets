@@ -1,11 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
-import { AccountBadgeList, accountBadgeLabel } from "./account-badges";
+import { AccountBadgeList, accountBadgeLabel, accountBadgeKeys, accountBadgeLabels } from "./account-badges";
 import type { Account } from "./contracts";
 
 export function AccountDetailPage({ data }: { data: Account }) {
-  const hasFoundingBadge = data.badges.includes("founding-account");
   return (
     <AdminDetailPage
       breadcrumbs={[
@@ -37,19 +36,26 @@ export function AccountDetailPage({ data }: { data: Account }) {
               </Button>
             </Stack>
           </Form>
-          <Form spacing="none" method="post">
-            <HiddenInput
-              type="hidden"
-              name="intent"
-              value={hasFoundingBadge ? "remove-founding-account-badge" : "assign-founding-account-badge"}
-              readOnly
-            />
-            <Button type="submit" tone={hasFoundingBadge ? "secondary" : "primary"}>
-              {hasFoundingBadge
-                ? t("identity.features.accounts.ui.accountDetailPage.remove.founding.account.badge")
-                : t("identity.features.accounts.ui.accountDetailPage.assign.founding.account.badge")}
-            </Button>
-          </Form>
+          {accountBadgeKeys.map((badgeKey) => {
+            const assigned = data.badges.includes(badgeKey);
+            const badge = accountBadgeLabels[badgeKey];
+            return (
+              <Form key={badgeKey} spacing="none" method="post">
+                <HiddenInput
+                  type="hidden"
+                  name="intent"
+                  value={assigned ? "remove-account-badge" : "assign-account-badge"}
+                  readOnly
+                />
+                <HiddenInput type="hidden" name="badgeKey" value={badgeKey} readOnly />
+                <Button type="submit" tone={assigned ? "secondary" : "primary"}>
+                  {assigned
+                    ? t("identity.features.accounts.ui.accountDetailPage.remove.account.badge", { badge })
+                    : t("identity.features.accounts.ui.accountDetailPage.assign.account.badge", { badge })}
+                </Button>
+              </Form>
+            );
+          })}
           {data.status === "active" ? (
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="suspend" readOnly />

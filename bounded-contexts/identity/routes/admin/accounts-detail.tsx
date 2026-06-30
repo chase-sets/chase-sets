@@ -3,8 +3,18 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useLoaderData } from "react-router";
 import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { Account } from "../../support/request-support/api-client";
+import { isAccountBadgeKey, type AccountBadgeKey } from "../../features/accounts/ui/account-badges";
 import { AccountDetailPage } from "../../features/accounts/ui/account-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
+
+function readAccountBadgeKey(value: FormDataEntryValue | null): AccountBadgeKey {
+  const badgeKey = String(value ?? "");
+  if (isAccountBadgeKey(badgeKey)) {
+    return badgeKey;
+  }
+
+  throw new Response(t("identity.features.accounts.api.route.account.badge.not.supported"), { status: 400 });
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
@@ -40,12 +50,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
     result = await api.closeAccount(accountId);
   }
 
-  if (intent === "assign-founding-account-badge") {
-    result = await api.assignAccountBadge(accountId, "founding-account");
+  if (intent === "assign-account-badge") {
+    result = await api.assignAccountBadge(accountId, readAccountBadgeKey(formData.get("badgeKey")));
   }
 
-  if (intent === "remove-founding-account-badge") {
-    result = await api.removeAccountBadge(accountId, "founding-account");
+  if (intent === "remove-account-badge") {
+    result = await api.removeAccountBadge(accountId, readAccountBadgeKey(formData.get("badgeKey")));
   }
 
   return redirect(navigateAfterWrite(result, `/access/accounts/${accountId}`));

@@ -169,6 +169,15 @@ describe("run e2e suite", () => {
     ).toEqual(["admin_platform"]);
   });
 
+  it("routes account admin routes to access admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/accounts-detail.tsx")).toEqual([
+      "admin_access",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx")).toEqual(
+      ["admin_access"],
+    );
+  });
+
   it("routes invitation admin routes to access admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/identity/routes/admin/invitations.tsx")).toEqual([
       "admin_access",
