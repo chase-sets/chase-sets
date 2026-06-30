@@ -342,9 +342,9 @@ async function expectCatalogItemListControls(page: Page) {
     "Blueprint ID",
     "Tag",
     "Blueprint",
-    "Has images",
-    "Has source references",
-    "Missing required fields",
+    "Has Images",
+    "Has Source References",
+    "Missing Required Fields",
   ]) {
     await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   }
