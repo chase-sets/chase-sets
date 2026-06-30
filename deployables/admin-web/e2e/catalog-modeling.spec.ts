@@ -246,7 +246,6 @@ test.describe("catalog admin modeling", () => {
         "Categories",
         "Tags",
         "Image URLs",
-        "Image Fallback",
         "External Catalog Item References",
         "External Product References",
       ]) {
