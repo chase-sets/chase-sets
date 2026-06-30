@@ -14,6 +14,11 @@ type CatalogAuthoringStreamProbeResult = Readonly<{
   error: string | null;
 }>;
 
+type CatalogCommandResponse = Readonly<{
+  id: string;
+  status: string;
+}>;
+
 async function probeCatalogAuthoringStreamEndpoint(
   page: Page,
   path: string,
@@ -189,6 +194,89 @@ test.describe("catalog admin modeling", () => {
     }
   });
 
+  test("signed-in catalog operator creates, inspects, and removes a draft catalog item @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    const uniqueSuffix = Date.now().toString(36);
+    const description = `Created by admin catalog item E2E ${uniqueSuffix}`;
+    let catalogItemId: string | null = null;
+
+    await authenticateAdmin(page, "/catalog/catalog-items", "/access/sign-in");
+
+    try {
+      await expectCatalogItemListControls(page);
+
+      await page.getByRole("button", { name: "New Catalog Item" }).click();
+      await expect(page.getByRole("heading", { name: "Create Catalog Item" })).toBeVisible();
+      await page.getByRole("textbox", { name: "Description" }).fill(description);
+
+      const [createResponse] = await Promise.all([
+        page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "POST" &&
+            candidate.url().includes("/api/catalog/catalog-items") &&
+            candidate.status() === 201,
+        ),
+        page.getByRole("button", { name: "Create" }).click(),
+      ]);
+      const createBody = (await createResponse.json()) as CatalogCommandResponse;
+      catalogItemId = createBody.id;
+
+      expect(catalogItemId).toMatch(/^cat_/);
+      expect(createBody.status).toBe("draft");
+      await expect(page.getByRole("heading", { name: "Create Catalog Item" })).toHaveCount(0);
+
+      const row = await waitForCatalogItemRow(page, catalogItemId);
+      await expect(row.getByRole("link", { name: "View" })).toBeVisible();
+
+      await page.goto(`/catalog/catalog-items/${catalogItemId}`, { waitUntil: "domcontentloaded" });
+      await expectAdminPageReady(page, { heading: catalogItemId });
+      await expect(page.getByText(description).first()).toBeVisible();
+      await expect(page.getByText("draft", { exact: true }).first()).toBeVisible();
+
+      for (const section of [
+        "Origin",
+        "Blueprint",
+        "Field Values",
+        "Categories",
+        "Tags",
+        "Image URLs",
+        "Image Fallback",
+        "External Catalog Item References",
+        "External Product References",
+      ]) {
+        await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
+      }
+
+      for (const action of [
+        "Edit Description",
+        "Assign Blueprint",
+        "Set Field Value",
+        "Assign Category",
+        "Set Tags",
+        "Set Image URLs",
+        "Set Image Fallback",
+        "Link External Catalog Item Reference",
+        "Link External Reference",
+      ]) {
+        await expect(page.getByRole("button", { name: action }).first()).toBeVisible();
+      }
+
+      await removeDraftCatalogItemThroughList(page, catalogItemId);
+      catalogItemId = null;
+    } finally {
+      if (catalogItemId) {
+        await removeDraftCatalogItemFallback(page, catalogItemId);
+      }
+    }
+  });
+
   test("signed-in catalog operator creates and activates a draft dimension @catalog-admin-modeling", async ({
     page,
   }) => {
@@ -239,6 +327,85 @@ test.describe("catalog admin modeling", () => {
     await expectReferenceTypeListAndDetail(page);
   });
 });
+
+async function expectCatalogItemListControls(page: Page) {
+  await expectPageOk(page, "/catalog/catalog-items");
+  await expectAdminPageReady(page, { heading: "Catalog Items" });
+  await expect(page.locator('a[href="/catalog/catalog-items"]').first()).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
+
+  await page.getByRole("button", { name: /More filters/ }).click();
+  for (const label of [
+    "Language",
+    "Source",
+    "Blueprint ID",
+    "Tag",
+    "Blueprint",
+    "Has images",
+    "Has source references",
+    "Missing required fields",
+  ]) {
+    await expect(page.getByLabel(label, { exact: true })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Close filters" }).click();
+}
+
+async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: string) {
+  await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
+    waitUntil: "domcontentloaded",
+  });
+  await waitForCatalogItemRow(page, catalogItemId);
+  await page.getByLabel(`Select row ${catalogItemId}`).click();
+  await page.getByRole("button", { name: "Remove drafts from selected" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Remove draft Catalog Items" });
+  await expect(dialog).toBeVisible();
+  const [deleteResponse] = await Promise.all([
+    page.waitForResponse(
+      (candidate) =>
+        candidate.request().method() === "DELETE" &&
+        candidate.url().includes(`/api/catalog/catalog-items/${catalogItemId}`),
+    ),
+    dialog.getByRole("button", { name: "Remove drafts from selected" }).click(),
+  ]);
+  expect(deleteResponse.status(), "remove draft catalog item response should be successful").toBeLessThan(400);
+
+  await expect
+    .poll(
+      async () => {
+        await page
+          .getByRole("textbox", { name: "Search" })
+          .fill(catalogItemId)
+          .catch(() => undefined);
+        const stillVisible = await page
+          .getByRole("row")
+          .filter({ hasText: catalogItemId })
+          .first()
+          .isVisible()
+          .catch(() => false);
+        if (!stillVisible) {
+          return false;
+        }
+
+        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+        await expectAdminWebHydrated(page).catch(() => undefined);
+        return page
+          .getByRole("row")
+          .filter({ hasText: catalogItemId })
+          .first()
+          .isVisible()
+          .catch(() => false);
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+    )
+    .toBe(false);
+}
+
+async function removeDraftCatalogItemFallback(page: Page, catalogItemId: string) {
+  const origin = new URL(page.url()).origin;
+  await page.request.delete(`${origin}/api/catalog/catalog-items/${catalogItemId}`).catch(() => undefined);
+}
 
 async function expectReferenceRecordListAndDetail(page: Page) {
   await expectPageOk(page, "/catalog/reference-records");
@@ -317,6 +484,28 @@ async function firstVisibleRowForSeed(page: Page, seedLabels: readonly string[])
     .first();
   await expect(fallbackRow).toBeVisible({ timeout: 60_000 });
   return fallbackRow;
+}
+
+async function waitForCatalogItemRow(page: Page, catalogItemId: string) {
+  const search = page.getByRole("textbox", { name: "Search" });
+  const row = page.getByRole("row").filter({ hasText: catalogItemId }).first();
+  await expect
+    .poll(
+      async () => {
+        await search.fill(catalogItemId).catch(() => undefined);
+        if (await row.isVisible().catch(() => false)) {
+          return true;
+        }
+
+        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+        await expectAdminWebHydrated(page).catch(() => undefined);
+        return row.isVisible().catch(() => false);
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 60_000 },
+    )
+    .toBe(true);
+
+  return row;
 }
 
 async function waitForDimensionRow(page: Page, dimensionKey: string) {
