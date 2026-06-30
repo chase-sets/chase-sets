@@ -23,6 +23,22 @@ test.describe("admin auth shell and session", () => {
       await expectProtectedAdminRouteRequiresSignIn(page);
     });
   }
+
+  test("operator sees mobile shell navigation and account actions after sign-in @admin-auth", async ({ page }) => {
+    test.setTimeout(150_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.context().clearCookies();
+    await signInThroughVisiblePasswordForm(page, "/access/sign-in", authenticatedReturnTo);
+    await expectAuthenticatedAdminShell(page);
+    await expectMobileAdminShell(page);
+    await signOutThroughAdminShell(page);
+    await expectProtectedAdminRouteRequiresSignIn(page);
+  });
 });
 
 async function signInThroughVisiblePasswordForm(page: Page, signInPath: string, returnTo: string) {
@@ -92,6 +108,27 @@ async function expectAuthenticatedAdminShell(page: Page) {
   const origin = new URL(page.url()).origin;
   const actorResponse = await page.request.get(`${origin}/api/identity/current-actor-display`);
   expect(actorResponse.status(), "signed-in admin shell should expose the current actor display").toBe(200);
+}
+
+async function expectMobileAdminShell(page: Page) {
+  const mobileLocalNav = page.locator("nav.fixed.inset-x-0.bottom-0");
+  await expect(mobileLocalNav.getByRole("link", { name: "Accounts" })).toBeVisible({ timeout: pageReadyTimeoutMs });
+
+  await page.getByLabel("Admin menu").click();
+
+  for (const sectionName of adminSectionNames) {
+    await expect(page.getByRole("link", { name: sectionName }).first()).toBeVisible();
+  }
+
+  await page.getByRole("button", { name: "Account menu" }).last().click();
+  const accountMenu = page.getByRole("menu", { name: "Account menu" }).last();
+  await expect(accountMenu).toBeVisible();
+  await expect(accountMenu.getByRole("menuitem", { name: "Switch account" })).toHaveAttribute(
+    "href",
+    "/access/account-select",
+  );
+  await expect(accountMenu.getByRole("menuitem", { name: "Sessions" })).toHaveAttribute("href", "/access/sessions");
+  await expect(accountMenu.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
 }
 
 async function signOutThroughAdminShell(page: Page) {
