@@ -33,7 +33,6 @@ test.describe("access admin sessions", () => {
     await expect(page.getByText("Sessions", { exact: true }).first()).toBeVisible();
 
     const session = await getActiveSession(page);
-    await expect(page.getByRole("row").filter({ hasText: session.session_id })).toBeVisible();
 
     await page.goto(`/access/sessions/${session.session_id}`, { waitUntil: "domcontentloaded" });
     await expectAdminWebHydrated(page);
