@@ -7,7 +7,73 @@ import {
   skipDeployedAdminE2e,
 } from "./support/admin-e2e";
 
+type CatalogAuthoringStreamProbeResult = Readonly<{
+  status: number;
+  contentType: string;
+  textStart: string;
+  error: string | null;
+}>;
+
+async function probeCatalogAuthoringStreamEndpoint(
+  page: Page,
+  path: string,
+): Promise<CatalogAuthoringStreamProbeResult> {
+  return page.evaluate(async (streamPath) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort("stream probe timeout"), 5_000);
+
+    try {
+      const response = await window.fetch(streamPath, {
+        credentials: "include",
+        headers: { Accept: "text/event-stream, application/json" },
+        signal: controller.signal,
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      const textStart = contentType.includes("text/event-stream") ? "" : (await response.text()).slice(0, 240);
+      return { status: response.status, contentType, textStart, error: null };
+    } catch (error) {
+      return {
+        status: 0,
+        contentType: "",
+        textStart: "",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, path);
+}
+
+function expectControlledCatalogAuthoringStreamProbe(path: string, result: CatalogAuthoringStreamProbeResult) {
+  expect(result.error, `${path} should resolve headers before the probe timeout`).toBeNull();
+  if (result.status === 200) {
+    expect(result.contentType, `${path} should open as an event stream`).toContain("text/event-stream");
+    return;
+  }
+
+  expect([401, 403, 404], `${path} should return a controlled auth/not-found response`).toContain(result.status);
+  expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
+  expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
+  expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
+}
+
 test.describe("catalog admin modeling", () => {
+  test("catalog authoring job streams open or fail with controlled JSON responses @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
+    await expectPageOk(page, "/catalog/dimensions");
+
+    const path = "/api/catalog/bulk-authoring-jobs/topology-smoke/events";
+    expectControlledCatalogAuthoringStreamProbe(path, await probeCatalogAuthoringStreamEndpoint(page, path));
+  });
+
   test("signed-in catalog operator can inspect dimensions and open the create model dialog @catalog-admin-modeling", async ({
     page,
   }) => {
