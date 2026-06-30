@@ -220,7 +220,7 @@ test.describe("catalog admin modeling", () => {
         page.waitForResponse(
           (candidate) =>
             candidate.request().method() === "POST" &&
-            candidate.url().includes("/api/catalog/catalog-items") &&
+            candidate.url().includes("/api/catalog/items") &&
             candidate.status() === 201,
         ),
         page.getByRole("button", { name: "Create" }).click(),
@@ -364,8 +364,7 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
   const [deleteResponse] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
-        candidate.request().method() === "DELETE" &&
-        candidate.url().includes(`/api/catalog/catalog-items/${catalogItemId}`),
+        candidate.request().method() === "DELETE" && candidate.url().includes(`/api/catalog/items/${catalogItemId}`),
     ),
     dialog.getByRole("button", { name: "Remove drafts from selected" }).click(),
   ]);
@@ -404,7 +403,7 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
 
 async function removeDraftCatalogItemFallback(page: Page, catalogItemId: string) {
   const origin = new URL(page.url()).origin;
-  await page.request.delete(`${origin}/api/catalog/catalog-items/${catalogItemId}`).catch(() => undefined);
+  await page.request.delete(`${origin}/api/catalog/items/${catalogItemId}`).catch(() => undefined);
 }
 
 async function expectReferenceRecordListAndDetail(page: Page) {
