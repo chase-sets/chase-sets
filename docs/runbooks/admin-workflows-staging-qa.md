@@ -70,6 +70,14 @@ That mode still applies the redaction scan, and also requires the public packet 
 
 The strict gate also accepts structured JSON evidence from smoke or E2E metadata. The JSON can place fields at the top level or inside nested `records`, `results`, `rows`, `checks`, `evidence`, or `artifacts` arrays/objects. Use these support-safe keys when automation produces the packet: `environment`, `actorAlias`, `signInHost`, `routeTemplate` or `routeOrWorkflow`, `expectedBehavior`, `observedBehavior`, `artifactFolder` or `evidenceArtifact`, `redactionReview`, `securityPiiReview`, `viewports` or `responsiveCoverage`, and `stateChecks` or `stateCoverage`.
 
+For final #3016 actor-fixture evidence, run the actor matrix gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-actor-matrix-coverage --evidence-file artifacts/admin-qa/issue-3016.md --out artifacts/admin-qa/issue-3016-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires every Actor Matrix alias above to appear with its intended `Sign-in host`. Structured JSON packets can provide the same evidence with `actorAlias` and `signInHost` keys at the top level or inside nested `records`, `results`, `rows`, `checks`, `evidence`, or `artifacts` arrays/objects.
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

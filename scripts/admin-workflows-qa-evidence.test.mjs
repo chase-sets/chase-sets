@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
+  ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
   findAdminWorkflowsQaEvidenceFindings,
   parseAdminWorkflowsQaEvidenceArgs,
   runAdminWorkflowsQaEvidence,
@@ -165,6 +166,116 @@ describe("admin workflows QA evidence", () => {
     });
   });
 
+  it("passes complete support-safe actor matrix evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3016.md");
+    await writeFile(
+      evidenceFile,
+      ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX.map(({ actorAlias, signInHost }) =>
+        [
+          "Environment: staging admin-web",
+          `Actor alias: ${actorAlias}`,
+          `Sign-in host: ${signInHost}`,
+          "Route or workflow: section landing and account-select check",
+          "Expected: actor reaches the intended admin host with support-safe account selection.",
+          "Observed: browser evidence captured with aliases only.",
+          `Evidence artifact: artifacts/admin-qa/3016/${actorAlias}`,
+          "Redaction review: passed",
+          "Follow-up issue: none",
+        ].join("\n"),
+      ).join("\n\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3016",
+      checkedAt,
+      requireActorMatrixCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      actorMatrix: {
+        mode: "actor-matrix-coverage",
+        status: "pass",
+        requiredActors: ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
+        coveredActors: ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
+        missingActors: [],
+        hostMismatches: [],
+      },
+    });
+  });
+
+  it("accepts structured actor matrix evidence from automation packets", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3016.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify({
+        environment: "staging admin-web",
+        results: ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX.map(({ actorAlias, signInHost }) => ({
+          actorAlias,
+          signInHost,
+          routeTemplate: signInHost,
+          observedBehavior: "signed in with support-safe alias evidence",
+          artifactFolder: `artifacts/admin-qa/3016/${actorAlias}`,
+        })),
+      }),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireActorMatrixCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.actorMatrix.coveredActors.map((actor) => actor.actorAlias)).toEqual(
+      ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX.map((actor) => actor.actorAlias),
+    );
+  });
+
+  it("fails actor matrix evidence when aliases or sign-in hosts are missing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3016.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-admin",
+        "Sign-in host: /catalog/sign-in",
+        "Observed: wrong host captured.",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireActorMatrixCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.actorMatrix).toMatchObject({
+      status: "fail",
+      missingActors: ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX.slice(1).map((actor) => ({
+        ...actor,
+        severity: "blocker",
+      })),
+      hostMismatches: [
+        {
+          actorAlias: "admin-qa-platform-admin",
+          expectedSignInHost: "/access/sign-in",
+          observedSignInHosts: ["/catalog/sign-in"],
+          severity: "blocker",
+        },
+      ],
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing support-safe actor aliases and intended sign-in hosts before closing #3016.",
+    );
+  });
+
   it("fails strict cross-cutting evidence when responsive or state coverage is missing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "issue-3027.md");
@@ -284,6 +395,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_ENVIRONMENT: "staging",
       ADMIN_WORKFLOWS_QA_ISSUE: "#3027",
       ADMIN_WORKFLOWS_QA_REQUIRE_CROSS_CUTTING_COVERAGE: "true",
+      ADMIN_WORKFLOWS_QA_REQUIRE_ACTOR_MATRIX_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -292,6 +404,7 @@ describe("admin workflows QA evidence", () => {
       environment: "staging",
       issue: "#3027",
       requireCrossCuttingCoverage: true,
+      requireActorMatrixCoverage: true,
     });
   });
 
