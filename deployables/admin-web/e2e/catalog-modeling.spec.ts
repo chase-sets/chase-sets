@@ -94,6 +94,7 @@ const catalogModelingSurfaces = [
     heading: "Reference Types",
     createButton: "New Reference Type",
     dialogHeading: "Create Reference Type",
+    activeHref: "/catalog/reference-records",
   },
   {
     path: "/catalog/reference-records",
@@ -178,7 +179,8 @@ test.describe("catalog admin modeling", () => {
       await expect(page).toHaveURL(new RegExp(`${surface.path.replace(/\//g, "\\/")}(?:\\?|$)`));
       await expectAdminPageReady(page, { heading: surface.heading });
       await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
-      await expect(page.locator(`a[href="${surface.path}"]`).first()).toHaveAttribute("aria-current", "page");
+      const activeHref = "activeHref" in surface ? surface.activeHref : surface.path;
+      await expect(page.locator(`a[href="${activeHref}"]`).first()).toHaveAttribute("aria-current", "page");
 
       await page.getByRole("button", { name: surface.createButton }).click();
       await expect(page.getByRole("heading", { name: surface.dialogHeading })).toBeVisible();
@@ -222,7 +224,100 @@ test.describe("catalog admin modeling", () => {
     await page.getByRole("button", { name: "Activate" }).click();
     await expectDimensionStatus(page, "active");
   });
+
+  test("signed-in catalog operator inspects reference data records and types @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/reference-records", "/access/sign-in");
+    await expectReferenceRecordListAndDetail(page);
+    await expectReferenceTypeListAndDetail(page);
+  });
 });
+
+async function expectReferenceRecordListAndDetail(page: Page) {
+  await expectPageOk(page, "/catalog/reference-records");
+  await expectAdminPageReady(page, { heading: "Reference Records" });
+  await expect(page.locator('a[href="/catalog/reference-records"]').first()).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
+  await page.getByRole("button", { name: /More filters/ }).click();
+  await expect(page.getByRole("combobox", { name: "Reference type" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Relationship" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Attribute key" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Attribute value" })).toBeVisible();
+  await page.getByRole("button", { name: "Close filters" }).click();
+
+  const row = await firstVisibleRowForSeed(page, ["The First Chapter", "Romance Dawn", "Time Spiral", "Base Set"]);
+  await row.getByRole("link", { name: "View" }).click();
+  await expect(page).toHaveURL(/\/catalog\/reference-records\/[^/?]+(?:\?|$)/);
+  await expectAdminWebHydrated(page);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByText("Type").first()).toBeVisible();
+  await expect(page.getByText("Key").first()).toBeVisible();
+  await expect(page.getByText("Attributes").first()).toBeVisible();
+  await expect(page.getByText("Relationships").first()).toBeVisible();
+  await expect(page.getByText("Status").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Reference Record" })).toBeVisible();
+  await expect(page.getByLabel("Reference type")).toBeVisible();
+  await expect(page.getByLabel("Key")).toBeVisible();
+  await expect(page.getByLabel("Name")).toBeVisible();
+  await expect(page.getByLabel("Description")).toBeVisible();
+  await expect(page.getByLabel("Attributes")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Edit Reference Record" })).toHaveCount(0);
+}
+
+async function expectReferenceTypeListAndDetail(page: Page) {
+  await expectPageOk(page, "/catalog/reference-types");
+  await expectAdminPageReady(page, { heading: "Reference Types" });
+  await expect(page.locator('a[href="/catalog/reference-records"]').first()).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Status" })).toBeVisible();
+  await page.getByRole("button", { name: /More filters/ }).click();
+  await expect(page.getByRole("textbox", { name: "Attribute key" })).toBeVisible();
+  await page.getByRole("button", { name: "Close filters" }).click();
+
+  const row = await firstVisibleRowForSeed(page, ["Set", "Expansion", "Series", "Product Line"]);
+  await row.getByRole("link", { name: "View" }).click();
+  await expect(page).toHaveURL(/\/catalog\/reference-types\/[^/?]+(?:\?|$)/);
+  await expectAdminWebHydrated(page);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByText("Attribute keys").first()).toBeVisible();
+  await expect(page.getByText("Status").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Reference Type" })).toBeVisible();
+  await expect(page.getByLabel("Key")).toBeVisible();
+  await expect(page.getByLabel("Name")).toBeVisible();
+  await expect(page.getByLabel("Description")).toBeVisible();
+  await expect(page.getByLabel("Attribute keys")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Edit Reference Type" })).toHaveCount(0);
+}
+
+async function firstVisibleRowForSeed(page: Page, seedLabels: readonly string[]) {
+  for (const label of seedLabels) {
+    const row = page.getByRole("row").filter({ hasText: label }).first();
+    if (await row.isVisible().catch(() => false)) {
+      return row;
+    }
+  }
+
+  const fallbackRow = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("link", { name: "View" }) })
+    .first();
+  await expect(fallbackRow).toBeVisible({ timeout: 60_000 });
+  return fallbackRow;
+}
 
 async function waitForDimensionRow(page: Page, dimensionKey: string) {
   const search = page.getByRole("textbox", { name: "Search" });
