@@ -116,6 +116,10 @@ export const SUBCOMMANDS = {
     script: "projection-hot-lag-evidence.mjs",
     description: "Support-safe hot projection lag attribution evidence for projection worker pressure.",
   },
+  "read-consistency:route-matrix-evidence": {
+    script: "read-consistency-route-matrix-evidence.mjs",
+    description: "Prometheus-backed read-consistency route matrix freshness evidence.",
+  },
   "push-wake:capacity-evidence": {
     script: "push-wake-capacity-evidence.mjs",
     description: "CI-safe push-wake connection budget and listener expansion evidence.",
