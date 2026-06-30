@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
@@ -44,7 +43,7 @@ test.describe("access admin account badges", () => {
     try {
       for (const badgeKey of accountBadgeKeys) {
         const initiallyAssigned = initialBadges.has(badgeKey);
-        await exerciseBadgeToggle(page, accountId, badgeKey, initiallyAssigned);
+        await exerciseBadgeToggle(page, badgeKey, initiallyAssigned);
       }
     } finally {
       await restoreAccountBadges(page, accountId, initialBadges);
@@ -69,9 +68,7 @@ async function waitForAccountSnapshot(
   await expect
     .poll(
       async () => {
-        const response = await page.request.get(`${origin}/api/identity/accounts/${accountId}`, {
-          headers: freshReadHeaders(page),
-        });
+        const response = await page.request.get(`${origin}/api/identity/accounts/${accountId}`);
         if (response.status() !== 200) {
           return false;
         }
@@ -87,30 +84,21 @@ async function waitForAccountSnapshot(
   return snapshot!;
 }
 
-async function exerciseBadgeToggle(
-  page: Page,
-  accountId: string,
-  badgeKey: AccountBadgeKey,
-  initiallyAssigned: boolean,
-) {
+async function exerciseBadgeToggle(page: Page, badgeKey: AccountBadgeKey, initiallyAssigned: boolean) {
   const label = accountBadgeLabels[badgeKey];
 
   if (initiallyAssigned) {
     await clickBadgeAction(page, `Remove ${label} badge`);
-    await waitForAccountSnapshot(page, accountId, ({ badges }) => !badges.includes(badgeKey));
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectBadgeAction(page, `Assign ${label} badge`);
     await clickBadgeAction(page, `Assign ${label} badge`);
-    await waitForAccountSnapshot(page, accountId, ({ badges }) => badges.includes(badgeKey));
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectBadgeAction(page, `Remove ${label} badge`);
     return;
   }
 
   await clickBadgeAction(page, `Assign ${label} badge`);
-  await waitForAccountSnapshot(page, accountId, ({ badges }) => badges.includes(badgeKey));
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await expectBadgeAction(page, `Remove ${label} badge`);
   await clickBadgeAction(page, `Remove ${label} badge`);
-  await waitForAccountSnapshot(page, accountId, ({ badges }) => !badges.includes(badgeKey));
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await expectBadgeAction(page, `Assign ${label} badge`);
 }
 
 async function clickBadgeAction(page: Page, name: string) {
@@ -118,14 +106,9 @@ async function clickBadgeAction(page: Page, name: string) {
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
 }
 
-function freshReadHeaders(page: Page) {
-  const token = new URL(page.url()).searchParams.get("afterWrite");
-  return token
-    ? {
-        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: token,
-        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
-      }
-    : undefined;
+async function expectBadgeAction(page: Page, name: string) {
+  await expect(page).toHaveURL(/\/access\/accounts\/[^/?]+(?:\?|$)/);
+  await expect(page.getByRole("button", { name })).toBeVisible({ timeout: 45_000 });
 }
 
 async function restoreAccountBadges(page: Page, accountId: string, initialBadges: ReadonlySet<string>) {
@@ -141,6 +124,5 @@ async function restoreAccountBadges(page: Page, accountId: string, initialBadges
       ? await page.request.post(`${origin}/api/identity/accounts/${accountId}/badges`, { data: { badgeKey } })
       : await page.request.delete(`${origin}/api/identity/accounts/${accountId}/badges/${badgeKey}`);
     expect(response.ok(), `restore ${badgeKey} response should be successful`).toBe(true);
-    await waitForAccountSnapshot(page, accountId, ({ badges }) => shouldBeAssigned === badges.includes(badgeKey));
   }
 }

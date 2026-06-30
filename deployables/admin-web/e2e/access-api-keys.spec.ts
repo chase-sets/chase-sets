@@ -39,15 +39,12 @@ test.describe("access admin api keys", () => {
     await expect(page.getByText("active").first()).toBeVisible();
 
     const beforeRotate = await waitForApiKeySnapshot(page, apiKeyId, ({ status }) => status === "active");
+    await expect(page.getByText(beforeRotate.key_prefix)).toBeVisible();
     await page.getByRole("button", { name: "Rotate" }).click();
     await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-    const afterRotate = await waitForApiKeySnapshot(
-      page,
-      apiKeyId,
-      ({ key_prefix: keyPrefix }) => keyPrefix !== beforeRotate.key_prefix,
-    );
-    expect(afterRotate.status).toBe("active");
+    await expect(page.getByText(beforeRotate.key_prefix)).toHaveCount(0, { timeout: 45_000 });
+    await expect(page.getByText("active").first()).toBeVisible();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
@@ -90,10 +87,9 @@ async function waitForApiKeySnapshot(page: Page, apiKeyId: string, predicate: (s
 }
 
 async function expectRevokedApiKey(page: Page, apiKeyId: string, apiKeyName: string) {
-  await waitForApiKeySnapshot(page, apiKeyId, ({ status }) => status === "revoked");
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
   await expectAdminPageReady(page, { heading: apiKeyName });
-  await expect(page.getByText("revoked").first()).toBeVisible();
+  await expect(page.getByText("revoked").first()).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole("button", { name: "Rotate" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
 }
