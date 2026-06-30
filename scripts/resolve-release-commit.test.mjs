@@ -144,6 +144,7 @@ describe("resolve release commit", () => {
       ".github/workflows/platform-production.yml",
       ".github/workflows/platform-staging-reset.yml",
       ".github/workflows/platform-staging-wake-drills.yml",
+      ".github/workflows/platform-staging-route-matrix-evidence.yml",
       ".github/workflows/platform-staging-representative-commerce-state.yml",
       ".github/workflows/marketplace-provider-proof-status.yml",
       ".github/workflows/checkout-order-readiness-trace.yml",
@@ -159,7 +160,7 @@ describe("resolve release commit", () => {
     expect(resolveSteps[0]).toContain('--event-name "${{ github.event_name }}"');
     expect(resolveSteps[0]).toContain('--github-output "$GITHUB_OUTPUT"');
     expect(resolveSteps[1]).toContain('--github-output "$GITHUB_OUTPUT"');
-    expect(resolveSteps[4]).toContain('--github-env "$GITHUB_ENV"');
+    expect(resolveSteps[5]).toContain('--github-env "$GITHUB_ENV"');
     for (const step of resolveSteps.slice(2)) {
       expect(step).toContain("--checkout true");
     }

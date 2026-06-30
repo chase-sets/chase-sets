@@ -264,7 +264,7 @@ terraform init \
 terraform apply -var=environment=<environment>
 ```
 
-Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret.
+Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret. Copy the same environment's `prometheus_query_token` to the matching GitHub Environment `PROMETHEUS_QUERY_TOKEN` secret so operational evidence workflows can query Prometheus without exposing credentials.
 
 ## One-Time Catalog Asset Bootstrap
 

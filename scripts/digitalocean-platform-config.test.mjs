@@ -38,6 +38,10 @@ const platformStagingWakeDrillsWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-wake-drills.yml"),
   "utf8",
 );
+const platformStagingRouteMatrixEvidenceWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-route-matrix-evidence.yml"),
+  "utf8",
+);
 const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
@@ -1480,6 +1484,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain(
       "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
     );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("environment: staging");
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}",
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "Staging route-matrix evidence requires PROMETHEUS_QUERY_TOKEN in the staging GitHub Environment.",
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('--prometheus-token "${PROMETHEUS_QUERY_TOKEN}"');
   });
 
   it("uses one checked-in script for Terraform-state database URL exports in operational workflows", () => {
