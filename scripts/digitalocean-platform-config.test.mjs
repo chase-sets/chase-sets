@@ -666,12 +666,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
   });
 
-  it("retains retired production context databases outside active platform contexts", () => {
+  it("retains launched production context databases even when public marketplace exposure is gated", () => {
     const activeContexts = terraformStringList(platformLocals, "platform_context_names");
     const retainedDatabaseContexts = terraformStringList(platformLocals, "production_retained_context_database_names");
 
     expect(activeContexts).not.toContain("reputation");
-    expect(retainedDatabaseContexts).toEqual(["reputation"]);
+    expect([...retainedDatabaseContexts].sort()).toEqual([...activeContexts, "reputation"].sort());
     expect(platformLocals).toContain("context_database_names = distinct(concat(");
     expect(platformLocals).toContain("local.is_production ? local.production_retained_context_database_names : []");
     expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
@@ -707,6 +707,11 @@ describe("DigitalOcean platform configuration", () => {
       "concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)",
     );
     expect(platformLocals).toContain("for domain in local.all_marketplace_domains");
+    expect(platformLocals).toContain("production_retained_marketplace_uptime_check_targets = local.is_production");
+    expect(platformLocals).toContain(
+      '"marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"',
+    );
+    expect(platformLocals).toContain("}, local.production_retained_marketplace_uptime_check_targets)");
     expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
