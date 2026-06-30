@@ -12,6 +12,8 @@ Do not run it as part of production deployment. The platform API command rejects
 
 The preferred staging operation is the `Platform Staging Representative Commerce State` GitHub Actions workflow. It is manually dispatched, requires the confirmation phrase, reads the live staging database users and databases from Terraform state, and runs the representative refresh command against current staging Catalog integration output. Use it after a staging reset or after a new Catalog integration import/promotion. Dispatch it with the release ref that is already deployed to staging, usually `main`. The workflow uses direct database URLs for the operator refresh so long projection syncs are not bounded by transaction-pool connection lifetimes. It defaults each bounded refresh step to a five-minute timeout; increase the `step_timeout_ms` input only when projection backlog evidence shows a healthy catch-up path that needs more time.
 
+When this workflow is used as #2515 background-load context, record it in the [Projection Freshness Worker Capacity background workload matrix](../architecture/projection-freshness-worker-capacity.md#background-workload-controls). Public evidence should include only the workflow run, release ref, support-safe step timing, selector status, and whether the refresh completed, timed out, or was deferred. Do not run or extend representative refresh while a wake drill is already proving route freshness unless the drill is intentionally collecting active-background-pressure evidence.
+
 The platform API package owns the runtime composition command:
 
 ```bash
@@ -91,3 +93,4 @@ After the command runs:
 6. Confirm `pendingPaymentSaleSelector.status=ready` before using representative state as the source for pending-payment seller-surface QA. If it is not ready, rerun the representative state workflow after checking the Ordering/Inventory reservation projection backlog.
 7. Confirm `chromeUatSelector.status=ready` before using representative state as the source for payout-ready return or listing-freshness Chrome UAT. If it is not ready, follow the support-safe blocker categories instead of guessing at a private account.
 8. Run staging smoke checks before promoting the release.
+9. For #2515 evidence, pair the refresh with the nearest `representative-volume` wake load and reconciliation artifacts, then state whether the refresh was active, completed, throttled by step timeout, or intentionally deferred during the hot-path proof window.

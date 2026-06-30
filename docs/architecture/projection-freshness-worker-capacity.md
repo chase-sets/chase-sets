@@ -72,6 +72,27 @@ The canary fails the platform freshness gate when:
 - the route falls back to target-context mode without a documented rollback;
 - a permanent not-found renders while the fresh receipt is still valid.
 
+## Background Workload Controls
+
+Customer-visible freshness incidents must first be attributed before capacity is raised. For #2515 closure, every background workload runbook or drill record should prove the same support-safe control matrix:
+
+| Workload | Normal control | Pause/throttle evidence | Hot-path proof |
+| --- | --- | --- | --- |
+| Representative commerce refresh | Bounded workflow dispatch, per-step timeout, selected current Catalog Item window. | Record `step_timeout_ms`, the timed-out step if any, and whether the refresh was rerun only after projection backlog was healthy. | Pair the latest representative refresh with a `representative-volume` wake load artifact or state why no refresh overlapped the hot-path window. |
+| Projection replay/rebuild/backfill | Operator-owned projection operation with confirm gate and visible operation/job state. | Record the operation id as a private reference, projection group/context, cancel/pause outcome when available, and whether the job was left running during hot-path proof. | Capture `projection:hot-lag-evidence` plus a reconciliation or load drill if customer routes were measured while the operation was active. |
+| Provider import/promotion and bulk authoring | Catalog-owned durable job with progress/recovery surface. | Record retry/resume/cancel posture from the admin job surface; keep provider payloads and raw ids private. | Verify wake load pressure attribution shows hot-lane queueing absent or explicitly attributed away from provider/bulk backlog. |
+| Scheduled/dispatch/provider-delivery loops | Worker loop concurrency and retry/backoff policy. | Record loop saturation, retry/backoff state, and whether dispatch was paused by provider-safe controls rather than by disabling correctness fallbacks. | `projection:hot-lag-evidence` should attribute any lag to DB pool, lease contention, background pressure, or no observed hot lag. |
+
+Do not disable read-consistency waits, durable catch-up, fallback polling, or projection correctness checks to make a background workload pass. The only acceptable mitigations are: pause or cancel the background owner, reduce its concurrency or batch size, wait for the bounded job to finish, add worker/database capacity within the pool budget below, or open a projection-group split/sharding issue with the drill artifact that proves single-flight lease contention remains.
+
+Support-safe closure evidence for #2515 should include:
+
+- latest `representative-volume` wake load run and paired reconciliation run;
+- support-safe pressure attribution from `staging-wake-drill-load-evaluation.json`, especially hot vs standard/bulk/unknown queued counts;
+- `projection:hot-lag-evidence` when a route miss, queue-age alert, or background overlap needs attribution;
+- explicit statement that background replay/backfill/representative-refresh work was paused, throttled, completed, or intentionally active during the proof window;
+- follow-up issue link when projection-group sharding, smaller projection groups, or additional runner capacity is required.
+
 ## Operator Response
 
 Use Admin > Operations > Projection Operations first:
