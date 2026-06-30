@@ -185,6 +185,24 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/accounts/acc_1",
       },
       {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", { intent: "suspend" }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", { intent: "reactivate" }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", { intent: "close" }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
         action: apiKeysAction,
         request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
         params: {},
@@ -220,6 +238,18 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/memberships/mbr_1",
       },
       {
+        action: membershipDetailAction,
+        request: formRequest("/access/memberships/mbr_1", { intent: "revoke" }),
+        params: { id: "mbr_1" },
+        expectedPath: "/access/memberships/mbr_1",
+      },
+      {
+        action: membershipDetailAction,
+        request: formRequest("/access/memberships/mbr_1", { intent: "reinstate" }),
+        params: { id: "mbr_1" },
+        expectedPath: "/access/memberships/mbr_1",
+      },
+      {
         action: userDetailAction,
         request: formRequest("/access/users/usr_identity", {
           intent: "update-profile",
@@ -227,6 +257,18 @@ describe("Identity mutation consistency route actions", () => {
           givenName: "Alex",
           familyName: "Collector",
         }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", { intent: "suspend" }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", { intent: "reactivate" }),
         params: { id: "usr_identity" },
         expectedPath: "/access/users/usr_identity",
       },
