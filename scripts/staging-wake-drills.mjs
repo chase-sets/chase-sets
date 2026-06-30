@@ -53,6 +53,7 @@ export const CANARY_BROWSER_SEGMENTS = Object.freeze([
   "documentToReadyMs",
   "writeToCheckoutReadyMs",
 ]);
+export const MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES = 60;
 
 const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const CANARY_SCRIPT_PATH = join(REPO_ROOT, "scripts", "guest-buy-now-freshness-probe.mjs");
@@ -452,6 +453,15 @@ export function renderDrillStepSummary(evidence) {
     lines.push(
       "",
       `Single-write canary: ${evidence.canaryWrite.attemptCount ?? 1}/${evidence.canaryWrite.maxAttempts} attempt(s), decision ${evidence.canaryWrite.promotionDecision ?? "unknown"}.`,
+    );
+  }
+  if (evidence.wakeRuntimePreflight?.attempted) {
+    const preflight = evidence.wakeRuntimePreflight;
+    const lastSample = Array.isArray(preflight.samples) ? preflight.samples.at(-1) : null;
+    const lastReasons = lastSample?.reasons?.length ? lastSample.reasons.join(", ") : "none";
+    lines.push(
+      "",
+      `Wake runtime preflight: ${preflight.ready ? "ready" : "not ready"} after ${preflight.sampleCount} samples; ready streak ${preflight.readySampleCount ?? 0}; omitted samples ${preflight.omittedSampleCount ?? 0}; latest reasons: ${lastReasons}.`,
     );
   }
   if (evidence.wakeRuntimeAfterLoad?.attempted) {
@@ -920,9 +930,44 @@ function findWakeCapableWorker(schedulers, workerId) {
   };
 }
 
+function wakeRuntimePreflightSample(sampleNumber, elapsedMs, evaluation, stability = null) {
+  return {
+    sampleNumber,
+    elapsedMs: Math.max(0, elapsedMs),
+    ready: evaluation.ready,
+    activeWakeCapableWorkerCount: evaluation.activeWakeCapableWorkerCount,
+    relayLeaseState: evaluation.relayLeaseState,
+    relayOwnerWorkerState: evaluation.relayOwnerWorkerState ?? null,
+    relayOwnerHeartbeatAgeMs: evaluation.relayOwnerHeartbeatAgeMs ?? null,
+    relayLeaseRenewedAt: evaluation.relayLeaseRenewedAt ?? null,
+    relayLeaseExpiresAt: evaluation.relayLeaseExpiresAt ?? null,
+    reasons: evaluation.reasons,
+    stability,
+  };
+}
+
+function appendWakeRuntimePreflightSample(samples, sample, omittedSampleCount) {
+  if (samples.length < MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES) {
+    samples.push(sample);
+    return omittedSampleCount;
+  }
+
+  samples[MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES - 1] = sample;
+  return omittedSampleCount + 1;
+}
+
 export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = null) {
   if (!deps.fetchWakeStatus) {
-    return { attempted: false, ready: null, readyAfterMs: null, sampleCount: 0, initial: null, final: null };
+    return {
+      attempted: false,
+      ready: null,
+      readyAfterMs: null,
+      sampleCount: 0,
+      omittedSampleCount: 0,
+      samples: [],
+      initial: null,
+      final: null,
+    };
   }
 
   const startedAt = deps.now();
@@ -935,6 +980,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
   let firstReady = null;
   let readySampleCount = 0;
   let stability = null;
+  const samples = [];
+  let omittedSampleCount = 0;
 
   for (;;) {
     if (!snapshot) {
@@ -948,11 +995,19 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
           relayOwnerId: null,
           reasons: ["wake-status-preflight-fetch-failed"],
         };
+        const attemptedSampleCount = sampleCount + 1;
+        omittedSampleCount = appendWakeRuntimePreflightSample(
+          samples,
+          wakeRuntimePreflightSample(attemptedSampleCount, deps.now() - startedAt, failed),
+          omittedSampleCount,
+        );
         return {
           attempted: true,
           ready: false,
           readyAfterMs: null,
-          sampleCount,
+          sampleCount: attemptedSampleCount,
+          omittedSampleCount,
+          samples,
           initial: initial ?? failed,
           final: failed,
         };
@@ -966,6 +1021,11 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
       readySampleCount += 1;
       firstReady ??= evaluation;
       stability = evaluateWakeRuntimeStability(firstReady, evaluation);
+      omittedSampleCount = appendWakeRuntimePreflightSample(
+        samples,
+        wakeRuntimePreflightSample(sampleCount, deps.now() - startedAt, evaluation, stability),
+        omittedSampleCount,
+      );
       if (stability.stable) {
         return {
           attempted: true,
@@ -973,6 +1033,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
           readyAfterMs: Math.max(0, deps.now() - startedAt),
           sampleCount,
           readySampleCount,
+          omittedSampleCount,
+          samples,
           initial,
           final,
           stability,
@@ -982,6 +1044,11 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
       firstReady = null;
       readySampleCount = 0;
       stability = null;
+      omittedSampleCount = appendWakeRuntimePreflightSample(
+        samples,
+        wakeRuntimePreflightSample(sampleCount, deps.now() - startedAt, evaluation),
+        omittedSampleCount,
+      );
     }
 
     const remainingMs = deadline - deps.now();
@@ -998,6 +1065,8 @@ export async function waitForWakeRuntimeReady(options, deps, initialSnapshot = n
     readyAfterMs: null,
     sampleCount,
     readySampleCount,
+    omittedSampleCount,
+    samples,
     initial,
     final,
     stability,
