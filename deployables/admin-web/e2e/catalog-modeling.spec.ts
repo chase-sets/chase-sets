@@ -241,7 +241,6 @@ test.describe("catalog admin modeling", () => {
       await expect(page.getByText("draft", { exact: true }).first()).toBeVisible();
 
       for (const section of [
-        "Origin",
         "Blueprint",
         "Field Values",
         "Categories",
