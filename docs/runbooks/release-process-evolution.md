@@ -216,6 +216,17 @@ pnpm run ops read-consistency:route-matrix-evidence `
   --out .\artifacts\wake-drills\read-consistency-route-matrix-evidence.json
 ```
 
+For repeatable staging evidence, dispatch `Platform Staging Route Matrix
+Evidence` with confirm value `generate staging route matrix evidence`. The
+workflow uses the staging GitHub Environment and requires
+`PROMETHEUS_QUERY_TOKEN` to contain the observability stack query token. Keep
+`prometheus_url` at `https://prometheus.staging.chasesets.com` unless the
+staging observability host changes. The workflow uploads
+`read-consistency-route-matrix-evidence.json`; a failure after artifact creation
+is still useful coverage evidence when route rows fail for missing samples or
+SLO reasons. A failure before artifact creation, such as missing
+`PROMETHEUS_QUERY_TOKEN` or HTTP 401, is an evidence-path configuration blocker.
+
 The report classifies mixed artifact directories by `schemaVersion`: `release-health/v1` records drive release counts and queue SLOs, while Buy Now freshness probes, account-cart consistency probes, wake-drill artifacts, route-matrix wake evidence (`read-consistency-route-matrix-evidence/v1`), and Non-Buy-Now Chrome UAT evidence feed the Projection Freshness Evidence section. Probe artifacts in `artifacts/release-health` no longer count as release attempts. Add wake-drill or route-matrix artifacts with repeated `--file` flags when they live under `artifacts/wake-drills`, for example:
 
 ```powershell

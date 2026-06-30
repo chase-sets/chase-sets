@@ -1,0 +1,123 @@
+name: Platform Staging Route Matrix Evidence
+
+# Generates support-safe read-consistency route-matrix evidence for #2511/#2512.
+# The workflow queries staging Prometheus with an environment-scoped query token
+# and uploads only the redacted route-matrix artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "generate staging route matrix evidence" to confirm querying staging observability.
+        required: true
+        type: string
+      release_ref:
+        description: Ref containing the evidence tooling. Defaults to main.
+        required: false
+        default: main
+        type: string
+      prometheus_url:
+        description: Staging Prometheus base URL.
+        required: false
+        default: https://prometheus.staging.chasesets.com
+        type: string
+      window:
+        description: Prometheus range window such as 30m, 2h, or 1d.
+        required: false
+        default: 30m
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-route-matrix-evidence
+  cancel-in-progress: false
+
+jobs:
+  staging-route-matrix-evidence:
+    name: Staging Route Matrix Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    if: inputs.confirm == 'generate staging route matrix evidence'
+    env:
+      PROMETHEUS_URL: ${{ inputs.prometheus_url }}
+      PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}
+      ROUTE_MATRIX_EVIDENCE_WINDOW: ${{ inputs.window }}
+      ROUTE_MATRIX_EVIDENCE_ENVIRONMENT: staging
+      READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT: artifacts/wake-drills/read-consistency-route-matrix-evidence.json
+    steps:
+      - name: Confirm staging route-matrix evidence
+        run: |
+          set -euo pipefail
+          echo "Staging route-matrix evidence confirmed for window '${ROUTE_MATRIX_EVIDENCE_WINDOW}'."
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Validate Prometheus query configuration
+        run: |
+          set -euo pipefail
+          if [ -z "${PROMETHEUS_URL:-}" ]; then
+            echo "PROMETHEUS_URL is required." >&2
+            exit 1
+          fi
+          if [ -z "${PROMETHEUS_QUERY_TOKEN:-}" ]; then
+            echo "Staging route-matrix evidence requires PROMETHEUS_QUERY_TOKEN in the staging GitHub Environment." >&2
+            exit 1
+          fi
+
+      - name: Generate route-matrix evidence
+        run: |
+          set -euo pipefail
+          pnpm run ops read-consistency:route-matrix-evidence -- \
+            --prometheus-url "${PROMETHEUS_URL}" \
+            --prometheus-token "${PROMETHEUS_QUERY_TOKEN}" \
+            --environment "${ROUTE_MATRIX_EVIDENCE_ENVIRONMENT}" \
+            --window "${ROUTE_MATRIX_EVIDENCE_WINDOW}" \
+            --out "${READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT}"
+
+      - name: Summarize route-matrix evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact="${READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT}"
+          if [ ! -f "$artifact" ]; then
+            echo "Route-matrix evidence artifact was not written."
+            exit 0
+          fi
+          {
+            echo "## Staging Route Matrix Evidence"
+            echo
+            jq -r '
+              "- checkedAt: " + (.checkedAt // "unknown"),
+              "- window: " + (.window // "unknown"),
+              "- routes: " + ((.summary.passingRouteCount | tostring) + "/" + (.summary.routeCount | tostring) + " passing"),
+              "",
+              "| Route | Status | Samples | p95 | p99 | Target | Projection |",
+              "| --- | --- | ---: | ---: | ---: | --- | --- |",
+              (.routes[] | "| " + .routeTemplate + " | " + .wakeBeforeWait.status + " | " + (.wakeBeforeWait.sampleCount | tostring) + " | " + ((.wakeBeforeWait.p95Ms // "null") | tostring) + " | " + ((.wakeBeforeWait.p99Ms // "null") | tostring) + " | " + .wakeBeforeWait.targetContext + " | " + .wakeBeforeWait.projectionName + " |")
+            ' "$artifact"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload route-matrix evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-route-matrix-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/wake-drills/read-consistency-route-matrix-evidence.json
+          if-no-files-found: error
+          retention-days: 30
