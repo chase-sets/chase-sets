@@ -1488,10 +1488,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
       "PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}",
     );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("route-matrix-config-failure.json");
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
-      "Staging route-matrix evidence requires PROMETHEUS_QUERY_TOKEN in the staging GitHub Environment.",
+      'schemaVersion: "read-consistency-route-matrix-config-failure/v1"',
+    );
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('secrets: "not-written"');
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('prometheusUrl: "not-written"');
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
+      "Missing required staging route-matrix evidence configuration",
     );
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain('--prometheus-token "${PROMETHEUS_QUERY_TOKEN}"');
+    expect(platformStagingRouteMatrixEvidenceWorkflow).toContain("path: artifacts/wake-drills/*.json");
   });
 
   it("uses one checked-in script for Terraform-state database URL exports in operational workflows", () => {
