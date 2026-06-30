@@ -453,6 +453,39 @@ test.describe("catalog admin integrations", () => {
     expect(backToDailyUrl.searchParams.get("importScope")).toBe("en:3:base:base1");
     expect(backToDailyUrl.searchParams.get("profileVersion")).toBe("2026.06.04");
 
+    // A resolving provider profile exposes the read-only authoring lifecycle without
+    // submitting commands: operators can clone, inspect typed section editors, review
+    // dry-run/readiness evidence, and see the guarded activation command from one setup
+    // surface.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
+    const providerProfileWorkspace = page.locator("[data-catalog-profile-authoring-workspace='true']");
+    await expect(providerProfileWorkspace).toBeVisible();
+    await expect(providerProfileWorkspace.getByRole("button", { name: "Create draft" })).toBeVisible();
+    await expect(
+      providerProfileWorkspace.locator('form[data-catalog-primary-workbench-command="clone-provider-profile"]'),
+    ).toHaveCount(1);
+    await expect
+      .poll(() =>
+        page.locator('form[data-catalog-primary-workbench-command="update-provider-profile-section"]').count(),
+      )
+      .toBeGreaterThan(0);
+
+    const validationWorkspace = page.locator("[data-catalog-validation-readiness-workspace='true']");
+    await expect(validationWorkspace).toBeVisible();
+    await expect(validationWorkspace.getByRole("heading", { name: "Provider readiness" })).toBeVisible();
+    await expect(validationWorkspace.getByRole("heading", { name: "Dry-run evidence" })).toBeVisible();
+    await expect(validationWorkspace.getByRole("heading", { name: "Activation readiness" })).toBeVisible();
+    await expect(validationWorkspace.getByRole("heading", { name: "Activation decision" })).toBeVisible();
+    await expect(page.locator('form[data-catalog-validation-evidence-form="true"]')).toHaveCount(1);
+    await expect(page.locator('form[data-catalog-activate-profile-form="true"]')).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Save migration evidence" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Activate profile" })).toBeVisible();
+
     // The governance-and-recovery surface hosts conflict resolution, lifecycle recovery,
     // and governance controls as rare, privileged ops off the daily route. The daily flow's
     // slim denied/stopped indicator deep-links here (section=controls) carrying return
@@ -495,6 +528,33 @@ test.describe("catalog admin integrations", () => {
     expect(backFromGovernanceUrl.pathname).toBe("/catalog/integrations");
     expect(backFromGovernanceUrl.searchParams.has("section")).toBe(false);
     expect(backFromGovernanceUrl.searchParams.get("providerKey")).toBe("tcgdex");
+
+    // With a resolving profile selected, lifecycle recovery renders the rollback,
+    // deprecate, and retire command forms with confirmation and complete-removal evidence.
+    // The test deliberately does not submit the forms.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.03&section=lifecycle",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*section=lifecycle/);
+    const lifecycleWorkspace = page.locator("[data-catalog-lifecycle-recovery-workspace='true']");
+    await expect(lifecycleWorkspace).toBeVisible();
+    await expect(lifecycleWorkspace.getByRole("heading", { name: "Rollback profile" })).toBeVisible();
+    await expect(lifecycleWorkspace.getByRole("heading", { name: "Deprecate profile" })).toBeVisible();
+    await expect(lifecycleWorkspace.getByRole("heading", { name: "Retire profile" })).toBeVisible();
+    await expect(lifecycleWorkspace.getByText("Retirement removes the profile behavior")).toBeVisible();
+    await expect(
+      lifecycleWorkspace.getByText(/Retiring a provider profile removes its mapping and promotion behavior/i),
+    ).toBeVisible();
+    await expect(page.locator('form[data-catalog-lifecycle-command="rollback"]')).toHaveCount(1);
+    await expect(page.locator('form[data-catalog-lifecycle-command="deprecate"]')).toHaveCount(1);
+    await expect(page.locator('form[data-catalog-lifecycle-command="retire"]')).toHaveCount(1);
+    await expect(page.getByLabel(/I confirm rollback profile impact and audit evidence/i)).toBeVisible();
+    await expect(page.getByLabel(/I confirm deprecate profile impact and audit evidence/i)).toBeVisible();
+    await expect(
+      page.getByLabel(/I confirm retirement removes this provider profile behavior entirely/i),
+    ).toBeVisible();
 
     // The compact daily health signal deep-links into health triage on the health
     // surface. Land on that exact deep-link shape — including a stale/unknown
