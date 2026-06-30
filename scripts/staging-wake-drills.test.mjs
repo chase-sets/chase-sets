@@ -9,6 +9,7 @@ import {
   LOAD_LIMITS,
   MAX_RECONCILIATION_CANARY_ATTEMPTS,
   MAX_CONVERGENCE_BUDGET_MS,
+  MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES,
   STAGING_WAKE_DRILLS_VERSION,
   assertRedactedDrillEvidence,
   buildDrillEvidence,
@@ -486,8 +487,23 @@ describe("wake runtime preflight", () => {
       ready: true,
       readyAfterMs: 1_000,
       sampleCount: 2,
+      omittedSampleCount: 0,
       initial: { ready: false },
       final: { ready: true },
+      samples: [
+        {
+          sampleNumber: 1,
+          elapsedMs: 0,
+          ready: false,
+          reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+        },
+        {
+          sampleNumber: 2,
+          elapsedMs: 1_000,
+          ready: true,
+          reasons: [],
+        },
+      ],
     });
   });
 
@@ -531,6 +547,26 @@ describe("wake runtime preflight", () => {
       readyAfterMs: 2_000,
       sampleCount: 3,
       readySampleCount: 3,
+      samples: [
+        {
+          sampleNumber: 1,
+          elapsedMs: 0,
+          ready: true,
+          stability: { stable: false, requiresLeaseProgress: true },
+        },
+        {
+          sampleNumber: 2,
+          elapsedMs: 1_000,
+          ready: true,
+          stability: { stable: false, requiresLeaseProgress: true },
+        },
+        {
+          sampleNumber: 3,
+          elapsedMs: 2_000,
+          ready: true,
+          stability: { stable: true, observedRelayLeaseRenewal: true },
+        },
+      ],
       stability: {
         requiresLeaseProgress: true,
         observedRelayLeaseRenewal: true,
@@ -585,6 +621,33 @@ describe("wake runtime preflight", () => {
       ready: false,
       sampleCount: 3,
       readySampleCount: 0,
+      samples: [
+        {
+          sampleNumber: 1,
+          elapsedMs: 0,
+          ready: true,
+          reasons: [],
+          stability: { stable: false, requiresLeaseProgress: true },
+        },
+        {
+          sampleNumber: 2,
+          elapsedMs: 1_000,
+          ready: true,
+          reasons: [],
+          stability: { stable: false, requiresLeaseProgress: true },
+        },
+        {
+          sampleNumber: 3,
+          elapsedMs: 2_000,
+          ready: false,
+          reasons: [
+            "no-active-wake-capable-workers",
+            "projection-wake-relay-lease-not-active",
+            "projection-wake-relay-owner-heartbeat-not-active",
+          ],
+          stability: null,
+        },
+      ],
       final: {
         ready: false,
         reasons: [
@@ -593,6 +656,91 @@ describe("wake runtime preflight", () => {
           "projection-wake-relay-owner-heartbeat-not-active",
         ],
       },
+    });
+  });
+
+  it("keeps support-safe per-sample evidence when readiness flaps between healthy initial and final snapshots", async () => {
+    const stableLease = {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+        renewedAt: "2026-06-26T22:20:19.986Z",
+        expiresAt: "2026-06-26T22:20:49.986Z",
+      },
+    };
+    const renewedLease = {
+      available: true,
+      lease: {
+        state: "active",
+        ownerId: "worker-a",
+        renewedAt: "2026-06-26T22:20:29.986Z",
+        expiresAt: "2026-06-26T22:20:59.986Z",
+      },
+    };
+    const snapshots = [
+      readyWakeStatus({ relay: stableLease }),
+      noWorkerWakeStatus(),
+      readyWakeStatus({ relay: stableLease }),
+      noWorkerWakeStatus(),
+      readyWakeStatus({ relay: renewedLease }),
+    ];
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => snapshots.shift() ?? readyWakeStatus({ relay: renewedLease }),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      { wakeRuntimeReadyBudgetMs: 4_000, wakeRuntimeReadyPollIntervalMs: 1_000 },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      attempted: true,
+      ready: false,
+      sampleCount: 5,
+      readySampleCount: 1,
+      initial: { ready: true, reasons: [] },
+      final: { ready: true, reasons: [] },
+      samples: [
+        { sampleNumber: 1, elapsedMs: 0, ready: true, reasons: [] },
+        {
+          sampleNumber: 2,
+          elapsedMs: 1_000,
+          ready: false,
+          reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+        },
+        { sampleNumber: 3, elapsedMs: 2_000, ready: true, reasons: [] },
+        {
+          sampleNumber: 4,
+          elapsedMs: 3_000,
+          ready: false,
+          reasons: ["no-active-wake-capable-workers", "projection-wake-relay-lease-not-active"],
+        },
+        { sampleNumber: 5, elapsedMs: 4_000, ready: true, reasons: [] },
+      ],
+    });
+  });
+
+  it("bounds retained preflight samples while preserving the latest sample", async () => {
+    const deps = fakeDeps({
+      fetchWakeStatus: async () => noWorkerWakeStatus(),
+    });
+
+    const result = await waitForWakeRuntimeReady(
+      {
+        wakeRuntimeReadyBudgetMs: MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES * 1_000,
+        wakeRuntimeReadyPollIntervalMs: 1_000,
+      },
+      deps,
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.sampleCount).toBe(MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES + 1);
+    expect(result.samples).toHaveLength(MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES);
+    expect(result.omittedSampleCount).toBe(1);
+    expect(result.samples.at(-1)).toMatchObject({
+      sampleNumber: MAX_WAKE_RUNTIME_PREFLIGHT_SAMPLES + 1,
+      ready: false,
     });
   });
 });
@@ -930,6 +1078,24 @@ describe("drill evidence", () => {
       loadPlan: { iterations: 4, concurrency: 2 },
       loadResults,
       loadSummary: summarizeLoadResults(loadResults),
+      wakeRuntimePreflight: {
+        attempted: true,
+        ready: false,
+        readyAfterMs: null,
+        sampleCount: 3,
+        readySampleCount: 1,
+        omittedSampleCount: 0,
+        samples: [
+          {
+            sampleNumber: 3,
+            elapsedMs: 10_000,
+            ready: false,
+            reasons: ["projection-wake-relay-lease-not-active"],
+          },
+        ],
+        initial: { ready: true, reasons: [] },
+        final: { ready: false, reasons: ["projection-wake-relay-lease-not-active"] },
+      },
       verdictReasons: [],
     });
     const summary = renderDrillStepSummary(evidence);
@@ -937,6 +1103,9 @@ describe("drill evidence", () => {
     expect(summary).toContain("Staging wake drill: load");
     expect(summary).toContain("| checkout | 10 | 0 |");
     expect(summary).toContain("readiness pass rate 1");
+    expect(summary).toContain(
+      "Wake runtime preflight: not ready after 3 samples; ready streak 1; omitted samples 0; latest reasons: projection-wake-relay-lease-not-active.",
+    );
     expect(summary).toContain("Segment SLO:");
     expect(summary).toContain("push-wake-recovery-drills.md");
   });
