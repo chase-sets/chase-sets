@@ -434,25 +434,27 @@ test.describe("catalog admin integrations", () => {
     // owning stages, asserted on the daily route above.
     await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
-    const healthReadModelTable = page.getByRole("table", { name: "Query" });
-    await expect(healthReadModelTable).toBeVisible();
+    const healthTriageRegion = page.getByRole("region", { name: "Integration health triage" });
+    await expect(healthTriageRegion).toBeVisible();
     for (const queryKey of [
       "integration-health-summary",
       "provider-transport-readiness-summary",
       "import-job-progress-summary",
       "audit-evidence-timeline",
     ]) {
-      await expect(healthReadModelTable.getByText(queryKey)).toBeVisible();
+      await expect(healthTriageRegion.getByText(queryKey)).toBeVisible();
     }
-    await expect(page.getByRole("table", { name: "Unit" })).toBeVisible();
-    await expect(page.getByText("Catalog semantic").first()).toBeVisible();
-    await expect(page.getByText("Provider transport").first()).toBeVisible();
-    await expect(page.getByRole("table", { name: "Provider" })).toBeVisible();
-    await expect(page.getByText("Capabilities").first()).toBeVisible();
-    await expect(page.getByText("API").first()).toBeVisible();
-    await expect(page.getByText("Payload").first()).toBeVisible();
-    await expect(page.getByRole("table", { name: "Job" })).toBeVisible();
+    await expect(healthTriageRegion.getByText("Read model").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Ingestion unit").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Catalog semantic").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Provider transport").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Provider adapter").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Adapter capabilities").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("API").first()).toBeVisible();
+    await expect(healthTriageRegion.getByText("Payload").first()).toBeVisible();
+    await expect(
+      healthTriageRegion.getByText(/No active or failed import jobs|Import job|Active jobs/i).first(),
+    ).toBeVisible();
     // The health surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header (no longer once per
     // stacked workspace), so this no longer needs a .first() disambiguator.

@@ -396,7 +396,7 @@ async function expectFieldDetail(page: Page) {
 
   await page.getByRole("button", { name: "Configure" }).click();
   await expect(page.getByRole("heading", { name: "Configure Field" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Value type" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Configure Field" })).toHaveCount(0);
@@ -416,7 +416,7 @@ async function expectComponentDetail(page: Page) {
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Component" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Component" })).toHaveCount(0);
 
@@ -448,7 +448,7 @@ async function expectBlueprintDetail(page: Page) {
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Blueprint" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Blueprint" })).toHaveCount(0);
 }
@@ -467,7 +467,7 @@ async function expectDisplayTemplateDetail(page: Page) {
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Display Template" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Target kind" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Title template" })).toBeVisible();
   await page.keyboard.press("Escape");
