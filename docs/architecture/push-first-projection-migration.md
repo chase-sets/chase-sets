@@ -123,7 +123,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 67 `push-enabled`, 14 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (64)
+## Read-After-Write Route Inventory (66)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -157,8 +157,10 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-membership-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-account-detail-fresh-read` | identity | important | exact wait | push-accelerated |
+| `identity.admin-api-key-create-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.admin-api-key-list-fresh-read` | identity | critical | exact wait | push-accelerated |
+| `identity.admin-invitation-create-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-invitation-detail-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | push-accelerated |
