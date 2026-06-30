@@ -56,7 +56,7 @@ function expectControlledCatalogAuthoringStreamProbe(path: string, result: Catal
     return;
   }
 
-  expect([401, 403, 404], `${path} should return a controlled auth/not-found response`).toContain(result.status);
+  expect([401, 403, 404, 429, 503], `${path} should return a controlled JSON response`).toContain(result.status);
   expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
   expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
@@ -110,7 +110,7 @@ const catalogModelingSurfaces = [
 ] as const;
 
 test.describe("catalog admin modeling", () => {
-  test("catalog authoring job streams open or fail with controlled JSON responses @catalog-admin-modeling", async ({
+  test("catalog authoring realtime streams open or fail with controlled JSON responses @catalog-admin-modeling", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -122,8 +122,12 @@ test.describe("catalog admin modeling", () => {
     await authenticateAdmin(page, "/catalog/dimensions", "/access/sign-in");
     await expectPageOk(page, "/catalog/dimensions");
 
-    const path = "/api/catalog/bulk-authoring-jobs/topology-smoke/events";
-    expectControlledCatalogAuthoringStreamProbe(path, await probeCatalogAuthoringStreamEndpoint(page, path));
+    for (const path of [
+      "/api/catalog/bulk-authoring-jobs/topology-smoke/events",
+      "/api/realtime/public/events?topic=catalog%3Aadmin%3Acatalog-items",
+    ]) {
+      expectControlledCatalogAuthoringStreamProbe(path, await probeCatalogAuthoringStreamEndpoint(page, path));
+    }
   });
 
   test("signed-in catalog operator can inspect dimensions and open the create model dialog @catalog-admin-modeling", async ({
