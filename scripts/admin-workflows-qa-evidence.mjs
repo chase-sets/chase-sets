@@ -51,6 +51,20 @@ export const ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS = Object.freeze([
   },
 ]);
 
+export const ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX = Object.freeze([
+  { actorAlias: "admin-qa-platform-admin", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-owner", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-manager", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-fulfillment", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-viewer", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-security-manage", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-memberships-view", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-postage-policies-view", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-public-presence-view", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-platform-feedback-view", signInHost: "/access/sign-in" },
+  { actorAlias: "admin-qa-catalog-admin", signInHost: "/catalog/sign-in" },
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -84,6 +98,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireCrossCuttingCoverage:
       argv.includes("--require-cross-cutting-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CROSS_CUTTING_COVERAGE", env) === "true",
+    requireActorMatrixCoverage:
+      argv.includes("--require-actor-matrix-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_ACTOR_MATRIX_COVERAGE", env) === "true",
   };
 }
 
@@ -126,21 +143,27 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const summary = summarizeFindings(fileResults);
   const totalFindings = Object.values(summary).reduce((total, count) => total + count, 0);
   const completeness = buildCrossCuttingCompleteness(input);
+  const actorMatrix = buildActorMatrixCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
+  const actorMatrixFindings = input.requireActorMatrixCoverage
+    ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
+    : 0;
+  const totalBlockingFindings = totalFindings + completenessFindings + actorMatrixFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
     checkedAt: input.checkedAt,
     environment: normalizeString(input.environment) ?? "staging",
     issue: normalizeIssue(input.issue),
-    verdict: totalFindings === 0 && completenessFindings === 0 ? "pass" : "fail",
+    verdict: totalBlockingFindings === 0 ? "pass" : "fail",
     summary,
     files: fileResults,
     completeness,
+    actorMatrix,
     guidance:
-      totalFindings === 0 && completenessFindings === 0
+      totalBlockingFindings === 0
         ? buildPassingGuidance(input)
-        : buildFailingGuidance(totalFindings, completenessFindings),
+        : buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings),
     redaction: {
       emails: "never-recorded",
       cookies: "never-recorded",
@@ -152,6 +175,114 @@ export function buildAdminWorkflowsQaEvidence(input) {
       fullUrls: "never-recorded",
     },
   };
+}
+
+function buildActorMatrixCompleteness(input) {
+  const required = Boolean(input.requireActorMatrixCoverage);
+  const evidenceRecords = required ? collectActorEvidenceRecords(input.evidenceFiles) : [];
+  const missingActors = [];
+  const hostMismatches = [];
+  const coveredActors = [];
+
+  if (required) {
+    for (const requiredActor of ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX) {
+      const actorRecords = evidenceRecords.filter((record) => record.actorAlias === requiredActor.actorAlias);
+      if (actorRecords.length === 0) {
+        missingActors.push(requiredActor);
+        continue;
+      }
+      if (actorRecords.some((record) => record.signInHost === requiredActor.signInHost)) {
+        coveredActors.push(requiredActor);
+        continue;
+      }
+      hostMismatches.push({
+        actorAlias: requiredActor.actorAlias,
+        expectedSignInHost: requiredActor.signInHost,
+        observedSignInHosts: [...new Set(actorRecords.map((record) => record.signInHost).filter(Boolean))].sort(),
+        severity: "blocker",
+      });
+    }
+  }
+
+  return {
+    mode: required ? "actor-matrix-coverage" : "not-required",
+    status: missingActors.length === 0 && hostMismatches.length === 0 ? "pass" : "fail",
+    requiredActors: required ? ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX : [],
+    coveredActors,
+    missingActors: missingActors.map((actor) => ({ ...actor, severity: "blocker" })),
+    hostMismatches,
+  };
+}
+
+function collectActorEvidenceRecords(evidenceFiles) {
+  return evidenceFiles.flatMap(({ content }) => [
+    ...collectStructuredActorEvidenceRecords(content),
+    ...collectMarkdownActorEvidenceRecords(content),
+  ]);
+}
+
+function collectStructuredActorEvidenceRecords(content) {
+  const parsed = parseJsonEvidence(content);
+  if (parsed === null) {
+    return [];
+  }
+  const records = [];
+  visitJsonRecords(parsed, (record) => {
+    const actorAlias = normalizeString(record.actorAlias) ?? normalizeString(record.actor);
+    const signInHost = normalizeString(record.signInHost) ?? normalizeString(record.signInPath);
+    if (actorAlias || signInHost) {
+      records.push({ actorAlias, signInHost });
+    }
+  });
+  return records;
+}
+
+function collectMarkdownActorEvidenceRecords(content) {
+  const records = [];
+  let current = {};
+  for (const rawLine of String(content).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      pushActorRecord(records, current);
+      current = {};
+      continue;
+    }
+    const actorAlias = readLabeledValue(line, ["Actor alias"]);
+    if (actorAlias !== null) {
+      if (current.actorAlias) {
+        pushActorRecord(records, current);
+        current = {};
+      }
+      current.actorAlias = actorAlias;
+      continue;
+    }
+    const signInHost = readLabeledValue(line, ["Sign-in host", "Sign in host"]);
+    if (signInHost !== null) {
+      current.signInHost = signInHost;
+    }
+  }
+  pushActorRecord(records, current);
+  return records;
+}
+
+function readLabeledValue(line, labels) {
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`^${escaped}\\s*:\\s*(.+)$`, "i").exec(line);
+    if (match) {
+      return normalizeString(match[1]) ?? "";
+    }
+  }
+  return null;
+}
+
+function pushActorRecord(records, record) {
+  if (record.actorAlias || record.signInHost) {
+    records.push({
+      actorAlias: normalizeString(record.actorAlias) ?? null,
+      signInHost: normalizeString(record.signInHost) ?? null,
+    });
+  }
 }
 
 function buildCrossCuttingCompleteness(input) {
@@ -218,6 +349,23 @@ function collectStructuredEvidenceFieldsFromValue(value, covered) {
   }
 }
 
+function visitJsonRecords(value, onRecord, seen = new Set(), depth = 0) {
+  if (depth > 8 || value === null || typeof value !== "object" || seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitJsonRecords(item, onRecord, seen, depth + 1);
+    }
+    return;
+  }
+  onRecord(value);
+  for (const child of Object.values(value)) {
+    visitJsonRecords(child, onRecord, seen, depth + 1);
+  }
+}
+
 function parseJsonEvidence(content) {
   try {
     return JSON.parse(content);
@@ -259,10 +407,13 @@ function buildPassingGuidance(input) {
       "Cross-cutting evidence names route/probe, expected and observed behavior, artifact, redaction review, security/PII review, responsive coverage, and state coverage.",
     );
   }
+  if (input.requireActorMatrixCoverage) {
+    guidance.push("Actor matrix evidence covers every required support-safe actor alias and intended sign-in host.");
+  }
   return guidance;
 }
 
-function buildFailingGuidance(totalFindings, completenessFindings) {
+function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings) {
   const guidance = [];
   if (totalFindings > 0) {
     guidance.push(
@@ -271,6 +422,9 @@ function buildFailingGuidance(totalFindings, completenessFindings) {
   }
   if (completenessFindings > 0) {
     guidance.push("Add the missing cross-cutting evidence fields before using this packet to close #3027.");
+  }
+  if (actorMatrixFindings > 0) {
+    guidance.push("Add the missing support-safe actor aliases and intended sign-in hosts before closing #3016.");
   }
   return guidance;
 }
