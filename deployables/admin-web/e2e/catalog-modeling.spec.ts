@@ -259,8 +259,8 @@ test.describe("catalog admin modeling", () => {
         "Assign Category",
         "Set Tags",
         "Set Image URLs",
-        "Set Image Fallback",
-        "Link External Catalog Item Reference",
+        "Set image fallback",
+        "Link Catalog Item Reference",
         "Link External Reference",
       ]) {
         await expect(page.getByRole("button", { name: action }).first()).toBeVisible();
