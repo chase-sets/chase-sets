@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
+  ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -540,6 +541,113 @@ describe("admin workflows QA evidence", () => {
     );
   });
 
+  it("passes complete Access coverage evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3020.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-security-manage",
+        "Sign-in host: /access/sign-in",
+        "Route or workflow: Access section checklist",
+        "Expected: Access lifecycle checks use approved staging fixtures.",
+        "Observed: evidence packet captured with support-safe aliases only.",
+        "Evidence artifact: artifacts/admin-qa/3020/access-section",
+        "Redaction review: passed",
+        ...ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE.map(({ key }) => `Access coverage: ${key}`),
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3020",
+      checkedAt,
+      requireAccessCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      access: {
+        mode: "access-coverage",
+        status: "pass",
+        requiredCoverage: ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE,
+        coveredCoverage: ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE.map(({ key }) => key).sort(),
+        missingCoverage: [],
+      },
+    });
+  });
+
+  it("accepts structured Access coverage packets", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3020.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          environment: "staging admin-web",
+          actorAlias: "admin-qa-security-manage",
+          signInHost: "/access/sign-in",
+          records: [
+            {
+              routeTemplate: "/access",
+              accessCoverage: ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE.map(({ key }) => key),
+              artifactFolder: "artifacts/admin-qa/3020/access-section",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireAccessCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.access.missingCoverage).toEqual([]);
+  });
+
+  it("fails Access evidence when lifecycle coverage is incomplete", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3020.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-security-manage",
+        "Sign-in host: /access/sign-in",
+        "Access coverage: access:accounts-suspend",
+        "Access coverage: access:api-keys-create",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireAccessCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.access).toMatchObject({
+      mode: "access-coverage",
+      status: "fail",
+      missingCoverage: ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE.filter(
+        ({ key }) => !["access:accounts-suspend", "access:api-keys-create"].includes(key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      })),
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing Access coverage keys before using this packet to close #3020.",
+    );
+  });
+
   it("finds sensitive evidence categories without returning raw matched values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "unsafe.md");
@@ -618,6 +726,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_REQUIRE_ACTOR_MATRIX_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_MODELING_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE: "true",
+      ADMIN_WORKFLOWS_QA_REQUIRE_ACCESS_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -629,6 +738,7 @@ describe("admin workflows QA evidence", () => {
       requireActorMatrixCoverage: true,
       requireCatalogModelingCoverage: true,
       requireProjectionOperationsCoverage: true,
+      requireAccessCoverage: true,
     });
   });
 
