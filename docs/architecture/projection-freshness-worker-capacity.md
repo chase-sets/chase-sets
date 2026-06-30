@@ -64,6 +64,8 @@ pnpm run ops projection:hot-lag-evidence -- --worker-status <worker-status.json>
 
 Add `--wake-outcomes <wake-outcomes.json>` when Grafana/log counters show `projection-wake.intent.*` outcomes; `outcome: "deferred"` or `reason: "projection-group-lease-busy"` lets the record distinguish projection-group lease contention from hot-lane queueing. The command records only structural counts and never reads URLs, secrets, wake payloads, or database rows directly.
 
+Add `--background-controls <background-controls.json>` when the proof window includes representative refresh, replay/rebuild/backfill, provider import/promotion, bulk authoring, scheduled work, dispatch, or provider-delivery pressure. The JSON should include `workloads` rows with `workload`, `normalControl`, `pauseThrottleEvidence`, and `hotPathProof`; the report records only covered/missing workload keys and missing field names, not private operation ids, provider details, or raw artifacts.
+
 The canary fails the platform freshness gate when:
 
 - no worker heartbeat is active while a critical Checkout read times out;

@@ -14,12 +14,33 @@ export const PROJECTION_HOT_LAG_EVIDENCE_VERSION = "projection-hot-lag-evidence/
 const DEFAULT_OUT_PATH = "artifacts/projection-hot-lag-evidence.json";
 const HOT_LANE_STATES = new Set(["queued", "failed"]);
 const BACKGROUND_LOOP_NAMES = new Set(["jobs", "inventory-jobs", "dispatch", "scheduled"]);
+const BACKGROUND_WORKLOAD_CONTROL_REQUIREMENTS = Object.freeze([
+  {
+    key: "representative-commerce-refresh",
+    aliases: ["representative commerce refresh", "representative-refresh", "representativeCommerceRefresh"],
+  },
+  {
+    key: "projection-replay-rebuild-backfill",
+    aliases: ["projection replay/rebuild/backfill", "projection-repair", "projectionReplayRebuildBackfill"],
+  },
+  {
+    key: "provider-import-promotion-bulk-authoring",
+    aliases: ["provider import/promotion and bulk authoring", "provider-bulk", "providerImportPromotionBulkAuthoring"],
+  },
+  {
+    key: "scheduled-dispatch-provider-delivery",
+    aliases: ["scheduled/dispatch/provider-delivery loops", "dispatch", "scheduledDispatchProviderDelivery"],
+  },
+]);
+const BACKGROUND_WORKLOAD_CONTROL_FIELDS = Object.freeze(["normalControl", "pauseThrottleEvidence", "hotPathProof"]);
 
 export function parseProjectionHotLagEvidenceArgs(argv, env = process.env) {
   return {
     workerStatusPath: readOption(argv, "--worker-status") ?? env.PROJECTION_HOT_LAG_WORKER_STATUS ?? null,
     projectionStatusPath: readOption(argv, "--projection-status") ?? env.PROJECTION_HOT_LAG_PROJECTION_STATUS ?? null,
     wakeOutcomesPath: readOption(argv, "--wake-outcomes") ?? env.PROJECTION_HOT_LAG_WAKE_OUTCOMES ?? null,
+    backgroundControlsPath:
+      readOption(argv, "--background-controls") ?? env.PROJECTION_HOT_LAG_BACKGROUND_CONTROLS ?? null,
     outPath: readOption(argv, "--out") ?? env.PROJECTION_HOT_LAG_OUT ?? DEFAULT_OUT_PATH,
     format: readOption(argv, "--format") ?? env.PROJECTION_HOT_LAG_FORMAT ?? "json",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
@@ -45,6 +66,7 @@ export function buildProjectionHotLagEvidence(input) {
     hotIntentFailedCount: wakeIntents.hotIntentFailedCount,
   });
   const backgroundPressure = summarizeBackgroundPressureSignals(loops, workerStatus.capacity);
+  const backgroundControls = summarizeBackgroundWorkloadControlPosture(input.backgroundControls);
 
   const attribution = chooseAttribution({
     databasePool,
@@ -64,6 +86,7 @@ export function buildProjectionHotLagEvidence(input) {
       workerStatus: input.workerStatusSource ?? "provided",
       projectionStatus: input.projectionStatusSource ?? null,
       wakeOutcomes: input.wakeOutcomesSource ?? null,
+      backgroundControls: input.backgroundControlsSource ?? null,
     },
     attribution,
     signals: {
@@ -80,6 +103,7 @@ export function buildProjectionHotLagEvidence(input) {
       projectionGroupLeaseContention: leaseContention,
       projectionRepair,
       backgroundPressure,
+      backgroundControls,
       workerHeartbeats,
     },
     nextActions: buildNextActions(attribution.primaryCause),
@@ -118,6 +142,7 @@ export function renderProjectionHotLagMarkdown(evidence) {
     `- Wakes loop active/reserved: ${formatLoop(signals.hotLane.wakesLoop)}`,
     `- Lease contention events: ${signals.projectionGroupLeaseContention.contentionEventCount}`,
     `- Background saturated groups: ${signals.backgroundPressure.saturatedGroups.join(", ") || "none"}`,
+    `- Background control posture: ${signals.backgroundControls.status}`,
     `- Projection repair signals: blocked=${signals.projectionRepair.blockedStreamSignalCount}, poison=${signals.projectionRepair.poisonEventSignalCount}, degraded=${signals.projectionRepair.degradedRunnerSignalCount}`,
     "",
   ].join("\n");
@@ -373,6 +398,118 @@ function summarizeBackgroundPressureSignals(loops, capacity) {
   };
 }
 
+function summarizeBackgroundWorkloadControlPosture(value) {
+  if (value === null || value === undefined) {
+    return {
+      status: "not-provided",
+      workloadCount: 0,
+      coveredWorkloads: [],
+      missingWorkloads: BACKGROUND_WORKLOAD_CONTROL_REQUIREMENTS.map((requirement) => requirement.key),
+      incompleteWorkloads: [],
+    };
+  }
+
+  const workloads = extractBackgroundWorkloadControlRows(value);
+  const byKey = new Map();
+  for (const workload of workloads) {
+    const key = resolveBackgroundWorkloadKey(workload);
+    if (key) {
+      byKey.set(key, workload);
+    }
+  }
+
+  const missingWorkloads = [];
+  const incompleteWorkloads = [];
+  const coveredWorkloads = [];
+  for (const requirement of BACKGROUND_WORKLOAD_CONTROL_REQUIREMENTS) {
+    const workload = byKey.get(requirement.key);
+    if (!workload) {
+      missingWorkloads.push(requirement.key);
+      continue;
+    }
+
+    const missingFields = BACKGROUND_WORKLOAD_CONTROL_FIELDS.filter((field) => !hasNonEmptyValue(workload[field]));
+    if (missingFields.length > 0) {
+      incompleteWorkloads.push({
+        workload: requirement.key,
+        missingFields,
+      });
+    } else {
+      coveredWorkloads.push(requirement.key);
+    }
+  }
+
+  return {
+    status: missingWorkloads.length === 0 && incompleteWorkloads.length === 0 ? "pass" : "incomplete",
+    workloadCount: workloads.length,
+    coveredWorkloads,
+    missingWorkloads,
+    incompleteWorkloads,
+  };
+}
+
+function extractBackgroundWorkloadControlRows(value) {
+  const record = asRecord(value);
+  if (Array.isArray(value)) {
+    return value.map(asRecord).filter((row) => Object.keys(row).length > 0);
+  }
+  for (const key of ["workloads", "backgroundWorkloads", "controls", "rows"]) {
+    const rows = asArray(record[key])
+      .map(asRecord)
+      .filter((row) => Object.keys(row).length > 0);
+    if (rows.length > 0) {
+      return rows;
+    }
+  }
+  return Object.entries(record)
+    .filter(([, entry]) => isRecord(entry))
+    .map(([key, entry]) => ({
+      workload: key,
+      ...entry,
+    }));
+}
+
+function resolveBackgroundWorkloadKey(workload) {
+  const values = [
+    readString(workload.workload),
+    readString(workload.key),
+    readString(workload.id),
+    readString(workload.name),
+  ]
+    .filter(Boolean)
+    .map(normalizeBackgroundWorkloadName);
+
+  for (const requirement of BACKGROUND_WORKLOAD_CONTROL_REQUIREMENTS) {
+    const expected = [requirement.key, ...requirement.aliases].map(normalizeBackgroundWorkloadName);
+    if (values.some((value) => expected.includes(value))) {
+      return requirement.key;
+    }
+  }
+  return null;
+}
+
+function normalizeBackgroundWorkloadName(value) {
+  return value
+    .trim()
+    .replaceAll(/([a-z])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "");
+}
+
+function hasNonEmptyValue(value) {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (isRecord(value)) {
+    return Object.keys(value).length > 0;
+  }
+  return value !== null && value !== undefined;
+}
+
 function buildNextActions(primaryCause) {
   const actions = {
     "worker-absent-or-stale": [
@@ -429,7 +566,11 @@ function loadJsonFile(path) {
 }
 
 function asRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asArray(value) {
@@ -495,9 +636,11 @@ async function main(argv) {
       workerStatus: loadJsonFile(options.workerStatusPath),
       projectionStatus: options.projectionStatusPath ? loadJsonFile(options.projectionStatusPath) : null,
       wakeOutcomes: options.wakeOutcomesPath ? loadJsonFile(options.wakeOutcomesPath) : null,
+      backgroundControls: options.backgroundControlsPath ? loadJsonFile(options.backgroundControlsPath) : null,
       workerStatusSource: options.workerStatusPath,
       projectionStatusSource: options.projectionStatusPath,
       wakeOutcomesSource: options.wakeOutcomesPath,
+      backgroundControlsSource: options.backgroundControlsPath,
     });
 
     if (options.format === "markdown") {
