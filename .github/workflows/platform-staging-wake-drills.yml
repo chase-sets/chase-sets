@@ -173,6 +173,7 @@ jobs:
           WAKE_DRILL_LOAD_CONCURRENCY: ${{ inputs.load_concurrency }}
           WAKE_DRILL_FLOW: ${{ inputs.load_flow }}
           WAKE_DRILL_SKIP_CANARY_WRITE: ${{ inputs.skip_canary_write && 'true' || 'false' }}
+          WAKE_DRILL_WORKER_STATUS_URL: ${{ vars.STAGING_PLATFORM_WORKER_STATUS_URL || '' }}
           GUEST_BUY_NOW_PROBE_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
           WAKE_DRILL_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || 'air balloon' }}
           GUEST_BUY_NOW_PROBE_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
