@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   authenticateAdmin,
   expectAdminWebHydrated,
@@ -24,7 +24,74 @@ async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean)
     .toBe(expectedValue);
 }
 
+type CatalogStreamProbeResult = Readonly<{
+  status: number;
+  contentType: string;
+  textStart: string;
+  error: string | null;
+}>;
+
+async function probeCatalogStreamEndpoint(page: Page, path: string): Promise<CatalogStreamProbeResult> {
+  return page.evaluate(async (streamPath) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort("stream probe timeout"), 5_000);
+
+    try {
+      const response = await window.fetch(streamPath, {
+        credentials: "include",
+        headers: { Accept: "text/event-stream, application/json" },
+        signal: controller.signal,
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      const textStart = contentType.includes("text/event-stream") ? "" : (await response.text()).slice(0, 240);
+      return { status: response.status, contentType, textStart, error: null };
+    } catch (error) {
+      return {
+        status: 0,
+        contentType: "",
+        textStart: "",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, path);
+}
+
+function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamProbeResult) {
+  expect(result.error, `${path} should resolve headers before the probe timeout`).toBeNull();
+  if (result.status === 200) {
+    expect(result.contentType, `${path} should open as an event stream`).toContain("text/event-stream");
+    return;
+  }
+
+  expect([401, 403, 404], `${path} should return a controlled auth/not-found response`).toContain(result.status);
+  expect(result.contentType, `${path} should not return host HTML`).toContain("application/json");
+  expect(result.textStart, `${path} should not return an HTML fallback`).not.toMatch(/<!doctype html|<html/i);
+  expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
+}
+
 test.describe("catalog admin integrations", () => {
+  test("catalog job streams open or fail with controlled JSON responses @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/integrations", "/access/sign-in");
+    await expectPageOk(page, "/catalog/integrations");
+
+    for (const path of [
+      "/api/catalog/source-observations/integration-jobs/job_admin_e2e_missing/events",
+      "/api/catalog/source-observations/bulk-jobs/job_admin_e2e_missing/events",
+    ]) {
+      expectControlledCatalogStreamProbe(path, await probeCatalogStreamEndpoint(page, path));
+    }
+  });
+
   test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
   }) => {
@@ -410,6 +477,15 @@ test.describe("catalog admin integrations", () => {
     );
     // The full RBAC / kill-switch / observability panel lives here, not on the daily route.
     await expect(page.getByRole("heading", { name: "RBAC action matrix" })).toBeVisible();
+    const magicProductionSignoffControl = page.getByText("magic-production-signoff-required");
+    if (await magicProductionSignoffControl.count()) {
+      await expect(magicProductionSignoffControl.first()).toBeVisible();
+      await expect(
+        page.getByText(
+          "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.",
+        ),
+      ).toBeVisible();
+    }
     // The governance surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header; it preserves the working set.
     const governanceBackLinks = page.getByRole("link", { name: "Back to import workbench" });
