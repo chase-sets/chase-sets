@@ -133,6 +133,58 @@ const CATALOG_MODELING_COVERAGE_ALIASES = Object.freeze([
   "check",
 ]);
 
+export const ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE = Object.freeze([
+  { key: "projection-ops:status-stats", description: "Status and stats render" },
+  { key: "projection-ops:tab-overview", description: "Overview tab navigation" },
+  { key: "projection-ops:tab-attention", description: "Attention tab navigation" },
+  { key: "projection-ops:tab-operations", description: "Operations tab navigation" },
+  { key: "projection-ops:tab-projection-groups", description: "Projection groups tab navigation" },
+  { key: "projection-ops:tab-subscriptions", description: "Subscriptions tab navigation" },
+  { key: "projection-ops:tab-blocked-streams", description: "Blocked streams tab navigation" },
+  { key: "projection-ops:tab-workers", description: "Workers tab navigation" },
+  { key: "projection-ops:tab-wake-pipeline", description: "Wake pipeline tab navigation" },
+  { key: "projection-ops:tab-diagnostics", description: "Diagnostics tab navigation" },
+  { key: "projection-ops:refresh-status", description: "Refresh status action" },
+  { key: "projection-ops:retry-blocked-stream", description: "Retry blocked stream action" },
+  { key: "projection-ops:cancel-operation", description: "Cancel queued or running operation action" },
+  {
+    key: "projection-ops:rebuild-projection-group-disposable",
+    description: "Confirm-gated rebuild projection group against a disposable projection",
+  },
+  {
+    key: "projection-ops:rebuild-context-disposable",
+    description: "Confirm-gated rebuild context against a disposable projection",
+  },
+  { key: "projection-ops:completion", description: "Destructive operation completion evidence" },
+  { key: "projection-ops:attention-clearance", description: "Attention item clearance evidence" },
+  { key: "projection-ops:no-data-loss", description: "No data loss evidence for disposable destructive checks" },
+  {
+    key: "projection-ops:actor-attribution-or-3011",
+    description: "Actor attribution evidence or explicit #3011 dependency",
+  },
+  {
+    key: "projection-ops:wake-pipeline-unavailable-controlled",
+    description: "Wake pipeline unavailable state degrades gracefully",
+  },
+  { key: "projection-ops:runbook-cross-reference", description: "Projection operations runbook cross-reference" },
+  { key: "projection-ops:disposable-projection-recorded", description: "Disposable projection recorded" },
+]);
+
+const PROJECTION_OPERATIONS_COVERAGE_LABELS = Object.freeze([
+  "Projection operations coverage",
+  "Projection ops coverage",
+  "Platform projection coverage",
+]);
+
+const PROJECTION_OPERATIONS_COVERAGE_ALIASES = Object.freeze([
+  "projectionOperationsCoverage",
+  "projectionOpsCoverage",
+  "platformProjectionCoverage",
+  "coverage",
+  "coverageKey",
+  "check",
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -172,6 +224,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireCatalogModelingCoverage:
       argv.includes("--require-catalog-modeling-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_MODELING_COVERAGE", env) === "true",
+    requireProjectionOperationsCoverage:
+      argv.includes("--require-projection-operations-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE", env) === "true",
   };
 }
 
@@ -216,12 +271,17 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const completeness = buildCrossCuttingCompleteness(input);
   const actorMatrix = buildActorMatrixCompleteness(input);
   const catalogModeling = buildCatalogModelingCompleteness(input);
+  const projectionOperations = buildProjectionOperationsCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
   const actorMatrixFindings = input.requireActorMatrixCoverage
     ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
     : 0;
   const catalogModelingFindings = input.requireCatalogModelingCoverage ? catalogModeling.missingCoverage.length : 0;
-  const totalBlockingFindings = totalFindings + completenessFindings + actorMatrixFindings + catalogModelingFindings;
+  const projectionOperationsFindings = input.requireProjectionOperationsCoverage
+    ? projectionOperations.missingCoverage.length
+    : 0;
+  const totalBlockingFindings =
+    totalFindings + completenessFindings + actorMatrixFindings + catalogModelingFindings + projectionOperationsFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -234,10 +294,17 @@ export function buildAdminWorkflowsQaEvidence(input) {
     completeness,
     actorMatrix,
     catalogModeling,
+    projectionOperations,
     guidance:
       totalBlockingFindings === 0
         ? buildPassingGuidance(input)
-        : buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings, catalogModelingFindings),
+        : buildFailingGuidance(
+            totalFindings,
+            completenessFindings,
+            actorMatrixFindings,
+            catalogModelingFindings,
+            projectionOperationsFindings,
+          ),
     redaction: {
       emails: "never-recorded",
       cookies: "never-recorded",
@@ -253,7 +320,9 @@ export function buildAdminWorkflowsQaEvidence(input) {
 
 function buildCatalogModelingCompleteness(input) {
   const required = Boolean(input.requireCatalogModelingCoverage);
-  const coveredCoverage = required ? collectCatalogModelingCoverage(input.evidenceFiles) : new Set();
+  const coveredCoverage = required
+    ? collectChecklistCoverage(input.evidenceFiles, CATALOG_MODELING_COVERAGE_LABELS, CATALOG_MODELING_COVERAGE_ALIASES)
+    : new Set();
   const missingCoverage = required
     ? ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE.filter(
         (coverage) => !coveredCoverage.has(coverage.key),
@@ -272,19 +341,46 @@ function buildCatalogModelingCompleteness(input) {
   };
 }
 
-function collectCatalogModelingCoverage(evidenceFiles) {
+function buildProjectionOperationsCompleteness(input) {
+  const required = Boolean(input.requireProjectionOperationsCoverage);
+  const coveredCoverage = required
+    ? collectChecklistCoverage(
+        input.evidenceFiles,
+        PROJECTION_OPERATIONS_COVERAGE_LABELS,
+        PROJECTION_OPERATIONS_COVERAGE_ALIASES,
+      )
+    : new Set();
+  const missingCoverage = required
+    ? ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE.filter(
+        (coverage) => !coveredCoverage.has(coverage.key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      }))
+    : [];
+
+  return {
+    mode: required ? "projection-operations-coverage" : "not-required",
+    status: missingCoverage.length === 0 ? "pass" : "fail",
+    requiredCoverage: required ? ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE : [],
+    coveredCoverage: required ? [...coveredCoverage].sort() : [],
+    missingCoverage,
+  };
+}
+
+function collectChecklistCoverage(evidenceFiles, labels, aliases) {
   const covered = new Set();
   for (const { content } of evidenceFiles) {
-    collectMarkdownCatalogModelingCoverage(content, covered);
-    collectStructuredCatalogModelingCoverage(content, covered);
+    collectMarkdownChecklistCoverage(content, covered, labels);
+    collectStructuredChecklistCoverage(content, covered, aliases);
   }
   return covered;
 }
 
-function collectMarkdownCatalogModelingCoverage(content, covered) {
+function collectMarkdownChecklistCoverage(content, covered, labels) {
   for (const rawLine of String(content).split(/\r?\n/)) {
     const line = rawLine.trim();
-    for (const label of CATALOG_MODELING_COVERAGE_LABELS) {
+    for (const label of labels) {
       const value = readLabeledValue(line, [label]);
       if (value !== null) {
         addCoverageValues(covered, value);
@@ -293,13 +389,13 @@ function collectMarkdownCatalogModelingCoverage(content, covered) {
   }
 }
 
-function collectStructuredCatalogModelingCoverage(content, covered) {
+function collectStructuredChecklistCoverage(content, covered, aliases) {
   const parsed = parseJsonEvidence(content);
   if (parsed === null) {
     return;
   }
   visitJsonRecords(parsed, (record) => {
-    for (const alias of CATALOG_MODELING_COVERAGE_ALIASES) {
+    for (const alias of aliases) {
       addCoverageValues(covered, record[alias]);
     }
   });
@@ -575,10 +671,21 @@ function buildPassingGuidance(input) {
       "Catalog modeling evidence covers primitive lifecycles, dimension options, draft-only rules, Catalog Item details, bulk authoring jobs, realtime refresh, and the seed tripwire.",
     );
   }
+  if (input.requireProjectionOperationsCoverage) {
+    guidance.push(
+      "Projection operations evidence covers tab navigation, safe controls, disposable destructive checks, graceful wake-pipeline degradation, and runbook cross-reference.",
+    );
+  }
   return guidance;
 }
 
-function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings, catalogModelingFindings) {
+function buildFailingGuidance(
+  totalFindings,
+  completenessFindings,
+  actorMatrixFindings,
+  catalogModelingFindings,
+  projectionOperationsFindings,
+) {
   const guidance = [];
   if (totalFindings > 0) {
     guidance.push(
@@ -593,6 +700,9 @@ function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFi
   }
   if (catalogModelingFindings > 0) {
     guidance.push("Add the missing catalog modeling coverage keys before using this packet to close #3021.");
+  }
+  if (projectionOperationsFindings > 0) {
+    guidance.push("Add the missing projection operations coverage keys before using this packet to close #3026.");
   }
   return guidance;
 }

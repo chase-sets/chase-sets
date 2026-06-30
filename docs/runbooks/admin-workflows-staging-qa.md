@@ -132,6 +132,43 @@ Catalog modeling coverage: realtime:pending-change-reload-bar
 Catalog modeling coverage: seed-tripwire:catalog-admin
 ```
 
+For final #3026 Platform projection-operations evidence, run the projection operations gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-projection-operations-coverage --evidence-file artifacts/admin-qa/issue-3026.md --out artifacts/admin-qa/issue-3026-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to list every required coverage key with the `Projection operations coverage:` label. Structured JSON packets can provide the same keys with `projectionOperationsCoverage`, `projectionOpsCoverage`, `platformProjectionCoverage`, `coverage`, `coverageKey`, or `check` fields at the top level or inside nested evidence rows.
+
+Use these coverage keys for #3026:
+
+```text
+Projection operations coverage: projection-ops:status-stats
+Projection operations coverage: projection-ops:tab-overview
+Projection operations coverage: projection-ops:tab-attention
+Projection operations coverage: projection-ops:tab-operations
+Projection operations coverage: projection-ops:tab-projection-groups
+Projection operations coverage: projection-ops:tab-subscriptions
+Projection operations coverage: projection-ops:tab-blocked-streams
+Projection operations coverage: projection-ops:tab-workers
+Projection operations coverage: projection-ops:tab-wake-pipeline
+Projection operations coverage: projection-ops:tab-diagnostics
+Projection operations coverage: projection-ops:refresh-status
+Projection operations coverage: projection-ops:retry-blocked-stream
+Projection operations coverage: projection-ops:cancel-operation
+Projection operations coverage: projection-ops:rebuild-projection-group-disposable
+Projection operations coverage: projection-ops:rebuild-context-disposable
+Projection operations coverage: projection-ops:completion
+Projection operations coverage: projection-ops:attention-clearance
+Projection operations coverage: projection-ops:no-data-loss
+Projection operations coverage: projection-ops:actor-attribution-or-3011
+Projection operations coverage: projection-ops:wake-pipeline-unavailable-controlled
+Projection operations coverage: projection-ops:runbook-cross-reference
+Projection operations coverage: projection-ops:disposable-projection-recorded
+```
+
+The #3026 public packet may name only a support-safe disposable projection alias and the artifact folder. Keep concrete projection ids, operation ids, stream ids, event ids, database rows, recovery tokens, and operator identity details out of GitHub.
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

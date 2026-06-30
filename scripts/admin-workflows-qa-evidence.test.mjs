@@ -6,6 +6,7 @@ import {
   ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
+  ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX,
   findAdminWorkflowsQaEvidenceFindings,
   parseAdminWorkflowsQaEvidenceArgs,
@@ -428,6 +429,117 @@ describe("admin workflows QA evidence", () => {
     );
   });
 
+  it("passes complete projection operations coverage evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3026.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-security-manage",
+        "Sign-in host: /access/sign-in",
+        "Route or workflow: Platform projection operations checklist",
+        "Expected: projection operations destructive checks use a disposable projection.",
+        "Observed: evidence packet captured with support-safe projection alias only.",
+        "Evidence artifact: artifacts/admin-qa/3026/projection-operations",
+        "Redaction review: passed",
+        ...ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE.map(
+          ({ key }) => `Projection operations coverage: ${key}`,
+        ),
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3026",
+      checkedAt,
+      requireProjectionOperationsCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      projectionOperations: {
+        mode: "projection-operations-coverage",
+        status: "pass",
+        requiredCoverage: ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE,
+        coveredCoverage: ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE.map(({ key }) => key).sort(),
+        missingCoverage: [],
+      },
+    });
+  });
+
+  it("accepts structured projection operations coverage packets", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3026.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          environment: "staging admin-web",
+          actorAlias: "admin-qa-security-manage",
+          signInHost: "/access/sign-in",
+          records: [
+            {
+              routeTemplate: "/platform/projections",
+              projectionOperationsCoverage: ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE.map(
+                ({ key }) => key,
+              ),
+              artifactFolder: "artifacts/admin-qa/3026/projection-operations",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireProjectionOperationsCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.projectionOperations.missingCoverage).toEqual([]);
+  });
+
+  it("fails projection operations evidence when destructive coverage is incomplete", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3026.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-security-manage",
+        "Sign-in host: /access/sign-in",
+        "Projection operations coverage: projection-ops:status-stats",
+        "Projection operations coverage: projection-ops:tab-overview",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireProjectionOperationsCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.projectionOperations).toMatchObject({
+      mode: "projection-operations-coverage",
+      status: "fail",
+      missingCoverage: ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE.filter(
+        ({ key }) => !["projection-ops:status-stats", "projection-ops:tab-overview"].includes(key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      })),
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing projection operations coverage keys before using this packet to close #3026.",
+    );
+  });
+
   it("finds sensitive evidence categories without returning raw matched values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "unsafe.md");
@@ -505,6 +617,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_REQUIRE_CROSS_CUTTING_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_ACTOR_MATRIX_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_MODELING_COVERAGE: "true",
+      ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -515,6 +628,7 @@ describe("admin workflows QA evidence", () => {
       requireCrossCuttingCoverage: true,
       requireActorMatrixCoverage: true,
       requireCatalogModelingCoverage: true,
+      requireProjectionOperationsCoverage: true,
     });
   });
 
