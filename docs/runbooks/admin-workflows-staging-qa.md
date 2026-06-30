@@ -78,6 +78,60 @@ pnpm run ops admin-workflows:qa-evidence -- --require-actor-matrix-coverage --ev
 
 That mode still applies the redaction scan, and also requires every Actor Matrix alias above to appear with its intended `Sign-in host`. Structured JSON packets can provide the same evidence with `actorAlias` and `signInHost` keys at the top level or inside nested `records`, `results`, `rows`, `checks`, `evidence`, or `artifacts` arrays/objects.
 
+For final #3021 catalog modeling evidence, run the catalog modeling gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-catalog-modeling-coverage --evidence-file artifacts/admin-qa/issue-3021.md --out artifacts/admin-qa/issue-3021-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to list every required coverage key with the `Catalog modeling coverage:` label. Structured JSON packets can provide the same keys with `catalogModelingCoverage`, `modelingCoverage`, `checklistCoverage`, `coverage`, `coverageKey`, or `check` fields at the top level or inside nested evidence rows.
+
+Use these coverage keys for #3021:
+
+```text
+Catalog modeling coverage: primitive:dimensions
+Catalog modeling coverage: primitive:fields
+Catalog modeling coverage: primitive:components
+Catalog modeling coverage: primitive:blueprints
+Catalog modeling coverage: primitive:categories
+Catalog modeling coverage: primitive:catalog-items
+Catalog modeling coverage: primitive:display-templates
+Catalog modeling coverage: primitive:reference-types
+Catalog modeling coverage: primitive:reference-records
+Catalog modeling coverage: lifecycle:create-draft
+Catalog modeling coverage: lifecycle:edit-structure
+Catalog modeling coverage: lifecycle:publish-or-activate
+Catalog modeling coverage: lifecycle:deprecate
+Catalog modeling coverage: lifecycle:archive
+Catalog modeling coverage: lifecycle:structure-lock
+Catalog modeling coverage: lifecycle:archive-terminal
+Catalog modeling coverage: dimension-options:add
+Catalog modeling coverage: dimension-options:revise
+Catalog modeling coverage: dimension-options:reorder
+Catalog modeling coverage: dimension-options:deprecate
+Catalog modeling coverage: dimension-options:reactivate
+Catalog modeling coverage: rules:draft-only-attach-detach
+Catalog modeling coverage: catalog-item:field-values
+Catalog modeling coverage: catalog-item:image-fallback
+Catalog modeling coverage: catalog-item:external-references
+Catalog modeling coverage: catalog-item:delete-draft
+Catalog modeling coverage: bulk-authoring:bulk-lifecycle-preview
+Catalog modeling coverage: bulk-authoring:bulk-lifecycle-confirm
+Catalog modeling coverage: bulk-authoring:bulk-lifecycle-counts
+Catalog modeling coverage: bulk-authoring:bulk-lifecycle-projection-refresh
+Catalog modeling coverage: bulk-authoring:bulk-edit-preview
+Catalog modeling coverage: bulk-authoring:bulk-edit-confirm
+Catalog modeling coverage: bulk-authoring:bulk-edit-counts
+Catalog modeling coverage: bulk-authoring:bulk-edit-projection-refresh
+Catalog modeling coverage: bulk-authoring:bulk-publish-preview
+Catalog modeling coverage: bulk-authoring:bulk-publish-confirm
+Catalog modeling coverage: bulk-authoring:bulk-publish-counts
+Catalog modeling coverage: bulk-authoring:bulk-publish-projection-refresh
+Catalog modeling coverage: realtime:sse-list-detail
+Catalog modeling coverage: realtime:pending-change-reload-bar
+Catalog modeling coverage: seed-tripwire:catalog-admin
+```
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

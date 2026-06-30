@@ -65,6 +65,74 @@ export const ADMIN_WORKFLOWS_QA_REQUIRED_ACTOR_MATRIX = Object.freeze([
   { actorAlias: "admin-qa-catalog-admin", signInHost: "/catalog/sign-in" },
 ]);
 
+export const ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE = Object.freeze([
+  { key: "primitive:dimensions", description: "Dimension primitive lifecycle coverage" },
+  { key: "primitive:fields", description: "Field primitive lifecycle coverage" },
+  { key: "primitive:components", description: "Component primitive lifecycle coverage" },
+  { key: "primitive:blueprints", description: "Blueprint primitive lifecycle coverage" },
+  { key: "primitive:categories", description: "Category primitive lifecycle coverage" },
+  { key: "primitive:catalog-items", description: "Catalog Item primitive lifecycle coverage" },
+  { key: "primitive:display-templates", description: "Display Template primitive lifecycle coverage" },
+  { key: "primitive:reference-types", description: "Reference Type primitive lifecycle coverage" },
+  { key: "primitive:reference-records", description: "Reference Record primitive lifecycle coverage" },
+  { key: "lifecycle:create-draft", description: "Create draft lifecycle action" },
+  { key: "lifecycle:edit-structure", description: "Edit structure lifecycle action" },
+  { key: "lifecycle:publish-or-activate", description: "Publish or activate lifecycle action" },
+  { key: "lifecycle:deprecate", description: "Deprecate lifecycle action" },
+  { key: "lifecycle:archive", description: "Archive lifecycle action" },
+  { key: "lifecycle:structure-lock", description: "Published structure lock evidence" },
+  { key: "lifecycle:archive-terminal", description: "Terminal archive evidence" },
+  { key: "dimension-options:add", description: "Dimension option add action" },
+  { key: "dimension-options:revise", description: "Dimension option revise action" },
+  { key: "dimension-options:reorder", description: "Dimension option reorder action" },
+  { key: "dimension-options:deprecate", description: "Dimension option deprecate action" },
+  { key: "dimension-options:reactivate", description: "Dimension option reactivate action" },
+  {
+    key: "rules:draft-only-attach-detach",
+    description: "Component and blueprint rule attach/detach is draft-only",
+  },
+  { key: "catalog-item:field-values", description: "Catalog Item field values coverage" },
+  { key: "catalog-item:image-fallback", description: "Catalog Item image fallback coverage" },
+  { key: "catalog-item:external-references", description: "Catalog Item external references coverage" },
+  { key: "catalog-item:delete-draft", description: "Catalog Item delete draft coverage" },
+  { key: "bulk-authoring:bulk-lifecycle-preview", description: "Bulk lifecycle preview correctness" },
+  { key: "bulk-authoring:bulk-lifecycle-confirm", description: "Bulk lifecycle confirmation" },
+  { key: "bulk-authoring:bulk-lifecycle-counts", description: "Bulk lifecycle success/failure counts" },
+  {
+    key: "bulk-authoring:bulk-lifecycle-projection-refresh",
+    description: "Bulk lifecycle projection refresh",
+  },
+  { key: "bulk-authoring:bulk-edit-preview", description: "Bulk edit preview correctness" },
+  { key: "bulk-authoring:bulk-edit-confirm", description: "Bulk edit confirmation" },
+  { key: "bulk-authoring:bulk-edit-counts", description: "Bulk edit success/failure counts" },
+  { key: "bulk-authoring:bulk-edit-projection-refresh", description: "Bulk edit projection refresh" },
+  { key: "bulk-authoring:bulk-publish-preview", description: "Bulk publish preview correctness" },
+  { key: "bulk-authoring:bulk-publish-confirm", description: "Bulk publish confirmation" },
+  { key: "bulk-authoring:bulk-publish-counts", description: "Bulk publish success/failure counts" },
+  {
+    key: "bulk-authoring:bulk-publish-projection-refresh",
+    description: "Bulk publish projection refresh",
+  },
+  { key: "realtime:sse-list-detail", description: "SSE projection revalidation on list and detail" },
+  { key: "realtime:pending-change-reload-bar", description: "Catalog Item pending-change reload bar" },
+  { key: "seed-tripwire:catalog-admin", description: "Catalog-admin seed tripwire respected" },
+]);
+
+const CATALOG_MODELING_COVERAGE_LABELS = Object.freeze([
+  "Catalog modeling coverage",
+  "Modeling coverage",
+  "Checklist coverage",
+]);
+
+const CATALOG_MODELING_COVERAGE_ALIASES = Object.freeze([
+  "catalogModelingCoverage",
+  "modelingCoverage",
+  "checklistCoverage",
+  "coverage",
+  "coverageKey",
+  "check",
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -101,6 +169,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireActorMatrixCoverage:
       argv.includes("--require-actor-matrix-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_ACTOR_MATRIX_COVERAGE", env) === "true",
+    requireCatalogModelingCoverage:
+      argv.includes("--require-catalog-modeling-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_MODELING_COVERAGE", env) === "true",
   };
 }
 
@@ -144,11 +215,13 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const totalFindings = Object.values(summary).reduce((total, count) => total + count, 0);
   const completeness = buildCrossCuttingCompleteness(input);
   const actorMatrix = buildActorMatrixCompleteness(input);
+  const catalogModeling = buildCatalogModelingCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
   const actorMatrixFindings = input.requireActorMatrixCoverage
     ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
     : 0;
-  const totalBlockingFindings = totalFindings + completenessFindings + actorMatrixFindings;
+  const catalogModelingFindings = input.requireCatalogModelingCoverage ? catalogModeling.missingCoverage.length : 0;
+  const totalBlockingFindings = totalFindings + completenessFindings + actorMatrixFindings + catalogModelingFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -160,10 +233,11 @@ export function buildAdminWorkflowsQaEvidence(input) {
     files: fileResults,
     completeness,
     actorMatrix,
+    catalogModeling,
     guidance:
       totalBlockingFindings === 0
         ? buildPassingGuidance(input)
-        : buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings),
+        : buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings, catalogModelingFindings),
     redaction: {
       emails: "never-recorded",
       cookies: "never-recorded",
@@ -175,6 +249,92 @@ export function buildAdminWorkflowsQaEvidence(input) {
       fullUrls: "never-recorded",
     },
   };
+}
+
+function buildCatalogModelingCompleteness(input) {
+  const required = Boolean(input.requireCatalogModelingCoverage);
+  const coveredCoverage = required ? collectCatalogModelingCoverage(input.evidenceFiles) : new Set();
+  const missingCoverage = required
+    ? ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE.filter(
+        (coverage) => !coveredCoverage.has(coverage.key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      }))
+    : [];
+
+  return {
+    mode: required ? "catalog-modeling-coverage" : "not-required",
+    status: missingCoverage.length === 0 ? "pass" : "fail",
+    requiredCoverage: required ? ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE : [],
+    coveredCoverage: required ? [...coveredCoverage].sort() : [],
+    missingCoverage,
+  };
+}
+
+function collectCatalogModelingCoverage(evidenceFiles) {
+  const covered = new Set();
+  for (const { content } of evidenceFiles) {
+    collectMarkdownCatalogModelingCoverage(content, covered);
+    collectStructuredCatalogModelingCoverage(content, covered);
+  }
+  return covered;
+}
+
+function collectMarkdownCatalogModelingCoverage(content, covered) {
+  for (const rawLine of String(content).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    for (const label of CATALOG_MODELING_COVERAGE_LABELS) {
+      const value = readLabeledValue(line, [label]);
+      if (value !== null) {
+        addCoverageValues(covered, value);
+      }
+    }
+  }
+}
+
+function collectStructuredCatalogModelingCoverage(content, covered) {
+  const parsed = parseJsonEvidence(content);
+  if (parsed === null) {
+    return;
+  }
+  visitJsonRecords(parsed, (record) => {
+    for (const alias of CATALOG_MODELING_COVERAGE_ALIASES) {
+      addCoverageValues(covered, record[alias]);
+    }
+  });
+}
+
+function addCoverageValues(covered, value) {
+  if (typeof value === "string") {
+    for (const item of value.split(/[,\n;]/)) {
+      addCoverageKey(covered, item);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      addCoverageValues(covered, item);
+    }
+  }
+}
+
+function addCoverageKey(covered, value) {
+  const key = normalizeCoverageKey(value);
+  if (key) {
+    covered.add(key);
+  }
+}
+
+function normalizeCoverageKey(value) {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return null;
+  }
+  return normalized
+    .toLowerCase()
+    .replace(/[ _]+/g, "-")
+    .replace(/\s*:\s*/g, ":");
 }
 
 function buildActorMatrixCompleteness(input) {
@@ -410,10 +570,15 @@ function buildPassingGuidance(input) {
   if (input.requireActorMatrixCoverage) {
     guidance.push("Actor matrix evidence covers every required support-safe actor alias and intended sign-in host.");
   }
+  if (input.requireCatalogModelingCoverage) {
+    guidance.push(
+      "Catalog modeling evidence covers primitive lifecycles, dimension options, draft-only rules, Catalog Item details, bulk authoring jobs, realtime refresh, and the seed tripwire.",
+    );
+  }
   return guidance;
 }
 
-function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings) {
+function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFindings, catalogModelingFindings) {
   const guidance = [];
   if (totalFindings > 0) {
     guidance.push(
@@ -425,6 +590,9 @@ function buildFailingGuidance(totalFindings, completenessFindings, actorMatrixFi
   }
   if (actorMatrixFindings > 0) {
     guidance.push("Add the missing support-safe actor aliases and intended sign-in hosts before closing #3016.");
+  }
+  if (catalogModelingFindings > 0) {
+    guidance.push("Add the missing catalog modeling coverage keys before using this packet to close #3021.");
   }
   return guidance;
 }
