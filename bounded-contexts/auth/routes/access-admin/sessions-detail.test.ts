@@ -68,6 +68,31 @@ describe("session detail actions", () => {
     expect(revokeSession).toHaveBeenCalledWith("ses_1");
   });
 
+  it("redirects access session account switches with the Auth command receipt", async () => {
+    const switchSessionAccount = vi.fn(async () => withCommandReceipt({ id: "ses_1", version: 4, status: "active" }));
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      revokeSession: vi.fn(),
+      switchSessionAccount,
+    });
+
+    const request = new Request("http://localhost/access/sessions/ses_1", {
+      method: "POST",
+      body: new URLSearchParams({
+        intent: "switch-account",
+        accountId: "acct_2",
+      }),
+    });
+    const response = (await accessAction(
+      createActionArgs(request, { id: "ses_1" }, "/access/sessions/:id"),
+    )) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    expect(response.status).toBe(302);
+    expect(location).toContain("/access/sessions/ses_1?afterWrite=");
+    expect(readReceipt(location)).toMatchObject({ sources: [authSource] });
+    expect(switchSessionAccount).toHaveBeenCalledWith("ses_1", "acct_2");
+  });
+
   it("redirects marketplace session account switches with the Auth command receipt", async () => {
     const switchSessionAccount = vi.fn(async () => withCommandReceipt({ id: "ses_2", version: 4, status: "active" }));
     mockCreateAuthRequestApiClient.mockReturnValue({
