@@ -46,7 +46,7 @@ const ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS = [
   { path: "/commerce/postage-policies", permissions: ["postage-policies.view"] },
   { path: "/support/requests", permissions: ["support.manage"] },
   { path: "/support/platform-feedback", permissions: ["platform-feedback.view"] },
-  { path: "/platform", permissions: ["security.manage"] },
+  { path: "/platform", permissions: ["projection-operations.view"] },
 ] as const satisfies readonly { path: string; permissions: readonly string[] }[];
 
 const ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS = [
@@ -69,7 +69,7 @@ const ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS = [
   { path: "/growth", permissions: ["google-shopping.view", "public-presence.view"] },
   { path: "/commerce", permissions: ["commercial-terms.view", "postage-policies.view"] },
   { path: "/support", permissions: ["support.manage", "platform-feedback.view"] },
-  { path: "/platform", permissions: ["security.manage"] },
+  { path: "/platform", permissions: ["projection-operations.view"] },
 ] as const satisfies readonly { path: string; permissions: readonly string[] }[];
 
 function isSocialLoginProviderName(value: string): value is SocialLoginProviderName {
