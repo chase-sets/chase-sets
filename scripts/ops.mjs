@@ -24,6 +24,10 @@ export const SUBCOMMANDS = {
     script: "design-system-legacy-inventory.mjs",
     description: "Inventory of legacy design-system surfaces and ledger writer.",
   },
+  "admin-workflows:qa-evidence": {
+    script: "admin-workflows-qa-evidence.mjs",
+    description: "Lint admin-workflows QA evidence for public redaction safety.",
+  },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
     description: "Emergency recovery guide record for platform incidents.",

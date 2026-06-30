@@ -52,6 +52,14 @@ Evidence is support-safe only when it excludes:
 
 If an artifact accidentally contains private material, do not attach it to GitHub. Replace it with a redacted screenshot, a support-safe transcript, or a new run.
 
+Before posting public GitHub evidence for the cross-cutting API, SSE, security, PII, responsive, or state rows, lint the proposed Markdown or JSON transcript:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --evidence-file artifacts/admin-qa/issue-3027.md --out artifacts/admin-qa/issue-3027-redaction.json
+```
+
+The linter fails closed for emails, cookies, authorization/session tokens, raw recovery tokens, domain ids, and full URLs. Its report includes categories, file names, line numbers, and counts only; it never repeats the matched private values.
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

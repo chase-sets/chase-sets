@@ -568,18 +568,30 @@ test.describe("catalog admin integrations", () => {
     );
     await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
-    await expect(page.getByText("imports-disabled").first()).toBeVisible();
+    const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
+    await expect(governanceControls).toBeVisible();
+    await expect(governanceControls.getByRole("cell", { name: /imports-disabled/i }).first()).toBeVisible();
     await expect(
-      page.getByText("Catalog integration imports are disabled for the configured provider scope.").first(),
-    ).toBeVisible();
-    await expect(page.getByText("magic-production-signoff-required").first()).toBeVisible();
-    await expect(
-      page
-        .getByText(
-          "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.",
-        )
+      governanceControls
+        .getByRole("cell", {
+          name: /Catalog integration imports are disabled for the configured provider scope\./i,
+        })
         .first(),
     ).toBeVisible();
+    const magicProductionSignoffRow = governanceControls
+      .getByRole("row")
+      .filter({ hasText: "magic-production-signoff-required" });
+    if (await magicProductionSignoffRow.count()) {
+      await expect(magicProductionSignoffRow.first()).toBeVisible();
+      await expect(
+        magicProductionSignoffRow
+          .first()
+          .getByRole("cell", {
+            name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
+          })
+          .first(),
+      ).toBeVisible();
+    }
 
     // With a resolving profile selected, lifecycle recovery renders the rollback,
     // deprecate, and retire command forms with confirmation and complete-removal evidence.

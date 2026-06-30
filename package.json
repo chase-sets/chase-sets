@@ -87,6 +87,7 @@
     "test:rollback-readiness": "vitest run scripts/rollback-readiness.test.mjs",
     "test:sandbox": "vitest run scripts/sandbox.test.mjs",
     "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs",
+    "test:admin-workflows-qa-evidence": "vitest run scripts/admin-workflows-qa-evidence.test.mjs",
     "test:admin-shell-smoke-matrix": "vitest run scripts/admin-shell-smoke-matrix.test.mjs",
     "test:stripe-money-smoke": "vitest run scripts/stripe-money-smoke-test.test.mjs",
     "test:marketplace-production-env-commands": "vitest run scripts/marketplace-production-env-commands.test.mjs",
