@@ -6,6 +6,8 @@ This runbook owns the operator checklist for Chase Sets Google Merchant Center /
 
 The launch evidence output from `pnpm run ops google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the Google Shopping readiness record so release reviewers can jump from the machine gate to the human operating guide.
 
+The same output includes `privateEvidenceRecord.requiredSections`, which is the checklist the private launch record must satisfy: Merchant Center marketplace/multi-seller approval, Merchant API data source setup, shipping/returns/policy/Tax posture, feed quality sweep, production crawl posture, diagnostics snapshot, dry-run sync, and production live-sync approval. Keep provider screenshots, seller details, account ids, data-source ids, and credential references in the private evidence record only; public issues and PRs should use the external evidence reference plus the redacted gate summary.
+
 The Google Shopping admin/operator surface should link to this runbook with the label `Google Shopping Operations` near sync status, diagnostics, and pause/rollback controls. The surface should not copy credentials, private Merchant Center screenshots, or raw provider payloads into the UI; it should show redacted status, row identifiers, evidence references, and the next operator action from this runbook.
 
 ## Account Posture
