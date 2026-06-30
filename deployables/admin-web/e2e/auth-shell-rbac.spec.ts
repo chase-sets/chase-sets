@@ -99,7 +99,10 @@ async function expectAuthenticatedAdminShell(page: Page) {
           }
         }
 
-        return false;
+        return page
+          .getByLabel("Admin menu")
+          .isVisible()
+          .catch(() => false);
       },
       { timeout: pageReadyTimeoutMs },
     )

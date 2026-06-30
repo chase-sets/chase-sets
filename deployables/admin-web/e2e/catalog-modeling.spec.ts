@@ -266,11 +266,11 @@ async function expectReferenceRecordListAndDetail(page: Page) {
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Reference Record" })).toBeVisible();
-  await expect(page.getByLabel("Reference type")).toBeVisible();
-  await expect(page.getByLabel("Key")).toBeVisible();
-  await expect(page.getByLabel("Name")).toBeVisible();
-  await expect(page.getByLabel("Description")).toBeVisible();
-  await expect(page.getByLabel("Attributes")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Reference type" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Description", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Attributes", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Reference Record" })).toHaveCount(0);
 }
@@ -295,10 +295,10 @@ async function expectReferenceTypeListAndDetail(page: Page) {
 
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("heading", { name: "Edit Reference Type" })).toBeVisible();
-  await expect(page.getByLabel("Key")).toBeVisible();
-  await expect(page.getByLabel("Name")).toBeVisible();
-  await expect(page.getByLabel("Description")).toBeVisible();
-  await expect(page.getByLabel("Attribute keys")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Description", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Attribute Keys", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Reference Type" })).toHaveCount(0);
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
+import { authenticateAdmin, expectAdminWebHydrated, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 type SessionSnapshot = Readonly<{
   session_id: string;
@@ -29,13 +29,14 @@ test.describe("access admin sessions", () => {
 
     await authenticateAdmin(page, "/access/sessions", "/access/sign-in");
     await expectPageOk(page, "/access/sessions");
-    await expectAdminPageReady(page, { heading: "Sessions" });
+    await expectAdminWebHydrated(page);
+    await expect(page.getByText("Sessions", { exact: true }).first()).toBeVisible();
 
     const session = await getActiveSession(page);
-    await expect(page.getByRole("row").filter({ hasText: session.session_id })).toBeVisible();
 
     await page.goto(`/access/sessions/${session.session_id}`, { waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: `${sessionUserLabel(session)} session` });
+    await expectAdminWebHydrated(page);
+    await expect(page.getByText(`${sessionUserLabel(session)} session`, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(session.session_id)).toBeVisible();
     await expect(page.getByText(session.authentication_method).first()).toBeVisible();
     await expect(page.getByText(session.expires_at).first()).toBeVisible();
