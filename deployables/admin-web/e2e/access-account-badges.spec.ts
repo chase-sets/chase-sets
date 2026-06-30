@@ -42,8 +42,7 @@ test.describe("access admin account badges", () => {
 
     try {
       for (const badgeKey of accountBadgeKeys) {
-        const initiallyAssigned = initialBadges.has(badgeKey);
-        await exerciseBadgeToggle(page, badgeKey, initiallyAssigned);
+        await exerciseBadgeToggle(page, badgeKey);
       }
     } finally {
       await restoreAccountBadges(page, accountId, initialBadges);
@@ -84,21 +83,22 @@ async function waitForAccountSnapshot(
   return snapshot!;
 }
 
-async function exerciseBadgeToggle(page: Page, badgeKey: AccountBadgeKey, initiallyAssigned: boolean) {
+async function exerciseBadgeToggle(page: Page, badgeKey: AccountBadgeKey) {
   const label = accountBadgeLabels[badgeKey];
+  const initiallyAssigned = await readBadgeAssignment(page, label);
 
   if (initiallyAssigned) {
     await clickBadgeAction(page, `Remove ${label} badge`);
-    await expectBadgeAction(page, `Assign ${label} badge`);
+    await expectBadgeAssignment(page, label, false);
     await clickBadgeAction(page, `Assign ${label} badge`);
-    await expectBadgeAction(page, `Remove ${label} badge`);
+    await expectBadgeAssignment(page, label, true);
     return;
   }
 
   await clickBadgeAction(page, `Assign ${label} badge`);
-  await expectBadgeAction(page, `Remove ${label} badge`);
+  await expectBadgeAssignment(page, label, true);
   await clickBadgeAction(page, `Remove ${label} badge`);
-  await expectBadgeAction(page, `Assign ${label} badge`);
+  await expectBadgeAssignment(page, label, false);
 }
 
 async function clickBadgeAction(page: Page, name: string) {
@@ -109,6 +109,24 @@ async function clickBadgeAction(page: Page, name: string) {
 async function expectBadgeAction(page: Page, name: string) {
   await expect(page).toHaveURL(/\/access\/accounts\/[^/?]+(?:\?|$)/);
   await expect(page.getByRole("button", { name })).toBeVisible({ timeout: 45_000 });
+}
+
+async function expectBadgeAssignment(page: Page, label: string, assigned: boolean) {
+  await expectBadgeAction(page, `${assigned ? "Remove" : "Assign"} ${label} badge`);
+}
+
+async function readBadgeAssignment(page: Page, label: string) {
+  const remove = page.getByRole("button", { name: `Remove ${label} badge` });
+  if (await remove.isVisible()) {
+    return true;
+  }
+
+  const assign = page.getByRole("button", { name: `Assign ${label} badge` });
+  if (await assign.isVisible()) {
+    return false;
+  }
+
+  throw new Error(`No rendered badge action found for ${label}.`);
 }
 
 async function restoreAccountBadges(page: Page, accountId: string, initialBadges: ReadonlySet<string>) {

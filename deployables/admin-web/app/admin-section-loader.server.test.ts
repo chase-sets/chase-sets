@@ -4,12 +4,18 @@ const {
   mockCreateIdentityRequestApiClient,
   mockIdentityApi,
   mockRequireAdminSectionActor,
+  mockRequestWithoutFreshWrite,
   mockResolveIdentityShellViewer,
   mockCreateUserPreferencesColorModeCookieSeedHeaders,
 } = vi.hoisted(() => ({
   mockCreateIdentityRequestApiClient: vi.fn(),
   mockIdentityApi: { getUserPreferences: vi.fn() },
   mockRequireAdminSectionActor: vi.fn(),
+  mockRequestWithoutFreshWrite: vi.fn((request: Request) => {
+    const url = new URL(request.url);
+    url.searchParams.delete("afterWrite");
+    return new Request(url, request);
+  }),
   mockResolveIdentityShellViewer: vi.fn(),
   mockCreateUserPreferencesColorModeCookieSeedHeaders: vi.fn(),
 }));
@@ -17,6 +23,7 @@ const {
 vi.mock("@chase-sets/identity/server", () => ({
   createIdentityRequestApiClient: mockCreateIdentityRequestApiClient,
   createUserPreferencesColorModeCookieSeedHeaders: mockCreateUserPreferencesColorModeCookieSeedHeaders,
+  requestWithoutFreshWrite: mockRequestWithoutFreshWrite,
   resolveIdentityShellViewer: mockResolveIdentityShellViewer,
 }));
 
@@ -91,7 +98,7 @@ describe("admin section loader", () => {
     mockResolveIdentityShellViewer.mockResolvedValue(viewer);
     mockCreateUserPreferencesColorModeCookieSeedHeaders.mockReturnValue(cookieHeaders);
     const loader = createAdminSectionLoader({ section: "catalog", fallbackPermission: "catalog.view" });
-    const request = new Request("https://admin.test/catalog");
+    const request = new Request("https://admin.test/catalog?afterWrite=fresh-route-receipt");
 
     const result = await loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/catalog" });
 
@@ -101,7 +108,10 @@ describe("admin section loader", () => {
     });
     expect(loaderHeaders(result).get("Set-Cookie")).toBe("chase_sets_color_mode=dark");
 
-    expect(mockCreateIdentityRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockRequestWithoutFreshWrite).toHaveBeenCalledWith(request);
+    expect(mockCreateIdentityRequestApiClient).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://admin.test/catalog" }),
+    );
     expect(mockResolveIdentityShellViewer).toHaveBeenCalledWith(mockIdentityApi, actor);
     expect(mockCreateUserPreferencesColorModeCookieSeedHeaders).toHaveBeenCalledWith(request, "dark");
   });
