@@ -252,11 +252,21 @@ test.describe("catalog admin modeling", () => {
         await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
       }
 
+      for (const action of ["Edit Description", "Assign Blueprint", "Set Field Value", "Assign Category"]) {
+        await expect(page.getByRole("button", { name: action }).first()).toBeVisible();
+      }
+
+      for (const disclosure of [
+        "Tags",
+        "Image URLs",
+        "Image Fallback",
+        "External Catalog Item References",
+        "External Product References",
+      ]) {
+        await page.getByRole("button", { name: new RegExp(`^${disclosure}\\b`, "i") }).click();
+      }
+
       for (const action of [
-        "Edit Description",
-        "Assign Blueprint",
-        "Set Field Value",
-        "Assign Category",
         "Set Tags",
         "Set Image URLs",
         "Set image fallback",

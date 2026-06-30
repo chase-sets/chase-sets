@@ -568,16 +568,24 @@ test.describe("catalog admin integrations", () => {
     );
     await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
-    await expect(page.getByText("imports-disabled").first()).toBeVisible();
+    const governanceControls = page.locator("[data-catalog-governance-controls-workspace='true']");
+    await expect(governanceControls).toBeVisible();
+    await expect(governanceControls.getByRole("cell", { name: /imports-disabled/i }).first()).toBeVisible();
     await expect(
-      page.getByText("Catalog integration imports are disabled for the configured provider scope.").first(),
+      governanceControls
+        .getByRole("cell", {
+          name: /Catalog integration imports are disabled for the configured provider scope\./i,
+        })
+        .first(),
     ).toBeVisible();
-    await expect(page.getByText("magic-production-signoff-required").first()).toBeVisible();
     await expect(
-      page
-        .getByText(
-          "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.",
-        )
+      governanceControls.getByRole("cell", { name: /magic-production-signoff-required/i }).first(),
+    ).toBeVisible();
+    await expect(
+      governanceControls
+        .getByRole("cell", {
+          name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
+        })
         .first(),
     ).toBeVisible();
 
