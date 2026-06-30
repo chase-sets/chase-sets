@@ -140,6 +140,7 @@ describe("admin shell smoke matrix", () => {
   it("documents deployed API probes and their linked coverage ids", () => {
     const matrixCoverageIds = new Set(ADMIN_SHELL_SMOKE_MATRIX.map((row) => row.id));
     const apiCoverageIds = new Set(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.smokeCoverageId));
+    const deployedProbeCoverageIds = new Set(ADMIN_DEPLOYED_API_SMOKE_PROBES.flatMap((probe) => probe.coverageIds));
 
     const undocumentedProbeRows = ADMIN_DEPLOYED_API_SMOKE_PROBES.flatMap((probe) =>
       [probe.id, probe.path].filter((value) => !runbook.includes(value)),
@@ -150,6 +151,11 @@ describe("admin shell smoke matrix", () => {
       probe.coverageIds.filter((coverageId) => !matrixCoverageIds.has(coverageId) && !apiCoverageIds.has(coverageId)),
     );
     expect(missingLinkedCoverage).toEqual([]);
+
+    const missingDeployedProbeCoverage = ADMIN_WEB_API_DEPENDENCIES.map(
+      (dependency) => dependency.smokeCoverageId,
+    ).filter((coverageId) => !deployedProbeCoverageIds.has(coverageId));
+    expect(missingDeployedProbeCoverage).toEqual([]);
 
     for (const probe of ADMIN_DEPLOYED_API_SMOKE_PROBES) {
       expect(probe.expectedStatuses.length).toBeGreaterThan(0);
