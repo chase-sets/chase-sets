@@ -193,6 +193,15 @@
           "section": "access"
         },
         {
+          "routeId": "catalog-sign-in",
+          "routePath": "sign-in",
+          "fileExport": "./routes/catalog-admin/sign-in",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root",
+          "section": "catalog"
+        },
+        {
           "routeId": "sign-out",
           "routePath": "sign-out",
           "fileExport": "./routes/access-admin/sign-out",
@@ -581,6 +590,7 @@
         "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
+        "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
         "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",

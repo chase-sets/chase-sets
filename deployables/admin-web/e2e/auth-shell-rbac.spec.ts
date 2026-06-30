@@ -8,7 +8,7 @@ const adminSectionNames = ["Access", "Catalog", "Commerce", "Growth", "Support",
 const authenticatedReturnTo = "/access/accounts";
 
 test.describe("admin auth shell and session", () => {
-  for (const signInPath of ["/access/sign-in"] as const) {
+  for (const signInPath of ["/access/sign-in", "/catalog/sign-in"] as const) {
     test(`operator signs in through ${signInPath}, sees admin shell, and signs out @admin-auth`, async ({ page }) => {
       test.setTimeout(150_000);
       test.skip(
