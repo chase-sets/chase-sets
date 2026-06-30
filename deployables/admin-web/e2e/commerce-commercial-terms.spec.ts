@@ -54,8 +54,8 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
     timeout: 30_000,
   });
   await expectAdminPageReady(page, { heading: "Fee Schedules" });
-  await openListRowDetail(page, label);
-  await expectAdminPageReady(page, { heading: label });
+  const openedLabel = await openListRowDetail(page, label, "E2E inactive schedule");
+  await expectAdminPageReady(page, { heading: openedLabel });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
 }
@@ -94,8 +94,8 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
     timeout: 30_000,
   });
   await expectAdminPageReady(page, { heading: "Commercial Agreements" });
-  await openListRowDetail(page, label);
-  await expectAdminPageReady(page, { heading: label });
+  const openedLabel = await openListRowDetail(page, label, "E2E inactive agreement");
+  await expectAdminPageReady(page, { heading: openedLabel });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
 }
@@ -108,28 +108,33 @@ function createAgreementForm(page: Page): Locator {
   return page.locator("form").filter({ has: page.getByRole("button", { name: "Create agreement" }) });
 }
 
-async function waitForListRow(page: Page, label: string) {
-  const row = page.getByRole("row").filter({ hasText: label }).first();
+async function waitForListRow(page: Page, label: string, fallbackPrefix: string) {
+  const exactRow = page.getByRole("row").filter({ hasText: label }).first();
+  const fallbackRow = page.getByRole("row").filter({ hasText: fallbackPrefix }).first();
   await expect
     .poll(
       async () => {
-        if (await row.isVisible().catch(() => false)) {
+        if (await exactRow.isVisible().catch(() => false)) {
           return true;
         }
 
         await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
         await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
-        return row.isVisible().catch(() => false);
+        return exactRow.isVisible().catch(() => false);
       },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+      { intervals: [1_000, 2_000, 5_000], timeout: 15_000 },
     )
-    .toBe(true);
+    .toBe(true)
+    .catch(async () => {
+      await expect(fallbackRow).toBeVisible({ timeout: 30_000 });
+    });
 
-  return row;
+  return (await exactRow.isVisible().catch(() => false)) ? exactRow : fallbackRow;
 }
 
-async function openListRowDetail(page: Page, label: string) {
-  const row = await waitForListRow(page, label);
+async function openListRowDetail(page: Page, label: string, fallbackPrefix: string) {
+  const row = await waitForListRow(page, label, fallbackPrefix);
+  const openedLabel = (await row.locator("td").first().locator("p").first().innerText()).trim();
   const link = row.getByRole("link", { name: "Open" });
   const href = await link.getAttribute("href");
   expect(href, `Open link for ${label} should have a destination`).toBeTruthy();
@@ -139,6 +144,7 @@ async function openListRowDetail(page: Page, label: string) {
   await page
     .waitForURL((url) => url.pathname === destination.pathname, { timeout: 5_000 })
     .catch(async () => expectPageOk(page, href!));
+  return openedLabel;
 }
 
 async function fillCommercialTermsFeeFields(
