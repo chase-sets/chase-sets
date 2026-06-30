@@ -8,6 +8,7 @@ node_modules/
 dist/
 build/
 artifacts/
+.uat-artifacts/
 coverage/
 .react-router/
 

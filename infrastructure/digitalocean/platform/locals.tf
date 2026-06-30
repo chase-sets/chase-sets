@@ -404,8 +404,29 @@ locals {
 
   context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names
 
+  # Production public exposure can be gated back to the landing-only surface
+  # while launch readiness work continues. Keep previously launched bounded
+  # context databases/users managed so an ordinary gated deploy cannot plan
+  # data-destructive deletes when the routing surface is reduced.
   production_retained_context_database_names = [
+    "auth",
+    "catalog",
+    "checkout",
+    "commercial-terms",
+    "control",
+    "discovery",
+    "fulfillment",
+    "identity",
+    "inventory",
+    "marketplace",
+    "notifications",
+    "ordering",
+    "payments",
+    "platform-operations",
+    "pricing",
+    "public-presence",
     "reputation",
+    "settlement",
   ]
 
   context_database_names = distinct(concat(
@@ -564,10 +585,13 @@ locals {
   admin_uptime_check_targets = {
     (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
   }
-  marketplace_uptime_check_targets = {
+  production_retained_marketplace_uptime_check_targets = local.is_production ? {
+    "marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"
+  } : {}
+  marketplace_uptime_check_targets = merge({
     for domain in local.all_marketplace_domains :
     "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
-  }
+  }, local.production_retained_marketplace_uptime_check_targets)
   uptime_check_targets = merge(
     local.public_uptime_check_targets,
     local.admin_uptime_check_targets,
