@@ -97,6 +97,71 @@ describe("projection hot lag evidence", () => {
     expect(evidence.signals.projectionRepair.blockedStreamSignalCount).toBe(1);
   });
 
+  it("summarizes background workload control posture without echoing private details", () => {
+    const evidence = buildProjectionHotLagEvidence({
+      checkedAt: "2026-06-24T12:00:00.000Z",
+      workerStatus: workerStatus(),
+      backgroundControls: {
+        workloads: [
+          backgroundControl("representative commerce refresh"),
+          backgroundControl("projection replay/rebuild/backfill", {
+            pauseThrottleEvidence: "private operation op_private_123 was cancelled",
+          }),
+          backgroundControl("provider import/promotion and bulk authoring"),
+          backgroundControl("scheduled/dispatch/provider-delivery loops"),
+        ],
+      },
+    });
+    const serialized = JSON.stringify(evidence);
+
+    expect(evidence.signals.backgroundControls).toEqual({
+      status: "pass",
+      workloadCount: 4,
+      coveredWorkloads: [
+        "representative-commerce-refresh",
+        "projection-replay-rebuild-backfill",
+        "provider-import-promotion-bulk-authoring",
+        "scheduled-dispatch-provider-delivery",
+      ],
+      missingWorkloads: [],
+      incompleteWorkloads: [],
+    });
+    expect(serialized).not.toContain("op_private_123");
+  });
+
+  it("marks background workload controls incomplete when matrix rows are missing", () => {
+    const evidence = buildProjectionHotLagEvidence({
+      checkedAt: "2026-06-24T12:00:00.000Z",
+      workerStatus: workerStatus(),
+      backgroundControls: {
+        workloads: [
+          {
+            workload: "representative commerce refresh",
+            normalControl: "bounded workflow dispatch",
+            hotPathProof: "representative-volume load run",
+          },
+        ],
+      },
+    });
+
+    expect(evidence.signals.backgroundControls).toMatchObject({
+      status: "incomplete",
+      workloadCount: 1,
+      coveredWorkloads: [],
+      missingWorkloads: [
+        "projection-replay-rebuild-backfill",
+        "provider-import-promotion-bulk-authoring",
+        "scheduled-dispatch-provider-delivery",
+      ],
+      incompleteWorkloads: [
+        {
+          workload: "representative-commerce-refresh",
+          missingFields: ["pauseThrottleEvidence"],
+        },
+      ],
+    });
+  });
+
   it("writes a redacted JSON evidence record from the CLI", () => {
     const dir = mkdtempSync(join(tmpdir(), "projection-hot-lag-"));
     const workerStatusPath = join(dir, "worker-status.json");
@@ -204,6 +269,16 @@ function loop(overrides = {}) {
     activeReservedSlotCount: 0,
     reservedRunnerSlots: 0,
     leaseMissCount: 0,
+    ...overrides,
+  };
+}
+
+function backgroundControl(workload, overrides = {}) {
+  return {
+    workload,
+    normalControl: "operator-owned bounded control",
+    pauseThrottleEvidence: "completed before the hot-path proof window",
+    hotPathProof: "paired representative-volume wake load and reconciliation artifacts",
     ...overrides,
   };
 }
