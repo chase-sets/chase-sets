@@ -128,6 +128,62 @@ Access coverage: access:least-privilege-denied-writes
 
 The #3020 public packet may name only actor aliases, route templates, fixture aliases, expected vs observed behavior, and artifact folders. Keep concrete account ids, user ids, membership ids, invitation tokens, API key ids/secrets, session ids, emails, cookies, and raw recovery tokens out of GitHub.
 
+For final #3022 catalog integrations/source-observation evidence, run the catalog integrations gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-catalog-integrations-coverage --evidence-file artifacts/admin-qa/issue-3022.md --out artifacts/admin-qa/issue-3022-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to list every required coverage key with the `Catalog integrations coverage:` label. Structured JSON packets can provide the same keys with `catalogIntegrationsCoverage`, `catalogIntegrationCoverage`, `sourceObservationCoverage`, `coverage`, `coverageKey`, or `check` fields at the top level or inside nested evidence rows.
+
+Use these coverage keys for #3022:
+
+```text
+Catalog integrations coverage: catalog-integrations:provider-tcgplayer-import
+Catalog integrations coverage: catalog-integrations:provider-scrydex-import
+Catalog integrations coverage: catalog-integrations:provider-tcgdex-import
+Catalog integrations coverage: catalog-integrations:live-sse-job-progress
+Catalog integrations coverage: catalog-integrations:review-observations
+Catalog integrations coverage: catalog-integrations:single-promote
+Catalog integrations coverage: catalog-integrations:bulk-promote
+Catalog integrations coverage: catalog-integrations:bulk-reject
+Catalog integrations coverage: catalog-integrations:bulk-defer
+Catalog integrations coverage: catalog-integrations:stale-preview-reconfirm
+Catalog integrations coverage: catalog-integrations:job-retry
+Catalog integrations coverage: catalog-integrations:job-resume
+Catalog integrations coverage: catalog-integrations:job-cancel
+Catalog integrations coverage: catalog-integrations:job-reapply
+Catalog integrations coverage: catalog-integrations:job-replay
+Catalog integrations coverage: catalog-integrations:alias-accept
+Catalog integrations coverage: catalog-integrations:alias-reject
+Catalog integrations coverage: catalog-integrations:alias-revoke
+Catalog integrations coverage: catalog-integrations:provider-profile-clone
+Catalog integrations coverage: catalog-integrations:provider-profile-edit-section
+Catalog integrations coverage: catalog-integrations:provider-profile-dry-run
+Catalog integrations coverage: catalog-integrations:provider-profile-activate
+Catalog integrations coverage: catalog-integrations:provider-profile-rollback
+Catalog integrations coverage: catalog-integrations:provider-profile-deprecate
+Catalog integrations coverage: catalog-integrations:provider-profile-retire
+Catalog integrations coverage: catalog-integrations:readiness-blockers
+Catalog integrations coverage: catalog-integrations:activation-blockers
+Catalog integrations coverage: catalog-integrations:governance-conflict-review
+Catalog integrations coverage: catalog-integrations:governance-lifecycle-impact-preview
+Catalog integrations coverage: catalog-integrations:governance-kill-switch-403
+Catalog integrations coverage: catalog-integrations:magic-imports-disabled
+Catalog integrations coverage: catalog-integrations:health-semantic
+Catalog integrations coverage: catalog-integrations:health-transport
+Catalog integrations coverage: catalog-integrations:health-freshness
+Catalog integrations coverage: catalog-integrations:health-audit-timeline
+Catalog integrations coverage: catalog-integrations:sse-integration-job-stream
+Catalog integrations coverage: catalog-integrations:sse-bulk-job-stream
+Catalog integrations coverage: catalog-integrations:sse-reconnect
+Catalog integrations coverage: catalog-integrations:sync-required-snapshot-fallback
+Catalog integrations coverage: catalog-integrations:actor-catalog-admin
+Catalog integrations coverage: catalog-integrations:control-plane-permissions
+```
+
+The #3022 public packet may name only route templates, actor aliases, provider/unit/profile aliases, expected vs observed behavior, and artifact folders. Keep provider raw payloads, provider account or data-source ids, job ids, observation ids, profile version ids when private, event ids, full URLs, tokens, credentials, and private seller/account data out of GitHub.
+
 For final #3021 catalog modeling evidence, run the catalog modeling gate:
 
 ```bash

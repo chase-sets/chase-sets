@@ -239,6 +239,65 @@ const ACCESS_COVERAGE_ALIASES = Object.freeze([
   "check",
 ]);
 
+export const ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE = Object.freeze([
+  { key: "catalog-integrations:provider-tcgplayer-import", description: "TCGplayer import start evidence" },
+  { key: "catalog-integrations:provider-scrydex-import", description: "Scrydex import start evidence" },
+  { key: "catalog-integrations:provider-tcgdex-import", description: "TCGdex import start evidence" },
+  { key: "catalog-integrations:live-sse-job-progress", description: "Live SSE job progress evidence" },
+  { key: "catalog-integrations:review-observations", description: "Source Observation review evidence" },
+  { key: "catalog-integrations:single-promote", description: "Single promote action evidence" },
+  { key: "catalog-integrations:bulk-promote", description: "Bulk promote action evidence" },
+  { key: "catalog-integrations:bulk-reject", description: "Bulk reject action evidence" },
+  { key: "catalog-integrations:bulk-defer", description: "Bulk defer action evidence" },
+  { key: "catalog-integrations:stale-preview-reconfirm", description: "Stale preview re-confirmation guard" },
+  { key: "catalog-integrations:job-retry", description: "Integration job retry evidence" },
+  { key: "catalog-integrations:job-resume", description: "Integration job resume evidence" },
+  { key: "catalog-integrations:job-cancel", description: "Integration job cancel evidence" },
+  { key: "catalog-integrations:job-reapply", description: "Review reapply evidence" },
+  { key: "catalog-integrations:job-replay", description: "Recovery replay evidence" },
+  { key: "catalog-integrations:alias-accept", description: "Alias accept evidence" },
+  { key: "catalog-integrations:alias-reject", description: "Alias reject evidence" },
+  { key: "catalog-integrations:alias-revoke", description: "Alias revoke evidence" },
+  { key: "catalog-integrations:provider-profile-clone", description: "Provider profile clone evidence" },
+  { key: "catalog-integrations:provider-profile-edit-section", description: "Provider profile section edit evidence" },
+  { key: "catalog-integrations:provider-profile-dry-run", description: "Provider profile dry-run evidence" },
+  { key: "catalog-integrations:provider-profile-activate", description: "Provider profile activate evidence" },
+  { key: "catalog-integrations:provider-profile-rollback", description: "Provider profile rollback evidence" },
+  { key: "catalog-integrations:provider-profile-deprecate", description: "Provider profile deprecate evidence" },
+  { key: "catalog-integrations:provider-profile-retire", description: "Provider profile retire evidence" },
+  { key: "catalog-integrations:readiness-blockers", description: "Readiness blocker evidence" },
+  { key: "catalog-integrations:activation-blockers", description: "Activation blocker evidence" },
+  { key: "catalog-integrations:governance-conflict-review", description: "Governance conflict review evidence" },
+  { key: "catalog-integrations:governance-lifecycle-impact-preview", description: "Lifecycle-impact preview evidence" },
+  { key: "catalog-integrations:governance-kill-switch-403", description: "Kill-switch 403 enforcement evidence" },
+  { key: "catalog-integrations:magic-imports-disabled", description: "Magic provider imports disabled evidence" },
+  { key: "catalog-integrations:health-semantic", description: "Semantic health evidence" },
+  { key: "catalog-integrations:health-transport", description: "Provider transport health evidence" },
+  { key: "catalog-integrations:health-freshness", description: "Freshness health evidence" },
+  { key: "catalog-integrations:health-audit-timeline", description: "Audit timeline evidence" },
+  { key: "catalog-integrations:sse-integration-job-stream", description: "Integration-job stream probe evidence" },
+  { key: "catalog-integrations:sse-bulk-job-stream", description: "Bulk-job stream probe evidence" },
+  { key: "catalog-integrations:sse-reconnect", description: "SSE reconnection evidence" },
+  { key: "catalog-integrations:sync-required-snapshot-fallback", description: "sync.required snapshot fallback" },
+  { key: "catalog-integrations:actor-catalog-admin", description: "Catalog admin actor evidence" },
+  { key: "catalog-integrations:control-plane-permissions", description: "Control-plane permissions evidence" },
+]);
+
+const CATALOG_INTEGRATIONS_COVERAGE_LABELS = Object.freeze([
+  "Catalog integrations coverage",
+  "Catalog integration coverage",
+  "Source observation coverage",
+]);
+
+const CATALOG_INTEGRATIONS_COVERAGE_ALIASES = Object.freeze([
+  "catalogIntegrationsCoverage",
+  "catalogIntegrationCoverage",
+  "sourceObservationCoverage",
+  "coverage",
+  "coverageKey",
+  "check",
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -284,6 +343,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireAccessCoverage:
       argv.includes("--require-access-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_ACCESS_COVERAGE", env) === "true",
+    requireCatalogIntegrationsCoverage:
+      argv.includes("--require-catalog-integrations-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_INTEGRATIONS_COVERAGE", env) === "true",
   };
 }
 
@@ -330,6 +392,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const catalogModeling = buildCatalogModelingCompleteness(input);
   const projectionOperations = buildProjectionOperationsCompleteness(input);
   const access = buildAccessCompleteness(input);
+  const catalogIntegrations = buildCatalogIntegrationsCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
   const actorMatrixFindings = input.requireActorMatrixCoverage
     ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
@@ -339,13 +402,17 @@ export function buildAdminWorkflowsQaEvidence(input) {
     ? projectionOperations.missingCoverage.length
     : 0;
   const accessFindings = input.requireAccessCoverage ? access.missingCoverage.length : 0;
+  const catalogIntegrationsFindings = input.requireCatalogIntegrationsCoverage
+    ? catalogIntegrations.missingCoverage.length
+    : 0;
   const totalBlockingFindings =
     totalFindings +
     completenessFindings +
     actorMatrixFindings +
     catalogModelingFindings +
     projectionOperationsFindings +
-    accessFindings;
+    accessFindings +
+    catalogIntegrationsFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -360,6 +427,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
     catalogModeling,
     projectionOperations,
     access,
+    catalogIntegrations,
     guidance:
       totalBlockingFindings === 0
         ? buildPassingGuidance(input)
@@ -370,6 +438,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
             catalogModelingFindings,
             projectionOperationsFindings,
             accessFindings,
+            catalogIntegrationsFindings,
           ),
     redaction: {
       emails: "never-recorded",
@@ -452,6 +521,33 @@ function buildAccessCompleteness(input) {
     mode: required ? "access-coverage" : "not-required",
     status: missingCoverage.length === 0 ? "pass" : "fail",
     requiredCoverage: required ? ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE : [],
+    coveredCoverage: required ? [...coveredCoverage].sort() : [],
+    missingCoverage,
+  };
+}
+
+function buildCatalogIntegrationsCompleteness(input) {
+  const required = Boolean(input.requireCatalogIntegrationsCoverage);
+  const coveredCoverage = required
+    ? collectChecklistCoverage(
+        input.evidenceFiles,
+        CATALOG_INTEGRATIONS_COVERAGE_LABELS,
+        CATALOG_INTEGRATIONS_COVERAGE_ALIASES,
+      )
+    : new Set();
+  const missingCoverage = required
+    ? ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE.filter(
+        (coverage) => !coveredCoverage.has(coverage.key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      }))
+    : [];
+
+  return {
+    mode: required ? "catalog-integrations-coverage" : "not-required",
+    status: missingCoverage.length === 0 ? "pass" : "fail",
+    requiredCoverage: required ? ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE : [],
     coveredCoverage: required ? [...coveredCoverage].sort() : [],
     missingCoverage,
   };
@@ -770,6 +866,11 @@ function buildPassingGuidance(input) {
       "Access evidence covers accounts, users, memberships, invitations, API keys, sessions, over-50 pagination, least-privilege actors, and denied-write behavior.",
     );
   }
+  if (input.requireCatalogIntegrationsCoverage) {
+    guidance.push(
+      "Catalog integrations evidence covers provider import/review/promote, recovery, alias, provider-profile, governance, health, SSE/fallback, Magic-disabled, and control-plane permission checks.",
+    );
+  }
   return guidance;
 }
 
@@ -780,6 +881,7 @@ function buildFailingGuidance(
   catalogModelingFindings,
   projectionOperationsFindings,
   accessFindings,
+  catalogIntegrationsFindings,
 ) {
   const guidance = [];
   if (totalFindings > 0) {
@@ -801,6 +903,9 @@ function buildFailingGuidance(
   }
   if (accessFindings > 0) {
     guidance.push("Add the missing Access coverage keys before using this packet to close #3020.");
+  }
+  if (catalogIntegrationsFindings > 0) {
+    guidance.push("Add the missing catalog integrations coverage keys before using this packet to close #3022.");
   }
   return guidance;
 }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE,
+  ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CATALOG_MODELING_REQUIRED_COVERAGE,
   ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -648,6 +649,118 @@ describe("admin workflows QA evidence", () => {
     );
   });
 
+  it("passes complete catalog integrations coverage evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3022.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging catalog-admin",
+        "Actor alias: admin-qa-catalog-admin",
+        "Sign-in host: /catalog/sign-in",
+        "Route or workflow: Catalog integrations checklist",
+        "Expected: Provider integration checks use approved staging fixtures.",
+        "Observed: evidence packet captured with support-safe aliases only.",
+        "Evidence artifact: artifacts/admin-qa/3022/catalog-integrations",
+        "Redaction review: passed",
+        ...ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE.map(
+          ({ key }) => `Catalog integrations coverage: ${key}`,
+        ),
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3022",
+      checkedAt,
+      requireCatalogIntegrationsCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      catalogIntegrations: {
+        mode: "catalog-integrations-coverage",
+        status: "pass",
+        requiredCoverage: ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE,
+        coveredCoverage: ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE.map(({ key }) => key).sort(),
+        missingCoverage: [],
+      },
+    });
+  });
+
+  it("accepts structured catalog integrations coverage packets", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3022.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          environment: "staging catalog-admin",
+          actorAlias: "admin-qa-catalog-admin",
+          signInHost: "/catalog/sign-in",
+          records: [
+            {
+              routeTemplate: "/catalog/source-observations",
+              catalogIntegrationsCoverage: ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE.map(
+                ({ key }) => key,
+              ),
+              artifactFolder: "artifacts/admin-qa/3022/catalog-integrations",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireCatalogIntegrationsCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("pass");
+    expect(evidence.catalogIntegrations.missingCoverage).toEqual([]);
+  });
+
+  it("fails catalog integrations evidence when provider workflow coverage is incomplete", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3022.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging catalog-admin",
+        "Actor alias: admin-qa-catalog-admin",
+        "Sign-in host: /catalog/sign-in",
+        "Catalog integrations coverage: catalog-integrations:provider-tcgplayer-import",
+        "Catalog integrations coverage: catalog-integrations:review-observations",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireCatalogIntegrationsCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.catalogIntegrations).toMatchObject({
+      mode: "catalog-integrations-coverage",
+      status: "fail",
+      missingCoverage: ADMIN_WORKFLOWS_QA_CATALOG_INTEGRATIONS_REQUIRED_COVERAGE.filter(
+        ({ key }) =>
+          !["catalog-integrations:provider-tcgplayer-import", "catalog-integrations:review-observations"].includes(key),
+      ).map((coverage) => ({
+        ...coverage,
+        severity: "blocker",
+      })),
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing catalog integrations coverage keys before using this packet to close #3022.",
+    );
+  });
+
   it("finds sensitive evidence categories without returning raw matched values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "unsafe.md");
@@ -727,6 +840,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_MODELING_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE: "true",
       ADMIN_WORKFLOWS_QA_REQUIRE_ACCESS_COVERAGE: "true",
+      ADMIN_WORKFLOWS_QA_REQUIRE_CATALOG_INTEGRATIONS_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -739,6 +853,7 @@ describe("admin workflows QA evidence", () => {
       requireCatalogModelingCoverage: true,
       requireProjectionOperationsCoverage: true,
       requireAccessCoverage: true,
+      requireCatalogIntegrationsCoverage: true,
     });
   });
 
