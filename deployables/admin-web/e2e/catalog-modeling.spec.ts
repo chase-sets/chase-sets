@@ -194,6 +194,23 @@ test.describe("catalog admin modeling", () => {
     }
   });
 
+  test("signed-in catalog operator can inspect modeling primitive detail affordances @catalog-admin-modeling", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/catalog/fields", "/access/sign-in");
+
+    await expectFieldDetail(page);
+    await expectComponentDetail(page);
+    await expectBlueprintDetail(page);
+    await expectDisplayTemplateDetail(page);
+  });
+
   test("signed-in catalog operator creates, inspects, and removes a draft catalog item @catalog-admin-modeling", async ({
     page,
   }) => {
@@ -357,6 +374,134 @@ async function expectCatalogItemListControls(page: Page) {
     await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   }
   await page.getByRole("button", { name: "Close filters" }).click();
+}
+
+async function expectFieldDetail(page: Page) {
+  await openCatalogModelingDetail(page, {
+    path: "/catalog/fields",
+    heading: "Fields",
+    seedLabels: ["Card Name", "Set", "Expansion"],
+    detailUrl: /\/catalog\/fields\/[^/?]+(?:\?|$)/,
+  });
+
+  await expect(page.getByText("Value type").first()).toBeVisible();
+  await expect(page.getByText("Filterable").first()).toBeVisible();
+  await expect(page.getByText("Searchable").first()).toBeVisible();
+  await expect(page.getByText("Sortable").first()).toBeVisible();
+  await expect(page.getByText("Status").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Configure" }).click();
+  await expect(page.getByRole("heading", { name: "Configure Field" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Value type" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Configure Field" })).toHaveCount(0);
+}
+
+async function expectComponentDetail(page: Page) {
+  await openCatalogModelingDetail(page, {
+    path: "/catalog/components",
+    heading: "Components",
+    seedLabels: ["Single Card Identity", "Single Card Product Resolution", "Sealed Product Identity"],
+    detailUrl: /\/catalog\/components\/[^/?]+(?:\?|$)/,
+  });
+
+  await expect(page.getByText("Field Rules", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Dimension Rules", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Status").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Component" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Edit Component" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Add Field Rule" }).click();
+  await expect(page.getByRole("heading", { name: "Add Field Rule" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Field ID" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Add Field Rule" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Add Dimension Rule" }).click();
+  await expect(page.getByRole("heading", { name: "Add Dimension Rule" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Dimension ID" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Add Dimension Rule" })).toHaveCount(0);
+}
+
+async function expectBlueprintDetail(page: Page) {
+  await openCatalogModelingDetail(page, {
+    path: "/catalog/blueprints",
+    heading: "Blueprints",
+    seedLabels: ["Pokemon Card Single", "Pokemon Sealed Product", "Magic Card Print"],
+    detailUrl: /\/catalog\/blueprints\/[^/?]+(?:\?|$)/,
+  });
+
+  for (const section of ["Components", "Field Rules", "Dimension Rules", "Product Resolution Rules"]) {
+    await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
+  }
+  await expect(page.getByText("Status").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Blueprint" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Edit Blueprint" })).toHaveCount(0);
+}
+
+async function expectDisplayTemplateDetail(page: Page) {
+  await openCatalogModelingDetail(page, {
+    path: "/catalog/display-templates",
+    heading: "Display Templates",
+    seedLabels: ["Pokemon single card", "Magic card print", "Lorcana card print"],
+    detailUrl: /\/catalog\/display-templates\/[^/?]+(?:\?|$)/,
+  });
+
+  for (const field of ["Target", "Priority", "Title template", "Subtitle template", "Required field keys", "Status"]) {
+    await expect(page.getByText(field).first()).toBeVisible();
+  }
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Edit Display Template" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Key" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Target kind" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Title template" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Edit Display Template" })).toHaveCount(0);
+}
+
+async function openCatalogModelingDetail(
+  page: Page,
+  config: Readonly<{
+    path: string;
+    heading: string;
+    seedLabels: readonly string[];
+    detailUrl: RegExp;
+  }>,
+) {
+  await expectPageOk(page, config.path);
+  await expectAdminPageReady(page, { heading: config.heading });
+
+  const search = page.getByRole("textbox", { name: "Search" });
+  await expect(search).toBeVisible();
+  for (const seedLabel of config.seedLabels) {
+    await search.fill(seedLabel);
+    const row = page.getByRole("row").filter({ hasText: seedLabel }).first();
+    if (await row.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await row.getByRole("link", { name: "View" }).click();
+      await expect(page).toHaveURL(config.detailUrl);
+      await expectAdminWebHydrated(page);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      return;
+    }
+  }
+
+  await search.fill("");
+  const fallbackRow = await firstVisibleRowForSeed(page, config.seedLabels);
+  await fallbackRow.getByRole("link", { name: "View" }).click();
+  await expect(page).toHaveURL(config.detailUrl);
+  await expectAdminWebHydrated(page);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 }
 
 async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: string) {
