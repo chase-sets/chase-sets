@@ -569,18 +569,30 @@ function summarizeRouteMatrixRoute(record, route) {
   const routeStatus = normalizeEvidenceLabel(wake.status ?? route.status ?? route.decision ?? route.verdict);
   const p95Ms = nonNegativeIntegerOrNull(wake.p95Ms ?? wake.readyLatencyP95Ms ?? wake.readyLatencyMs?.p95);
   const p99Ms = nonNegativeIntegerOrNull(wake.p99Ms ?? wake.readyLatencyP99Ms ?? wake.readyLatencyMs?.p99);
+  const sampleCount = nonNegativeInteger(
+    wake.sampleCount ?? wake.observationCount ?? wake.count ?? route.sampleCount ?? route.observationCount,
+  );
   const timeoutRate = nonNegativeRateOrNull(wake.timeoutRate);
   const errorRate = nonNegativeRateOrNull(wake.workSignalErrorRate ?? wake.errorRate);
   const missingReceiptCount = nonNegativeInteger(wake.missingReceiptCount);
   const missingTargetContextCount = nonNegativeInteger(wake.missingTargetContextCount);
   const exactDependencyFallbackCount = nonNegativeInteger(wake.exactDependencyFallbackCount);
+  const targetContext = normalizeEvidenceLabel(wake.targetContext ?? route.targetContext);
+  const projection = normalizeEvidenceLabel(
+    route.projectionName ?? route.projection ?? route.readModel ?? wake.projectionName ?? wake.projection,
+  );
   const status =
     isPassingRouteMatrixStatus(routeStatus) &&
+    p95Ms !== null &&
+    p99Ms !== null &&
+    sampleCount > 0 &&
     (timeoutRate ?? 0) === 0 &&
     (errorRate ?? 0) === 0 &&
     missingReceiptCount === 0 &&
     missingTargetContextCount === 0 &&
-    exactDependencyFallbackCount === 0
+    exactDependencyFallbackCount === 0 &&
+    targetContext !== "unknown" &&
+    projection !== "unknown"
       ? "pass"
       : "fail";
 
@@ -593,6 +605,7 @@ function summarizeRouteMatrixRoute(record, route) {
     decision: routeStatus,
     segmentEvidence: [
       `wake ${routeStatus}`,
+      `samples ${sampleCount}`,
       `p95 ${formatOptionalMs(p95Ms)}`,
       `p99 ${formatOptionalMs(p99Ms)}`,
       `timeout ${formatOptionalRate(timeoutRate)}`,
@@ -600,7 +613,8 @@ function summarizeRouteMatrixRoute(record, route) {
       `missing-receipt ${missingReceiptCount}`,
       `missing-target ${missingTargetContextCount}`,
       `fallback ${exactDependencyFallbackCount}`,
-      `projection ${normalizeEvidenceLabel(route.projectionName ?? route.projection ?? route.readModel)}`,
+      `target ${targetContext}`,
+      `projection ${projection}`,
     ].join("; "),
     timestampMs: freshnessEvidenceTimestampMs(record),
     readyLatencyMs: p95Ms,
