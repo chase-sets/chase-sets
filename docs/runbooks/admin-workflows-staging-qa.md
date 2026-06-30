@@ -60,6 +60,14 @@ pnpm run ops admin-workflows:qa-evidence -- --evidence-file artifacts/admin-qa/i
 
 The linter fails closed for emails, cookies, authorization/session tokens, raw recovery tokens, domain ids, and full URLs. Its report includes categories, file names, line numbers, and counts only; it never repeats the matched private values.
 
+For final #3027 cross-cutting closure evidence, run the stricter completeness gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-cross-cutting-coverage --evidence-file artifacts/admin-qa/issue-3027.md --out artifacts/admin-qa/issue-3027-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to include these support-safe labels: `Environment`, `Actor alias`, `Sign-in host`, `Route or workflow`, `Expected`, `Observed`, `Evidence artifact`, `Redaction review`, `Security/PII review`, `Responsive coverage`, and `State coverage`. Use route templates, actor aliases, viewport names, and artifact folder names; do not paste full URLs, raw ids, tokens, or customer/provider details into those fields.
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

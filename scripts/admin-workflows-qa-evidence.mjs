@@ -17,6 +17,20 @@ export const ADMIN_WORKFLOWS_QA_REDACTION_CATEGORIES = Object.freeze([
   "full_url",
 ]);
 
+export const ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS = Object.freeze([
+  { key: "environment", labels: ["Environment"] },
+  { key: "actorAlias", labels: ["Actor alias"] },
+  { key: "signInHost", labels: ["Sign-in host", "Sign in host"] },
+  { key: "routeOrWorkflow", labels: ["Route or workflow", "Route/probe template", "Probe"] },
+  { key: "expected", labels: ["Expected"] },
+  { key: "observed", labels: ["Observed"] },
+  { key: "evidenceArtifact", labels: ["Evidence artifact", "Artifact"] },
+  { key: "redactionReview", labels: ["Redaction review"] },
+  { key: "securityPiiReview", labels: ["Security/PII review", "Security and PII review"] },
+  { key: "responsiveCoverage", labels: ["Responsive coverage", "Responsive/mobile coverage"] },
+  { key: "stateCoverage", labels: ["State coverage", "Empty/error/loading state coverage"] },
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -47,6 +61,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     environment: readOption(argv, "--environment") ?? readEnv("ADMIN_WORKFLOWS_QA_ENVIRONMENT", env) ?? "staging",
     issue: readOption(argv, "--issue") ?? readEnv("ADMIN_WORKFLOWS_QA_ISSUE", env) ?? "3027",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
+    requireCrossCuttingCoverage:
+      argv.includes("--require-cross-cutting-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_CROSS_CUTTING_COVERAGE", env) === "true",
   };
 }
 
@@ -88,21 +105,22 @@ export function buildAdminWorkflowsQaEvidence(input) {
   });
   const summary = summarizeFindings(fileResults);
   const totalFindings = Object.values(summary).reduce((total, count) => total + count, 0);
+  const completeness = buildCrossCuttingCompleteness(input);
+  const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
     checkedAt: input.checkedAt,
     environment: normalizeString(input.environment) ?? "staging",
     issue: normalizeIssue(input.issue),
-    verdict: totalFindings === 0 ? "pass" : "fail",
+    verdict: totalFindings === 0 && completenessFindings === 0 ? "pass" : "fail",
     summary,
     files: fileResults,
+    completeness,
     guidance:
-      totalFindings === 0
-        ? ["Evidence is support-safe for public GitHub issue comments under the admin-workflows QA redaction policy."]
-        : [
-            "Replace raw values with actor aliases, route templates, support-safe artifact references, and issue/PR numbers before posting publicly.",
-          ],
+      totalFindings === 0 && completenessFindings === 0
+        ? buildPassingGuidance(input)
+        : buildFailingGuidance(totalFindings, completenessFindings),
     redaction: {
       emails: "never-recorded",
       cookies: "never-recorded",
@@ -114,6 +132,64 @@ export function buildAdminWorkflowsQaEvidence(input) {
       fullUrls: "never-recorded",
     },
   };
+}
+
+function buildCrossCuttingCompleteness(input) {
+  const required = Boolean(input.requireCrossCuttingCoverage);
+  const content = input.evidenceFiles.map(({ content }) => content).join("\n");
+  const missingFields = required
+    ? ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.filter((field) => !hasEvidenceField(content, field.labels)).map(
+        (field) => ({
+          key: field.key,
+          labels: field.labels,
+          severity: "blocker",
+        }),
+      )
+    : [];
+
+  return {
+    mode: required ? "cross-cutting-coverage" : "redaction-only",
+    status: missingFields.length === 0 ? "pass" : "fail",
+    requiredFields: required
+      ? ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.map((field) => ({
+          key: field.key,
+          labels: field.labels,
+        }))
+      : [],
+    missingFields,
+  };
+}
+
+function hasEvidenceField(content, labels) {
+  return labels.some((label) => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|\\n)\\s*${escaped}\\s*:`, "i").test(content);
+  });
+}
+
+function buildPassingGuidance(input) {
+  const guidance = [
+    "Evidence is support-safe for public GitHub issue comments under the admin-workflows QA redaction policy.",
+  ];
+  if (input.requireCrossCuttingCoverage) {
+    guidance.push(
+      "Cross-cutting evidence names route/probe, expected and observed behavior, artifact, redaction review, security/PII review, responsive coverage, and state coverage.",
+    );
+  }
+  return guidance;
+}
+
+function buildFailingGuidance(totalFindings, completenessFindings) {
+  const guidance = [];
+  if (totalFindings > 0) {
+    guidance.push(
+      "Replace raw values with actor aliases, route templates, support-safe artifact references, and issue/PR numbers before posting publicly.",
+    );
+  }
+  if (completenessFindings > 0) {
+    guidance.push("Add the missing cross-cutting evidence fields before using this packet to close #3027.");
+  }
+  return guidance;
 }
 
 export function findAdminWorkflowsQaEvidenceFindings(content) {

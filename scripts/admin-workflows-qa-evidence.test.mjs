@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
+  ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS,
   ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
   findAdminWorkflowsQaEvidenceFindings,
   parseAdminWorkflowsQaEvidenceArgs,
@@ -54,7 +55,99 @@ describe("admin workflows QA evidence", () => {
           findings: [],
         },
       ],
+      completeness: {
+        mode: "redaction-only",
+        status: "pass",
+        requiredFields: [],
+        missingFields: [],
+      },
     });
+  });
+
+  it("passes complete cross-cutting responsive and state evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3027.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-admin",
+        "Sign-in host: /access/sign-in",
+        "Route or workflow: /platform/projections/:operationId/events",
+        "Expected: route returns controlled JSON or event stream.",
+        "Observed: controlled JSON response; no host HTML fallback.",
+        "Evidence artifact: artifacts/admin-qa/3027/platform-projection-events",
+        "Redaction review: passed",
+        "Security/PII review: no raw ids, cookies, tokens, emails, or full URLs recorded.",
+        "Responsive coverage: desktop 1280x900 and mobile 390x900 screenshots captured.",
+        "State coverage: empty, error, and loading states captured or marked controlled-unavailable.",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3027",
+      checkedAt,
+      requireCrossCuttingCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      completeness: {
+        mode: "cross-cutting-coverage",
+        status: "pass",
+        requiredFields: ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.map(({ key, labels }) => ({
+          key,
+          labels,
+        })),
+        missingFields: [],
+      },
+    });
+  });
+
+  it("fails strict cross-cutting evidence when responsive or state coverage is missing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3027.md");
+    await writeFile(
+      evidenceFile,
+      [
+        "Environment: staging admin-web",
+        "Actor alias: admin-qa-platform-admin",
+        "Sign-in host: /access/sign-in",
+        "Route or workflow: /platform/projections/:operationId/events",
+        "Expected: route returns controlled JSON or event stream.",
+        "Observed: controlled JSON response; no host HTML fallback.",
+        "Evidence artifact: artifacts/admin-qa/3027/platform-projection-events",
+        "Redaction review: passed",
+        "Security/PII review: no raw ids, cookies, tokens, emails, or full URLs recorded.",
+      ].join("\n"),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      checkedAt,
+      requireCrossCuttingCoverage: true,
+    });
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.completeness).toMatchObject({
+      mode: "cross-cutting-coverage",
+      status: "fail",
+      missingFields: [
+        {
+          key: "responsiveCoverage",
+          severity: "blocker",
+        },
+        {
+          key: "stateCoverage",
+          severity: "blocker",
+        },
+      ],
+    });
+    expect(evidence.guidance).toContain(
+      "Add the missing cross-cutting evidence fields before using this packet to close #3027.",
+    );
   });
 
   it("finds sensitive evidence categories without returning raw matched values", async () => {
@@ -131,6 +224,7 @@ describe("admin workflows QA evidence", () => {
       ADMIN_WORKFLOWS_QA_EVIDENCE_OUT: "artifacts/admin-qa-evidence.json",
       ADMIN_WORKFLOWS_QA_ENVIRONMENT: "staging",
       ADMIN_WORKFLOWS_QA_ISSUE: "#3027",
+      ADMIN_WORKFLOWS_QA_REQUIRE_CROSS_CUTTING_COVERAGE: "true",
     });
 
     expect(parsed).toMatchObject({
@@ -138,6 +232,7 @@ describe("admin workflows QA evidence", () => {
       outPath: "artifacts/admin-qa-evidence.json",
       environment: "staging",
       issue: "#3027",
+      requireCrossCuttingCoverage: true,
     });
   });
 
