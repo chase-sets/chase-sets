@@ -71,6 +71,47 @@ function expectControlledCatalogStreamProbe(path: string, result: CatalogStreamP
   expect(() => JSON.parse(result.textStart || "{}"), `${path} should return JSON`).not.toThrow();
 }
 
+async function expectAliasReviewWorkspaceIfPresent(page: Page) {
+  const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" }).first();
+  const aliasReviewRendered = await aliasReviewHeading.isVisible({ timeout: 30_000 }).catch(() => false);
+  if (!aliasReviewRendered) {
+    return;
+  }
+
+  await expect(aliasReviewHeading).toBeVisible();
+  await expect(page.getByText("Needs review").first()).toBeVisible();
+  await expect(page.getByText("Auto-accept eligible").first()).toBeVisible();
+  await expect(page.getByText("Alias coverage").first()).toBeVisible();
+  await expect(page.locator('[data-alias-review-coverage="true"]').first()).toBeVisible();
+
+  const aliasReviewTable = page.getByRole("table", { name: "Alias review" });
+  await expect(aliasReviewTable).toBeVisible();
+  const candidateRow = aliasReviewTable
+    .getByRole("row")
+    .filter({ has: page.getByRole("button", { name: "Evidence" }) })
+    .first();
+  if (!(await candidateRow.isVisible().catch(() => false))) {
+    await expect(page.getByText("No alias candidates").first()).toBeVisible();
+    return;
+  }
+
+  await candidateRow.getByRole("button", { name: "Evidence" }).click();
+  await expect(page.getByText("Auto-accept").first()).toBeVisible();
+  await expect(page.getByText("Warnings").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  const reviewCommands = candidateRow.locator("[data-alias-review-command]");
+  await expect
+    .poll(
+      async () =>
+        (await reviewCommands.evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("data-alias-review-command")).filter(Boolean),
+        )) as string[],
+      { timeout: 10_000 },
+    )
+    .toEqual(expect.arrayContaining([expect.stringMatching(/^(accept|reject|defer|revoke|auto-accept)$/)]));
+}
+
 test.describe("catalog admin integrations", () => {
   test("catalog job streams open or fail with controlled JSON responses @catalog-admin-integrations", async ({
     page,
@@ -130,10 +171,7 @@ test.describe("catalog admin integrations", () => {
     // but its content is data-dependent (it resolves to nothing when there are no
     // alias candidates for the scope). Assert it only when it actually rendered, so
     // the test never assumes the seed carries alias candidates.
-    const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" });
-    if (await aliasReviewHeading.count()) {
-      await expect(aliasReviewHeading.first()).toBeVisible({ timeout: 30_000 });
-    }
+    await expectAliasReviewWorkspaceIfPresent(page);
     // The rebuilt daily surface no longer renders a page-local "Import to promotion
     // workbench" label; that text was tied to the removed page-local workflow/module
     // nav. The workbench identity is now carried by the heading (asserted above) and the
@@ -510,15 +548,6 @@ test.describe("catalog admin integrations", () => {
     );
     // The full RBAC / kill-switch / observability panel lives here, not on the daily route.
     await expect(page.getByRole("heading", { name: "RBAC action matrix" })).toBeVisible();
-    const magicProductionSignoffControl = page.getByText("magic-production-signoff-required");
-    if (await magicProductionSignoffControl.count()) {
-      await expect(magicProductionSignoffControl.first()).toBeVisible();
-      await expect(
-        page.getByText(
-          "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.",
-        ),
-      ).toBeVisible();
-    }
     // The governance surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header; it preserves the working set.
     const governanceBackLinks = page.getByRole("link", { name: "Back to import workbench" });
@@ -528,6 +557,29 @@ test.describe("catalog admin integrations", () => {
     expect(backFromGovernanceUrl.pathname).toBe("/catalog/integrations");
     expect(backFromGovernanceUrl.searchParams.has("section")).toBe(false);
     expect(backFromGovernanceUrl.searchParams.get("providerKey")).toBe("tcgdex");
+
+    // Magic provider imports stay production-signoff gated in production-like admin
+    // environments. Deep-link the governance surface directly so the E2E proves the
+    // disabled-import control instead of relying on whatever provider the default
+    // daily route selected.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/governance?providerKey=scryfall&unitKey=scryfall%3Amtg%3Asingle-card%3Areference-data&section=controls",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?.*providerKey=scryfall/);
+    await expect(page.getByText("imports-disabled").first()).toBeVisible();
+    await expect(
+      page.getByText("Catalog integration imports are disabled for the configured provider scope.").first(),
+    ).toBeVisible();
+    await expect(page.getByText("magic-production-signoff-required").first()).toBeVisible();
+    await expect(
+      page
+        .getByText(
+          "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.",
+        )
+        .first(),
+    ).toBeVisible();
 
     // With a resolving profile selected, lifecycle recovery renders the rollback,
     // deprecate, and retire command forms with confirmation and complete-removal evidence.
