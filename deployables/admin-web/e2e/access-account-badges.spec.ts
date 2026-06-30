@@ -13,7 +13,14 @@ const accountBadgeLabels: Record<AccountBadgeKey, string> = {
 type AccountSnapshot = Readonly<{
   account_id: string;
   display_name: string;
+  status: string;
   badges: readonly string[];
+}>;
+
+type AccountListResponse = Readonly<{
+  items: readonly AccountSnapshot[];
+  total: number;
+  count: number;
 }>;
 
 type CurrentActorDisplay = Readonly<{
@@ -21,6 +28,34 @@ type CurrentActorDisplay = Readonly<{
 }>;
 
 test.describe("access admin account badges", () => {
+  test("operator can inspect account lifecycle controls without mutating account state @admin-access", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
+
+    await authenticateAdmin(page, "/access/accounts", "/access/sign-in");
+    await expectPageOk(page, "/access/accounts");
+    await expectAdminPageReady(page, { heading: "Accounts" });
+
+    const actor = await getCurrentActorDisplay(page);
+    const activeAccount = await waitForAccountSnapshot(page, actor.account.account_id, () => true);
+    await expectAccountLifecycleControls(page, activeAccount);
+
+    const suspendedAccount = await findAccountByStatus(page, "suspended");
+    if (suspendedAccount) {
+      await expectAccountLifecycleControls(page, suspendedAccount);
+    }
+
+    const closedAccount = await findAccountByStatus(page, "closed");
+    if (closedAccount) {
+      await expectAccountLifecycleControls(page, closedAccount);
+    }
+  });
+
   test("operator assigns and removes every supported account badge @admin-access", async ({ page }) => {
     test.setTimeout(180_000);
     test.skip(
@@ -57,6 +92,14 @@ async function getCurrentActorDisplay(page: Page) {
   return (await response.json()) as CurrentActorDisplay;
 }
 
+async function findAccountByStatus(page: Page, status: "suspended" | "closed") {
+  const origin = new URL(page.url()).origin;
+  const response = await page.request.get(`${origin}/api/identity/accounts?status=${status}&limit=5&offset=0`);
+  expect(response.status(), `${status} accounts list should be readable`).toBe(200);
+  const body = (await response.json()) as AccountListResponse;
+  return body.items.find((account) => account.status === status) ?? null;
+}
+
 async function waitForAccountSnapshot(
   page: Page,
   accountId: string,
@@ -81,6 +124,34 @@ async function waitForAccountSnapshot(
 
   expect(snapshot, "account snapshot should be available").toBeTruthy();
   return snapshot!;
+}
+
+async function expectAccountLifecycleControls(page: Page, account: AccountSnapshot) {
+  await page.goto(`/access/accounts/${account.account_id}`, { waitUntil: "domcontentloaded" });
+  await expectAdminPageReady(page, { heading: account.display_name });
+  await expect(page.getByText(account.account_id)).toBeVisible();
+  await expect(page.getByText(account.status).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Update Profile" })).toBeVisible();
+
+  if (account.status === "active") {
+    await expect(page.getByRole("button", { name: "Suspend" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reactivate" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+    return;
+  }
+
+  if (account.status === "suspended") {
+    await expect(page.getByRole("button", { name: "Suspend" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Reactivate" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+    return;
+  }
+
+  if (account.status === "closed") {
+    await expect(page.getByRole("button", { name: "Suspend" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Reactivate" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Close" })).toHaveCount(0);
+  }
 }
 
 async function exerciseBadgeToggle(
