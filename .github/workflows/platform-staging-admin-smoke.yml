@@ -1,0 +1,176 @@
+name: Platform Staging Admin Smoke Evidence
+
+# Generates repeatable staging admin smoke evidence for milestone #65 / #3027.
+# This is support evidence for API/SSE topology rows; it does not replace the
+# manual deployed-browser workflow evidence required by the admin QA issues.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "run staging admin smoke evidence" to confirm probing deployed staging admin surfaces.
+        required: true
+        type: string
+      release_ref:
+        description: Ref containing the smoke tooling. Defaults to main.
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-admin-smoke-evidence
+  cancel-in-progress: false
+
+jobs:
+  staging-admin-smoke-evidence:
+    name: Staging Admin Smoke Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    if: inputs.confirm == 'run staging admin smoke evidence'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      SMOKE_REQUIRE_ADMIN: "true"
+      SMOKE_REQUIRE_MARKETPLACE: "true"
+      SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
+      SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
+      SMOKE_WRITE_WAITLIST: "false"
+      SMOKE_SOURCE: staging-admin-smoke
+      SMOKE_UTM_CAMPAIGN: admin-workflows-staging-qa
+      SMOKE_FETCH_ATTEMPTS: "24"
+      SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+    steps:
+      - name: Confirm staging admin smoke evidence
+        run: |
+          set -euo pipefail
+          echo "Staging admin smoke evidence confirmed."
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "${{ inputs.release_ref }}" \
+            --checkout true \
+            --github-env "$GITHUB_ENV"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Resolve staging smoke domains
+        id: domains
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
+            echo "Required staging smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          {
+            echo "LANDING_URL=https://${landing_domain}"
+            echo "ADMIN_URL=https://${admin_domain}"
+            echo "MARKETPLACE_URL=https://${marketplace_domain}"
+            echo "LEGACY_REDIRECT_URL=https://${legacy_public_redirect_domain}"
+            echo "MARKETPLACE_ROOT_WEB_URL=https://${staging_root_marketplace_domain}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run staging admin smoke
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/admin-smoke
+          pnpm run smoke:platform -- \
+            "${LANDING_URL}" \
+            "${ADMIN_URL}" \
+            "${MARKETPLACE_URL}" \
+            "${LEGACY_REDIRECT_URL}" \
+            2>&1 | tee artifacts/admin-smoke/platform-staging-admin-smoke.log
+
+      - name: Write staging admin smoke summary
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/admin-smoke
+          node <<'NODE'
+          const fs = require("node:fs");
+          const evidence = {
+            schemaVersion: "platform-staging-admin-smoke-evidence/v1",
+            environment: "staging",
+            checkedAt: new Date().toISOString(),
+            releaseCommit: process.env.release_commit ?? process.env.GITHUB_SHA,
+            adminOrigin: process.env.ADMIN_URL,
+            marketplaceOrigin: process.env.MARKETPLACE_URL,
+            marketplaceRootOrigin: process.env.MARKETPLACE_ROOT_WEB_URL,
+            legacyRedirectOrigin: process.env.LEGACY_REDIRECT_URL,
+            smokeLog: "platform-staging-admin-smoke.log",
+            supportSafe: true,
+            notes: [
+              "Smoke log is generated by pnpm run smoke:platform with staging environment credentials.",
+              "This artifact supports #3027 API/SSE topology evidence and does not replace manual browser QA sign-off.",
+            ],
+          };
+          fs.writeFileSync("artifacts/admin-smoke/platform-staging-admin-smoke-summary.json", `${JSON.stringify(evidence, null, 2)}\n`);
+          const lines = [
+            "### Platform staging admin smoke evidence",
+            "",
+            `- Environment: ${evidence.environment}`,
+            `- Release commit: ${evidence.releaseCommit}`,
+            `- Admin origin: ${evidence.adminOrigin}`,
+            `- Marketplace origin: ${evidence.marketplaceOrigin}`,
+            `- Support-safe artifact: ${evidence.supportSafe}`,
+            "",
+            "This supports #3027 API/SSE topology evidence. Manual browser QA remains required for final #65 closure.",
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Upload staging admin smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-staging-admin-smoke-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/admin-smoke
+          if-no-files-found: error
+          retention-days: 30
