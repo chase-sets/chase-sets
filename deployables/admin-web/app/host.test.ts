@@ -51,6 +51,23 @@ describe("admin web host context registry", () => {
     expect(resolveAdminWebNavItems({ permissions: ["commercial-terms.view"] }, { section: "platform" })).toEqual([]);
   });
 
+  it("contributes admin sign-in routes from access and catalog hosts", () => {
+    expect(resolveAdminWebRouteConfigRecords()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routeId: "sign-in",
+          routePath: "access/sign-in",
+          section: "access",
+        }),
+        expect.objectContaining({
+          routeId: "catalog-sign-in",
+          routePath: "catalog/sign-in",
+          section: "catalog",
+        }),
+      ]),
+    );
+  });
+
   it("contributes Catalog integrations as a nested admin nav group with section-prefixed child routes", () => {
     expect(resolveAdminWebNavItems({ permissions: ["catalog.view"] }, { section: "catalog" })).toContainEqual({
       key: "integrations",
