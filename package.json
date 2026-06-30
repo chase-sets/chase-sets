@@ -76,6 +76,7 @@
     "test:staging-wake-drills": "vitest run scripts/staging-wake-drills.test.mjs",
     "test:staging-mixed-version-wake-drill": "vitest run scripts/staging-mixed-version-wake-drill.test.mjs",
     "test:push-wake-load-evidence": "vitest run scripts/push-wake-load-evidence.test.mjs",
+    "test:read-consistency-route-matrix-evidence": "vitest run scripts/read-consistency-route-matrix-evidence.test.mjs",
     "test:release-lock": "vitest run scripts/release-lock.test.mjs",
     "test:release-lock-commands": "vitest run scripts/release-lock-commands.test.mjs",
     "test:release-health": "vitest run scripts/release-health.test.mjs",

@@ -205,6 +205,17 @@ Build a Markdown dashboard from release-health artifacts with:
 pnpm run ops release-health:report --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
 ```
 
+Generate read-consistency route-matrix evidence from Prometheus before adding
+the artifact to the report:
+
+```powershell
+pnpm run ops read-consistency:route-matrix-evidence `
+  --prometheus-url https://prometheus.staging.chasesets.com `
+  --environment staging `
+  --window 30m `
+  --out .\artifacts\wake-drills\read-consistency-route-matrix-evidence.json
+```
+
 The report classifies mixed artifact directories by `schemaVersion`: `release-health/v1` records drive release counts and queue SLOs, while Buy Now freshness probes, account-cart consistency probes, wake-drill artifacts, route-matrix wake evidence (`read-consistency-route-matrix-evidence/v1`), and Non-Buy-Now Chrome UAT evidence feed the Projection Freshness Evidence section. Probe artifacts in `artifacts/release-health` no longer count as release attempts. Add wake-drill or route-matrix artifacts with repeated `--file` flags when they live under `artifacts/wake-drills`, for example:
 
 ```powershell
