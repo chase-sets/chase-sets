@@ -1,11 +1,26 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
-import type { Account } from "../../support/request-support/api-client";
+import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { IdentityApiError, type Account } from "../../support/request-support/api-client";
 import { isAccountBadgeKey, type AccountBadgeKey } from "../../features/accounts/ui/account-badges";
 import { AccountDetailPage } from "../../features/accounts/ui/account-detail-page";
-import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
+import { createIdentityRequestApiClient, requestWithoutFreshWrite } from "../../support/route-support/identity-request";
+
+function identityApiErrorStatus(error: unknown) {
+  return error instanceof IdentityApiError ? error.status : null;
+}
+
+function identityApiErrorBody(error: unknown) {
+  return error instanceof IdentityApiError ? error.body : null;
+}
+
+function identityApiErrorCode(error: unknown) {
+  const body = identityApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
 
 function readAccountBadgeKey(value: FormDataEntryValue | null): AccountBadgeKey {
   const badgeKey = String(value ?? "");
@@ -18,9 +33,34 @@ function readAccountBadgeKey(value: FormDataEntryValue | null): AccountBadgeKey 
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
+  const accountId = params.id!;
+  const response = await loadAfterWrite({
+    request,
+    load: () => api.getAccount<Account>(accountId),
+    isNotFound: (error) => identityApiErrorStatus(error) === 404,
+    getStatus: identityApiErrorStatus,
+    getErrorCode: identityApiErrorCode,
+    getBody: identityApiErrorBody,
+  });
+
+  if (response.kind === "pending") {
+    const recoveryApi = createIdentityRequestApiClient(requestWithoutFreshWrite(request));
+    return {
+      id: accountId,
+      data: await recoveryApi.getAccount<Account>(accountId),
+    };
+  }
+
+  if (response.kind === "permanent-failure") {
+    if ("error" in response) {
+      throw response.error;
+    }
+    throw new Response("Account is unavailable.", { status: 404 });
+  }
+
   return {
-    id: params.id!,
-    data: await api.getAccount<Account>(params.id!),
+    id: accountId,
+    data: response.data,
   };
 }
 

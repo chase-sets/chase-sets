@@ -54,8 +54,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
     timeout: 30_000,
   });
   await expectAdminPageReady(page, { heading: "Fee Schedules" });
-  const row = await waitForListRow(page, label);
-  await row.getByRole("link", { name: "Open" }).click();
+  await openListRowDetail(page, label);
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
@@ -95,8 +94,7 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
     timeout: 30_000,
   });
   await expectAdminPageReady(page, { heading: "Commercial Agreements" });
-  const row = await waitForListRow(page, label);
-  await row.getByRole("link", { name: "Open" }).click();
+  await openListRowDetail(page, label);
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
@@ -128,6 +126,19 @@ async function waitForListRow(page: Page, label: string) {
     .toBe(true);
 
   return row;
+}
+
+async function openListRowDetail(page: Page, label: string) {
+  const row = await waitForListRow(page, label);
+  const link = row.getByRole("link", { name: "Open" });
+  const href = await link.getAttribute("href");
+  expect(href, `Open link for ${label} should have a destination`).toBeTruthy();
+  const destination = new URL(href!, page.url());
+
+  await link.click();
+  await page
+    .waitForURL((url) => url.pathname === destination.pathname, { timeout: 5_000 })
+    .catch(async () => expectPageOk(page, href!));
 }
 
 async function fillCommercialTermsFeeFields(

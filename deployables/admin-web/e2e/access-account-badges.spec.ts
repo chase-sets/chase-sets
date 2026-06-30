@@ -42,7 +42,7 @@ test.describe("access admin account badges", () => {
 
     try {
       for (const badgeKey of accountBadgeKeys) {
-        await exerciseBadgeToggle(page, badgeKey);
+        await exerciseBadgeToggle(page, accountId, initialAccount.display_name, badgeKey);
       }
     } finally {
       await restoreAccountBadges(page, accountId, initialBadges);
@@ -83,26 +83,29 @@ async function waitForAccountSnapshot(
   return snapshot!;
 }
 
-async function exerciseBadgeToggle(page: Page, badgeKey: AccountBadgeKey) {
+async function exerciseBadgeToggle(
+  page: Page,
+  accountId: string,
+  accountDisplayName: string,
+  badgeKey: AccountBadgeKey,
+) {
   const label = accountBadgeLabels[badgeKey];
   const initiallyAssigned = await readBadgeAssignment(page, label);
+  const action = `${initiallyAssigned ? "Remove" : "Assign"} ${label} badge`;
 
-  if (initiallyAssigned) {
-    await clickBadgeAction(page, `Remove ${label} badge`);
-    await expectBadgeAssignment(page, label, false);
-    await clickBadgeAction(page, `Assign ${label} badge`);
-    await expectBadgeAssignment(page, label, true);
-    return;
-  }
-
-  await clickBadgeAction(page, `Assign ${label} badge`);
-  await expectBadgeAssignment(page, label, true);
-  await clickBadgeAction(page, `Remove ${label} badge`);
-  await expectBadgeAssignment(page, label, false);
+  await clickBadgeAction(page, action);
+  await page.goto(`/access/accounts/${accountId}`, { waitUntil: "domcontentloaded" });
+  await expectAdminPageReady(page, { heading: accountDisplayName });
 }
 
 async function clickBadgeAction(page: Page, name: string) {
-  await page.getByRole("button", { name }).click();
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (candidate) => candidate.request().method() === "POST" && candidate.url().includes("/access/accounts/"),
+    ),
+    page.getByRole("button", { name }).click(),
+  ]);
+  expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
   await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
 }
 

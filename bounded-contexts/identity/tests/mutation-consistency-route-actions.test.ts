@@ -365,6 +365,57 @@ describe("Identity mutation consistency route actions", () => {
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
   });
 
+  it("recovers account detail after post-write freshness timeout by retrying without freshness", async () => {
+    const observedHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/accounts/acc_1")) {
+          observedHeaders.push(new Headers(init?.headers));
+          if (observedHeaders.length === 1) {
+            return jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection read model did not catch up before the freshness timeout.",
+                },
+              },
+              503,
+            );
+          }
+
+          return jsonResponse({
+            account_id: "acc_1",
+            account_type: "business",
+            badges: ["founding-account"],
+            display_name: "Card Vault",
+            name: "Card Vault LLC",
+            status: "active",
+            updated_at: "2026-06-15T00:00:00.000Z",
+          });
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const path = appendFreshWriteToken("/access/accounts/acc_1", identityCommit("93"));
+    const data = await accountDetailLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: { id: "acc_1" },
+      context: undefined,
+    } as never);
+
+    expect(data.data.badges).toEqual(["founding-account"]);
+    expect(observedHeaders).toHaveLength(2);
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
+  });
+
   it("recovers invitation detail after post-write freshness timeout by retrying without freshness", async () => {
     const observedHeaders: Headers[] = [];
     vi.stubGlobal(

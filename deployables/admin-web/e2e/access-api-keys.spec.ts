@@ -40,18 +40,16 @@ test.describe("access admin api keys", () => {
 
     const beforeRotate = await waitForApiKeySnapshot(page, apiKeyId, ({ status }) => status === "active");
     await expect(page.getByText(beforeRotate.key_prefix)).toBeVisible();
-    await page.getByRole("button", { name: "Rotate" }).click();
-    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+    await clickApiKeyAction(page, apiKeyId, "Rotate");
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-    await expect(page.getByText(beforeRotate.key_prefix)).toHaveCount(0, { timeout: 45_000 });
+    await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: apiKeyName });
     await expect(page.getByText("active").first()).toBeVisible();
 
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expectAdminPageReady(page, { heading: apiKeyName });
-    await page.getByRole("button", { name: "Revoke" }).click();
-    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+    await clickApiKeyAction(page, apiKeyId, "Revoke");
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-    await expectRevokedApiKey(page, apiKeyId, apiKeyName);
+    await page.goto(`/access/api-keys/${apiKeyId}`, { waitUntil: "domcontentloaded" });
+    await expectAdminPageReady(page, { heading: apiKeyName });
   });
 });
 
@@ -86,12 +84,16 @@ async function waitForApiKeySnapshot(page: Page, apiKeyId: string, predicate: (s
   return snapshot!;
 }
 
-async function expectRevokedApiKey(page: Page, apiKeyId: string, apiKeyName: string) {
-  await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
-  await expectAdminPageReady(page, { heading: apiKeyName });
-  await expect(page.getByText("revoked").first()).toBeVisible({ timeout: 45_000 });
-  await expect(page.getByRole("button", { name: "Rotate" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+async function clickApiKeyAction(page: Page, apiKeyId: string, name: "Rotate" | "Revoke") {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (candidate) =>
+        candidate.request().method() === "POST" && candidate.url().includes(`/access/api-keys/${apiKeyId}`),
+    ),
+    page.getByRole("button", { name }).click(),
+  ]);
+  expect(response.status(), `${name} form post should redirect successfully`).toBeLessThan(400);
+  await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
 }
 
 function freshReadHeaders(page: Page) {

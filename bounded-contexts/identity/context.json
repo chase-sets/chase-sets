@@ -233,10 +233,11 @@
         "routeId": "accounts-detail",
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:id",
+        "helperUses": ["loadAfterWrite"],
         "readModelTables": ["identity_accounts"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up."
+          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity account API can return committed command-side state."
         }
       },
       "proof": {
