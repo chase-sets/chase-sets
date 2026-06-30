@@ -298,7 +298,7 @@ async function expectReferenceTypeListAndDetail(page: Page) {
   await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Description", exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Attribute keys", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Attribute Keys", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Reference Type" })).toHaveCount(0);
 }
