@@ -644,6 +644,72 @@ describe("social login routes", () => {
     expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
   });
 
+  it("filters admin SSO Platform entry by projection operations permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_projection_ops",
+          accountId: "acc_projection_ops",
+          roleKey: "projection-operations-admin",
+          status: "active",
+          rolePermissions: ["projection-operations.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=admin&returnTo=/platform/projections");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/platform/projections");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          accountId: "acc_projection_ops",
+          availableAccountIds: ["acc_projection_ops"],
+        }),
+      }),
+    );
+  });
+
+  it("rejects admin SSO Platform entry for security-only Access actors", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_security",
+          accountId: "acc_security",
+          roleKey: "access-security-admin",
+          status: "active",
+          rolePermissions: ["security.manage"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=admin&returnTo=/platform");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
   it("allows admin SSO root entry for catalog-only actors", async () => {
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },
