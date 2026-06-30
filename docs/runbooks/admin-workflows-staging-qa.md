@@ -78,6 +78,56 @@ pnpm run ops admin-workflows:qa-evidence -- --require-actor-matrix-coverage --ev
 
 That mode still applies the redaction scan, and also requires every Actor Matrix alias above to appear with its intended `Sign-in host`. Structured JSON packets can provide the same evidence with `actorAlias` and `signInHost` keys at the top level or inside nested `records`, `results`, `rows`, `checks`, `evidence`, or `artifacts` arrays/objects.
 
+For final #3020 Access section evidence, run the Access gate:
+
+```bash
+pnpm run ops admin-workflows:qa-evidence -- --require-access-coverage --evidence-file artifacts/admin-qa/issue-3020.md --out artifacts/admin-qa/issue-3020-redaction.json
+```
+
+That mode still applies the redaction scan, and also requires the public packet to list every required coverage key with the `Access coverage:` label. Structured JSON packets can provide the same keys with `accessCoverage`, `accessChecklistCoverage`, `coverage`, `coverageKey`, or `check` fields at the top level or inside nested evidence rows.
+
+Use these coverage keys for #3020:
+
+```text
+Access coverage: access:accounts-suspend
+Access coverage: access:accounts-reactivate
+Access coverage: access:accounts-close-terminal
+Access coverage: access:accounts-badge-founding-add-remove
+Access coverage: access:accounts-badge-trusted-seller-add-remove
+Access coverage: access:accounts-badge-manual-payout-review-add-remove
+Access coverage: access:users-profile-edit
+Access coverage: access:users-suspend
+Access coverage: access:users-reactivate
+Access coverage: access:memberships-role-owner
+Access coverage: access:memberships-role-manager
+Access coverage: access:memberships-role-fulfillment
+Access coverage: access:memberships-role-viewer
+Access coverage: access:memberships-revoke
+Access coverage: access:memberships-reinstate
+Access coverage: access:memberships-account-scoped-filtering
+Access coverage: access:invitations-create
+Access coverage: access:invitations-resend
+Access coverage: access:invitations-cancel
+Access coverage: access:invitations-decline
+Access coverage: access:invitations-expire
+Access coverage: access:api-keys-create
+Access coverage: access:api-keys-rotate
+Access coverage: access:api-keys-revoke
+Access coverage: access:sessions-switch-active-account
+Access coverage: access:sessions-revoke
+Access coverage: access:pagination-over-50-accounts
+Access coverage: access:pagination-over-50-users
+Access coverage: access:pagination-over-50-memberships
+Access coverage: access:pagination-over-50-invitations
+Access coverage: access:pagination-over-50-api-keys
+Access coverage: access:pagination-over-50-sessions
+Access coverage: access:actor-security-manage
+Access coverage: access:actor-memberships-view
+Access coverage: access:least-privilege-denied-writes
+```
+
+The #3020 public packet may name only actor aliases, route templates, fixture aliases, expected vs observed behavior, and artifact folders. Keep concrete account ids, user ids, membership ids, invitation tokens, API key ids/secrets, session ids, emails, cookies, and raw recovery tokens out of GitHub.
+
 For final #3021 catalog modeling evidence, run the catalog modeling gate:
 
 ```bash

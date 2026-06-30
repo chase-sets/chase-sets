@@ -185,6 +185,60 @@ const PROJECTION_OPERATIONS_COVERAGE_ALIASES = Object.freeze([
   "check",
 ]);
 
+export const ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE = Object.freeze([
+  { key: "access:accounts-suspend", description: "Account suspend action" },
+  { key: "access:accounts-reactivate", description: "Account reactivate action" },
+  { key: "access:accounts-close-terminal", description: "Account close terminal state" },
+  { key: "access:accounts-badge-founding-add-remove", description: "Founding Account badge add/remove" },
+  { key: "access:accounts-badge-trusted-seller-add-remove", description: "Trusted Seller badge add/remove" },
+  {
+    key: "access:accounts-badge-manual-payout-review-add-remove",
+    description: "Manual Payout Review badge add/remove",
+  },
+  { key: "access:users-profile-edit", description: "User profile edit action" },
+  { key: "access:users-suspend", description: "User suspend action" },
+  { key: "access:users-reactivate", description: "User reactivate action" },
+  { key: "access:memberships-role-owner", description: "Membership role change to owner" },
+  { key: "access:memberships-role-manager", description: "Membership role change to manager" },
+  { key: "access:memberships-role-fulfillment", description: "Membership role change to fulfillment" },
+  { key: "access:memberships-role-viewer", description: "Membership role change to viewer" },
+  { key: "access:memberships-revoke", description: "Membership revoke action" },
+  { key: "access:memberships-reinstate", description: "Membership reinstate action" },
+  {
+    key: "access:memberships-account-scoped-filtering",
+    description: "Account-scoped filtering for non-platform-admin actors",
+  },
+  { key: "access:invitations-create", description: "Invitation create action" },
+  { key: "access:invitations-resend", description: "Invitation resend action" },
+  { key: "access:invitations-cancel", description: "Invitation cancel action" },
+  { key: "access:invitations-decline", description: "Invitation decline path" },
+  { key: "access:invitations-expire", description: "Invitation expire path" },
+  { key: "access:api-keys-create", description: "API key create action" },
+  { key: "access:api-keys-rotate", description: "API key rotate action" },
+  { key: "access:api-keys-revoke", description: "API key revoke action" },
+  { key: "access:sessions-switch-active-account", description: "Session switch active account action" },
+  { key: "access:sessions-revoke", description: "Session revoke action" },
+  { key: "access:pagination-over-50-accounts", description: "Accounts list over-50 pagination behavior" },
+  { key: "access:pagination-over-50-users", description: "Users list over-50 pagination behavior" },
+  { key: "access:pagination-over-50-memberships", description: "Memberships list over-50 pagination behavior" },
+  { key: "access:pagination-over-50-invitations", description: "Invitations list over-50 pagination behavior" },
+  { key: "access:pagination-over-50-api-keys", description: "API Keys list over-50 pagination behavior" },
+  { key: "access:pagination-over-50-sessions", description: "Sessions list over-50 pagination behavior" },
+  { key: "access:actor-security-manage", description: "security.manage actor evidence" },
+  { key: "access:actor-memberships-view", description: "memberships.view actor evidence" },
+  { key: "access:least-privilege-denied-writes", description: "Least-privilege denied-write behavior" },
+]);
+
+const ACCESS_COVERAGE_LABELS = Object.freeze(["Access coverage", "Access checklist coverage"]);
+
+const ACCESS_COVERAGE_ALIASES = Object.freeze([
+  "accessCoverage",
+  "accessChecklistCoverage",
+  "coverage",
+  "coverageKey",
+  "check",
+]);
+
 const CATEGORY_PATTERNS = Object.freeze({
   email: [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
   cookie_or_session: [
@@ -227,6 +281,9 @@ export function parseAdminWorkflowsQaEvidenceArgs(argv, env = process.env) {
     requireProjectionOperationsCoverage:
       argv.includes("--require-projection-operations-coverage") ||
       readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_PROJECTION_OPERATIONS_COVERAGE", env) === "true",
+    requireAccessCoverage:
+      argv.includes("--require-access-coverage") ||
+      readEnv("ADMIN_WORKFLOWS_QA_REQUIRE_ACCESS_COVERAGE", env) === "true",
   };
 }
 
@@ -272,6 +329,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const actorMatrix = buildActorMatrixCompleteness(input);
   const catalogModeling = buildCatalogModelingCompleteness(input);
   const projectionOperations = buildProjectionOperationsCompleteness(input);
+  const access = buildAccessCompleteness(input);
   const completenessFindings = input.requireCrossCuttingCoverage ? completeness.missingFields.length : 0;
   const actorMatrixFindings = input.requireActorMatrixCoverage
     ? actorMatrix.missingActors.length + actorMatrix.hostMismatches.length
@@ -280,8 +338,14 @@ export function buildAdminWorkflowsQaEvidence(input) {
   const projectionOperationsFindings = input.requireProjectionOperationsCoverage
     ? projectionOperations.missingCoverage.length
     : 0;
+  const accessFindings = input.requireAccessCoverage ? access.missingCoverage.length : 0;
   const totalBlockingFindings =
-    totalFindings + completenessFindings + actorMatrixFindings + catalogModelingFindings + projectionOperationsFindings;
+    totalFindings +
+    completenessFindings +
+    actorMatrixFindings +
+    catalogModelingFindings +
+    projectionOperationsFindings +
+    accessFindings;
 
   return {
     schemaVersion: ADMIN_WORKFLOWS_QA_EVIDENCE_VERSION,
@@ -295,6 +359,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
     actorMatrix,
     catalogModeling,
     projectionOperations,
+    access,
     guidance:
       totalBlockingFindings === 0
         ? buildPassingGuidance(input)
@@ -304,6 +369,7 @@ export function buildAdminWorkflowsQaEvidence(input) {
             actorMatrixFindings,
             catalogModelingFindings,
             projectionOperationsFindings,
+            accessFindings,
           ),
     redaction: {
       emails: "never-recorded",
@@ -363,6 +429,29 @@ function buildProjectionOperationsCompleteness(input) {
     mode: required ? "projection-operations-coverage" : "not-required",
     status: missingCoverage.length === 0 ? "pass" : "fail",
     requiredCoverage: required ? ADMIN_WORKFLOWS_QA_PROJECTION_OPERATIONS_REQUIRED_COVERAGE : [],
+    coveredCoverage: required ? [...coveredCoverage].sort() : [],
+    missingCoverage,
+  };
+}
+
+function buildAccessCompleteness(input) {
+  const required = Boolean(input.requireAccessCoverage);
+  const coveredCoverage = required
+    ? collectChecklistCoverage(input.evidenceFiles, ACCESS_COVERAGE_LABELS, ACCESS_COVERAGE_ALIASES)
+    : new Set();
+  const missingCoverage = required
+    ? ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE.filter((coverage) => !coveredCoverage.has(coverage.key)).map(
+        (coverage) => ({
+          ...coverage,
+          severity: "blocker",
+        }),
+      )
+    : [];
+
+  return {
+    mode: required ? "access-coverage" : "not-required",
+    status: missingCoverage.length === 0 ? "pass" : "fail",
+    requiredCoverage: required ? ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE : [],
     coveredCoverage: required ? [...coveredCoverage].sort() : [],
     missingCoverage,
   };
@@ -676,6 +765,11 @@ function buildPassingGuidance(input) {
       "Projection operations evidence covers tab navigation, safe controls, disposable destructive checks, graceful wake-pipeline degradation, and runbook cross-reference.",
     );
   }
+  if (input.requireAccessCoverage) {
+    guidance.push(
+      "Access evidence covers accounts, users, memberships, invitations, API keys, sessions, over-50 pagination, least-privilege actors, and denied-write behavior.",
+    );
+  }
   return guidance;
 }
 
@@ -685,6 +779,7 @@ function buildFailingGuidance(
   actorMatrixFindings,
   catalogModelingFindings,
   projectionOperationsFindings,
+  accessFindings,
 ) {
   const guidance = [];
   if (totalFindings > 0) {
@@ -703,6 +798,9 @@ function buildFailingGuidance(
   }
   if (projectionOperationsFindings > 0) {
     guidance.push("Add the missing projection operations coverage keys before using this packet to close #3026.");
+  }
+  if (accessFindings > 0) {
+    guidance.push("Add the missing Access coverage keys before using this packet to close #3020.");
   }
   return guidance;
 }
