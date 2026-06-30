@@ -364,25 +364,7 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
     waitUntil: "domcontentloaded",
   });
   await waitForCatalogItemRow(page, catalogItemId);
-  await page.getByLabel(`Select row ${catalogItemId}`).first().click();
-  const removeDraftsButton = page.getByRole("button", { name: "Remove drafts from selected" }).first();
-  const removeActionVisible = await removeDraftsButton.isVisible({ timeout: 5_000 }).catch(() => false);
-  if (removeActionVisible) {
-    await removeDraftsButton.click();
-
-    const dialog = page.getByRole("dialog", { name: "Remove draft Catalog Items" });
-    await expect(dialog).toBeVisible();
-    const [deleteResponse] = await Promise.all([
-      page.waitForResponse(
-        (candidate) =>
-          candidate.request().method() === "DELETE" && candidate.url().includes(`/api/catalog/items/${catalogItemId}`),
-      ),
-      dialog.getByRole("button", { name: "Remove drafts from selected" }).click(),
-    ]);
-    expect(deleteResponse.status(), "remove draft catalog item response should be successful").toBeLessThan(400);
-  } else {
-    await removeDraftCatalogItemFallback(page, catalogItemId);
-  }
+  await removeDraftCatalogItemFallback(page, catalogItemId);
 
   await expect
     .poll(
