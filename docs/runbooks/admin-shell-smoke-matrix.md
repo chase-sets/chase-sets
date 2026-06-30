@@ -102,6 +102,16 @@ These rows are also exercised by `pnpm run smoke:platform` when admin credential
 
 | ID | Path | Linked Coverage |
 | --- | --- | --- |
+| SMOKE-PROBE-AUTH-SESSION | `/api/auth/session` | SMOKE-API-AUTH-ACCESS-SESSIONS |
+| SMOKE-PROBE-IDENTITY-CURRENT-ACTOR | `/api/identity/current-actor-display` | SMOKE-API-IDENTITY-ACCESS-ADMIN |
+| SMOKE-PROBE-CATALOG-PROVIDER-PROFILES | `/api/catalog/source-observations/provider-profiles` | SMOKE-API-CATALOG-ADMIN-SERVER |
+| SMOKE-PROBE-COMMERCIAL-TERMS-SCHEDULES | `/api/commercial-terms/schedules?limit=1&offset=0` | SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER |
+| SMOKE-PROBE-MARKETPLACE-POSTAGE-POLICIES | `/api/marketplace/admin/postage-policies?limit=1&offset=0` | SMOKE-API-MARKETPLACE-POSTAGE-POLICIES |
+| SMOKE-PROBE-MARKETPLACE-GOOGLE-SHOPPING | `/api/marketplace/google-shopping/feed-rows?limit=1&offset=0` | SMOKE-API-MARKETPLACE-GOOGLE-SHOPPING |
+| SMOKE-PROBE-PUBLIC-PRESENCE-WAITLIST | `/api/public-presence/admin/waitlist?limit=1&offset=0` | SMOKE-API-PUBLIC-PRESENCE-ADMIN-SERVER |
+| SMOKE-PROBE-MARKETPLACE-SUPPORT-REQUESTS | `/api/marketplace/support-requests/ops?limit=1&offset=0` | SMOKE-API-MARKETPLACE-SUPPORT-REQUESTS |
+| SMOKE-PROBE-EXPERIENCE-PLATFORM-FEEDBACK | `/api/experience/platform-feedback?limit=1&offset=0` | SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK |
+| SMOKE-PROBE-PLATFORM-PROJECTIONS | `/api/platform/projections` | SMOKE-API-PLATFORM-PROJECTIONS |
 | SMOKE-PROBE-WAITLIST-EXPORT | `/api/public-presence/admin/waitlist/export` | SMOKE-API-WAITLIST-EXPORT |
 | SMOKE-PROBE-CATALOG-REALTIME | `/api/realtime/account/events?topic=account%3Atopology-smoke%3Alistings` | SMOKE-API-CATALOG-REALTIME |
 | SMOKE-PROBE-CATALOG-INTEGRATION-JOB-STREAM | `/api/catalog/source-observations/integration-jobs/topology-smoke/events` | SMOKE-API-CATALOG-INTEGRATION-JOB-STREAM |
