@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
@@ -68,7 +69,9 @@ async function waitForAccountSnapshot(
   await expect
     .poll(
       async () => {
-        const response = await page.request.get(`${origin}/api/identity/accounts/${accountId}`);
+        const response = await page.request.get(`${origin}/api/identity/accounts/${accountId}`, {
+          headers: freshReadHeaders(page),
+        });
         if (response.status() !== 200) {
           return false;
         }
@@ -112,6 +115,17 @@ async function exerciseBadgeToggle(
 
 async function clickBadgeAction(page: Page, name: string) {
   await page.getByRole("button", { name }).click();
+  await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
+}
+
+function freshReadHeaders(page: Page) {
+  const token = new URL(page.url()).searchParams.get("afterWrite");
+  return token
+    ? {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: token,
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
+      }
+    : undefined;
 }
 
 async function restoreAccountBadges(page: Page, accountId: string, initialBadges: ReadonlySet<string>) {

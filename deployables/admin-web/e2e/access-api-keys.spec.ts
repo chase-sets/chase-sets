@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
 type ApiKeySnapshot = Readonly<{
@@ -39,6 +40,7 @@ test.describe("access admin api keys", () => {
 
     const beforeRotate = await waitForApiKeySnapshot(page, apiKeyId, ({ status }) => status === "active");
     await page.getByRole("button", { name: "Rotate" }).click();
+    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
     const afterRotate = await waitForApiKeySnapshot(
       page,
@@ -50,6 +52,7 @@ test.describe("access admin api keys", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: apiKeyName });
     await page.getByRole("button", { name: "Revoke" }).click();
+    await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
     await expect(page).toHaveURL(new RegExp(`/access/api-keys/${apiKeyId}(?:\\?|$)`));
     await expectRevokedApiKey(page, apiKeyId, apiKeyName);
   });
@@ -68,7 +71,9 @@ async function waitForApiKeySnapshot(page: Page, apiKeyId: string, predicate: (s
   await expect
     .poll(
       async () => {
-        const response = await page.request.get(`${origin}/api/identity/api-keys/${apiKeyId}`);
+        const response = await page.request.get(`${origin}/api/identity/api-keys/${apiKeyId}`, {
+          headers: freshReadHeaders(page),
+        });
         if (response.status() !== 200) {
           return false;
         }
@@ -91,4 +96,14 @@ async function expectRevokedApiKey(page: Page, apiKeyId: string, apiKeyName: str
   await expect(page.getByText("revoked").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Rotate" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+}
+
+function freshReadHeaders(page: Page) {
+  const token = new URL(page.url()).searchParams.get("afterWrite");
+  return token
+    ? {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: token,
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
+      }
+    : undefined;
 }
