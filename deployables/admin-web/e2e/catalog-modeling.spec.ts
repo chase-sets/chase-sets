@@ -363,8 +363,11 @@ async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: stri
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
   });
-  await waitForCatalogItemRow(page, catalogItemId);
-  await page.getByLabel(`Select row ${catalogItemId}`).click();
+  const row = await waitForCatalogItemRow(page, catalogItemId);
+  await row
+    .getByRole("checkbox", { name: `Select row ${catalogItemId}` })
+    .first()
+    .check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Remove draft Catalog Items" });

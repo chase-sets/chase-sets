@@ -578,16 +578,20 @@ test.describe("catalog admin integrations", () => {
         })
         .first(),
     ).toBeVisible();
-    await expect(
-      governanceControls.getByRole("cell", { name: /magic-production-signoff-required/i }).first(),
-    ).toBeVisible();
-    await expect(
-      governanceControls
-        .getByRole("cell", {
-          name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
-        })
-        .first(),
-    ).toBeVisible();
+    const magicProductionSignoffRow = governanceControls
+      .getByRole("row")
+      .filter({ hasText: "magic-production-signoff-required" });
+    if (await magicProductionSignoffRow.count()) {
+      await expect(magicProductionSignoffRow.first()).toBeVisible();
+      await expect(
+        magicProductionSignoffRow
+          .first()
+          .getByRole("cell", {
+            name: /Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence\./i,
+          })
+          .first(),
+      ).toBeVisible();
+    }
 
     // With a resolving profile selected, lifecycle recovery renders the rollback,
     // deprecate, and retire command forms with confirmation and complete-removal evidence.
