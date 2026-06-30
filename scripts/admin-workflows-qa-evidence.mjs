@@ -18,17 +18,37 @@ export const ADMIN_WORKFLOWS_QA_REDACTION_CATEGORIES = Object.freeze([
 ]);
 
 export const ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS = Object.freeze([
-  { key: "environment", labels: ["Environment"] },
-  { key: "actorAlias", labels: ["Actor alias"] },
-  { key: "signInHost", labels: ["Sign-in host", "Sign in host"] },
-  { key: "routeOrWorkflow", labels: ["Route or workflow", "Route/probe template", "Probe"] },
-  { key: "expected", labels: ["Expected"] },
-  { key: "observed", labels: ["Observed"] },
-  { key: "evidenceArtifact", labels: ["Evidence artifact", "Artifact"] },
-  { key: "redactionReview", labels: ["Redaction review"] },
-  { key: "securityPiiReview", labels: ["Security/PII review", "Security and PII review"] },
-  { key: "responsiveCoverage", labels: ["Responsive coverage", "Responsive/mobile coverage"] },
-  { key: "stateCoverage", labels: ["State coverage", "Empty/error/loading state coverage"] },
+  { key: "environment", labels: ["Environment"], aliases: ["environment", "env"] },
+  { key: "actorAlias", labels: ["Actor alias"], aliases: ["actorAlias", "actor"] },
+  { key: "signInHost", labels: ["Sign-in host", "Sign in host"], aliases: ["signInHost", "signInPath"] },
+  {
+    key: "routeOrWorkflow",
+    labels: ["Route or workflow", "Route/probe template", "Probe"],
+    aliases: ["routeOrWorkflow", "routeTemplate", "route", "workflow", "probe", "path"],
+  },
+  { key: "expected", labels: ["Expected"], aliases: ["expected", "expectedBehavior", "assertions"] },
+  { key: "observed", labels: ["Observed"], aliases: ["observed", "observedBehavior", "status", "result"] },
+  {
+    key: "evidenceArtifact",
+    labels: ["Evidence artifact", "Artifact"],
+    aliases: ["evidenceArtifact", "artifact", "artifactPath", "artifactFolder", "evidenceFiles"],
+  },
+  { key: "redactionReview", labels: ["Redaction review"], aliases: ["redactionReview", "redaction"] },
+  {
+    key: "securityPiiReview",
+    labels: ["Security/PII review", "Security and PII review"],
+    aliases: ["securityPiiReview", "securityReview", "piiReview"],
+  },
+  {
+    key: "responsiveCoverage",
+    labels: ["Responsive coverage", "Responsive/mobile coverage"],
+    aliases: ["responsiveCoverage", "viewportCoverage", "viewports"],
+  },
+  {
+    key: "stateCoverage",
+    labels: ["State coverage", "Empty/error/loading state coverage"],
+    aliases: ["stateCoverage", "stateChecks", "states"],
+  },
 ]);
 
 const CATEGORY_PATTERNS = Object.freeze({
@@ -137,14 +157,16 @@ export function buildAdminWorkflowsQaEvidence(input) {
 function buildCrossCuttingCompleteness(input) {
   const required = Boolean(input.requireCrossCuttingCoverage);
   const content = input.evidenceFiles.map(({ content }) => content).join("\n");
+  const structuredFields = collectStructuredEvidenceFields(input.evidenceFiles);
   const missingFields = required
-    ? ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.filter((field) => !hasEvidenceField(content, field.labels)).map(
-        (field) => ({
-          key: field.key,
-          labels: field.labels,
-          severity: "blocker",
-        }),
-      )
+    ? ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.filter(
+        (field) => !hasEvidenceField(content, field.labels) && !structuredFields.has(field.key),
+      ).map((field) => ({
+        key: field.key,
+        labels: field.labels,
+        structuredAliases: field.aliases,
+        severity: "blocker",
+      }))
     : [];
 
   return {
@@ -154,10 +176,71 @@ function buildCrossCuttingCompleteness(input) {
       ? ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS.map((field) => ({
           key: field.key,
           labels: field.labels,
+          structuredAliases: field.aliases,
         }))
       : [],
+    coveredFields: required ? [...structuredFields].sort() : [],
     missingFields,
   };
+}
+
+function collectStructuredEvidenceFields(evidenceFiles) {
+  const covered = new Set();
+  for (const { content } of evidenceFiles) {
+    const parsed = parseJsonEvidence(content);
+    if (parsed === null) {
+      continue;
+    }
+    collectStructuredEvidenceFieldsFromValue(parsed, covered);
+  }
+  return covered;
+}
+
+function collectStructuredEvidenceFieldsFromValue(value, covered) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStructuredEvidenceFieldsFromValue(item, covered);
+    }
+    return;
+  }
+  if (!isPlainRecord(value)) {
+    return;
+  }
+
+  for (const field of ADMIN_WORKFLOWS_QA_CROSS_CUTTING_REQUIRED_FIELDS) {
+    if (field.aliases.some((alias) => hasNonEmptyStructuredValue(value[alias]))) {
+      covered.add(field.key);
+    }
+  }
+
+  for (const childKey of ["evidence", "records", "results", "rows", "checks", "artifacts"]) {
+    collectStructuredEvidenceFieldsFromValue(value[childKey], covered);
+  }
+}
+
+function parseJsonEvidence(content) {
+  try {
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+function isPlainRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasNonEmptyStructuredValue(value) {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (isPlainRecord(value)) {
+    return Object.keys(value).length > 0;
+  }
+  return value !== null && value !== undefined;
 }
 
 function hasEvidenceField(content, labels) {

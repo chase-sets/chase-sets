@@ -68,6 +68,8 @@ pnpm run ops admin-workflows:qa-evidence -- --require-cross-cutting-coverage --e
 
 That mode still applies the redaction scan, and also requires the public packet to include these support-safe labels: `Environment`, `Actor alias`, `Sign-in host`, `Route or workflow`, `Expected`, `Observed`, `Evidence artifact`, `Redaction review`, `Security/PII review`, `Responsive coverage`, and `State coverage`. Use route templates, actor aliases, viewport names, and artifact folder names; do not paste full URLs, raw ids, tokens, or customer/provider details into those fields.
 
+The strict gate also accepts structured JSON evidence from smoke or E2E metadata. The JSON can place fields at the top level or inside nested `records`, `results`, `rows`, `checks`, `evidence`, or `artifacts` arrays/objects. Use these support-safe keys when automation produces the packet: `environment`, `actorAlias`, `signInHost`, `routeTemplate` or `routeOrWorkflow`, `expectedBehavior`, `observedBehavior`, `artifactFolder` or `evidenceArtifact`, `redactionReview`, `securityPiiReview`, `viewports` or `responsiveCoverage`, and `stateChecks` or `stateCoverage`.
+
 ## Representative State Checks
 
 Before section QA starts, confirm state exists for these visible workflows:

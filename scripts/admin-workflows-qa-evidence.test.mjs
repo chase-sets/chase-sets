@@ -106,6 +106,65 @@ describe("admin workflows QA evidence", () => {
     });
   });
 
+  it("accepts structured automation evidence for cross-cutting coverage", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
+    const evidenceFile = join(directory, "issue-3027.json");
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          environment: "staging admin-web",
+          actorAlias: "admin-qa-catalog-admin",
+          signInHost: "/catalog/sign-in",
+          records: [
+            {
+              routeTemplate: "/api/catalog/source-observations/integration-jobs/:jobId/events",
+              expectedBehavior: "SSE opens or returns controlled authorization/not-found response.",
+              observedBehavior: "Controlled JSON response with no host HTML fallback.",
+              artifactFolder: "artifacts/admin-qa/3027/catalog-integration-job-stream",
+              redactionReview: "passed",
+              securityPiiReview: "no raw ids, cookies, tokens, emails, or full URLs recorded",
+              viewports: ["desktop-1280x900", "mobile-390x900"],
+              stateChecks: ["loading", "controlled-unavailable"],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const evidence = await runAdminWorkflowsQaEvidence({
+      evidenceFiles: [evidenceFile],
+      environment: "staging",
+      issue: "3027",
+      checkedAt,
+      requireCrossCuttingCoverage: true,
+    });
+
+    expect(evidence).toMatchObject({
+      verdict: "pass",
+      completeness: {
+        mode: "cross-cutting-coverage",
+        status: "pass",
+        coveredFields: [
+          "actorAlias",
+          "environment",
+          "evidenceArtifact",
+          "expected",
+          "observed",
+          "redactionReview",
+          "responsiveCoverage",
+          "routeOrWorkflow",
+          "securityPiiReview",
+          "signInHost",
+          "stateCoverage",
+        ],
+        missingFields: [],
+      },
+    });
+  });
+
   it("fails strict cross-cutting evidence when responsive or state coverage is missing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-admin-qa-evidence-"));
     const evidenceFile = join(directory, "issue-3027.md");
