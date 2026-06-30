@@ -435,6 +435,24 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
+    const healthReadModelTable = page.getByRole("table", { name: "Query" });
+    await expect(healthReadModelTable).toBeVisible();
+    for (const queryKey of [
+      "integration-health-summary",
+      "provider-transport-readiness-summary",
+      "import-job-progress-summary",
+      "audit-evidence-timeline",
+    ]) {
+      await expect(healthReadModelTable.getByText(queryKey)).toBeVisible();
+    }
+    await expect(page.getByRole("table", { name: "Unit" })).toBeVisible();
+    await expect(page.getByText("Catalog semantic").first()).toBeVisible();
+    await expect(page.getByText("Provider transport").first()).toBeVisible();
+    await expect(page.getByRole("table", { name: "Provider" })).toBeVisible();
+    await expect(page.getByText("Capabilities").first()).toBeVisible();
+    await expect(page.getByText("API").first()).toBeVisible();
+    await expect(page.getByText("Payload").first()).toBeVisible();
+    await expect(page.getByRole("table", { name: "Job" })).toBeVisible();
     // The health surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header (no longer once per
     // stacked workspace), so this no longer needs a .first() disambiguator.
@@ -444,7 +462,13 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     // The health surface stacks all three of its workspaces, so the audit timeline is
     // already rendered alongside health triage; its workspace heading stays visible.
+    const auditEvidenceWorkspace = page.locator('[data-catalog-audit-evidence-workspace="true"]');
+    await expect(auditEvidenceWorkspace).toBeVisible();
     await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
+    await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Audit filters" })).toBeVisible();
+    await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Evidence links" })).toBeVisible();
+    await expect(auditEvidenceWorkspace.getByText("source payload body download")).toBeVisible();
+    await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
     // Return to the desktop side nav for the remaining surface assertions.
     await page.setViewportSize({ width: 1280, height: 900 });
 
