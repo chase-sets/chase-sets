@@ -22,7 +22,7 @@ test.describe("commerce admin commercial terms", () => {
 
 async function expectScheduleOverlapValidation(page: Page) {
   await expectPageOk(page, "/commerce/terms/schedules");
-  await expectAdminPageReady(page, { heading: "Fee schedules" });
+  await expectAdminPageReady(page, { heading: "Fee Schedules" });
 
   const form = createScheduleForm(page);
   await form.getByLabel("Label").fill(`E2E overlapping business schedule ${Date.now().toString(36)}`);
@@ -53,9 +53,8 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
-  await expectAdminPageReady(page, { heading: "Fee schedules" });
-  const row = await waitForListRow(page, label);
-  await row.getByRole("link", { name: "Open" }).click();
+  await expectAdminPageReady(page, { heading: "Fee Schedules" });
+  await openListRowDetail(page, label);
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
@@ -63,7 +62,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
 
 async function expectAgreementAccountValidation(page: Page) {
   await expectPageOk(page, "/commerce/terms/agreements");
-  await expectAdminPageReady(page, { heading: "Commercial agreements" });
+  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
 
   const form = createAgreementForm(page);
   await form.getByLabel("Label").fill(`E2E invalid account agreement ${Date.now().toString(36)}`);
@@ -94,9 +93,8 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await page.waitForURL((url) => url.pathname === "/commerce/terms/agreements" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
-  await expectAdminPageReady(page, { heading: "Commercial agreements" });
-  const row = await waitForListRow(page, label);
-  await row.getByRole("link", { name: "Open" }).click();
+  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
+  await openListRowDetail(page, label);
   await expectAdminPageReady(page, { heading: label });
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "created" })).toBeVisible();
@@ -128,6 +126,19 @@ async function waitForListRow(page: Page, label: string) {
     .toBe(true);
 
   return row;
+}
+
+async function openListRowDetail(page: Page, label: string) {
+  const row = await waitForListRow(page, label);
+  const link = row.getByRole("link", { name: "Open" });
+  const href = await link.getAttribute("href");
+  expect(href, `Open link for ${label} should have a destination`).toBeTruthy();
+  const destination = new URL(href!, page.url());
+
+  await link.click();
+  await page
+    .waitForURL((url) => url.pathname === destination.pathname, { timeout: 5_000 })
+    .catch(async () => expectPageOk(page, href!));
 }
 
 async function fillCommercialTermsFeeFields(

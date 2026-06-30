@@ -80,7 +80,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_access",
     label: "Admin Access",
     deployable: "admin-web",
-    journeys: ["invitation lifecycle"],
+    journeys: ["invitation lifecycle", "api key lifecycle"],
     grep: "@admin-access",
   },
 ]);
@@ -165,11 +165,27 @@ const marketplaceRouteSuiteOwnership = [
 
 const boundedContextRouteSuiteOwnership = [
   {
+    pattern: /^bounded-contexts\/identity\/routes\/admin\/accounts/,
+    suites: ["admin_access"],
+  },
+  {
     pattern: /^bounded-contexts\/identity\/routes\/admin\/invitations/,
     suites: ["admin_access"],
   },
   {
+    pattern: /^bounded-contexts\/identity\/routes\/admin\/api-keys/,
+    suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/features\/accounts\/(?:api|ui)\//,
+    suites: ["admin_access"],
+  },
+  {
     pattern: /^bounded-contexts\/identity\/features\/invitations\/(?:api|ui)\//,
+    suites: ["admin_access"],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/features\/api-keys\/(?:api|ui)\//,
     suites: ["admin_access"],
   },
   {

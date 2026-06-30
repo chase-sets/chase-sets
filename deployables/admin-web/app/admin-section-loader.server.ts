@@ -4,6 +4,7 @@ import type { NavigationItem } from "@chase-sets/design-system";
 import {
   createIdentityRequestApiClient,
   createUserPreferencesColorModeCookieSeedHeaders,
+  requestWithoutFreshWrite,
   resolveIdentityShellViewer,
 } from "@chase-sets/identity/server";
 import { requireAdminSectionActor } from "./auth.server";
@@ -38,7 +39,10 @@ export function createAdminSectionLoader(config: SectionLoaderConfig) {
     );
 
     const actor = await requireAdminSectionActor(request, config.section, fallbackPermission);
-    const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
+    const viewer = await resolveIdentityShellViewer(
+      createIdentityRequestApiClient(requestWithoutFreshWrite(request)),
+      actor,
+    );
     const payload = {
       actor,
       viewer,

@@ -233,10 +233,11 @@
         "routeId": "accounts-detail",
         "apiContextName": "identity",
         "apiRoutePath": "/accounts/:id",
+        "helperUses": ["loadAfterWrite"],
         "readModelTables": ["identity_accounts"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up."
+          "behavior": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity account API can return committed command-side state."
         }
       },
       "proof": {
@@ -399,7 +400,37 @@
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "API key list redirects carry the Identity API-key command receipt so the list loader reads after the API-key projection catches up."
+          "behavior": "API-key create remains covered for API-key list freshness because the source list route owns the create form and can refresh API-key list data through the API-key projection freshness route."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-api-key-create-detail-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "api-keys",
+        "actions": ["Create API key"],
+        "command": "CreateApiKey",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "api-keys-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys/:id",
+        "helperUses": ["loadAfterWrite"],
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "API-key create redirects carry the Identity API-key command receipt to the new detail route so the detail loader reads after the API-key projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity API-key API can return committed command-side state."
         }
       },
       "proof": {
@@ -425,10 +456,11 @@
         "routeId": "api-keys-detail",
         "apiContextName": "identity",
         "apiRoutePath": "/api-keys/:id",
+        "helperUses": ["loadAfterWrite"],
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up."
+          "behavior": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity API-key API can return committed command-side state."
         }
       },
       "proof": {
@@ -486,7 +518,37 @@
         "readModelTables": ["identity_invitations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Invitation list redirects carry the Identity invitation command receipt so the list loader reads after the invitation projection catches up."
+          "behavior": "Invitation create remains covered for invitation list freshness because the source list route owns the create form and can refresh invitation list data through the invitation projection freshness route."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-invitation-create-detail-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "invitations",
+        "actions": ["Create invitation"],
+        "command": "CreateInvitation",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "invitations-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations/:id",
+        "helperUses": ["loadAfterWrite"],
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Invitation create redirects carry the Identity invitation command receipt to the new detail route so the detail loader reads after the invitation projection catches up. If the fresh projection wait times out, the loader retries without the freshness token so the Identity invitation API can return committed command-side state."
         }
       },
       "proof": {
@@ -657,7 +719,7 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#3",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#4",
-        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:Hb573b8e06471#1",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/identity/routes/admin/accounts-detail.tsx",
         "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"

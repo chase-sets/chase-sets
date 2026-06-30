@@ -90,6 +90,16 @@ async function captureRedirect(actionCall: Promise<unknown>) {
   return response.headers.get("Location") ?? "";
 }
 
+function expectLocationPath(location: string, expectedPath: string | RegExp) {
+  if (typeof expectedPath === "string") {
+    expect(location).toContain(`${expectedPath}?afterWrite=`);
+    return;
+  }
+
+  expect(location).toMatch(expectedPath);
+  expect(location).toContain("?afterWrite=");
+}
+
 describe("Identity mutation consistency route actions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -121,10 +131,64 @@ describe("Identity mutation consistency route actions", () => {
         expectedPath: "/access/accounts/acc_1",
       },
       {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "founding-account",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "founding-account",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "manual-payout-review",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "manual-payout-review",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "assign-account-badge",
+          badgeKey: "trusted-seller",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
+          intent: "remove-account-badge",
+          badgeKey: "trusted-seller",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: "/access/accounts/acc_1",
+      },
+      {
         action: apiKeysAction,
         request: formRequest("/access/api-keys", { intent: "create", userId: "usr_identity", name: "Ops" }),
         params: {},
-        expectedPath: "/access/api-keys",
+        expectedPath: "/access/api-keys/identity_written",
       },
       {
         action: apiKeyDetailAction,
@@ -141,7 +205,7 @@ describe("Identity mutation consistency route actions", () => {
           roleKey: "viewer",
         }),
         params: {},
-        expectedPath: "/access/invitations",
+        expectedPath: /^\/access\/invitations\/ivt_[^?]+\?afterWrite=/,
       },
       {
         action: invitationDetailAction,
@@ -254,7 +318,7 @@ describe("Identity mutation consistency route actions", () => {
         } as never),
       );
 
-      expect(location).toContain(`${testCase.expectedPath}?afterWrite=`);
+      expectLocationPath(location, testCase.expectedPath);
       expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("77");
     }
   });
@@ -299,6 +363,57 @@ describe("Identity mutation consistency route actions", () => {
       sources: [expect.objectContaining({ sourceContextName: "identity", maxGlobalPosition: "88" })],
     });
     expect(observedHeaders[0]!.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("identity");
+  });
+
+  it("recovers account detail after post-write freshness timeout by retrying without freshness", async () => {
+    const observedHeaders: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+
+        if (url.includes("/api/identity/accounts/acc_1")) {
+          observedHeaders.push(new Headers(init?.headers));
+          if (observedHeaders.length === 1) {
+            return jsonResponse(
+              {
+                error: {
+                  code: "projection_freshness_timeout",
+                  message: "Projection read model did not catch up before the freshness timeout.",
+                },
+              },
+              503,
+            );
+          }
+
+          return jsonResponse({
+            account_id: "acc_1",
+            account_type: "business",
+            badges: ["founding-account"],
+            display_name: "Card Vault",
+            name: "Card Vault LLC",
+            status: "active",
+            updated_at: "2026-06-15T00:00:00.000Z",
+          });
+        }
+
+        return jsonResponse({ actor });
+      }),
+    );
+
+    const path = appendFreshWriteToken("/access/accounts/acc_1", identityCommit("93"));
+    const data = await accountDetailLoader({
+      request: new Request(`https://chasesets.test${path}`, {
+        headers: { cookie: "session=identity" },
+      }),
+      params: { id: "acc_1" },
+      context: undefined,
+    } as never);
+
+    expect(data.data.badges).toEqual(["founding-account"]);
+    expect(observedHeaders).toHaveLength(2);
+    expect(observedHeaders[0]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(observedHeaders[1]!.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeNull();
   });
 
   it("recovers invitation detail after post-write freshness timeout by retrying without freshness", async () => {

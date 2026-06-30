@@ -5,6 +5,7 @@ import { Grid, Heading, Stack, Card, EmptyState, LinkButton, Page, PageHeader } 
 import {
   createIdentityRequestApiClient,
   createUserPreferencesColorModeCookieSeedHeaders,
+  requestWithoutFreshWrite,
   resolveIdentityShellViewer,
   type IdentityShellViewer,
 } from "@chase-sets/identity/server";
@@ -26,7 +27,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw redirect(sections[0].href);
   }
 
-  const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
+  const viewer = await resolveIdentityShellViewer(
+    createIdentityRequestApiClient(requestWithoutFreshWrite(request)),
+    actor,
+  );
   const payload = {
     actor,
     sections,

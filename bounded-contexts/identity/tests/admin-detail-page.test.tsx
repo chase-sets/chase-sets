@@ -91,6 +91,9 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain("Card Vault");
     expect(html).toContain("Founding Account");
     expect(html).toContain("Update Profile");
+    expect(html).toContain("Remove Founding Account badge");
+    expect(html).toContain("Assign Manual Payout Review badge");
+    expect(html).toContain("Assign Trusted Seller badge");
     expect(html).not.toMatch(/<h1[^>]*><div/);
   });
 

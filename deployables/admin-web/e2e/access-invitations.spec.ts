@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
-const demoAccountId = "acc_seed_demo_account";
+type CurrentActorDisplay = Readonly<{
+  account: Readonly<{ account_id: string }>;
+}>;
 
 test.describe("access admin invitations", () => {
   test("operator creates and cancels an invitation @admin-access", async ({ page }) => {
@@ -15,16 +17,17 @@ test.describe("access admin invitations", () => {
     await expectPageOk(page, "/access/invitations");
     await expectAdminPageReady(page, { heading: "Invitations" });
 
+    const actor = await getCurrentActorDisplay(page);
     const invitationEmail = `admin-access-${Date.now().toString(36)}@example.test`;
-    await page.getByRole("textbox", { name: "Account" }).fill(demoAccountId);
+    await page.getByRole("textbox", { name: "Account" }).fill(actor.account.account_id);
     await page.getByRole("textbox", { name: "Email" }).fill(invitationEmail);
     await page.getByLabel("Role").selectOption("viewer");
     await page.getByRole("button", { name: "Create" }).click();
-    await expect(page).toHaveURL(/\/access\/invitations(?:\?|$)/);
-
-    const { detailLink, invitationId } = await waitForInvitationListRow(page, invitationEmail);
-    await detailLink.click();
-
+    await expect(page).toHaveURL(/\/access\/invitations\/ivt_[^/?]+(?:\?|$)/);
+    const invitationId = new URL(page.url()).pathname.split("/").pop();
+    if (!invitationId) {
+      throw new Error("Created invitation route should include the new invitation id.");
+    }
     await expect(page).toHaveURL(new RegExp(`/access/invitations/${invitationId}(?:\\?|$)`));
     await expectAdminPageReady(page, { heading: invitationEmail });
     await expect(page.getByText("pending").first()).toBeVisible();
@@ -34,36 +37,11 @@ test.describe("access admin invitations", () => {
   });
 });
 
-async function waitForInvitationListRow(page: Page, invitationEmail: string) {
-  const detailLinks = page.locator(`tr:has-text("${invitationEmail}") a[href^="/access/invitations/ivt_"]`);
-  let visibleHref: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        for (let index = 0; index < (await detailLinks.count()); index += 1) {
-          const candidate = detailLinks.nth(index);
-          if (await candidate.isVisible().catch(() => false)) {
-            visibleHref = await candidate.getAttribute("href");
-            return visibleHref;
-          }
-        }
-
-        if (!visibleHref) {
-          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
-        }
-
-        return visibleHref;
-      },
-      { timeout: 45_000 },
-    )
-    .toMatch(/^\/access\/invitations\/ivt_/);
-
-  const href = visibleHref ?? "";
-  const detailLink = page.locator(`a[href="${href}"]:visible`).first();
-  const invitationId = href.split("/").pop();
-  expect(invitationId, "created invitation row should link to a detail page").toBeTruthy();
-
-  return { detailLink, invitationId: invitationId! };
+async function getCurrentActorDisplay(page: Page) {
+  const origin = new URL(page.url()).origin;
+  const response = await page.request.get(`${origin}/api/identity/current-actor-display`);
+  expect(response.status(), "current actor display should be readable").toBe(200);
+  return (await response.json()) as CurrentActorDisplay;
 }
 
 async function waitForInvitationStatus(page: Page, invitationId: string, status: "cancelled") {

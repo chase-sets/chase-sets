@@ -129,7 +129,11 @@ export async function expectAdminPageReady(
 
     try {
       await expectAdminWebHydrated(page);
-      await expect(page.getByRole("heading", { name: expected.heading, level: expected.headingLevel })).toBeVisible({
+      const heading =
+        typeof expected.heading === "string"
+          ? page.getByRole("heading", { name: expected.heading, exact: true, level: expected.headingLevel })
+          : page.getByRole("heading", { name: expected.heading, level: expected.headingLevel });
+      await expect(heading).toBeVisible({
         timeout: 5_000,
       });
       return;
