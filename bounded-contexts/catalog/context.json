@@ -290,7 +290,7 @@
       "href": "/dimensions",
       "order": 10,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -302,7 +302,7 @@
       "href": "/fields",
       "order": 20,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -314,7 +314,7 @@
       "href": "/components",
       "order": 30,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -326,7 +326,7 @@
       "href": "/blueprints",
       "order": 40,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -338,7 +338,7 @@
       "href": "/categories",
       "order": 50,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -350,7 +350,7 @@
       "href": "/catalog-items",
       "order": 60,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -362,7 +362,7 @@
       "href": "/display-templates",
       "order": 62,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -374,7 +374,7 @@
       "href": "/reference-records",
       "order": 65,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog"
     },
     {
@@ -385,7 +385,7 @@
       "icon": "rocket",
       "order": 70,
       "visibility": "signed-in",
-      "requiredPermissions": [],
+      "requiredPermissions": ["catalog.view"],
       "section": "catalog",
       "children": [
         {
@@ -395,7 +395,7 @@
           "href": "/integrations",
           "order": 10,
           "visibility": "signed-in",
-          "requiredPermissions": []
+          "requiredPermissions": ["catalog.view"]
         },
         {
           "key": "integrations-providers",
@@ -404,7 +404,7 @@
           "href": "/integrations/providers",
           "order": 20,
           "visibility": "signed-in",
-          "requiredPermissions": []
+          "requiredPermissions": ["catalog.view"]
         },
         {
           "key": "integrations-governance",
@@ -413,7 +413,7 @@
           "href": "/integrations/governance",
           "order": 30,
           "visibility": "signed-in",
-          "requiredPermissions": []
+          "requiredPermissions": ["catalog.view"]
         },
         {
           "key": "integrations-health",
@@ -422,7 +422,7 @@
           "href": "/integrations/health",
           "order": 40,
           "visibility": "signed-in",
-          "requiredPermissions": []
+          "requiredPermissions": ["catalog.view"]
         }
       ]
     }
