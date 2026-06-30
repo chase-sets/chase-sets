@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Invitation } from "./contracts";
+
+type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 function accountLabel(invitation: Invitation) {
   return invitation.account_display_name ?? invitation.account_name ?? invitation.account_id;
@@ -22,7 +25,7 @@ const columns: DataColumn<Invitation>[] = [
   { key: "status", header: t("identity.features.invitations.ui.invitationListPage.status"), cell: (row) => row.status },
 ];
 
-export function InvitationListPage({ initialData }: { initialData: { items: Invitation[] } }) {
+export function InvitationListPage({ initialData }: { initialData: PaginatedListResponse<Invitation> }) {
   return (
     <AdminListPage
       title={t("identity.features.invitations.ui.invitationListPage.invitations")}
@@ -62,6 +65,7 @@ export function InvitationListPage({ initialData }: { initialData: { items: Invi
       }
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
       getHref={(row) => `/access/invitations/${row.invitation_id}`}
+      pagination={initialData}
     />
   );
 }

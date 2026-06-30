@@ -1,7 +1,16 @@
 import { t } from "@chase-sets/localization";
 import { type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "./admin-pages";
 import type { Session } from "./contracts";
+
+type SessionListResponse = ListResponse<Session> & Partial<Readonly<{ limit: number; offset: number }>>;
+
+function listPagination(data: SessionListResponse) {
+  return typeof data.limit === "number" && typeof data.offset === "number"
+    ? { limit: data.limit, offset: data.offset, total: data.total }
+    : undefined;
+}
 
 function userLabel(session: Session) {
   return session.user_display_name ?? session.user_primary_email ?? session.user_id;
@@ -27,7 +36,7 @@ export function SessionListPage({
   initialData,
 }: {
   hrefBase?: string;
-  initialData: { items: Session[] };
+  initialData: SessionListResponse;
 }) {
   return (
     <AdminListPage
@@ -36,6 +45,7 @@ export function SessionListPage({
       columns={columns}
       emptyMessage={t("auth.features.sessions.ui.sessionListPage.no.sessions.yet")}
       getHref={(row) => `${hrefBase}/${row.session_id}`}
+      pagination={listPagination(initialData)}
     />
   );
 }
