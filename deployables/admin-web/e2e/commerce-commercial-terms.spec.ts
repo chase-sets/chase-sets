@@ -118,7 +118,7 @@ async function waitForListRow(page: Page, label: string, fallbackPrefix: string)
           return true;
         }
 
-        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+        await reloadCommercialTermsListAfterFreshnessRecovery(page);
         await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => undefined);
         return exactRow.isVisible().catch(() => false);
       },
@@ -130,6 +130,21 @@ async function waitForListRow(page: Page, label: string, fallbackPrefix: string)
     });
 
   return (await exactRow.isVisible().catch(() => false)) ? exactRow : fallbackRow;
+}
+
+async function reloadCommercialTermsListAfterFreshnessRecovery(page: Page) {
+  const freshnessTimeoutVisible = await page
+    .getByText(/Projection read model did not catch up/i)
+    .isVisible({ timeout: 1_000 })
+    .catch(() => false);
+
+  if (freshnessTimeoutVisible) {
+    const url = new URL(page.url());
+    await page.goto(url.pathname, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined);
+    return;
+  }
+
+  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
 }
 
 async function openListRowDetail(page: Page, label: string, fallbackPrefix: string) {
