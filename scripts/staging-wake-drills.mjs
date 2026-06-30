@@ -84,6 +84,7 @@ export function parseStagingWakeDrillArgs(argv, env = process.env) {
     drillKind,
     baseUrl: readOption(optionArgs, "--base-url") ?? readEnv("WAKE_DRILL_BASE_URL", env),
     adminBaseUrl: readOption(optionArgs, "--admin-base-url") ?? readEnv("WAKE_DRILL_ADMIN_BASE_URL", env),
+    workerStatusUrl: readOption(optionArgs, "--worker-status-url") ?? readEnv("WAKE_DRILL_WORKER_STATUS_URL", env),
     outPath:
       readOption(optionArgs, "--out") ??
       readEnv("WAKE_DRILL_OUT", env) ??
@@ -541,6 +542,9 @@ export function buildDrillEvidence(input) {
     wakeRuntimeAfterLoad: input.wakeRuntimeAfterLoad ?? null,
     wakeRuntimeAfterDrill: input.wakeRuntimeAfterDrill ?? null,
     wakeStatusBefore: input.wakeStatusBefore ?? null,
+    workerStatusBefore: input.workerStatusBefore ?? null,
+    workerStatusAfterLoad: input.workerStatusAfterLoad ?? null,
+    workerStatusAfter: input.workerStatusAfter ?? null,
     wakeStatusAfter: input.wakeStatusAfter ?? null,
     verdict: verdictReasons.length === 0 ? "pass" : "fail",
     verdictReasons,
@@ -685,6 +689,35 @@ export async function fetchWakeStatusSnapshot(options, fetchImpl = fetch) {
   }
 
   return statusResponse.json();
+}
+
+export async function fetchWorkerStatusSnapshot(options, fetchImpl = fetch) {
+  const workerStatusUrl = normalizeUrl(options.workerStatusUrl);
+  if (!workerStatusUrl) {
+    return null;
+  }
+
+  const statusResponse = await fetchImpl(workerStatusUrl);
+  if (!statusResponse.ok) {
+    throw new Error(`Worker-status request failed with HTTP ${statusResponse.status}.`);
+  }
+
+  return sanitizeWorkerStatusSnapshot(await statusResponse.json());
+}
+
+export function sanitizeWorkerStatusSnapshot(snapshot) {
+  const record = asRecord(snapshot);
+  return {
+    generatedAt: normalizeString(record.generatedAt) ?? normalizeString(record.checkedAt) ?? null,
+    databasePoolPressure: sanitizeDatabasePoolPressure(record.databasePoolPressure),
+    capacity: sanitizeCapacity(record.capacity),
+    projectionWakeControls: sanitizeProjectionWakeControls(record.projectionWakeControls),
+    projectionWakeIntents: sanitizeProjectionWakeIntents(record.projectionWakeIntents),
+    projectionWakeIntentBreakdown: asArray(record.projectionWakeIntentBreakdown).map(sanitizeWakeIntentBreakdownRow),
+    loops: asArray(record.loops).map(sanitizeLoopStatus).filter(Boolean),
+    workers: asArray(record.workers).map(sanitizeWorkerHeartbeat).filter(Boolean),
+    runners: asArray(record.runners).map(sanitizeRunnerStatus).filter(Boolean),
+  };
 }
 
 export async function runCanaryWrite(options, iteration) {
@@ -1129,6 +1162,7 @@ export async function runStagingWakeDrill(options, deps) {
   let wakeRuntimeAfterDrill = null;
 
   let wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before");
+  let workerStatusBefore = await safeWorkerStatus(deps, verdictReasons, "before");
   let wakeRuntimePreflight = null;
   const needsRuntimeReady =
     options.drillKind === "load" || (options.drillKind === "reconciliation" && !options.skipCanaryWrite);
@@ -1136,6 +1170,7 @@ export async function runStagingWakeDrill(options, deps) {
     wakeRuntimePreflight = await waitForWakeRuntimeReady(options, deps, wakeStatusBefore);
     if (wakeRuntimePreflight.ready === true) {
       wakeStatusBefore = await safeWakeStatus(deps, verdictReasons, "before-ready");
+      workerStatusBefore = await safeWorkerStatus(deps, verdictReasons, "before-ready");
     } else if (wakeRuntimePreflight.ready === false) {
       verdictReasons.push("wake-runtime-not-ready-before-drill");
     }
@@ -1165,6 +1200,9 @@ export async function runStagingWakeDrill(options, deps) {
       wakeRuntimeAfterLoad,
       wakeRuntimeAfterDrill,
       wakeStatusBefore: wakeStatusBefore ?? null,
+      workerStatusBefore,
+      workerStatusAfterLoad: null,
+      workerStatusAfter: await safeWorkerStatus(deps, verdictReasons, "after"),
       wakeStatusAfter: wakeStatusAfterRuntimeMiss ?? null,
       verdictReasons,
     });
@@ -1200,12 +1238,15 @@ export async function runStagingWakeDrill(options, deps) {
     }
   }
 
+  const workerStatusAfterLoad =
+    options.drillKind === "load" ? await safeWorkerStatus(deps, verdictReasons, "after-load") : null;
   const convergence = await pollForConvergence(options, deps);
   if (!convergence.converged) {
     verdictReasons.push("durable-positions-did-not-converge-within-budget");
   }
 
   const wakeStatusAfter = await safeWakeStatus(deps, verdictReasons, "after");
+  const workerStatusAfter = await safeWorkerStatus(deps, verdictReasons, "after");
   wakeRuntimeAfterDrill = appendWakeRuntimeLossReason(verdictReasons, wakeStatusAfter);
 
   return buildDrillEvidence({
@@ -1230,6 +1271,9 @@ export async function runStagingWakeDrill(options, deps) {
     wakeRuntimeAfterLoad,
     wakeRuntimeAfterDrill,
     wakeStatusBefore: wakeStatusBefore ?? null,
+    workerStatusBefore,
+    workerStatusAfterLoad,
+    workerStatusAfter,
     wakeStatusAfter: wakeStatusAfter ?? null,
     verdictReasons,
   });
@@ -1265,6 +1309,19 @@ async function safeWakeStatus(deps, verdictReasons, phase) {
     return await deps.fetchWakeStatus();
   } catch (error) {
     verdictReasons.push(`wake-status-snapshot-${phase}-failed`);
+    console.error(error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+async function safeWorkerStatus(deps, verdictReasons, phase) {
+  if (!deps.fetchWorkerStatus) {
+    return null;
+  }
+  try {
+    return await deps.fetchWorkerStatus();
+  } catch (error) {
+    verdictReasons.push(`worker-status-snapshot-${phase}-failed`);
     console.error(error instanceof Error ? error.message : String(error));
     return null;
   }
@@ -1403,6 +1460,140 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function readSafeString(value, fallback = null) {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return fallback;
+  }
+  if (matchesSensitivePattern(normalized) || normalized.toLowerCase().includes("sessiontoken")) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function matchesSensitivePattern(value) {
+  for (const pattern of [POSTGRES_URL_PATTERN, EMAIL_PATTERN, BEARER_PATTERN]) {
+    pattern.lastIndex = 0;
+    if (pattern.test(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function sanitizeDatabasePoolPressure(value) {
+  const pool = asRecord(value);
+  return {
+    databasePoolMax: toFiniteNumber(pool.databasePoolMax),
+    poolCount: toFiniteNumber(pool.poolCount),
+    activeClients: toFiniteNumber(pool.activeClients),
+    idleClients: toFiniteNumber(pool.idleClients),
+    waitingClients: toFiniteNumber(pool.waitingClients),
+    waitingPoolCount: toFiniteNumber(pool.waitingPoolCount),
+    saturatedPoolCount: toFiniteNumber(pool.saturatedPoolCount),
+  };
+}
+
+function sanitizeCapacity(value) {
+  const capacity = asRecord(value);
+  return {
+    configuredRunnerConcurrency: toFiniteNumber(capacity.configuredRunnerConcurrency),
+    databasePoolMax: toFiniteNumber(capacity.databasePoolMax),
+    overPoolCapacity: Boolean(capacity.overPoolCapacity),
+  };
+}
+
+function sanitizeProjectionWakeControls(value) {
+  const controls = asRecord(value);
+  const laneRunnerCounts = asRecord(controls.laneRunnerCounts);
+  return {
+    schedulerEnabled: typeof controls.schedulerEnabled === "boolean" ? controls.schedulerEnabled : null,
+    hotLaneReservedRunnerSlots: toFiniteNumber(controls.hotLaneReservedRunnerSlots),
+    laneRunnerCounts: Object.fromEntries(
+      Object.entries(laneRunnerCounts)
+        .map(([lane, count]) => [readSafeString(lane), toFiniteNumber(count)])
+        .filter(([lane, count]) => lane && count !== null),
+    ),
+  };
+}
+
+function sanitizeProjectionWakeIntents(value) {
+  const summary = asRecord(value);
+  return {
+    queuedCount: toFiniteNumber(summary.queuedCount),
+    claimedCount: toFiniteNumber(summary.claimedCount),
+    failedCount: toFiniteNumber(summary.failedCount),
+    expiredCount: toFiniteNumber(summary.expiredCount),
+    staleClaimCount: toFiniteNumber(summary.staleClaimCount),
+    oldestQueuedAgeMs: toFiniteNumber(summary.oldestQueuedAgeMs),
+  };
+}
+
+function sanitizeWakeIntentBreakdownRow(value) {
+  const row = asRecord(value);
+  return {
+    priorityLane: readSafeString(row.priorityLane),
+    origin: readSafeString(row.origin),
+    state: readSafeString(row.state),
+    intentCount: toFiniteNumber(row.intentCount),
+    maxAttemptCount: toFiniteNumber(row.maxAttemptCount),
+    oldestAgeMs: toFiniteNumber(row.oldestAgeMs),
+  };
+}
+
+function sanitizeLoopStatus(value) {
+  const loop = asRecord(value);
+  const name = readSafeString(loop.name);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    activeRunnerCount: toFiniteNumber(loop.activeRunnerCount),
+    maxConcurrentRunners: toFiniteNumber(loop.maxConcurrentRunners),
+    activeReservedSlotCount: toFiniteNumber(loop.activeReservedSlotCount),
+    reservedRunnerSlots: toFiniteNumber(loop.reservedRunnerSlots),
+    leaseMissCount: toFiniteNumber(loop.leaseMissCount),
+  };
+}
+
+function sanitizeWorkerHeartbeat(value) {
+  const worker = asRecord(value);
+  const workerKind = readSafeString(worker.workerKind);
+  const workerState = readSafeString(worker.workerState);
+  if (!workerKind && !workerState) {
+    return null;
+  }
+  return {
+    workerKind,
+    workerState,
+    heartbeatAgeMs: toFiniteNumber(worker.heartbeatAgeMs),
+    wakeCapable: typeof worker.wakeCapable === "boolean" ? worker.wakeCapable : null,
+  };
+}
+
+function sanitizeRunnerStatus(value) {
+  const runner = asRecord(value);
+  const name = readSafeString(runner.name) ?? readSafeString(runner.runnerName);
+  if (!name) {
+    return null;
+  }
+  const lastError = readSafeString(runner.lastError) ?? readSafeString(runner.last_error);
+  return {
+    name,
+    state: readSafeString(runner.state),
+    lastError: lastError?.includes("projection-group-lease-busy") ? "projection-group-lease-busy" : null,
+  };
+}
+
 function clampInteger(value, fallback, minimum, maximum) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isInteger(parsed)) {
@@ -1457,6 +1648,7 @@ async function main(argv, env = process.env) {
         sampleSourceContext: audit.sampleSourceContext,
         runCanaryWrite,
         fetchWakeStatus: adminConfigured ? () => fetchWakeStatusSnapshot(options) : null,
+        fetchWorkerStatus: normalizeUrl(options.workerStatusUrl) ? () => fetchWorkerStatusSnapshot(options) : null,
       },
     );
 

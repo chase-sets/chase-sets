@@ -25,6 +25,7 @@ import {
   renderDrillStepSummary,
   runReconciliationCanaryWrites,
   runStagingWakeDrill,
+  sanitizeWorkerStatusSnapshot,
   selectActiveCheckpoints,
   summarizeSegmentSlo,
   summarizeLoadResults,
@@ -72,6 +73,7 @@ function fakeDeps(overrides = {}) {
       segments: { writeToCheckoutReadyMs: 1200 },
     }),
     fetchWakeStatus: null,
+    fetchWorkerStatus: null,
     ...overrides,
   };
 }
@@ -1160,11 +1162,16 @@ describe("drill orchestration", () => {
 
   it("runs the reconciliation drill: write, converge, snapshot, pass", async () => {
     const snapshots = [];
+    const workerSnapshots = [];
     const evidence = await runStagingWakeDrill(reconciliationOptions, {
       ...fakeDeps(),
       fetchWakeStatus: async () => {
         snapshots.push("snapshot");
         return readyWakeStatus();
+      },
+      fetchWorkerStatus: async () => {
+        workerSnapshots.push("snapshot");
+        return sanitizeWorkerStatusSnapshot(workerStatusSnapshot());
       },
     });
 
@@ -1183,6 +1190,31 @@ describe("drill orchestration", () => {
     });
     expect(evidence.wakeStatusBefore).not.toBeNull();
     expect(evidence.wakeStatusAfter).not.toBeNull();
+    expect(workerSnapshots).toHaveLength(3);
+    expect(evidence.workerStatusBefore).toMatchObject({
+      databasePoolPressure: { waitingClients: 0 },
+      projectionWakeControls: {
+        schedulerEnabled: true,
+        hotLaneReservedRunnerSlots: 1,
+        laneRunnerCounts: { hot: 1, standard: 2 },
+      },
+      projectionWakeIntents: { queuedCount: 0, failedCount: 0 },
+      loops: [
+        expect.objectContaining({
+          name: "wakes",
+          activeRunnerCount: 1,
+          reservedRunnerSlots: 1,
+        }),
+      ],
+      workers: [
+        expect.objectContaining({
+          workerKind: "platform-worker",
+          workerState: "active",
+          wakeCapable: true,
+        }),
+      ],
+    });
+    expect(evidence.workerStatusAfter).not.toBeNull();
   });
 
   it("waits for post-deploy wake runtime readiness before writing the reconciliation canary", async () => {
@@ -1573,4 +1605,136 @@ describe("drill orchestration", () => {
     expect(evidence.verdictReasons).toContain("wake-status-snapshot-before-failed");
     expect(evidence.verdictReasons).toContain("wake-status-snapshot-after-failed");
   });
+
+  it("records worker-status snapshot failures when worker-status capture is configured", async () => {
+    const evidence = await runStagingWakeDrill(
+      { ...reconciliationOptions, skipCanaryWrite: true },
+      {
+        ...fakeDeps(),
+        fetchWorkerStatus: async () => {
+          throw new Error("worker status unavailable");
+        },
+      },
+    );
+
+    expect(evidence.verdict).toBe("fail");
+    expect(evidence.verdictReasons).toContain("worker-status-snapshot-before-failed");
+    expect(evidence.verdictReasons).toContain("worker-status-snapshot-after-failed");
+  });
+
+  it("sanitizes worker-status snapshots down to support-safe structural fields", () => {
+    const sanitized = sanitizeWorkerStatusSnapshot({
+      ...workerStatusSnapshot(),
+      databaseUrl: "postgresql://admin:secret@db.example:25060/platform",
+      sessionToken: "secret-session",
+      workers: [
+        {
+          workerId: "platform-worker-private-id",
+          workerKind: "platform-worker",
+          workerState: "active",
+          heartbeatAgeMs: 17,
+          wakeCapable: true,
+          email: "operator@example.com",
+        },
+      ],
+      runners: [
+        {
+          name: "projection-hot",
+          state: "active",
+          lastError: "projection-group-lease-busy",
+          payload: { eventId: "evt_private" },
+        },
+        {
+          name: "postgresql://admin:secret@db.example:25060/platform",
+          state: "active",
+        },
+      ],
+    });
+    const serialized = JSON.stringify(sanitized);
+
+    expect(sanitized.runners).toEqual([
+      {
+        name: "projection-hot",
+        state: "active",
+        lastError: "projection-group-lease-busy",
+      },
+    ]);
+    expect(serialized).not.toContain("postgresql://");
+    expect(serialized).not.toContain("operator@example.com");
+    expect(serialized).not.toContain("secret-session");
+    expect(serialized).not.toContain("platform-worker-private-id");
+    expect(serialized).not.toContain("evt_private");
+  });
 });
+
+function workerStatusSnapshot() {
+  return {
+    generatedAt: "2026-06-30T22:30:00.000Z",
+    databasePoolPressure: {
+      databasePoolMax: 20,
+      poolCount: 1,
+      activeClients: 4,
+      idleClients: 16,
+      waitingClients: 0,
+      waitingPoolCount: 0,
+      saturatedPoolCount: 0,
+    },
+    capacity: {
+      configuredRunnerConcurrency: 3,
+      databasePoolMax: 20,
+      overPoolCapacity: false,
+    },
+    projectionWakeControls: {
+      schedulerEnabled: true,
+      hotLaneReservedRunnerSlots: 1,
+      laneRunnerCounts: {
+        hot: 1,
+        standard: 2,
+      },
+    },
+    projectionWakeIntents: {
+      queuedCount: 0,
+      claimedCount: 0,
+      failedCount: 0,
+      expiredCount: 0,
+      staleClaimCount: 0,
+      oldestQueuedAgeMs: null,
+    },
+    projectionWakeIntentBreakdown: [
+      {
+        priorityLane: "hot",
+        origin: "api-wait",
+        state: "queued",
+        intentCount: 0,
+        maxAttemptCount: 0,
+        oldestAgeMs: null,
+      },
+    ],
+    loops: [
+      {
+        name: "wakes",
+        activeRunnerCount: 1,
+        maxConcurrentRunners: 3,
+        activeReservedSlotCount: 1,
+        reservedRunnerSlots: 1,
+        leaseMissCount: 0,
+      },
+    ],
+    workers: [
+      {
+        workerId: "platform-worker-private-id",
+        workerKind: "platform-worker",
+        workerState: "active",
+        heartbeatAgeMs: 12,
+        wakeCapable: true,
+      },
+    ],
+    runners: [
+      {
+        name: "projection-hot",
+        state: "active",
+        lastError: null,
+      },
+    ],
+  };
+}
