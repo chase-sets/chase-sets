@@ -638,6 +638,17 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('form[data-catalog-lifecycle-command="rollback"]')).toHaveCount(1);
     await expect(page.locator('form[data-catalog-lifecycle-command="deprecate"]')).toHaveCount(1);
     await expect(page.locator('form[data-catalog-lifecycle-command="retire"]')).toHaveCount(1);
+    for (const operation of ["rollback", "deprecate", "retire"] as const) {
+      const lifecycleCommand = page.locator(`form[data-catalog-lifecycle-command="${operation}"]`).first();
+      await expect(lifecycleCommand.locator('input[name="_intent"]')).toHaveValue(`${operation}-provider-profile`);
+      await expect(lifecycleCommand.locator('input[name="providerKey"]')).toHaveValue("tcgdex");
+      await expect(lifecycleCommand.locator('input[name="unitKey"]')).toHaveValue("tcgdex:pokemon:card:import");
+      await expect(lifecycleCommand.locator('input[name="importScope"]')).toHaveValue("en:3:base:base1");
+      await expect(lifecycleCommand.locator('input[name="profileVersion"]')).toHaveValue("2026.06.03");
+      await expect(lifecycleCommand.locator('input[name="selectedObservationIds"]')).toHaveValue("");
+      await expect(lifecycleCommand.locator('input[name="jobId"]')).toHaveValue("");
+      await expect(lifecycleCommand.locator('input[name="promotionPreviewId"]')).toHaveValue("");
+    }
     await expect(page.getByLabel(/I confirm rollback profile impact and audit evidence/i)).toBeVisible();
     await expect(page.getByLabel(/I confirm deprecate profile impact and audit evidence/i)).toBeVisible();
     await expect(
