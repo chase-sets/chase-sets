@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import type { Invitation } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -10,7 +10,9 @@ import { createIdentityRequestApiClient } from "../../support/route-support/iden
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
-  return api.listInvitations<ListResponse<Invitation>>("limit=50&offset=0");
+  const page = readOffsetPageParams(request);
+  const data = await api.listInvitations<ListResponse<Invitation>>(page.query);
+  return { ...data, limit: page.limit, offset: page.offset };
 }
 
 export async function action({ request }: ActionFunctionArgs) {

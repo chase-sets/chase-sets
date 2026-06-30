@@ -84,6 +84,58 @@ export type PlatformForwardedAuthHeadersOptions = Readonly<{
   maxAgeMs?: number;
 }>;
 
+export type OffsetPageParams = Readonly<{
+  limit: number;
+  offset: number;
+  query: string;
+}>;
+
+export type ReadOffsetPageParamsOptions = Readonly<{
+  defaultLimit?: number;
+  maxLimit?: number;
+}>;
+
+const DEFAULT_OFFSET_PAGE_LIMIT = 50;
+const DEFAULT_MAX_OFFSET_PAGE_LIMIT = 500;
+
+function positiveIntegerFromSearchParam(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeIntegerFromSearchParam(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+export function readOffsetPageParams(
+  requestOrUrl: Request | string | URL,
+  options: ReadOffsetPageParamsOptions = {},
+): OffsetPageParams {
+  const url =
+    requestOrUrl instanceof URL
+      ? requestOrUrl
+      : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
+  const defaultLimit = options.defaultLimit ?? DEFAULT_OFFSET_PAGE_LIMIT;
+  const maxLimit = options.maxLimit ?? DEFAULT_MAX_OFFSET_PAGE_LIMIT;
+  const limit = Math.min(positiveIntegerFromSearchParam(url.searchParams.get("limit"), defaultLimit), maxLimit);
+  const offset = nonNegativeIntegerFromSearchParam(url.searchParams.get("offset"), 0);
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  }).toString();
+
+  return { limit, offset, query };
+}
+
 function recordPostWriteTelemetry(
   telemetry: PlatformPostWriteTelemetry | undefined,
   outcome: PlatformPostWriteConsistencyOutcome,

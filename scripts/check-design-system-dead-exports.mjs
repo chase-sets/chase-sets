@@ -90,7 +90,6 @@ const canonicalReserveZeroConsumerExports = [
   "normalizeFormErrors",
   "NumberField",
   "packingSlipPrintStyles",
-  "Pagination",
   "Popover",
   "PriceDisplay",
   "ProductCard",

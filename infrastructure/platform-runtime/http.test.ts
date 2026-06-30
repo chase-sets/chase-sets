@@ -18,6 +18,7 @@ import {
   loadAfterWrite,
   navigateAfterWrite,
   navigateAfterWriteWithCompactToken,
+  readOffsetPageParams,
   redirectAfterWrite,
   redirectAfterWriteWithCompactToken,
   resolveInternalApiOrigin,
@@ -101,6 +102,29 @@ describe("resolveRequestApiBaseUrl", () => {
     const request = new Request("https://admin.chasesets.test/catalog");
 
     expect(resolveRequestApiBaseUrl(request, "/api/catalog")).toBe("http://admin-support-api:8080/api/catalog");
+  });
+});
+
+describe("readOffsetPageParams", () => {
+  it("normalizes offset pagination from route URLs", () => {
+    expect(readOffsetPageParams("https://admin.chasesets.test/access/users?limit=25&offset=75")).toEqual({
+      limit: 25,
+      offset: 75,
+      query: "limit=25&offset=75",
+    });
+  });
+
+  it("clamps unsafe or malformed pagination to bounded defaults", () => {
+    expect(
+      readOffsetPageParams("https://admin.chasesets.test/access/users?limit=999999&offset=-1%20UNION%20SELECT", {
+        defaultLimit: 50,
+        maxLimit: 500,
+      }),
+    ).toEqual({
+      limit: 500,
+      offset: 0,
+      query: "limit=500&offset=0",
+    });
   });
 });
 

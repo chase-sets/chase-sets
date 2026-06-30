@@ -13,6 +13,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  Pagination,
   Stack,
   StatusPill,
   Text,
@@ -27,6 +28,7 @@ export function AdminListPage<T>({
   emptyMessage,
   getHref,
   actions,
+  pagination,
 }: {
   title: string;
   items: readonly T[];
@@ -34,7 +36,24 @@ export function AdminListPage<T>({
   emptyMessage: string;
   getHref?: (row: T) => string;
   actions?: ReactNode;
+  pagination?: Readonly<{ limit: number; offset: number; total: number }>;
 }) {
+  const pageSize = pagination?.limit ?? items.length;
+  const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
+  const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
+  const showPagination = Boolean(pagination && (pagination.total > pageSize || pagination.offset > 0));
+
+  function navigateToPage(page: number) {
+    if (typeof window === "undefined" || !pagination) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", String((page - 1) * pageSize));
+    window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+  }
+
   const columnsWithView: readonly DataColumn<T>[] = getHref
     ? [
         ...columns,
@@ -65,6 +84,9 @@ export function AdminListPage<T>({
           ) : (
             <DataTable columns={[...columnsWithView]} rows={[...items]} />
           )}
+          {showPagination ? (
+            <Pagination page={currentPage} totalPages={totalPages} onPageChange={navigateToPage} />
+          ) : null}
         </PageSection>
       </Stack>
     </Page>

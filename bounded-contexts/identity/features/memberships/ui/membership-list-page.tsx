@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Membership } from "./contracts";
+
+type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 function userLabel(membership: Membership) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
@@ -26,7 +29,7 @@ const columns: DataColumn<Membership>[] = [
   { key: "status", header: t("identity.features.memberships.ui.membershipListPage.status"), cell: (row) => row.status },
 ];
 
-export function MembershipListPage({ initialData }: { initialData: { items: Membership[] } }) {
+export function MembershipListPage({ initialData }: { initialData: PaginatedListResponse<Membership> }) {
   return (
     <AdminListPage
       title={t("identity.features.memberships.ui.membershipListPage.memberships")}
@@ -34,6 +37,7 @@ export function MembershipListPage({ initialData }: { initialData: { items: Memb
       columns={columns}
       emptyMessage={t("identity.features.memberships.ui.membershipListPage.no.memberships.yet")}
       getHref={(row) => `/access/memberships/${row.membership_id}`}
+      pagination={initialData}
     />
   );
 }

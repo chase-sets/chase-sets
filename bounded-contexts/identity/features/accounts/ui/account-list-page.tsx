@@ -1,8 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { Inline, Text, type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { AccountBadgeList } from "./account-badges";
 import type { Account } from "./contracts";
+
+type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 const columns: DataColumn<Account>[] = [
   {
@@ -24,7 +27,7 @@ const columns: DataColumn<Account>[] = [
   { key: "status", header: t("identity.features.accounts.ui.accountListPage.status"), cell: (row) => row.status },
 ];
 
-export function AccountListPage({ initialData }: { initialData: { items: Account[] } }) {
+export function AccountListPage({ initialData }: { initialData: PaginatedListResponse<Account> }) {
   return (
     <AdminListPage
       title={t("identity.features.accounts.ui.accountListPage.accounts")}
@@ -32,6 +35,7 @@ export function AccountListPage({ initialData }: { initialData: { items: Account
       columns={columns}
       emptyMessage={t("identity.features.accounts.ui.accountListPage.no.accounts.yet")}
       getHref={(row) => `/access/accounts/${row.account_id}`}
+      pagination={initialData}
     />
   );
 }

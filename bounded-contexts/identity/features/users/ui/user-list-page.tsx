@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { User } from "./contracts";
+
+type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 const columns: DataColumn<User>[] = [
   {
@@ -22,7 +25,7 @@ const columns: DataColumn<User>[] = [
   { key: "status", header: t("identity.features.users.ui.userListPage.status"), cell: (row) => row.status },
 ];
 
-export function UserListPage({ initialData }: { initialData: { items: User[] } }) {
+export function UserListPage({ initialData }: { initialData: PaginatedListResponse<User> }) {
   return (
     <AdminListPage
       title={t("identity.features.users.ui.userListPage.users")}
@@ -30,6 +33,7 @@ export function UserListPage({ initialData }: { initialData: { items: User[] } }
       columns={columns}
       emptyMessage={t("identity.features.users.ui.userListPage.no.users.yet")}
       getHref={(row) => `/access/users/${row.user_id}`}
+      pagination={initialData}
     />
   );
 }

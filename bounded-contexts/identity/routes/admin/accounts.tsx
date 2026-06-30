@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { readOffsetPageParams } from "@chase-sets/platform-runtime/http";
 import type { Account } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AccountListPage } from "../../features/accounts/ui/account-list-page";
@@ -8,7 +9,9 @@ import { createIdentityRequestApiClient } from "../../support/route-support/iden
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
-  return api.listAccounts<ListResponse<Account>>("limit=50&offset=0");
+  const page = readOffsetPageParams(request);
+  const data = await api.listAccounts<ListResponse<Account>>(page.query);
+  return { ...data, limit: page.limit, offset: page.offset };
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.accounts.accounts.identity.admin") }];

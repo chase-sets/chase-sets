@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
+
+type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 function userLabel(apiKey: ApiKey) {
   return apiKey.user_display_name ?? apiKey.user_primary_email ?? apiKey.user_id;
@@ -14,7 +17,7 @@ const columns: DataColumn<ApiKey>[] = [
   { key: "status", header: t("identity.features.apiKeys.ui.apiKeyListPage.status"), cell: (row) => row.status },
 ];
 
-export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[] } }) {
+export function ApiKeyListPage({ initialData }: { initialData: PaginatedListResponse<ApiKey> }) {
   return (
     <AdminListPage
       title={t("identity.features.apiKeys.ui.apiKeyListPage.api.keys")}
@@ -34,6 +37,7 @@ export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[]
       }
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
       getHref={(row) => `/access/api-keys/${row.api_key_id}`}
+      pagination={initialData}
     />
   );
 }
