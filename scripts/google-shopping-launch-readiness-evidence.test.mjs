@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION,
   GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
+  GOOGLE_SHOPPING_PRIVATE_EVIDENCE_SECTIONS,
   buildGoogleShoppingLaunchReadinessEvidence,
   parseGoogleShoppingLaunchReadinessArgs,
 } from "./google-shopping-launch-readiness-evidence.mjs";
@@ -27,6 +28,11 @@ describe("google shopping launch readiness evidence", () => {
       runbook: {
         path: GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
         operatorSurfaceLinkText: "Google Shopping Operations",
+      },
+      privateEvidenceRecord: {
+        reference: "GOOGLE-SHOPPING-LAUNCH-2026-06-04",
+        requiredSections: GOOGLE_SHOPPING_PRIVATE_EVIDENCE_SECTIONS,
+        redactionPolicy: expect.stringContaining("private evidence record only"),
       },
       productionEnvironment: {
         googleMerchantSyncEnabled: true,

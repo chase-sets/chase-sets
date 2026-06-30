@@ -11,6 +11,53 @@ export const GOOGLE_SHOPPING_REQUIRED_CONTENT_LANGUAGE = "en";
 export const GOOGLE_SHOPPING_REQUIRED_FEED_LABEL = "US";
 export const GOOGLE_SHOPPING_REQUIRED_PRODUCTION_ORIGIN = "https://marketplace.chasesets.com";
 export const GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH = "docs/runbooks/google-shopping-operations.md";
+export const GOOGLE_SHOPPING_PRIVATE_EVIDENCE_SECTIONS = [
+  {
+    key: "merchantCenterApproval",
+    label: "Merchant Center marketplace/multi-seller approval",
+    requiredReferenceFields: ["policy.accountApprovalReference"],
+  },
+  {
+    key: "merchantApiDataSource",
+    label: "Merchant API data source and destination setup",
+    requiredReferenceFields: ["policy.apiDataSourceReference"],
+  },
+  {
+    key: "merchantPolicySettings",
+    label: "Merchant shipping, returns, policy, and tax posture",
+    requiredReferenceFields: [
+      "policy.policyReviewReference",
+      "policy.merchantShippingSettingsReference",
+      "policy.merchantReturnsSettingsReference",
+      "policy.taxReadinessReference",
+    ],
+  },
+  {
+    key: "feedQualitySweep",
+    label: "Feed-row quality sweep and sample payload evidence",
+    requiredReferenceFields: ["feed.samplePayloads", "feed.sampleImageChecks"],
+  },
+  {
+    key: "crawlPosture",
+    label: "Production crawl posture and sitemap evidence",
+    requiredReferenceFields: ["crawlPosture"],
+  },
+  {
+    key: "diagnosticsSnapshot",
+    label: "Merchant diagnostics snapshot with zero P0 blockers",
+    requiredReferenceFields: ["diagnostics"],
+  },
+  {
+    key: "dryRunSync",
+    label: "Completed dry-run sync evidence",
+    requiredReferenceFields: ["sync.jobReference"],
+  },
+  {
+    key: "productionSyncApproval",
+    label: "Ops and policy approval for live Merchant writes",
+    requiredReferenceFields: ["productionSyncApprovalReference"],
+  },
+];
 
 const EXPECTED_MODES = new Set(["disabled", "dry-run", "live"]);
 const REQUIRED_MERCHANT_CONFIG_FIELDS = [
@@ -106,6 +153,12 @@ export function buildGoogleShoppingLaunchReadinessEvidence(input) {
       path: GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
       launchEvidenceSection: "Launch Readiness Evidence",
       operatorSurfaceLinkText: "Google Shopping Operations",
+    },
+    privateEvidenceRecord: {
+      reference: input.reference ?? null,
+      requiredSections: GOOGLE_SHOPPING_PRIVATE_EVIDENCE_SECTIONS,
+      redactionPolicy:
+        "Store provider screenshots, seller details, account ids, data-source ids, and credential references in the private evidence record only; public issues and PRs receive the external reference and redacted gate summary.",
     },
     expectedMode,
     readinessStatus,
