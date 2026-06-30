@@ -536,6 +536,44 @@ describe("CatalogItemListPage", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it("shows the realtime sync-required reload action before matching bulk actions", () => {
+    const reload = vi.fn();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
+        realtimeReloadActionBar={
+          <CatalogRealtimeReloadActionBar
+            pendingChangeCount={0}
+            syncRequired={true}
+            reload={reload}
+            entityName="Catalog Items"
+          />
+        }
+      />,
+    );
+
+    expect(screen.getByText("Catalog Items changed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
   it("previews matching bulk edits from a single side-panel action surface", async () => {
     const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
