@@ -444,6 +444,37 @@ describe("Catalog source-scope workset", () => {
     expect(within(form!).queryByDisplayValue("The Time Of Battle")).toBeNull();
   });
 
+  it("uses provider scope labels when Scrydex Lorcana route state carries compact set ids", () => {
+    const unitKey = "scrydex:lorcana:single-card:source-observation-import";
+    const profile = scrydexLorcanaSetNameProfile();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:lorcana:single-card:source-observation-import&importScope=en%3ATFC&languageCode=en&productLineName=Disney%20Lorcana&expansionName=TFC&profileVersion=2026.06.23",
+      scopes: { items: [lorcanaScope("scrydex", { observed_observations: 1 })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: overviewForProfiles([profile], "lorcana"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === unitKey);
+
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "scrydex",
+      unitKey,
+      importScope: "en:lorcana:TFC",
+      productLineName: "Disney Lorcana",
+      expansionId: "TFC",
+      expansionName: "The First Chapter",
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    expect(hiddenValue(form, "importScope")).toBe("en:lorcana:TFC");
+    expect(hiddenValue(form, "expansionId")).toBe("TFC");
+    expect(hiddenValue(form, "expansionName")).toBe("The First Chapter");
+    expect(form?.getAttribute("action")).toContain("expansionName=The+First+Chapter");
+  });
+
   it("keeps LorcanaJSON compact set scopes promotable after preview redirects", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

@@ -423,9 +423,11 @@ function providerCommandScope(
       providerScope.expansionId,
       preferProviderScope,
     ),
-    expansionName: scopedValue(
+    expansionName: scopedNameValue(
       canProjectSelectedScope ? selectedScope.expansionName : null,
       providerScope.expansionName,
+      canProjectSelectedScope ? selectedScope.expansionId : null,
+      providerScope.expansionId,
       preferProviderScope,
     ),
     status: canProjectSelectedScope ? (selectedScope.status ?? null) : null,
@@ -518,6 +520,36 @@ function productDomainsMatch(left: string, right: string): boolean {
 
 function scopedValue(selected: string | null, provider: string | null, preferProviderScope: boolean): string | null {
   return preferProviderScope ? (provider ?? selected) : (selected ?? provider);
+}
+
+function scopedNameValue(
+  selectedName: string | null,
+  providerName: string | null,
+  selectedId: string | null,
+  providerId: string | null,
+  preferProviderScope: boolean,
+): string | null {
+  const value = scopedValue(selectedName, providerName, preferProviderScope);
+  if (!providerName || preferProviderScope) {
+    return value;
+  }
+
+  const selectedLooksLikeProviderId =
+    Boolean(selectedName && providerId) &&
+    comparableScopeToken(selectedName) === comparableScopeToken(providerId) &&
+    comparableScopeToken(providerName) !== comparableScopeToken(providerId);
+  const selectedIdAlreadyNamesProvider = Boolean(
+    selectedId &&
+    providerName &&
+    comparableScopeToken(selectedId) === comparableScopeToken(providerName) &&
+    comparableScopeToken(providerName) !== comparableScopeToken(providerId),
+  );
+  return selectedLooksLikeProviderId && !selectedIdAlreadyNamesProvider ? providerName : value;
+}
+
+function comparableScopeToken(value: string | null | undefined): string | null {
+  const normalized = value?.toLowerCase().replace(/[^a-z0-9]+/g, "") ?? "";
+  return normalized || null;
 }
 
 function profileCanSelectScope(
