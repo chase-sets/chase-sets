@@ -354,6 +354,7 @@ describe("change-scope", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_auth",
       "admin_access",
     ]);
   });
@@ -445,7 +446,7 @@ describe("change-scope", () => {
       "catalog_admin_integrations,catalog_admin_modeling",
       "admin_growth,admin_commerce",
       "admin_support,admin_platform",
-      "admin_access",
+      "admin_auth,admin_access",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -504,6 +505,7 @@ describe("change-scope", () => {
       "admin_commerce",
       "admin_support",
       "admin_platform",
+      "admin_auth",
       "admin_access",
     ]);
   });

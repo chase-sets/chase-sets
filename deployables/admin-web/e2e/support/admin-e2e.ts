@@ -33,7 +33,7 @@ export async function expectPageOk(page: Page, path: string) {
   throw lastError ?? new Error(`${path} did not become ready`);
 }
 
-export async function authenticateAdmin(page: Page, returnToPath: string, signInPath = "/catalog/sign-in") {
+export async function authenticateAdmin(page: Page, returnToPath: string, signInPath = "/access/sign-in") {
   await expectPageOk(page, `${signInPath}?returnTo=${encodeURIComponent(returnToPath)}`);
   const origin = new URL(page.url()).origin;
   const deadline = Date.now() + authApiTimeoutMs;
