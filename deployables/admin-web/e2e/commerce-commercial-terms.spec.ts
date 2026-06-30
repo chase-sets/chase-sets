@@ -22,7 +22,7 @@ test.describe("commerce admin commercial terms", () => {
 
 async function expectScheduleOverlapValidation(page: Page) {
   await expectPageOk(page, "/commerce/terms/schedules");
-  await expectAdminPageReady(page, { heading: "Fee schedules" });
+  await expectAdminPageReady(page, { heading: "Fee Schedules" });
 
   const form = createScheduleForm(page);
   await form.getByLabel("Label").fill(`E2E overlapping business schedule ${Date.now().toString(36)}`);
@@ -53,7 +53,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
   await page.waitForURL((url) => url.pathname === "/commerce/terms/schedules" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
-  await expectAdminPageReady(page, { heading: "Fee schedules" });
+  await expectAdminPageReady(page, { heading: "Fee Schedules" });
   const row = await waitForListRow(page, label);
   await row.getByRole("link", { name: "Open" }).click();
   await expectAdminPageReady(page, { heading: label });
@@ -63,7 +63,7 @@ async function createInactiveScheduleAndInspectHistory(page: Page, suffix: strin
 
 async function expectAgreementAccountValidation(page: Page) {
   await expectPageOk(page, "/commerce/terms/agreements");
-  await expectAdminPageReady(page, { heading: "Commercial agreements" });
+  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
 
   const form = createAgreementForm(page);
   await form.getByLabel("Label").fill(`E2E invalid account agreement ${Date.now().toString(36)}`);
@@ -94,7 +94,7 @@ async function createInactiveAgreementAndInspectHistory(page: Page, suffix: stri
   await page.waitForURL((url) => url.pathname === "/commerce/terms/agreements" && url.search.includes("afterWrite"), {
     timeout: 30_000,
   });
-  await expectAdminPageReady(page, { heading: "Commercial agreements" });
+  await expectAdminPageReady(page, { heading: "Commercial Agreements" });
   const row = await waitForListRow(page, label);
   await row.getByRole("link", { name: "Open" }).click();
   await expectAdminPageReady(page, { heading: label });
