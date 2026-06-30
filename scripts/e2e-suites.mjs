@@ -66,7 +66,7 @@ export const e2eSuites = Object.freeze([
     id: "admin_platform",
     label: "Admin Platform",
     deployable: "admin-web",
-    journeys: ["projection operations"],
+    journeys: ["projection operations", "API topology"],
     grep: "@admin-platform",
   },
   {
