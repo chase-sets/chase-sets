@@ -142,6 +142,11 @@ const lorcanaSetChoice: SelectChoice = {
   values: ["TFC", "1"],
 };
 
+const lorcanaFirstChapterCardChoice: SelectChoice = {
+  labels: ["Elsa - Snow Queen #41", "Elsa - Snow Queen"],
+  values: ["crd_elsa_snow_queen_1_041", "1-041"],
+};
+
 const tcgplayerLorcanaSetChoice: SelectChoice = {
   labels: ["The First Chapter"],
 };
@@ -311,7 +316,10 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
     name: "Lorcana card set through Lorcast bulk-first shared importer",
     providerKey: "lorcast",
     unitKey: "lorcast:lorcana:single-card:reference-data",
-    scope: [{ label: "Set", choice: lorcanaSetChoice }],
+    scope: [
+      { label: "Set", choice: lorcanaSetChoice },
+      { label: "Card", choice: lorcanaFirstChapterCardChoice },
+    ],
     preflight: {
       requestStrategy: "bulk-first",
       allowedUsageStates: ["not-supported", "unknown"],
