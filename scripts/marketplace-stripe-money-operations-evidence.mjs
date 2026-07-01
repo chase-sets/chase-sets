@@ -88,6 +88,7 @@ const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = "/api/settlement/provider/money-m
 
 const PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH = "/account/payouts/setup";
 const CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS = new Set(["screenshot", "redacted-run-output"]);
+const STRIPE_CONNECT_ACCOUNTS_APIS = new Set(["v1", "v2"]);
 const STRIPE_ID_PLACEHOLDER_PATTERN = /(?:placeholder|example|sample|test|todo|tbd|none|null)/i;
 
 export function parseStripeMoneyOperationsEvidenceArgs(argv, env = process.env) {
@@ -121,6 +122,7 @@ export function buildStripeMoneyOperationsEvidence(input) {
     apiVersion: proof.apiVersion,
     paymentWebhookDestination: proof.paymentWebhookDestination,
     connectWebhookDestination: proof.connectWebhookDestination,
+    connectAccountsApi: proof.connectAccountsApi,
     connectCustomAccountProofCompletedAt: proof.connectCustomAccountProofCompletedAt,
     connectPayoutSetupPageUrl: proof.connectPayoutSetupPageUrl,
     connectPayoutSetupPageEvidenceKind: proof.connectPayoutSetupPageEvidenceKind,
@@ -185,6 +187,7 @@ function normalizeStripeMoneyOperationsProof(proof) {
     apiVersion: requireString(proof.apiVersion, "Stripe API version"),
     paymentWebhookDestination: requireString(proof.paymentWebhookDestination, "Stripe paymentWebhookDestination"),
     connectWebhookDestination: requireString(proof.connectWebhookDestination, "Stripe connectWebhookDestination"),
+    connectAccountsApi: requireString(proof.connectAccountsApi, "Stripe connectAccountsApi"),
     connectCustomAccountProofCompletedAt: requireString(
       proof.connectCustomAccountProofCompletedAt,
       "Stripe connectCustomAccountProofCompletedAt",
@@ -311,6 +314,9 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
     errors.push(
       "Stripe money operations proof must use the production Chase Sets Connect money-movement webhook destination.",
     );
+  }
+  if (!STRIPE_CONNECT_ACCOUNTS_APIS.has(proof.connectAccountsApi)) {
+    errors.push("Stripe money operations proof must set connectAccountsApi to v1 or v2.");
   }
   if (!isProductionStripeUrl(proof.connectPayoutSetupPageUrl, PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH)) {
     errors.push("Stripe money operations proof must use the production Chase Sets embedded payout setup page.");
