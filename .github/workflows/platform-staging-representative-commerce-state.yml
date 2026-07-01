@@ -46,6 +46,7 @@ jobs:
       REPRESENTATIVE_COMMERCE_STATE_CONFIRM: seed staging commerce
       REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT: ${{ inputs.catalog_item_limit }}
       REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS: ${{ inputs.step_timeout_ms }}
+      REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT: artifacts/representative-commerce-state/representative-commerce-state-evidence.json
       PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
@@ -130,7 +131,19 @@ jobs:
             --github-env "$GITHUB_ENV"
 
       - name: Run representative commerce state refresh
-        run: pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/representative-commerce-state
+          pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+
+      - name: Upload representative commerce selector evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: representative-commerce-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/representative-commerce-state
+          if-no-files-found: error
+          retention-days: 30
 
   verify-sandbox-provider-evidence:
     name: Verify Sandbox Provider Evidence

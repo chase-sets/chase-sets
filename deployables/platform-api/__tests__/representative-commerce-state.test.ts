@@ -1,8 +1,14 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertRepresentativeCommerceStateRunAllowed,
+  assertRepresentativeCommerceStateEvidenceIsSupportSafe,
   selectChromeUatRepresentativePersona,
   selectPendingPaymentSaleRepresentativePersona,
+  writeRepresentativeCommerceStateEvidence,
+  type RepresentativeCommerceStateEvidence,
 } from "../src/representative-commerce-state";
 
 describe("representative commerce state refresh guardrails", () => {
@@ -50,6 +56,43 @@ describe("representative commerce state refresh guardrails", () => {
         localOverride: "true",
       }),
     ).not.toThrow();
+  });
+});
+
+describe("representative commerce state evidence artifact", () => {
+  it("writes the support-safe selector evidence payload", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "representative-commerce-state-"));
+    const outPath = join(dir, "representative-commerce-state-evidence.json");
+    try {
+      await writeRepresentativeCommerceStateEvidence(outPath, supportSafeRepresentativeEvidence());
+
+      const evidence = JSON.parse(await readFile(outPath, "utf8"));
+      expect(evidence).toMatchObject({
+        schemaVersion: "representative-commerce-state.evidence/v1",
+        type: "representative-commerce-state.complete",
+        chromeUatSelector: {
+          schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
+          status: "operator-action-required",
+          recommendedOperatorActionPersonaAlias: "card-vault",
+        },
+        pendingPaymentSaleSelector: {
+          schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1",
+          status: "ready",
+          selectedPersonaAlias: "sealed-stockroom",
+        },
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects private identifiers before writing selector evidence", () => {
+    expect(() =>
+      assertRepresentativeCommerceStateEvidenceIsSupportSafe({
+        ...supportSafeRepresentativeEvidence(),
+        representativeOrderingSupplyState: { latestOrderId: "ord_private" },
+      }),
+    ).toThrow("Representative commerce state evidence leaked private values: order-id");
   });
 });
 
@@ -402,4 +445,68 @@ function personaAliasForUser(userId: string): string {
   }
 
   return "unknown";
+}
+
+function supportSafeRepresentativeEvidence(): RepresentativeCommerceStateEvidence {
+  return {
+    schemaVersion: "representative-commerce-state.evidence/v1",
+    type: "representative-commerce-state.complete",
+    checkedAt: "2026-06-30T00:00:00.000Z",
+    environmentName: "staging",
+    dataProfiles: ["representative-commerce"],
+    sourceCatalogCandidateCount: 50,
+    untouchedCatalogCandidateCount: 0,
+    marketplaceReconciledCatalogItemCount: 0,
+    inventoryReconciledCatalogItemCount: 0,
+    representativeInventoryStockCount: 0,
+    representativeInventoryStockAccountCount: 0,
+    representativeListingCount: 0,
+    representativeListingAccountCount: 0,
+    representativeOfferCount: 0,
+    representativeOfferBuyerAccountCount: 0,
+    representativeAcceptedOfferCount: 0,
+    representativeAcceptedOfferSkippedCount: 0,
+    representativeOrderingSupplyState: { listingCount: 50, inventoryItemCount: 50 },
+    representativeDiscoveryMarketState: { listingCount: 50, offerCount: 50 },
+    chromeUatSelector: {
+      schemaVersion: "representative-commerce-state.chrome-uat-selector/v1",
+      status: "operator-action-required",
+      selectedPersonaAlias: null,
+      recommendedOperatorActionPersonaAlias: "card-vault",
+      checkedPersonaCount: 2,
+      evidencePolicy: "support-safe",
+      nextOperatorAction: "complete-private-payout-setup-for-recommended-persona",
+      personas: [
+        {
+          personaAlias: "card-vault",
+          chromeLogin: "magic-link-ready",
+          payoutReadiness: "not-ready",
+          listingState: "owned-mutable",
+          activeListingCount: 151,
+          mutableListingCount: 154,
+          inventoryItemCount: 154,
+          blockerCategories: ["payout-not-ready"],
+        },
+      ],
+    },
+    pendingPaymentSaleSelector: {
+      schemaVersion: "representative-commerce-state.pending-payment-sale-selector/v1",
+      status: "ready",
+      selectedPersonaAlias: "sealed-stockroom",
+      checkedPersonaCount: 2,
+      evidencePolicy: "support-safe",
+      sellerSalesPath: "/account/sales",
+      selectedSaleRouteTemplate: "/account/sales/:orderId",
+      nextOperatorAction: "use-selected-private-login-open-sales-and-record-redacted-pending-payment-uat",
+      personas: [
+        {
+          personaAlias: "sealed-stockroom",
+          chromeLogin: "magic-link-ready",
+          pendingPaymentSaleCount: 1,
+          pendingPaymentOfferAcceptanceSaleCount: 1,
+        },
+      ],
+    },
+    contexts: ["identity", "settlement", "marketplace", "ordering"],
+  };
 }

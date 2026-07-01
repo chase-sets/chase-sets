@@ -167,6 +167,23 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"     = local.landing_domain');
   });
 
+  it("uploads support-safe representative commerce selector evidence", () => {
+    const refreshStep = workflowStep(platformRepresentativeWorkflow, "Run representative commerce state refresh");
+    const uploadStep = workflowStep(platformRepresentativeWorkflow, "Upload representative commerce selector evidence");
+
+    expect(platformRepresentativeWorkflow).toContain(
+      "REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT: artifacts/representative-commerce-state/representative-commerce-state-evidence.json",
+    );
+    expect(refreshStep).toContain("mkdir -p artifacts/representative-commerce-state");
+    expect(refreshStep).toContain(
+      "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
+    );
+    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("name: representative-commerce-state-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(uploadStep).toContain("path: artifacts/representative-commerce-state");
+    expect(uploadStep).toContain("if-no-files-found: error");
+  });
+
   it("wires Catalog asset storage into production and non-production Catalog promotion components", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",

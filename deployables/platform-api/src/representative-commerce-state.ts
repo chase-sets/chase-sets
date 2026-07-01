@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
@@ -39,8 +41,15 @@ import {
 } from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
+const REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION = "representative-commerce-state.evidence/v1";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
 const MAX_STEP_TIMEOUT_MS = 600_000;
+const REPRESENTATIVE_EVIDENCE_ACCOUNT_PATTERN = /\bacc_[A-Za-z0-9_-]+\b/g;
+const REPRESENTATIVE_EVIDENCE_USER_PATTERN = /\busr_[A-Za-z0-9_-]+\b/g;
+const REPRESENTATIVE_EVIDENCE_LISTING_PATTERN = /\blst_[A-Za-z0-9_-]+\b/g;
+const REPRESENTATIVE_EVIDENCE_INVENTORY_PATTERN = /\binv_[A-Za-z0-9_-]+\b/g;
+const REPRESENTATIVE_EVIDENCE_ORDER_PATTERN = /\bord_[A-Za-z0-9_-]+\b/g;
+const REPRESENTATIVE_EVIDENCE_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 type ChromeUatPersonaAlias = "card-vault" | "sealed-stockroom";
 type ChromeUatReadinessStatus = "ready" | "operator-action-required";
@@ -98,6 +107,31 @@ export type PendingPaymentSaleRepresentativeSelection = Readonly<{
   nextOperatorAction:
     | "use-selected-private-login-open-sales-and-record-redacted-pending-payment-uat"
     | "refresh-representative-state-and-rerun-selector";
+}>;
+
+export type RepresentativeCommerceStateEvidence = Readonly<{
+  schemaVersion: typeof REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION;
+  type: "representative-commerce-state.complete";
+  checkedAt: string;
+  environmentName: string | null;
+  dataProfiles: readonly string[];
+  sourceCatalogCandidateCount: number;
+  untouchedCatalogCandidateCount: number;
+  marketplaceReconciledCatalogItemCount: number;
+  inventoryReconciledCatalogItemCount: number;
+  representativeInventoryStockCount: number;
+  representativeInventoryStockAccountCount: number;
+  representativeListingCount: number;
+  representativeListingAccountCount: number;
+  representativeOfferCount: number;
+  representativeOfferBuyerAccountCount: number;
+  representativeAcceptedOfferCount: number;
+  representativeAcceptedOfferSkippedCount: number;
+  representativeOrderingSupplyState: unknown;
+  representativeDiscoveryMarketState: unknown;
+  chromeUatSelector: ChromeUatRepresentativePersonaSelection;
+  pendingPaymentSaleSelector: PendingPaymentSaleRepresentativeSelection;
+  contexts: readonly string[];
 }>;
 
 const chromeUatPersonaCandidates: readonly ChromeUatPersonaCandidate[] = [
@@ -282,35 +316,74 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       }),
     );
 
-    console.log(
-      JSON.stringify({
-        type: "representative-commerce-state.complete",
-        environmentName: config.deploymentEnvironment ?? null,
-        dataProfiles: representativeCommerceStateDataProfiles,
-        sourceCatalogCandidateCount: sourceCandidates.length,
-        untouchedCatalogCandidateCount: candidates.length,
-        marketplaceReconciledCatalogItemCount: marketplaceReconciledCount,
-        inventoryReconciledCatalogItemCount: inventoryReconciledCount,
-        representativeInventoryStockCount: inventoryStock.length,
-        representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
-        representativeListingCount: listings.length,
-        representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
-        representativeOfferCount: offers.length,
-        representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
-        representativeAcceptedOfferCount: acceptedOffers.filter(
-          (offer) => offer.status === "accepted" || offer.status === "already-accepted",
-        ).length,
-        representativeAcceptedOfferSkippedCount: acceptedOffers.filter((offer) => offer.status === "skipped").length,
-        representativeOrderingSupplyState: orderingSupplyState,
-        representativeDiscoveryMarketState: discoveryMarketState,
-        chromeUatSelector,
-        pendingPaymentSaleSelector,
-        contexts: runtime.mountedContexts.map((context) => context.contextName),
-      }),
-    );
+    const evidence: RepresentativeCommerceStateEvidence = {
+      schemaVersion: REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_VERSION,
+      type: "representative-commerce-state.complete",
+      checkedAt: new Date().toISOString(),
+      environmentName: config.deploymentEnvironment ?? null,
+      dataProfiles: representativeCommerceStateDataProfiles,
+      sourceCatalogCandidateCount: sourceCandidates.length,
+      untouchedCatalogCandidateCount: candidates.length,
+      marketplaceReconciledCatalogItemCount: marketplaceReconciledCount,
+      inventoryReconciledCatalogItemCount: inventoryReconciledCount,
+      representativeInventoryStockCount: inventoryStock.length,
+      representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
+      representativeListingCount: listings.length,
+      representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
+      representativeOfferCount: offers.length,
+      representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
+      representativeAcceptedOfferCount: acceptedOffers.filter(
+        (offer) => offer.status === "accepted" || offer.status === "already-accepted",
+      ).length,
+      representativeAcceptedOfferSkippedCount: acceptedOffers.filter((offer) => offer.status === "skipped").length,
+      representativeOrderingSupplyState: orderingSupplyState,
+      representativeDiscoveryMarketState: discoveryMarketState,
+      chromeUatSelector,
+      pendingPaymentSaleSelector,
+      contexts: runtime.mountedContexts.map((context) => context.contextName),
+    };
+
+    console.log(JSON.stringify(evidence));
+    await writeRepresentativeCommerceStateEvidence(process.env.REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT, evidence);
   } finally {
     await closePlatformApiPools(pools);
   }
+}
+
+export async function writeRepresentativeCommerceStateEvidence(
+  outPath: string | null | undefined,
+  evidence: RepresentativeCommerceStateEvidence,
+): Promise<void> {
+  const normalizedOutPath = outPath?.trim();
+  if (!normalizedOutPath) {
+    return;
+  }
+
+  assertRepresentativeCommerceStateEvidenceIsSupportSafe(evidence);
+  await mkdir(dirname(normalizedOutPath), { recursive: true });
+  await writeFile(normalizedOutPath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+}
+
+export function assertRepresentativeCommerceStateEvidenceIsSupportSafe(
+  evidence: RepresentativeCommerceStateEvidence,
+): void {
+  const serialized = JSON.stringify(evidence);
+  const leaks = [
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_ACCOUNT_PATTERN, "account-id"),
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_USER_PATTERN, "user-id"),
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_LISTING_PATTERN, "listing-id"),
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_INVENTORY_PATTERN, "inventory-id"),
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_ORDER_PATTERN, "order-id"),
+    ...matchLeakNames(serialized, REPRESENTATIVE_EVIDENCE_EMAIL_PATTERN, "email"),
+  ];
+  if (leaks.length > 0) {
+    throw new Error(`Representative commerce state evidence leaked private values: ${leaks.join(", ")}`);
+  }
+}
+
+function matchLeakNames(serialized: string, pattern: RegExp, name: string): string[] {
+  pattern.lastIndex = 0;
+  return pattern.test(serialized) ? [name] : [];
 }
 
 function createObjectStorage(
