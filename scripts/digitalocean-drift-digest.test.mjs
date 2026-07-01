@@ -24,6 +24,8 @@ describe("digitalocean-drift-digest", () => {
         restorePointPrefix: "cs-prod-rp-",
         registryRepository: "chase-sets-platform",
         registryRetentionDays: 7,
+        runtimeTopologyModes: ["preview", "staging", "production-landing", "production-proof", "production-public"],
+        retiredProfileComponentNames: ["admin-support-api", "admin-support-bootstrap", "admin-support-worker"],
         observability: {
           staging: {
             dropletBackupsExpected: false,

@@ -332,7 +332,7 @@ Deployables are runtime composition roots, not bounded-context ownership boundar
 
 The typed profile source of truth lives in `@chase-sets/platform-runtime/runtime-profiles`. Production mode and API/worker profiles use the same natural names:
 
-| Production mode | `CHASE_SETS_RUNTIME_PROFILE` | `CHASE_SETS_WORKER_PROFILE` | Runtime posture |
+| Production mode | API `CHASE_SETS_RUNTIME_PROFILE` | Worker `CHASE_SETS_RUNTIME_PROFILE` | Runtime posture |
 | --- | --- | --- | --- |
 | `landing` | `landing` | `landing` | Landing and admin support only; no public marketplace runtime. |
 | `proof` | `proof` | `proof` | Private production marketplace proof for provider and live-money evidence. |
@@ -351,6 +351,21 @@ Database lifecycle is a companion track to runtime profile migration, not a side
 7. Remove retired admin-support deployables only after production release-health and topology evidence are clean.
 
 Creating a context database/user is reversible only through reviewed database lifecycle work; it never exposes routes or starts workers by itself. Profile activation and ingress rules own exposure.
+
+### Runtime topology and component-count baseline
+
+`scripts/digitalocean-runtime-topology.mjs` is the offline topology fixture for App Platform component shape. It does not call DigitalOcean; it evaluates an App Platform spec against the target runtime mode and reports missing, unexpected, and retired components.
+
+| Topology mode | Expected services | Expected workers | Expected jobs | Component count | Cost direction |
+| --- | --- | --- | --- | --- | --- |
+| `preview` | `public-web`, `admin-web`, `marketplace`, `platform-api` | `platform-worker` | `platform-bootstrap` | 6 | Disposable full-platform proof; keep small. |
+| `staging` | `public-web`, `admin-web`, `marketplace`, `platform-api` | `platform-worker` | `platform-bootstrap` | 6 | Full-platform pre-production baseline. |
+| current legacy production landing | `public-web`, `admin-web`, `admin-support-api` | `admin-support-worker` | `admin-support-bootstrap` | 5 | Baseline before profiled cutover. |
+| `production-landing` | `public-web`, `admin-web`, `platform-api` | `platform-worker` | `platform-bootstrap` | 5 | Same component count as legacy landing, fewer deployable families to build, route, smoke, and roll back. |
+| `production-proof` | `public-web`, `admin-web`, `marketplace`, `platform-api` | `platform-worker` | `platform-bootstrap` | 6 | Adds marketplace web plus full platform proof runtime only while proof evidence is active. |
+| `production-public` | `public-web`, `admin-web`, `marketplace`, `platform-api` | `platform-worker` | `platform-bootstrap` | 6 | Final public marketplace baseline after launch gates pass. |
+
+After the profiled cutover, `admin-support-api`, `admin-support-worker`, and `admin-support-bootstrap` are retired component names. Their reappearance should be treated as topology drift unless a reviewed rollback or legacy-cleanup exception names the reason and owner. The target component counts are intentionally normalized counts, not a pricing promise; monthly spend still depends on instance sizes, instance counts, database tier, Spaces/CDN use, registry retention, and observability posture. Directionally, the landing cutover should reduce operational complexity without increasing App Platform component count.
 
 ## Staging Deployment
 
