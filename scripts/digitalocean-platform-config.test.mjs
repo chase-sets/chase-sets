@@ -97,7 +97,36 @@ function terraformServiceBlock(source, serviceName) {
 
   const nextService = source.indexOf("\n    service", start + 1);
   const nextDynamicService = source.indexOf('\n    dynamic "service"', start + 1);
-  const candidates = [nextService, nextDynamicService].filter((index) => index !== -1);
+  const nextWorker = source.indexOf("\n    worker", start + 1);
+  const nextDynamicWorker = source.indexOf('\n    dynamic "worker"', start + 1);
+  const nextJob = source.indexOf("\n    job", start + 1);
+  const nextDynamicJob = source.indexOf('\n    dynamic "job"', start + 1);
+  const nextIngress = source.indexOf("\n    ingress", start + 1);
+  const candidates = [
+    nextService,
+    nextDynamicService,
+    nextWorker,
+    nextDynamicWorker,
+    nextJob,
+    nextDynamicJob,
+    nextIngress,
+  ].filter((index) => index !== -1);
+  const end = candidates.length > 0 ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
+}
+
+function terraformWorkerBlock(source, workerName) {
+  const start = source.indexOf(`name               = "${workerName}"`);
+  expect(start).not.toBe(-1);
+
+  const nextWorker = source.indexOf("\n    worker", start + 1);
+  const nextDynamicWorker = source.indexOf('\n    dynamic "worker"', start + 1);
+  const nextJob = source.indexOf("\n    job", start + 1);
+  const nextDynamicJob = source.indexOf('\n    dynamic "job"', start + 1);
+  const nextIngress = source.indexOf("\n    ingress", start + 1);
+  const candidates = [nextWorker, nextDynamicWorker, nextJob, nextDynamicJob, nextIngress].filter(
+    (index) => index !== -1,
+  );
   const end = candidates.length > 0 ? Math.min(...candidates) : source.length;
   return source.slice(start, end);
 }
@@ -279,6 +308,10 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
+    const platformApiService = terraformServiceBlock(platformMain, "platform-api");
+    const adminSupportApiService = terraformServiceBlock(platformMain, "admin-support-api");
+    const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
+    const adminSupportWorkerService = terraformWorkerBlock(platformMain, "admin-support-worker");
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
     const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");
 
@@ -293,6 +326,19 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
     expect(adminSupportBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
+    expect(platformLocals).toContain("for context_name in local.context_database_names :");
+    expect(platformLocals).toContain("admin_support_context_database_env");
+    for (const contextName of ["fulfillment", "ordering"]) {
+      expect(platformLocals).toContain(`"${contextName}",`);
+    }
+    for (const block of [platformApiService, platformWorkerService, platformBootstrapJob]) {
+      expect(block).toContain("for_each = local.context_database_env");
+      expect(block).not.toContain("for_each = local.admin_support_context_database_env");
+    }
+    for (const block of [adminSupportApiService, adminSupportWorkerService, adminSupportBootstrapJob]) {
+      expect(block).toContain("for_each = local.admin_support_context_database_env");
+      expect(block).not.toContain("for_each = local.context_database_env");
+    }
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
@@ -695,7 +741,7 @@ describe("DigitalOcean platform configuration", () => {
     expect([...retainedDatabaseContexts].sort()).toEqual([...activeContexts, "reputation"].sort());
     expect(platformLocals).toContain("context_database_names = distinct(concat(");
     expect(platformLocals).toContain("local.is_production ? local.production_retained_context_database_names : []");
-    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
+    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(4);
   });
 
   it("keeps production context database names within DigitalOcean limits", () => {

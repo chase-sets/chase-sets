@@ -480,7 +480,7 @@ locals {
   non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
 
   context_database_urls = {
-    for context_name in local.context_names :
+    for context_name in local.context_database_names :
     context_name => local.is_non_production ? format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
@@ -498,6 +498,21 @@ locals {
     for context_name in local.context_names :
     context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}"
     if context_name != "control"
+  }
+
+  admin_support_context_names = [
+    "auth",
+    "catalog",
+    "fulfillment",
+    "identity",
+    "ordering",
+    "platform-operations",
+    "public-presence",
+  ]
+
+  admin_support_context_database_env = {
+    for context_name in local.admin_support_context_names :
+    context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}"
   }
 
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
