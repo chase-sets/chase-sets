@@ -17,7 +17,7 @@ function createCommandRecorder() {
   return { handler, records };
 }
 
-function createServices(existing: boolean) {
+function createServices(existing: boolean, existingRoleKey = "platform-admin") {
   const accounts = createCommandRecorder();
   const users = createCommandRecorder();
   const memberships = createCommandRecorder();
@@ -37,7 +37,7 @@ function createServices(existing: boolean) {
       },
       db: {
         query: vi.fn(async () => ({
-          rows: existing ? [{ membership_id: "mbr_platform_admin" }] : [],
+          rows: existing ? [{ membership_id: "mbr_platform_admin", role_key: existingRoleKey }] : [],
         })),
       },
       projectors: [
@@ -68,6 +68,7 @@ describe("platform admin production bootstrap", () => {
       createdAccount: false,
       createdUser: false,
       createdMembership: false,
+      repairedMembershipRole: false,
     });
     expect(records.accounts).toHaveLength(0);
     expect(records.users).toHaveLength(0);
@@ -93,9 +94,37 @@ describe("platform admin production bootstrap", () => {
       createdAccount: true,
       createdUser: true,
       createdMembership: true,
+      repairedMembershipRole: false,
     });
     expect(serializedCommands).toContain("ops@chasesets.com");
     expect(serializedCommands).toContain("platform-admin");
     expect(serializedCommands).not.toMatch(/demo|sample|feedback|session/i);
+  });
+
+  it("repairs an existing configured admin membership back to platform-admin", async () => {
+    const { services, records } = createServices(true, "catalog-admin");
+
+    const result = await bootstrapPlatformAdminIdentity(services, {
+      email: "ops@chasesets.com",
+      displayName: "Ops Admin",
+      accountName: "Chase Sets Platform",
+    });
+
+    expect(result).toMatchObject({
+      createdAccount: false,
+      createdUser: false,
+      createdMembership: false,
+      repairedMembershipRole: true,
+    });
+    expect(records.accounts).toHaveLength(0);
+    expect(records.users).toHaveLength(0);
+    expect(records.memberships).toHaveLength(1);
+    expect(records.memberships[0]).toMatchObject({
+      streamId: "identity.membership-mbr_platform_admin",
+      command: {
+        type: "ChangeMembershipRole",
+        roleKey: "platform-admin",
+      },
+    });
   });
 });
