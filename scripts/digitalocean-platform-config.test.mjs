@@ -172,7 +172,7 @@ describe("DigitalOcean platform configuration", () => {
     const uploadStep = workflowStep(platformRepresentativeWorkflow, "Upload representative commerce selector evidence");
 
     expect(platformRepresentativeWorkflow).toContain(
-      "REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT: artifacts/representative-commerce-state/representative-commerce-state-evidence.json",
+      "REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT: ${{ github.workspace }}/artifacts/representative-commerce-state/representative-commerce-state-evidence.json",
     );
     expect(refreshStep).toContain("mkdir -p artifacts/representative-commerce-state");
     expect(refreshStep).toContain(
