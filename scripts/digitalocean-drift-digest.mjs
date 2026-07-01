@@ -12,6 +12,21 @@ export const DIGITALOCEAN_DRIFT_DIGEST_VERSION = "digitalocean-drift-digest/v1";
 const RESTORE_POINT_PREFIX = "cs-prod-rp-";
 const DEFAULT_REPOSITORY = "chase-sets-platform";
 
+const OBSERVABILITY_POLICIES = {
+  staging: {
+    dropletBackupsExpected: false,
+    acceptableTelemetryDataLossWindowHours: 24,
+    volumeProtection: "accepted-short-retention-with-manual-snapshot-before-maintenance",
+    volumeSizeGibMaximum: 100,
+  },
+  production: {
+    dropletBackupsExpected: false,
+    acceptableTelemetryDataLossWindowHours: 24,
+    volumeProtection: "accepted-short-retention-with-manual-snapshot-before-maintenance",
+    volumeSizeGibMinimum: 100,
+  },
+};
+
 const TERRAFORM_ROOTS = {
   platform: "infrastructure/digitalocean/platform",
   catalogAssets: "infrastructure/digitalocean/catalog-assets",
@@ -87,6 +102,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       registryRepository: options.repository,
       registryRetentionDays: options.registryRetentionDays,
       releaseTagPrefix: "release-",
+      observability: OBSERVABILITY_POLICIES,
     },
     collections: collection.collections,
     expectedResources: {
@@ -355,6 +371,10 @@ function summarizeRegistryTag(tag, registryCutoff) {
 
 function summarizeDroplet(droplet) {
   const name = readField(droplet, "name", "Name") ?? "";
+  const environment = classifyEnvironment(name);
+  const classification = classifyDroplet(name);
+  const backupsEnabled = Boolean(droplet.backups ?? droplet.Backups ?? false);
+  const policy = classification === "terraform-managed" ? observabilityPolicy(environment) : null;
   return {
     id: readField(droplet, "id", "ID"),
     name,
@@ -362,24 +382,44 @@ function summarizeDroplet(droplet) {
     createdAt: readField(droplet, "created_at", "createdAt", "CreatedAt"),
     size: readField(droplet, "size_slug", "sizeSlug", "SizeSlug"),
     region: readNestedName(droplet.region ?? droplet.Region),
-    backupsEnabled: Boolean(droplet.backups ?? droplet.Backups ?? false),
-    environment: classifyEnvironment(name),
+    backupsEnabled,
+    environment,
     terraformRoot: observabilityName(name) ? TERRAFORM_ROOTS.observability : null,
-    classification: classifyDroplet(name),
+    classification,
+    observabilityBackupPosture: policy
+      ? {
+          expectedBackupsEnabled: policy.dropletBackupsExpected,
+          actualBackupsEnabled: backupsEnabled,
+          matchesPolicy: backupsEnabled === policy.dropletBackupsExpected,
+        }
+      : null,
   };
 }
 
 function summarizeVolume(volume) {
   const name = readField(volume, "name", "Name") ?? "";
+  const environment = classifyEnvironment(name);
+  const classification = classifyVolume(name);
+  const policy = classification === "terraform-managed" ? observabilityPolicy(environment) : null;
+  const sizeGib = readNumberField(volume, "size_gigabytes", "sizeGigabytes", "SizeGigabytes");
   return {
     id: readField(volume, "id", "ID"),
     name,
-    sizeGib: readNumberField(volume, "size_gigabytes", "sizeGigabytes", "SizeGigabytes"),
+    sizeGib,
     createdAt: readField(volume, "created_at", "createdAt", "CreatedAt"),
     region: readNestedName(volume.region ?? volume.Region),
-    environment: classifyEnvironment(name),
+    environment,
     terraformRoot: observabilityVolumeName(name) ? TERRAFORM_ROOTS.observability : null,
-    classification: classifyVolume(name),
+    classification,
+    observabilityDataPosture: policy
+      ? {
+          protection: policy.volumeProtection,
+          acceptableTelemetryDataLossWindowHours: policy.acceptableTelemetryDataLossWindowHours,
+          expectedMinimumSizeGib: policy.volumeSizeGibMinimum ?? null,
+          expectedMaximumSizeGib: policy.volumeSizeGibMaximum ?? null,
+          actualSizeGib: sizeGib,
+        }
+      : null,
   };
 }
 
@@ -511,17 +551,24 @@ function dropletFindings(droplet) {
       unknownFinding("droplet", droplet.name, "Droplet name starts with chase-sets but is not an observability host."),
     ];
   }
-  if (droplet.classification === "terraform-managed" && droplet.backupsEnabled) {
+  if (droplet.classification === "terraform-managed" && droplet.observabilityBackupPosture?.matchesPolicy === false) {
+    const staging = droplet.environment === "staging";
     return [
       {
-        severity: "advisory",
-        category: "observability-cost",
+        severity: staging ? "warning" : "advisory",
+        category: "observability-backup-posture",
         resourceType: "droplet",
         resourceName: droplet.name,
         owner: "ops",
         terraformRoot: droplet.terraformRoot,
-        action: "Confirm observability backup posture still matches retention policy and invoice expectations.",
-        evidence: { backupsEnabled: droplet.backupsEnabled, size: droplet.size },
+        action: staging
+          ? "Disable staging observability Droplet backups unless an active drill or incident record explicitly needs them."
+          : "Confirm production observability Droplet backups are intentional; the default posture keeps the reproducible host backup-free and protects operational value through telemetry retention and manual snapshots before maintenance.",
+        evidence: {
+          backupsEnabled: droplet.backupsEnabled,
+          expectedBackupsEnabled: droplet.observabilityBackupPosture.expectedBackupsEnabled,
+          size: droplet.size,
+        },
       },
     ];
   }
@@ -551,6 +598,57 @@ function volumeFindings(volume) {
         "Volume name starts with chase-sets but is not an observability data volume.",
       ),
     ];
+  }
+  if (volume.classification === "terraform-managed") {
+    const policy = volume.observabilityDataPosture;
+    if (
+      volume.environment === "staging" &&
+      policy?.expectedMaximumSizeGib !== null &&
+      volume.sizeGib !== null &&
+      volume.sizeGib > policy.expectedMaximumSizeGib
+    ) {
+      return [
+        {
+          severity: "warning",
+          category: "observability-volume-posture",
+          resourceType: "volume",
+          resourceName: volume.name,
+          owner: "ops",
+          terraformRoot: volume.terraformRoot,
+          action:
+            "Reduce staging observability volume size or document the drill/incident that needs extra telemetry capacity.",
+          evidence: {
+            actualSizeGib: volume.sizeGib,
+            expectedMaximumSizeGib: policy.expectedMaximumSizeGib,
+            protection: policy.protection,
+          },
+        },
+      ];
+    }
+    if (
+      volume.environment === "production" &&
+      policy?.expectedMinimumSizeGib !== null &&
+      volume.sizeGib !== null &&
+      volume.sizeGib < policy.expectedMinimumSizeGib
+    ) {
+      return [
+        {
+          severity: "warning",
+          category: "observability-volume-posture",
+          resourceType: "volume",
+          resourceName: volume.name,
+          owner: "ops",
+          terraformRoot: volume.terraformRoot,
+          action:
+            "Increase production observability volume size or record the accepted short-retention posture before relying on this host for incident review.",
+          evidence: {
+            actualSizeGib: volume.sizeGib,
+            expectedMinimumSizeGib: policy.expectedMinimumSizeGib,
+            protection: policy.protection,
+          },
+        },
+      ];
+    }
   }
   return [];
 }
@@ -690,6 +788,10 @@ function observabilityName(name) {
 
 function observabilityVolumeName(name) {
   return ["chase-sets-observability-data", "chase-sets-staging-observability-data"].includes(name);
+}
+
+function observabilityPolicy(environment) {
+  return OBSERVABILITY_POLICIES[environment] ?? null;
 }
 
 function remoteDevName(name) {

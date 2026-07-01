@@ -105,6 +105,21 @@ The checked-in local stack uses short retention. Staging and production must set
 - Grafana state persistence and backup/restore posture;
 - credentials supplied by environment or secret management.
 
+## Retention And Backup Posture
+
+The self-hosted staging and production stack is intentionally cost-aware. DigitalOcean Droplet backups protect the reproducible host image, while DigitalOcean Block Storage volume snapshots protect the telemetry data surface. The host can be rebuilt from Terraform and cloud-init; the operational value that is not trivially recreated is the volume data for Prometheus, Loki, Tempo, Grafana, and Caddy.
+
+Default posture:
+
+- Staging: `droplet_backups_enabled=false`, Prometheus retention kept short unless a staging drill needs more, observability volume at or below 100 GiB, and an accepted telemetry data loss window of no more than 24 hours.
+- Production: `droplet_backups_enabled=false` unless a named drill or incident requires host-image recovery, Prometheus retention set by current incident-review needs, observability volume at least 100 GiB, and an accepted telemetry data loss window of no more than 24 hours.
+- Volume protection: take a manual DigitalOcean volume snapshot before destructive maintenance, risky host replacement, or retention policy changes. Routine operation accepts short telemetry loss rather than paying for continuous host-image backups by default.
+- External export: not enabled by default. Create a follow-up issue before launch if incident response needs longer metrics/log/trace retention than the single-node volume can provide at acceptable cost.
+
+Operators can use DigitalOcean Droplet backups for host-image recovery, and DigitalOcean snapshots for Droplet or volume point-in-time copies; DigitalOcean documents these surfaces separately at [Backups](https://docs.digitalocean.com/products/backups/) and [Snapshots](https://docs.digitalocean.com/products/snapshots/). DigitalOcean also documents that Block Storage volumes can be snapshotted in [Volume Features](https://docs.digitalocean.com/products/volumes/details/features/). Treat those snapshots as account-side recovery artifacts, not downloadable telemetry exports.
+
+The drift digest reports observability Droplet backup state and volume size. Staging backup-on or oversized staging volumes are warning findings because they are unexpected spend posture. Production backup-on is advisory because it may be intentional during a named recovery drill, but it must still be reviewed against the current retention policy and invoice expectations.
+
 Provision staging and production with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`. The root outputs the exact GitHub values to set:
 
 - `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in the matching GitHub environment.

@@ -14,7 +14,7 @@ resource "digitalocean_droplet" "observability" {
   size       = var.droplet_size
   ssh_keys   = var.ssh_key_fingerprints
   monitoring = true
-  backups    = true
+  backups    = var.droplet_backups_enabled
   tags       = local.tags
   volume_ids = [digitalocean_volume.observability_data.id]
 
@@ -77,4 +77,25 @@ resource "digitalocean_record" "observability_a" {
   name   = each.key
   value  = digitalocean_droplet.observability.ipv4_address
   ttl    = 60
+}
+
+check "observability_storage_posture" {
+  assert {
+    condition = var.environment == "staging" ? (
+      !var.droplet_backups_enabled &&
+      var.volume_size_gib <= 100 &&
+      var.acceptable_telemetry_data_loss_window_hours <= 24
+      ) : (
+      var.volume_size_gib >= 100 &&
+      var.acceptable_telemetry_data_loss_window_hours <= 24
+    )
+    error_message = "Staging observability keeps droplet backups off, volume size at or below 100 GiB, and a 24h-or-better telemetry data loss window; production keeps at least 100 GiB and a 24h-or-better window."
+  }
+}
+
+check "observability_retention_posture" {
+  assert {
+    condition     = contains(["24h", "48h", "72h", "7d", "14d", "30d"], var.prometheus_retention)
+    error_message = "prometheus_retention must be one of the documented cost-aware retention windows: 24h, 48h, 72h, 7d, 14d, or 30d."
+  }
 }
