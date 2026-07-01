@@ -93,6 +93,7 @@ export function buildReleaseHealthReport(input) {
   const deployableRecords = records.filter((record) => record.deploymentRequired !== false);
   const ci = summarizeCiPosture(records);
   const freshness = summarizeFreshnessEvidence(input.evidenceArtifacts ?? []);
+  const gates = summarizeGatePosture(records);
   const summary = {
     releaseCount: records.length,
     deployableReleaseCount: deployableRecords.length,
@@ -105,6 +106,7 @@ export function buildReleaseHealthReport(input) {
     rollbackCount: records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length,
     canaryAbortCount: records.filter((record) => record.canary?.result === "failure").length,
     ci,
+    gates,
     timing,
     slo,
     freshness,
@@ -128,6 +130,9 @@ export function buildReleaseHealthReport(input) {
     `- Releases with lock active: ${summary.lockedCount}`,
     `- Rollback/fix-forward releases: ${summary.rollbackCount}`,
     `- Canary aborts: ${summary.canaryAbortCount}`,
+    `- Blocking gate failures: ${summary.gates.blockingFailures}`,
+    `- Advisory gate warnings: ${summary.gates.advisoryWarnings}`,
+    `- Deferred-proof gates: ${summary.gates.deferredProof}`,
     `- Average queue wait: ${formatOptionalSeconds(summary.timing.averageQueueWaitSeconds)}`,
     `- Average merge to staging start: ${formatOptionalSeconds(summary.timing.averageMergeToStagingSeconds)}`,
     `- Batch-size posture: ${summary.slo.batchSizeRecommendation}`,
@@ -149,6 +154,12 @@ export function buildReleaseHealthReport(input) {
     "| Job | Retries | Flaky failures |",
     "| --- | --- | --- |",
     ...formatCiRows(summary.ci),
+    "",
+    "## Production Gate Posture",
+    "",
+    "| Gate | Blocking failures | Advisory warnings | Deferred proof |",
+    "| --- | --- | --- | --- |",
+    ...formatGateRows(summary.gates),
     "",
     "## Projection Freshness Evidence",
     "",
@@ -203,6 +214,40 @@ export function buildReleaseHealthReport(input) {
     checkedAt: input.checkedAt,
     summary,
     markdown: `${lines.join("\n")}\n`,
+  };
+}
+
+function summarizeGatePosture(records) {
+  const gates = new Map();
+  let blockingFailures = 0;
+  let advisoryWarnings = 0;
+  let deferredProof = 0;
+
+  for (const record of records) {
+    for (const gate of Array.isArray(record.gates) ? record.gates : []) {
+      const id = typeof gate.id === "string" && gate.id.trim() ? gate.id.trim() : "unknown";
+      const previous = gates.get(id) ?? { id, blockingFailures: 0, advisoryWarnings: 0, deferredProof: 0 };
+      if (gate.severity === "blocking" && gate.status === "fail") {
+        previous.blockingFailures += 1;
+        blockingFailures += 1;
+      }
+      if (gate.severity === "advisory" && gate.status === "warn") {
+        previous.advisoryWarnings += 1;
+        advisoryWarnings += 1;
+      }
+      if (gate.severity === "deferred-proof") {
+        previous.deferredProof += 1;
+        deferredProof += 1;
+      }
+      gates.set(id, previous);
+    }
+  }
+
+  return {
+    blockingFailures,
+    advisoryWarnings,
+    deferredProof,
+    gates: [...gates.values()].sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 
@@ -811,6 +856,19 @@ function formatCiRows(ci) {
   }
   return ci.topFlakyJobs.map((job) =>
     [job.name, String(job.retryCount), String(job.flakyFailureCount)]
+      .map(escapeMarkdownCell)
+      .join(" | ")
+      .replace(/^/, "| ")
+      .replace(/$/, " |"),
+  );
+}
+
+function formatGateRows(gates) {
+  if (gates.gates.length === 0) {
+    return ["| none | 0 | 0 | 0 |"];
+  }
+  return gates.gates.map((gate) =>
+    [gate.id, String(gate.blockingFailures), String(gate.advisoryWarnings), String(gate.deferredProof)]
       .map(escapeMarkdownCell)
       .join(" | ")
       .replace(/^/, "| ")

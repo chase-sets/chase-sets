@@ -121,7 +121,36 @@ describe("release health summary", () => {
         flakyFailureCount: 1,
         topFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
       },
+      gateSummary: {
+        blockingFailures: 0,
+        advisoryWarnings: 0,
+        deferredProof: 1,
+      },
     });
+    expect(result.record.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "staging-deploy-and-smoke",
+          severity: "blocking",
+          status: "pass",
+        }),
+        expect.objectContaining({
+          id: "production-recovery-mode",
+          severity: "blocking",
+          status: "pass",
+        }),
+        expect.objectContaining({
+          id: "production-restore-point",
+          severity: "blocking",
+          status: "pass",
+        }),
+        expect.objectContaining({
+          id: "exposure-posture-proof",
+          severity: "deferred-proof",
+          status: "pass",
+        }),
+      ]),
+    );
   });
 
   it("records emergency lock bypass evidence", () => {
@@ -187,6 +216,83 @@ describe("release health summary", () => {
         bypassed: true,
       },
     });
+  });
+
+  it("records advisory post-deploy readiness warnings without failing the release-health artifact", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "123",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      deploymentRequired: true,
+      stagingResult: "success",
+      canaryResult: "success",
+      canaryPromotionDecision: "promote",
+      productionReadinessGateOutcome: "budget-expired",
+      productionResult: "success",
+      mainToProductionDriftCommits: 0,
+      mainToProductionDriftSeconds: 0,
+      releaseLocked: false,
+      recoveryMode: "none",
+      productionRecoveryMode: "pitr",
+      rollbackReadinessResult: "skipped",
+      productionRestorePointResult: "skipped",
+    });
+
+    expect(result.passesReleaseHealthGate).toBe(true);
+    expect(result.record.gateSummary).toMatchObject({
+      blockingFailures: 0,
+      advisoryWarnings: 1,
+    });
+    expect(result.record.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "post-deploy-projection-readiness",
+          severity: "advisory",
+          status: "warn",
+          reason: "readiness outcome: budget-expired",
+        }),
+      ]),
+    );
+  });
+
+  it("marks missing precreated restore points as blocking for rollback-unsafe releases", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "a".repeat(40),
+      workflowRunId: "123",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      deploymentRequired: true,
+      stagingResult: "success",
+      canaryResult: "success",
+      canaryPromotionDecision: "promote",
+      productionResult: "failure",
+      mainToProductionDriftCommits: 0,
+      mainToProductionDriftSeconds: 0,
+      releaseLocked: false,
+      recoveryMode: "none",
+      productionRecoveryMode: "precreated-fork",
+      productionRecoveryReason: "Money movement provider code changed.",
+      rollbackReadinessResult: "skipped",
+      productionRestorePointResult: "failure",
+    });
+
+    expect(result.record.gateSummary.blockingFailures).toBeGreaterThanOrEqual(2);
+    expect(result.record.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "production-restore-point",
+          severity: "blocking",
+          status: "fail",
+          reason: "restore point result: failure",
+        }),
+        expect.objectContaining({
+          id: "production-smoke-and-marker",
+          severity: "blocking",
+          status: "fail",
+        }),
+      ]),
+    );
   });
 
   it("records a staging release attempt before production starts", () => {
@@ -369,6 +475,7 @@ describe("release health summary", () => {
       CANARY_COHORT_SUBJECT_TYPE: "operator",
       CANARY_COHORT_SIZE: "3",
       CANARY_PROMOTION_DECISION: "hold",
+      PRODUCTION_READINESS_GATE_OUTCOME: "budget-expired",
       PRODUCTION_RESULT: "cancelled",
       PRODUCTION_STARTED_AT: "2026-05-31T11:21:00.000Z",
       PRODUCTION_COMPLETED_AT: "2026-05-31T11:24:00.000Z",
@@ -434,6 +541,7 @@ describe("release health summary", () => {
       canaryCohortSubjectType: "operator",
       canaryCohortSize: 3,
       canaryPromotionDecision: "hold",
+      productionReadinessGateOutcome: "budget-expired",
       mainToProductionDriftCommits: 2,
       mainToProductionDriftSeconds: 900,
       releaseLocked: true,
