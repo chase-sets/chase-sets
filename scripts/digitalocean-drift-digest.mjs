@@ -1,0 +1,788 @@
+#!/usr/bin/env node
+import { execFile as execFileCallback } from "node:child_process";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
+
+const execFile = promisify(execFileCallback);
+
+export const DIGITALOCEAN_DRIFT_DIGEST_VERSION = "digitalocean-drift-digest/v1";
+const RESTORE_POINT_PREFIX = "cs-prod-rp-";
+const DEFAULT_REPOSITORY = "chase-sets-platform";
+
+const TERRAFORM_ROOTS = {
+  platform: "infrastructure/digitalocean/platform",
+  catalogAssets: "infrastructure/digitalocean/catalog-assets",
+  stateBootstrap: "infrastructure/digitalocean/state-bootstrap",
+  observability: "infrastructure/digitalocean/observability",
+};
+
+export function parseDigitalOceanDriftDigestArgs(argv, env = process.env) {
+  return {
+    outPath: readOption(argv, "--out") ?? readEnv("DIGITALOCEAN_DRIFT_DIGEST_OUT", env),
+    doctlPath: readOption(argv, "--doctl") ?? readEnv("DOCTL_PATH", env) ?? "doctl",
+    repository: readOption(argv, "--repository") ?? readEnv("PLATFORM_IMAGE_REPOSITORY", env) ?? DEFAULT_REPOSITORY,
+    checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
+    restorePointMinAgeHours: parseNumber(
+      readOption(argv, "--restore-point-min-age-hours") ??
+        readEnv("DIGITALOCEAN_DRIFT_RESTORE_POINT_MIN_AGE_HOURS", env) ??
+        "24",
+      "DIGITALOCEAN_DRIFT_RESTORE_POINT_MIN_AGE_HOURS",
+    ),
+    registryRetentionDays: parseNumber(
+      readOption(argv, "--registry-retention-days") ??
+        readEnv("DIGITALOCEAN_DRIFT_REGISTRY_RETENTION_DAYS", env) ??
+        "7",
+      "DIGITALOCEAN_DRIFT_REGISTRY_RETENTION_DAYS",
+    ),
+  };
+}
+
+export async function runDigitalOceanDriftDigest(options, dependencies = {}) {
+  const result = await buildDigitalOceanDriftDigest(options, dependencies);
+  if (options.outPath) {
+    await writeJsonRecord(options.outPath, result.record);
+  }
+  return result;
+}
+
+export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
+  const exec = dependencies.execFile ?? execFile;
+  const collection = await collectDigitalOceanSnapshot(options, exec);
+  const snapshot = collection.snapshot;
+  const checkedAt = new Date(options.checkedAt);
+  const restorePointCutoff = new Date(checkedAt.getTime() - options.restorePointMinAgeHours * 60 * 60 * 1000);
+  const registryCutoff = new Date(checkedAt.getTime() - options.registryRetentionDays * 24 * 60 * 60 * 1000);
+
+  const apps = snapshot.apps.map((app) => summarizeApp(app));
+  const databases = snapshot.databases.map((database) => summarizeDatabase(database, restorePointCutoff));
+  const registryTags = snapshot.registryTags.map((tag) => summarizeRegistryTag(tag, registryCutoff));
+  const droplets = snapshot.droplets.map(summarizeDroplet);
+  const volumes = snapshot.volumes.map(summarizeVolume);
+  const uptimeChecks = snapshot.uptimeChecks.map((check) =>
+    summarizeUptimeCheck(check, snapshot.uptimeAlertsByCheckId),
+  );
+  const cdns = snapshot.cdns.map(summarizeCdn);
+  const findings = [
+    ...apps.flatMap(appFindings),
+    ...databases.flatMap(databaseFindings),
+    ...registryTags.flatMap(registryTagFindings),
+    ...droplets.flatMap(dropletFindings),
+    ...volumes.flatMap(volumeFindings),
+    ...uptimeChecks.flatMap(uptimeCheckFindings),
+    ...cdns.flatMap(cdnFindings),
+    ...collection.errors.map(collectionErrorFinding),
+  ];
+
+  const record = {
+    schemaVersion: DIGITALOCEAN_DRIFT_DIGEST_VERSION,
+    checkedAt: options.checkedAt,
+    mode: "advisory-read-only",
+    terraformRoots: TERRAFORM_ROOTS,
+    policies: {
+      restorePointPrefix: RESTORE_POINT_PREFIX,
+      restorePointMinAgeHours: options.restorePointMinAgeHours,
+      registryRepository: options.repository,
+      registryRetentionDays: options.registryRetentionDays,
+      releaseTagPrefix: "release-",
+    },
+    collections: collection.collections,
+    expectedResources: {
+      apps: ["chase-sets-platform", "chase-sets-staging-platform", "chase-sets-pr-<number>-platform"],
+      databases: ["chase-sets-postgres", "chase-sets-staging-postgres", "chase-sets-pr-<number>-postgres"],
+      restorePoints: [`${RESTORE_POINT_PREFIX}<release-timestamp>-<sha>`],
+      registryRepositories: [options.repository],
+      catalogAssetBuckets: [
+        "chase-sets-preview-catalog-assets",
+        "chase-sets-staging-catalog-assets",
+        "chase-sets-production-catalog-assets",
+      ],
+      observabilityHosts: ["chase-sets-observability", "chase-sets-staging-observability"],
+      observabilityVolumes: ["chase-sets-observability-data", "chase-sets-staging-observability-data"],
+    },
+    resources: {
+      apps,
+      databases,
+      registryTags,
+      droplets,
+      volumes,
+      uptimeChecks,
+      cdns,
+      spacesBuckets: {
+        status: "expected-only",
+        reason:
+          "doctl does not expose a general Spaces bucket list command in the repo-supported surfaces; bucket ownership is represented from Terraform naming until an S3 inventory probe is added.",
+        expected: [
+          {
+            name: "chase-sets-terraform-state",
+            terraformRoot: TERRAFORM_ROOTS.stateBootstrap,
+          },
+          {
+            name: "chase-sets-preview-catalog-assets",
+            terraformRoot: TERRAFORM_ROOTS.catalogAssets,
+          },
+          {
+            name: "chase-sets-staging-catalog-assets",
+            terraformRoot: TERRAFORM_ROOTS.catalogAssets,
+          },
+          {
+            name: "chase-sets-production-catalog-assets",
+            terraformRoot: TERRAFORM_ROOTS.catalogAssets,
+          },
+        ],
+      },
+    },
+    findings,
+    summary: summarizeDigest({
+      apps,
+      databases,
+      registryTags,
+      droplets,
+      volumes,
+      uptimeChecks,
+      cdns,
+      findings,
+      collectionErrors: collection.errors,
+    }),
+    result:
+      findings.some((finding) => finding.severity === "warning") || collection.errors.length > 0
+        ? "warning"
+        : "success",
+  };
+
+  return { record, passesDigestGate: true };
+}
+
+async function collectDigitalOceanSnapshot(options, exec) {
+  const collections = {};
+  const errors = [];
+  const collect = async (name, args) => {
+    try {
+      const items = await commandJson(exec, options.doctlPath, args);
+      collections[name] = { status: "success", command: [options.doctlPath, ...args], count: items.length };
+      return items;
+    } catch (error) {
+      const diagnostic = describeDoctlFailure(error);
+      collections[name] = { status: "failed", command: [options.doctlPath, ...args], count: 0, error: diagnostic };
+      errors.push({ collection: name, command: [options.doctlPath, ...args], error: diagnostic });
+      return [];
+    }
+  };
+
+  const apps = await collect("apps", ["apps", "list", "--output", "json"]);
+  const appDetails = [];
+  for (const app of apps.filter((app) =>
+    readField(app, "name", "Name", "spec.name", "Spec.Name")?.includes("chase-sets"),
+  )) {
+    const id = readField(app, "id", "ID");
+    if (!id) {
+      appDetails.push(app);
+      continue;
+    }
+    try {
+      appDetails.push(await commandJsonObject(exec, options.doctlPath, ["apps", "get", id, "--output", "json"]));
+    } catch {
+      appDetails.push(app);
+    }
+  }
+
+  const uptimeChecks = await collect("uptimeChecks", ["monitoring", "uptime", "list", "--output", "json"]);
+  const uptimeAlertsByCheckId = {};
+  for (const check of uptimeChecks) {
+    const id = readField(check, "id", "ID");
+    if (!id) {
+      continue;
+    }
+    try {
+      const alerts = await commandJson(exec, options.doctlPath, [
+        "monitoring",
+        "uptime",
+        "alert",
+        "list",
+        id,
+        "--output",
+        "json",
+      ]);
+      uptimeAlertsByCheckId[id] = alerts;
+    } catch (error) {
+      uptimeAlertsByCheckId[id] = { error: describeDoctlFailure(error), alerts: [] };
+    }
+  }
+
+  return {
+    collections,
+    errors,
+    snapshot: {
+      apps: mergeAppDetails(apps, appDetails),
+      databases: await collect("databases", ["databases", "list", "--output", "json"]),
+      registryTags: await collect("registryTags", [
+        "registry",
+        "repository",
+        "list-tags",
+        options.repository,
+        "--output",
+        "json",
+      ]),
+      droplets: await collect("droplets", ["compute", "droplet", "list", "--output", "json"]),
+      volumes: await collect("volumes", ["compute", "volume", "list", "--output", "json"]),
+      uptimeChecks,
+      uptimeAlertsByCheckId,
+      cdns: await collect("cdns", ["compute", "cdn", "list", "--output", "json"]),
+    },
+  };
+}
+
+async function commandJson(exec, doctlPath, args) {
+  const { stdout } = await exec(doctlPath, args, { maxBuffer: 50 * 1024 * 1024 });
+  const parsed = JSON.parse(stdout || "[]");
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (Array.isArray(parsed.items)) {
+    return parsed.items;
+  }
+  if (Array.isArray(parsed.droplets)) {
+    return parsed.droplets;
+  }
+  if (Array.isArray(parsed.databases)) {
+    return parsed.databases;
+  }
+  if (Array.isArray(parsed.uptime_checks)) {
+    return parsed.uptime_checks;
+  }
+  return [parsed];
+}
+
+async function commandJsonObject(exec, doctlPath, args) {
+  const records = await commandJson(exec, doctlPath, args);
+  return records[0] ?? {};
+}
+
+function mergeAppDetails(apps, details) {
+  const detailsById = new Map(details.map((app) => [readField(app, "id", "ID"), app]));
+  return apps.map((app) => detailsById.get(readField(app, "id", "ID")) ?? app);
+}
+
+function summarizeApp(app) {
+  const spec = app.spec ?? app.Spec ?? {};
+  const name = readField(app, "name", "Name") ?? readField(spec, "name", "Name") ?? "";
+  const components = [
+    ...componentSummaries("service", spec.services ?? spec.Services ?? []),
+    ...componentSummaries("worker", spec.workers ?? spec.Workers ?? []),
+    ...componentSummaries("job", spec.jobs ?? spec.Jobs ?? []),
+  ];
+  const componentNames = components.map((component) => component.name);
+  const hasAdminSupport = componentNames.includes("admin-support-api");
+  const hasMarketplaceFamily = componentNames.some((componentName) =>
+    ["marketplace", "platform-api", "platform-worker"].includes(componentName),
+  );
+  return {
+    id: readField(app, "id", "ID"),
+    name,
+    environment: classifyEnvironment(name),
+    terraformRoot: appTerraformRoot(name),
+    classification: classifyApp(name),
+    components,
+    componentTopologyFindings:
+      hasAdminSupport && hasMarketplaceFamily
+        ? [
+            {
+              severity: "warning",
+              reason: "admin-support and marketplace/platform component families coexist in one App Platform app",
+              action:
+                "Confirm production marketplace promotion state and reconcile App Platform component topology against Terraform variables.",
+            },
+          ]
+        : [],
+  };
+}
+
+function componentSummaries(kind, components) {
+  return components.map((component) => ({
+    kind,
+    name: readField(component, "name", "Name"),
+    instanceCount: readNumberField(component, "instance_count", "InstanceCount", "instanceCount"),
+    instanceSizeSlug: readField(component, "instance_size_slug", "InstanceSizeSlug", "instanceSizeSlug"),
+    imageTag: readField(component.image ?? component.Image ?? {}, "tag", "Tag"),
+    imageDigest: readField(component.image ?? component.Image ?? {}, "digest", "Digest"),
+  }));
+}
+
+function summarizeDatabase(database, restorePointCutoff) {
+  const name = readField(database, "name", "Name") ?? "";
+  const createdAt = readField(database, "created_at", "createdAt", "CreatedAt");
+  const restorePoint = name.startsWith(RESTORE_POINT_PREFIX);
+  const oldRestorePoint =
+    restorePoint &&
+    Number.isFinite(Date.parse(createdAt ?? "")) &&
+    Date.parse(createdAt) <= restorePointCutoff.getTime();
+  return {
+    id: readField(database, "id", "ID"),
+    name,
+    status: readField(database, "status", "Status"),
+    createdAt,
+    size: readField(database, "size", "Size"),
+    region: readField(database, "region", "Region"),
+    environment: classifyEnvironment(name),
+    terraformRoot: databaseTerraformRoot(name),
+    classification: restorePoint
+      ? oldRestorePoint
+        ? "cleanup-candidate"
+        : "operator-managed"
+      : classifyDatabase(name),
+    restorePoint,
+    oldRestorePoint,
+  };
+}
+
+function summarizeRegistryTag(tag, registryCutoff) {
+  const name = readField(tag, "tag", "name", "Tag", "Name") ?? "";
+  const updatedAt = readField(tag, "updated_at", "updatedAt", "UpdatedAt", "created_at", "CreatedAt");
+  const releaseTag = name.startsWith("release-");
+  const old = Number.isFinite(Date.parse(updatedAt ?? "")) && Date.parse(updatedAt) <= registryCutoff.getTime();
+  return {
+    name,
+    digest: readField(tag, "digest", "manifest_digest", "ManifestDigest"),
+    updatedAt,
+    terraformRoot: TERRAFORM_ROOTS.platform,
+    classification: releaseTag ? "rollback-protected" : old ? "cleanup-eligible" : "retained",
+    releaseTag,
+    cleanupEligible: !releaseTag && old,
+  };
+}
+
+function summarizeDroplet(droplet) {
+  const name = readField(droplet, "name", "Name") ?? "";
+  return {
+    id: readField(droplet, "id", "ID"),
+    name,
+    status: readField(droplet, "status", "Status"),
+    createdAt: readField(droplet, "created_at", "createdAt", "CreatedAt"),
+    size: readField(droplet, "size_slug", "sizeSlug", "SizeSlug"),
+    region: readNestedName(droplet.region ?? droplet.Region),
+    backupsEnabled: Boolean(droplet.backups ?? droplet.Backups ?? false),
+    environment: classifyEnvironment(name),
+    terraformRoot: observabilityName(name) ? TERRAFORM_ROOTS.observability : null,
+    classification: classifyDroplet(name),
+  };
+}
+
+function summarizeVolume(volume) {
+  const name = readField(volume, "name", "Name") ?? "";
+  return {
+    id: readField(volume, "id", "ID"),
+    name,
+    sizeGib: readNumberField(volume, "size_gigabytes", "sizeGigabytes", "SizeGigabytes"),
+    createdAt: readField(volume, "created_at", "createdAt", "CreatedAt"),
+    region: readNestedName(volume.region ?? volume.Region),
+    environment: classifyEnvironment(name),
+    terraformRoot: observabilityVolumeName(name) ? TERRAFORM_ROOTS.observability : null,
+    classification: classifyVolume(name),
+  };
+}
+
+function summarizeUptimeCheck(check, alertsByCheckId) {
+  const id = readField(check, "id", "ID") ?? "";
+  const name = readField(check, "name", "Name") ?? "";
+  const alerts = alertsByCheckId[id];
+  const alertCount = Array.isArray(alerts) ? alerts.length : Array.isArray(alerts?.alerts) ? alerts.alerts.length : 0;
+  return {
+    id,
+    name,
+    target: readField(check, "target", "Target"),
+    type: readField(check, "type", "Type"),
+    enabled: check.enabled ?? check.Enabled ?? null,
+    alertCount,
+    alertCollectionError: alerts && !Array.isArray(alerts) ? alerts.error : null,
+    terraformRoot:
+      chaseSetsName(name) || chaseSetsName(readField(check, "target", "Target") ?? "")
+        ? TERRAFORM_ROOTS.platform
+        : null,
+    classification:
+      chaseSetsName(name) || chaseSetsName(readField(check, "target", "Target") ?? "")
+        ? "terraform-managed"
+        : "external",
+  };
+}
+
+function summarizeCdn(cdn) {
+  const endpoint = readField(cdn, "endpoint", "Endpoint") ?? "";
+  const origin = readField(cdn, "origin", "Origin") ?? "";
+  const customDomain = readField(cdn, "custom_domain", "customDomain", "CustomDomain");
+  const chaseSetsCatalogAsset =
+    origin.includes("chase-sets-") || endpoint.includes("chase-sets-") || chaseSetsName(customDomain ?? "");
+  return {
+    id: readField(cdn, "id", "ID"),
+    origin,
+    endpoint,
+    customDomain,
+    ttl: readNumberField(cdn, "ttl", "TTL"),
+    terraformRoot: chaseSetsCatalogAsset ? TERRAFORM_ROOTS.catalogAssets : null,
+    classification: chaseSetsCatalogAsset ? "terraform-managed" : "external",
+  };
+}
+
+function appFindings(app) {
+  const findings = app.componentTopologyFindings.map((finding) => ({
+    ...finding,
+    category: "component-topology",
+    resourceType: "app",
+    resourceName: app.name,
+    owner: "platform",
+    terraformRoot: app.terraformRoot,
+    evidence: { components: app.components.map((component) => component.name).filter(Boolean) },
+  }));
+  if (app.classification === "unknown-chase-sets") {
+    findings.push(
+      unknownFinding(
+        "app",
+        app.name,
+        "App Platform app name starts with chase-sets but does not match Terraform naming.",
+      ),
+    );
+  }
+  return findings;
+}
+
+function databaseFindings(database) {
+  if (database.oldRestorePoint) {
+    return [
+      {
+        severity: "warning",
+        category: "restore-point-retention",
+        resourceType: "database",
+        resourceName: database.name,
+        owner: "ops",
+        terraformRoot: null,
+        action: "Run or inspect Platform Production Restore Point Cleanup before the fork accrues unnecessary cost.",
+        evidence: { id: database.id, createdAt: database.createdAt },
+      },
+    ];
+  }
+  if (database.classification === "unknown-chase-sets") {
+    return [
+      unknownFinding(
+        "database",
+        database.name,
+        "Database name starts with chase-sets but is not a platform cluster or restore point.",
+      ),
+    ];
+  }
+  return [];
+}
+
+function registryTagFindings(tag) {
+  if (!tag.cleanupEligible) {
+    return [];
+  }
+  return [
+    {
+      severity: "advisory",
+      category: "registry-retention",
+      resourceType: "registry-tag",
+      resourceName: tag.name,
+      owner: "ops",
+      terraformRoot: tag.terraformRoot,
+      action: "Registry cleanup may delete this tag if it is not currently referenced by App Platform.",
+      evidence: { updatedAt: tag.updatedAt, digest: tag.digest },
+    },
+  ];
+}
+
+function dropletFindings(droplet) {
+  if (droplet.classification === "repo-managed-disposable") {
+    return [
+      {
+        severity: "advisory",
+        category: "remote-dev-retention",
+        resourceType: "droplet",
+        resourceName: droplet.name,
+        owner: "ops",
+        terraformRoot: null,
+        action: "Confirm remote-dev TTL tags are present and the developer environment is still in use.",
+        evidence: { createdAt: droplet.createdAt, status: droplet.status },
+      },
+    ];
+  }
+  if (droplet.classification === "unknown-chase-sets") {
+    return [
+      unknownFinding("droplet", droplet.name, "Droplet name starts with chase-sets but is not an observability host."),
+    ];
+  }
+  if (droplet.classification === "terraform-managed" && droplet.backupsEnabled) {
+    return [
+      {
+        severity: "advisory",
+        category: "observability-cost",
+        resourceType: "droplet",
+        resourceName: droplet.name,
+        owner: "ops",
+        terraformRoot: droplet.terraformRoot,
+        action: "Confirm observability backup posture still matches retention policy and invoice expectations.",
+        evidence: { backupsEnabled: droplet.backupsEnabled, size: droplet.size },
+      },
+    ];
+  }
+  return [];
+}
+
+function volumeFindings(volume) {
+  if (volume.classification === "repo-managed-disposable") {
+    return [
+      {
+        severity: "advisory",
+        category: "remote-dev-retention",
+        resourceType: "volume",
+        resourceName: volume.name,
+        owner: "ops",
+        terraformRoot: null,
+        action: "Confirm this remote-dev volume still belongs to an active developer environment.",
+        evidence: { createdAt: volume.createdAt, sizeGib: volume.sizeGib },
+      },
+    ];
+  }
+  if (volume.classification === "unknown-chase-sets") {
+    return [
+      unknownFinding(
+        "volume",
+        volume.name,
+        "Volume name starts with chase-sets but is not an observability data volume.",
+      ),
+    ];
+  }
+  return [];
+}
+
+function uptimeCheckFindings(check) {
+  if (check.classification === "terraform-managed" && check.alertCount === 0) {
+    return [
+      {
+        severity: "advisory",
+        category: "uptime-alerts",
+        resourceType: "uptime-check",
+        resourceName: check.name,
+        owner: "ops",
+        terraformRoot: check.terraformRoot,
+        action: "Confirm the GitHub environment has alert emails configured if this target should page operators.",
+        evidence: { target: check.target, alertCollectionError: check.alertCollectionError },
+      },
+    ];
+  }
+  return [];
+}
+
+function cdnFindings(cdn) {
+  if (cdn.classification === "external") {
+    return [];
+  }
+  if (!cdn.customDomain) {
+    return [
+      {
+        severity: "advisory",
+        category: "catalog-assets-cdn",
+        resourceType: "cdn",
+        resourceName: cdn.endpoint,
+        owner: "catalog",
+        terraformRoot: cdn.terraformRoot,
+        action: "Confirm the CDN custom domain is configured for catalog asset delivery.",
+        evidence: { origin: cdn.origin },
+      },
+    ];
+  }
+  return [];
+}
+
+function collectionErrorFinding(error) {
+  return {
+    severity: "warning",
+    category: "collection",
+    resourceType: "doctl",
+    resourceName: error.collection,
+    owner: "ops",
+    terraformRoot: null,
+    action: "Inspect the workflow log and doctl token permissions for this read-only collection.",
+    evidence: { command: error.command, error: error.error },
+  };
+}
+
+function unknownFinding(resourceType, resourceName, reason) {
+  return {
+    severity: "warning",
+    category: "unknown-chase-sets-resource",
+    resourceType,
+    resourceName,
+    owner: "ops",
+    terraformRoot: null,
+    action: "Map this resource to a Terraform root or create a targeted cleanup issue after operator review.",
+    evidence: { reason },
+  };
+}
+
+function summarizeDigest(input) {
+  const resources = [
+    ...input.apps,
+    ...input.databases,
+    ...input.registryTags,
+    ...input.droplets,
+    ...input.volumes,
+    ...input.uptimeChecks,
+    ...input.cdns,
+  ];
+  return {
+    observedResources: resources.length,
+    terraformManagedResources: resources.filter((resource) => resource.classification === "terraform-managed").length,
+    unknownChaseSetsResources: resources.filter((resource) => resource.classification === "unknown-chase-sets").length,
+    cleanupCandidates:
+      input.databases.filter((database) => database.oldRestorePoint).length +
+      input.registryTags.filter((tag) => tag.cleanupEligible).length,
+    advisoryFindings: input.findings.filter((finding) => finding.severity === "advisory").length,
+    warningFindings: input.findings.filter((finding) => finding.severity === "warning").length,
+    collectionErrors: input.collectionErrors.length,
+  };
+}
+
+function classifyApp(name) {
+  if (
+    ["chase-sets-platform", "chase-sets-staging-platform"].includes(name) ||
+    /^chase-sets-pr-\d+-platform$/.test(name)
+  ) {
+    return "terraform-managed";
+  }
+  return chaseSetsName(name) ? "unknown-chase-sets" : "external";
+}
+
+function classifyDatabase(name) {
+  if (
+    ["chase-sets-postgres", "chase-sets-staging-postgres"].includes(name) ||
+    /^chase-sets-pr-\d+-postgres$/.test(name)
+  ) {
+    return "terraform-managed";
+  }
+  return chaseSetsName(name) ? "unknown-chase-sets" : "external";
+}
+
+function appTerraformRoot(name) {
+  return classifyApp(name) === "terraform-managed" ? TERRAFORM_ROOTS.platform : null;
+}
+
+function databaseTerraformRoot(name) {
+  return classifyDatabase(name) === "terraform-managed" ? TERRAFORM_ROOTS.platform : null;
+}
+
+function classifyEnvironment(name) {
+  if (/^chase-sets-pr-\d+/.test(name)) {
+    return "preview";
+  }
+  if (name.includes("staging")) {
+    return "staging";
+  }
+  if (name.startsWith("chase-sets")) {
+    return "production";
+  }
+  return null;
+}
+
+function observabilityName(name) {
+  return ["chase-sets-observability", "chase-sets-staging-observability"].includes(name);
+}
+
+function observabilityVolumeName(name) {
+  return ["chase-sets-observability-data", "chase-sets-staging-observability-data"].includes(name);
+}
+
+function remoteDevName(name) {
+  return /^chase-sets-dev-[a-z0-9-]+/.test(name);
+}
+
+function classifyDroplet(name) {
+  if (observabilityName(name)) {
+    return "terraform-managed";
+  }
+  if (remoteDevName(name)) {
+    return "repo-managed-disposable";
+  }
+  return chaseSetsName(name) ? "unknown-chase-sets" : "external";
+}
+
+function classifyVolume(name) {
+  if (observabilityVolumeName(name)) {
+    return "terraform-managed";
+  }
+  if (remoteDevName(name)) {
+    return "repo-managed-disposable";
+  }
+  return chaseSetsName(name) ? "unknown-chase-sets" : "external";
+}
+
+function chaseSetsName(name) {
+  return typeof name === "string" && name.startsWith("chase-sets");
+}
+
+function readField(record, ...names) {
+  for (const name of names) {
+    const value = name.includes(".")
+      ? name.split(".").reduce((current, part) => current?.[part], record)
+      : record?.[name];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number") {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function readNumberField(record, ...names) {
+  const value = readField(record, ...names);
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readNestedName(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return readField(value, "slug", "Slug", "name", "Name");
+}
+
+function describeDoctlFailure(error) {
+  const details = ["doctl read-only collection failed."];
+  if (typeof error === "object" && error !== null) {
+    if ("code" in error && error.code !== undefined) {
+      details.push(`exit code: ${String(error.code)}`);
+    }
+    if ("stderr" in error && typeof error.stderr === "string" && error.stderr.trim()) {
+      details.push(`stderr: ${error.stderr.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    }
+    if ("message" in error && typeof error.message === "string" && error.message.trim()) {
+      details.push(`message: ${error.message.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    }
+  }
+  return details;
+}
+
+function parseNumber(value, name) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${name} must be a number.`);
+  }
+  return parsed;
+}
+
+async function main(argv, env = process.env) {
+  try {
+    const result = await runDigitalOceanDriftDigest(parseDigitalOceanDriftDigestArgs(argv, env));
+    console.log(JSON.stringify(result.record, null, 2));
+    return 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 2;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exitCode = await main(process.argv.slice(2));
+}
