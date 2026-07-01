@@ -213,6 +213,7 @@ const onePieceLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
       { label: "Set Name", choice: tcgplayerOnePieceSetChoice },
     ],
     requiresTerminalSync: true,
+    allowPartialWithReview: true,
   },
   {
     name: "Pokemon set regression through TCGdex",
