@@ -36,6 +36,10 @@ const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
   "utf8",
 );
+const deployableProfileDatabaseCompanion = readFileSync(
+  resolve("docs/architecture/deployable-profile-database-companion.md"),
+  "utf8",
+);
 const marketplaceProviderProofStatusWorkflow = readFileSync(
   resolve(".github/workflows/marketplace-provider-proof-status.yml"),
   "utf8",
@@ -80,6 +84,27 @@ describe("DigitalOcean platform runbook", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "warns if admin-support and marketplace/platform component families coexist in one App Platform app",
     );
+  });
+
+  it("documents the database companion sequence for deployable profiles", () => {
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
+    );
+    expect(digitaloceanPlatformRunbook).toContain("`provisioned_context_names`, `active_runtime_context_names`");
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Topology/release-health evidence for profile migration must include",
+    );
+    expect(digitaloceanPlatformRunbook).toContain("projection rebuild for derived read models");
+
+    expect(deployableProfileDatabaseCompanion).toContain(
+      "Deployable profiles control which runtime slices are mounted",
+    );
+    expect(deployableProfileDatabaseCompanion).toContain(
+      "Separate provisioned, active, and exposed context sets (#3223)",
+    );
+    expect(deployableProfileDatabaseCompanion).toContain("Publish profile-aware connection budget output (#3225)");
+    expect(deployableProfileDatabaseCompanion).toContain("Keep production transaction PgBouncer disabled");
+    expect(deployableProfileDatabaseCompanion).toContain("projection rebuild, PITR/backups, or precreated fork");
   });
 });
 
