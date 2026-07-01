@@ -18,6 +18,7 @@ function proof(overrides = {}) {
     apiVersion: "2026-03-25.dahlia",
     paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
     connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
+    connectAccountsApi: "v1",
     connectCustomAccountProofCompletedAt: "2026-05-30T12:25:00.000Z",
     connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
     connectPayoutSetupPageEvidenceKind: "screenshot",
@@ -123,6 +124,7 @@ describe("marketplace stripe money operations evidence", () => {
       apiVersion: "2026-03-25.dahlia",
       paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
       connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
+      connectAccountsApi: "v1",
       connectCustomAccountProofCompletedAt: "2026-05-30T12:25:00.000Z",
       connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
       connectPayoutSetupPageEvidenceKind: "screenshot",
@@ -203,6 +205,23 @@ describe("marketplace stripe money operations evidence", () => {
     });
   });
 
+  it("accepts an Accounts v2 proof when the same dashboard-none application-owned posture is proven", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectAccountsApi: "v2",
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(true);
+    expect(evidence.connectAccountsApi).toBe("v2");
+    expect(evidence.connectDashboardAccess).toBe("none");
+    expect(evidence.connectControllerFeesPayer).toBe("application");
+    expect(evidence.connectControllerLossesCollector).toBe("application");
+    expect(evidence.connectControllerRequirementCollection).toBe("application");
+  });
+
   it("fails when any required Stripe proof is missing", () => {
     const evidence = buildStripeMoneyOperationsEvidence(
       input({
@@ -231,6 +250,19 @@ describe("marketplace stripe money operations evidence", () => {
     expect(evidence.errors).toContain(
       "Stripe money operations proof must include at least one live connected account.",
     );
+  });
+
+  it("fails when the selected Connect Accounts API posture is unsupported", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectAccountsApi: "express",
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain("Stripe money operations proof must set connectAccountsApi to v1 or v2.");
   });
 
   it("fails when custom account proof is incomplete or stores sensitive provider data", () => {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted and implemented for launch compatibility
 
 ## Context
 
@@ -21,11 +21,11 @@ The selected strategy owns connected-account provisioning, account retrieval, co
 ## Alternatives Considered
 
 - Separate public factories for v1 and v2. Rejected because platform composition would need to know more about Stripe account internals and future changes would branch deployable code instead of infrastructure code.
-- Replace v2 with v1 immediately. Rejected for this boundary change because the v1 provisioning/readiness strategy still needs focused implementation and proof in the follow-up issues.
+- Replace v2 with v1 permanently. Rejected because v2 remains the clearer long-term API once provider approval and migration readiness are available; v1 is the launch-compatible posture while that approval is pending.
 - Keep the implicit v2-only adapter. Rejected because it keeps launch posture hidden and makes v1 compatibility risky to add later.
 
 ## Consequences
 
-The current implementation keeps `v2` as the default until the Accounts v1 strategy is implemented. Selecting `v1` is accepted by runtime config but the Stripe adapter fails closed with a configuration error for account operations until the v1 child issues land.
+The current implementation accepts `v1` and `v2` through runtime config. Accounts v1 is launch-compatible only when proof shows dashboard-none controller posture, application-owned losses, application-paid fees, application-owned requirement collection, embedded Account Sessions, platform-held transfers, connected-account payouts, and Connect webhook readiness handling. Accounts v2 remains the preferred migration target because it represents the same responsibilities through first-class recipient configuration.
 
 Go-live webhook requirements follow the selected Accounts API: v2 requires `v2.core.account[requirements].updated` and `v2.core.account.updated`; v1 requires `account.updated`.

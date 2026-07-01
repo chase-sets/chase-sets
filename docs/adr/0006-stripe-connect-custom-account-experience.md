@@ -2,15 +2,15 @@
 
 ## Status
 
-Accepted and implemented for launch
+Accepted for launch with Accounts v1 controller-property compatibility until Accounts v2 approval
 
 ## Context
 
-Chase Sets uses Stripe Connect Accounts v2 for recipient payout accounts. An earlier implementation kept the account experience Express-dashboard oriented through hosted onboarding Account Links and Express login links. Because the marketplace has not launched, Chase Sets does not need to preserve that compatibility path; payout setup can launch directly as a Chase Sets-owned embedded workflow.
+Chase Sets uses Stripe Connect dashboard-none connected payout accounts for recipient payouts. The preferred long-term provider model is Accounts v2 because it names recipient configuration and responsibility decisions directly, but launch may proceed on Accounts v1 while Accounts v2 approval is pending when the v1 account proves the equivalent controller-property posture. An earlier implementation kept the account experience Express-dashboard oriented through hosted onboarding Account Links and Express login links. Because the marketplace has not launched, Chase Sets does not need to preserve that compatibility path; payout setup can launch directly as a Chase Sets-owned embedded workflow.
 
 The marketplace is moving toward a seller experience where accounts can buy and sell from the same workspace, understand payout readiness in Chase Sets language, and recover from setup problems without leaving the account money area. That requires Chase Sets to provide the account-facing Stripe-related functionality when the connected account has no Stripe Dashboard access.
 
-Stripe's Accounts v2 model makes this an explicit responsibility decision rather than a legacy account type. A connected account with `dashboard: "none"` cannot access Stripe Dashboard or Express Dashboard, and the platform must provide the Stripe-related functionality the account needs. Stripe also documents that the platform becomes responsible for collecting KYC requirements only when the platform is responsible for losses and the dashboard is `none`; that state appears as `defaults.responsibilities.requirements_collector: "application"`.
+Stripe's Accounts v2 model makes this an explicit responsibility decision rather than a legacy account type. A connected account with `dashboard: "none"` cannot access Stripe Dashboard or Express Dashboard, and the platform must provide the Stripe-related functionality the account needs. In Accounts v2, this appears as `dashboard: "none"` plus `defaults.responsibilities.* = "application"`. In Accounts v1 compatibility mode, the equivalent launch posture is `controller[stripe_dashboard][type]=none`, `controller[losses][payments]=application`, `controller[fees][payer]=application`, and `controller[requirement_collection]=application`.
 
 The launch implementation must preserve the existing money movement strategy. Chase Sets intentionally holds purchase funds on the platform, posts sale wallet credit in Settlement, and moves funds to a connected payout account only when an eligible account requests an on-demand payout. The Connect account experience changes how accounts complete payout setup and account management, not charge type, wallet ownership, payout release rules, or platform-balance funding assumptions.
 
@@ -30,12 +30,10 @@ Chase Sets chooses Stripe embedded components over full raw API onboarding becau
 
 Target Stripe connected account configuration:
 
-- Accounts are created and managed through Stripe Accounts v2.
+- Accounts are created and managed through the selected `STRIPE_CONNECT_ACCOUNTS_API` posture: `v1` for launch compatibility until Accounts v2 approval, `v2` after provider approval and migration readiness.
 - Payout accounts use the recipient configuration required for Stripe balance transfers and payouts.
 - `dashboard` is `none`; accounts do not receive Stripe Dashboard or Express Dashboard access.
-- `defaults.responsibilities.losses_collector` is `application`.
-- `defaults.responsibilities.fees_collector` is `application`.
-- `defaults.responsibilities.requirements_collector` must resolve to `application`.
+- Responsibility/controller proof must resolve losses, fees, and requirement collection to `application`.
 - Payout schedules remain manual or on-demand so Settlement controls when eligible wallet funds are paid out.
 
 Target account experience:
