@@ -1005,7 +1005,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.context_database_env
+          for_each = local.admin_support_context_database_env
           content {
             key   = env.value
             value = local.context_database_urls[env.key]
@@ -1660,7 +1660,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.context_database_env
+          for_each = local.admin_support_context_database_env
           content {
             key   = env.value
             value = local.context_database_urls[env.key]
@@ -1945,7 +1945,7 @@ resource "digitalocean_app" "platform" {
         }
 
         dynamic "env" {
-          for_each = local.context_database_env
+          for_each = local.admin_support_context_database_env
           content {
             key   = env.value
             value = local.context_database_urls[env.key]
