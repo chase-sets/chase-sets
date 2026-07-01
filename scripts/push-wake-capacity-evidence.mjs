@@ -55,7 +55,9 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
     clusterConnectionLimits,
     defaults: {
       apiDatabasePoolMax: Number(extractQuotedLocal(localsSource, "api_database_pool_max")),
+      apiComponentCount: Number(extractNumericLocal(localsSource, "api_component_count")),
       bootstrapDatabasePoolMax: Number(extractQuotedLocal(localsSource, "bootstrap_database_pool_max")),
+      workerComponentCount: Number(extractNumericLocal(localsSource, "worker_component_count")),
       stagingWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max").trueValue,
       productionWorkerDatabasePoolMax: extractTernaryNumbers(localsSource, "worker_default_database_pool_max")
         .falseValue,
@@ -96,9 +98,12 @@ export function buildPushWakeCapacityEvidence(input) {
     productionLikeDirectBindings: false,
   });
 
-  const productionApiPoolDemand = input.defaults.apiDatabasePoolMax * 2 * input.defaults.productionApiInstances;
+  const productionApiPoolDemand =
+    input.defaults.apiDatabasePoolMax * input.defaults.apiComponentCount * input.defaults.productionApiInstances;
   const productionWorkerPoolDemand =
-    input.defaults.productionWorkerDatabasePoolMax * 2 * input.defaults.productionWorkerInstances;
+    input.defaults.productionWorkerDatabasePoolMax *
+    input.defaults.workerComponentCount *
+    input.defaults.productionWorkerInstances;
   const production = buildEnvironmentBudget({
     environment: "production",
     databaseSize: input.defaults.productionDatabaseSize,
@@ -126,7 +131,11 @@ export function buildPushWakeCapacityEvidence(input) {
   const recommendedDatabaseSize =
     wave2DirectListenerExpansion.requiredDatabaseSize ?? activeDirectListenerExpansion.requiredDatabaseSize;
 
-  if (!recommendedDatabaseSize && wave2DirectListenerExpansion.additionalListenerContextCount > 0) {
+  if (
+    !wave2DirectListenerExpansion.fitsCurrentTier &&
+    !recommendedDatabaseSize &&
+    wave2DirectListenerExpansion.additionalListenerContextCount > 0
+  ) {
     throw new Error("No budgeted database tier can fit the direct listener expansion.");
   }
 
@@ -141,7 +150,9 @@ export function buildPushWakeCapacityEvidence(input) {
       activeRegistryRelayContexts: input.activeRelayContexts,
       wave2Contexts: input.wave2Contexts,
       apiDatabasePoolMax: input.defaults.apiDatabasePoolMax,
+      apiComponentCount: input.defaults.apiComponentCount,
       productionWorkerDatabasePoolMax: input.defaults.productionWorkerDatabasePoolMax,
+      workerComponentCount: input.defaults.workerComponentCount,
       bootstrapDatabasePoolMax: input.defaults.bootstrapDatabasePoolMax,
       clusterConnectionLimits: input.clusterConnectionLimits,
     },
@@ -312,6 +323,14 @@ function extractQuotedLocal(source, localName) {
     throw new Error(`Could not find Terraform quoted local '${localName}'.`);
   }
   return match[1];
+}
+
+function extractNumericLocal(source, localName) {
+  const match = new RegExp(`${localName}\\s+=\\s+([0-9]+)`).exec(source);
+  if (!match) {
+    throw new Error(`Unable to find numeric local ${localName}.`);
+  }
+  return Number(match[1]);
 }
 
 function extractTernaryNumbers(source, localName) {

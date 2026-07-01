@@ -40,14 +40,14 @@ describe("push wake capacity evidence", () => {
     expect(evidence.environments.staging.steadyState).toMatchObject({ total: 46, limit: 94, headroom: 48 });
     expect(evidence.environments.staging.deployOverlap).toMatchObject({ total: 52, limit: 94, headroom: 42 });
     expect(evidence.environments.production).toMatchObject({
-      apiPoolDemand: 24,
-      workerPoolDemand: 14,
-      steadyState: { total: 48, limit: 94, headroom: 46 },
+      apiPoolDemand: 12,
+      workerPoolDemand: 7,
+      steadyState: { total: 29, limit: 94, headroom: 65 },
       deployOverlap: {
-        total: 92,
+        total: 54,
         limit: 94,
-        headroom: 2,
-        additionalDirectListenerContextsAtCurrentTier: 1,
+        headroom: 40,
+        additionalDirectListenerContextsAtCurrentTier: 20,
       },
     });
   });
@@ -65,19 +65,19 @@ describe("push wake capacity evidence", () => {
       "catalog",
       "fulfillment",
     ]);
-    expect(evidence.expansionDecision.posture).toBe("hold-wave-2-direct-listeners-until-tier-or-overlap-decision");
+    expect(evidence.expansionDecision.posture).toBe("wave-2-direct-listeners-fit-current-tier");
     expect(evidence.expansionDecision.wave2DirectListenerExpansion).toMatchObject({
       additionalListenerContextCount: 2,
       additionalOverlapDemand: 4,
-      expandedOverlapDemand: 96,
-      fitsCurrentTier: false,
-      requiredDatabaseSize: "db-s-4vcpu-8gb",
+      expandedOverlapDemand: 58,
+      fitsCurrentTier: true,
+      requiredDatabaseSize: null,
     });
     expect(evidence.volumeLoadProofPosture.posture).toBe("not-proven-by-this-ci-evidence");
 
     const markdown = renderPushWakeCapacityMarkdown(evidence);
-    expect(markdown).toContain("Rolling-deploy overlap: 92/94");
-    expect(markdown).toContain("Posture: **hold-wave-2-direct-listeners-until-tier-or-overlap-decision**");
+    expect(markdown).toContain("Rolling-deploy overlap: 54/94");
+    expect(markdown).toContain("Posture: **wave-2-direct-listeners-fit-current-tier**");
     expect(markdown).toContain("Production-like volume load proof for #1363 still requires live load evidence");
   });
 
@@ -136,6 +136,6 @@ describe("push wake capacity evidence", () => {
       databaseUrls: "not-read",
       liveEnvironmentAccess: "not-used",
     });
-    expect(evidence.expansionDecision.recommendedDatabaseSize).toBe("db-s-4vcpu-8gb");
+    expect(evidence.expansionDecision.recommendedDatabaseSize).toBeNull();
   });
 });

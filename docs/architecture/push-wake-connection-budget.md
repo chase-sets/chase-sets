@@ -10,6 +10,8 @@ This is the per-environment DigitalOcean managed Postgres connection ledger for 
 
 The budget locals live in `infrastructure/digitalocean/platform/locals.tf` and the checks in `infrastructure/digitalocean/platform/main.tf`. Both environments are computed from the same locals; only scale knobs (`api_instances`, `worker_instances`, pool maxima, `database_size`) and the staging-first ramp flags differ. Generate a CI-safe evidence record from the checked-in locals with `pnpm run ops push-wake:capacity-evidence -- --out artifacts/release-health/push-wake-capacity-evidence.json`; the script reads no secrets and contacts no live environment.
 
+Terraform also exposes `connection_budget_profiles` so release operators can inspect the resolved profile, active/exposed/provisioned context counts, steady-state demand, rolling-deploy demand, and headroom. The current pool-max envelope is per process, not per mounted context, so landing mode lowers active route/context surface before it lowers backend demand. The backend-demand reduction arrives with the profiled API/worker runner work in #3213 and #3214.
+
 ## PgBouncer Vs Direct Connection Semantics
 
 - **Non-production query traffic is pooled.** Terraform creates one managed PgBouncer transaction pool per context database. App components (API, worker, bootstrap job) hold client-side connections to PgBouncer; the cluster backends those clients can occupy are capped by the server-side pool `size` values in `context_database_connection_pool_sizes`, not by app pool maxima. The sum of those sizes is the worst-case backend footprint of all pooled traffic.
@@ -54,18 +56,28 @@ Client-side PgBouncer connections (not cluster backends, listed for completeness
 
 ### Production (`database_size` = `db-s-2vcpu-4gb`, budgeted limit 94)
 
-Everything is direct. The budget always assumes the worst case across deployment gates: proof mode runs the `platform-*` and `admin-support-*` component families concurrently (2 API components, 2 worker components), and the relay is budgeted as enabled even though `WORKER_PROJECTION_WAKE_RELAY_ENABLED` is currently `false` in production — so flipping the proof, public, or relay switches can never violate the budget after the fact.
+Everything is direct. The budget assumes the consolidated topology that now runs one API family and one worker family, and it still budgets the relay as enabled even though `WORKER_PROJECTION_WAKE_RELAY_ENABLED` is currently `false` in production — so flipping the proof, public, or relay switches can never violate the budget after the fact.
 
 | Demand | Math | Backends |
 | --- | --- | --- |
-| API pools | 6 pool max × 2 components × 2 instances | 24 |
-| Worker pools | 7 pool max × 2 components × 1 instance | 14 |
+| API pools | 6 pool max × 1 component × 2 instances | 12 |
+| Worker pools | 7 pool max × 1 component × 1 instance | 7 |
 | Relay listeners (budgeted worst case, relay currently killed) | 6 direct-listened source contexts × 1 | 6 |
-| Bootstrap (transient PRE_DEPLOY) | one bootstrap pool; both bootstrap jobs at once would still only add 8 within headroom | 4 |
-| **Steady-state total** | 24 + 14 + 6 + 4 | **48 ≤ 94** (headroom 46) |
-| **Deploy overlap** | 2 × (24 + 14) + 2 × 6 + 4 (App Platform starts replacement containers before stopping old ones) | **92 ≤ 94** (headroom 2) |
+| Bootstrap (transient PRE_DEPLOY) | one bootstrap pool | 4 |
+| **Steady-state total** | 12 + 7 + 6 + 4 | **29 ≤ 94** (headroom 65) |
+| **Deploy overlap** | 2 × (12 + 7) + 2 × 6 + 4 (App Platform starts replacement containers before stopping old ones) | **54 ≤ 94** (headroom 40) |
 
 The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect.
+
+### Profile Summary Output
+
+`connection_budget_profiles` records the resolved active profile plus named `landing`, `proof`, and `public` entries. The named entries intentionally separate context profile visibility from backend demand:
+
+- `landing` uses the landing/support context surface and shows production provisioned contexts separately so a landing rollback does not imply database deletion.
+- `proof` currently shares the public runtime shape until #3213/#3214 split route exposure and worker runner groups for proof mode.
+- `public` preserves the full marketplace context surface.
+
+Each entry includes `active_context_count`, `exposed_context_count`, `provisioned_context_count`, `steady_state_demand`, `rolling_deploy_demand`, `cluster_connection_limit`, `steady_state_headroom`, `rolling_deploy_headroom`, and `production_pgbouncer_ready`. `production_pgbouncer_ready` remains `false` until the #3226/#3234 session-safety gate separates transaction-pooled query traffic from direct-only work-signal waiters.
 
 ### Preview (`non_production_database_size` = `db-s-1vcpu-1gb`, budgeted limit 19)
 
@@ -84,8 +96,8 @@ Previews compute to 21 (PgBouncer allocation, all pools size 1) + 0 listeners + 
 Each additional direct LISTEN source context costs 1 steady-state backend and 2 overlap backends in production. Against the current worst-case envelopes:
 
 - Staging can absorb all remaining direct listener waves on the current tier (steady-state headroom 48, overlap headroom 42).
-- Production has one remaining direct listener slot after adding Identity by reducing the production default projection worker concurrency and pool max. The remaining wave-2 listener expansion (`catalog`, `fulfillment`) needs 2 direct listener contexts and would move the overlap envelope to 96/94. It therefore requires one of: a database tier scale-up (current budget map points to `db-s-4vcpu-8gb`), a relaxed overlap model backed by deployment evidence (e.g., proof that proof-mode dual components and dual relays never overlap), or further reduced pool maxima/instances with matching freshness-capacity proof — recorded here and in the Terraform map before enablement.
-- The runtime registry currently has eight staging-enabled relay contexts (`catalog`, wave 1, `identity`, `inventory`, `settlement`), while Terraform provisions direct listener URLs for wave 1 plus `identity` and `inventory`. Missing direct listener URLs are an intentional catch-up-only posture, not notification-latency proof for those contexts. Moving both active catch-up-only registry sources (`catalog`, `settlement`) to direct LISTEN in production would add 4 overlap backends and exceed the current tier at 96/94.
+- Production has twenty remaining direct listener slots on the current tier after the consolidated one-API/one-worker topology. The remaining wave-2 listener expansion (`catalog`, `fulfillment`) adds 4 overlap backends and fits at 58/94, but it still requires route/worker rollout evidence before enablement.
+- The runtime registry currently has eight staging-enabled relay contexts (`catalog`, wave 1, `identity`, `inventory`, `settlement`), while Terraform provisions direct listener URLs for wave 1 plus `identity` and `inventory`. Missing direct listener URLs are an intentional catch-up-only posture, not notification-latency proof for those contexts. Moving both active catch-up-only registry sources (`catalog`, `settlement`) to direct LISTEN in production would add 4 overlap backends and fits the current tier after deployable consolidation; enablement still needs issue-specific latency and convergence evidence.
 - Composite wake origins (durable jobs, projection operations, realtime) add query/notify load but no new connections: their composite emitters and waiters ride the already-budgeted pooled connections of the database that owns each channel (control database for projection operations, owning context/control pools for durable jobs, realtime context pools for realtime). Their load (not connection) budgets are owned by the durable wake-store capacity evidence (#1246) and composite phase evidence (#1248/#1249).
 
 ## Budget Violation And Rollback Behavior
