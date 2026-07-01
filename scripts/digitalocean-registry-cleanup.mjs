@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { writeJsonRecord } from "./lib/output-file.mjs";
+
+export const DIGITALOCEAN_REGISTRY_CLEANUP_VERSION = "digitalocean-registry-cleanup/v1";
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
@@ -50,6 +53,10 @@ function collectImageTagsFromApp(app) {
 }
 
 export function selectTagsForDeletion(tags, options = {}) {
+  return selectTagDeletionCandidates(tags, options).map((tag) => tag.name);
+}
+
+function selectTagDeletionCandidates(tags, options = {}) {
   const now = options.now ?? new Date();
   const retentionDays = options.retentionDays ?? 30;
   const cutoff = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
@@ -63,8 +70,7 @@ export function selectTagsForDeletion(tags, options = {}) {
     .filter((tag) => !protectedTags.has(tag.name))
     .filter((tag) => !tag.digest || !protectedDigests.has(tag.digest))
     .filter((tag) => !protectedPrefixes.some((prefix) => tag.name.startsWith(prefix)))
-    .filter((tag) => parseDate(tag.updatedAt) < cutoff)
-    .map((tag) => tag.name);
+    .filter((tag) => parseDate(tag.updatedAt) < cutoff);
 }
 
 export async function fetchProtectedAppTags(appNames, options = {}) {
@@ -108,48 +114,191 @@ function readOption(argv, name, defaultValue) {
   return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
 }
 
-async function cleanup(argv) {
-  const repository = readOption(argv, "--repository", "chase-sets-platform");
-  const retentionDays = Number.parseInt(readOption(argv, "--retention-days", "30"), 10);
-  const dryRun = argv.includes("--dry-run");
-  const appNames = readRepeatedOption(argv, "--app-name");
-  const protectedTags = [...readRepeatedOption(argv, "--protect-tag"), ...(await fetchProtectedAppTags(appNames))];
+export function parseDigitalOceanRegistryCleanupArgs(argv, env = process.env) {
+  const dryRunInput = readOption(argv, "--dry-run", null);
+  const envDryRun = env.DIGITALOCEAN_REGISTRY_CLEANUP_DRY_RUN;
+  return {
+    repository: readOption(argv, "--repository", env.PLATFORM_IMAGE_REPOSITORY ?? "chase-sets-platform"),
+    retentionDays: Number.parseInt(
+      readOption(argv, "--retention-days", env.DIGITALOCEAN_REGISTRY_CLEANUP_RETENTION_DAYS ?? "30"),
+      10,
+    ),
+    dryRun: dryRunInput !== null ? true : parseBoolean(envDryRun ?? "false"),
+    appNames: readRepeatedOption(argv, "--app-name"),
+    protectedTags: readRepeatedOption(argv, "--protect-tag"),
+    outPath: readOption(argv, "--out", env.DIGITALOCEAN_REGISTRY_CLEANUP_OUT),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+  };
+}
 
-  const tags = await commandJson("doctl", ["registry", "repository", "list-tags", repository, "--output", "json"]);
-  const deletions = selectTagsForDeletion(tags, { protectedTags, retentionDays });
+export async function runDigitalOceanRegistryCleanup(options, dependencies = {}) {
+  const result = await cleanupDigitalOceanRegistry(options, dependencies);
+  if (options.outPath) {
+    await writeJsonRecord(options.outPath, result.record);
+  }
+  return result;
+}
 
-  if (deletions.length === 0) {
-    console.log("No registry tags are eligible for deletion.");
-    return;
+export async function cleanupDigitalOceanRegistry(options, dependencies = {}) {
+  const output = dependencies.commandOutput ?? commandOutput;
+  const json = dependencies.commandJson ?? ((command, args) => commandJson(command, args, { commandOutput: output }));
+  const errors = validateCleanupOptions(options);
+  const baseRecord = {
+    schemaVersion: DIGITALOCEAN_REGISTRY_CLEANUP_VERSION,
+    checkedAt: options.checkedAt,
+    mode: options.dryRun ? "dry-run" : "apply",
+    repository: options.repository,
+    retentionDays: options.retentionDays,
+    protectedAppNames: options.appNames ?? [],
+    protectedTags: [],
+    selectedDeletionTags: [],
+    deletedTags: [],
+    failedTags: [],
+    garbageCollection: {
+      status: "skipped",
+      reason: "not-evaluated",
+    },
+    result: "failure",
+    errors,
+  };
+
+  if (errors.length > 0) {
+    return { record: baseRecord, passesCleanupGate: false };
   }
 
-  for (const tag of deletions) {
-    if (dryRun) {
-      console.log(`Would delete ${repository}:${tag}`);
-      continue;
+  const protectedTags = [
+    ...(options.protectedTags ?? []),
+    ...(await fetchProtectedAppTags(options.appNames ?? [], { commandOutput: output })),
+  ];
+  const tags = await json("doctl", ["registry", "repository", "list-tags", options.repository, "--output", "json"]);
+  const selectedTags = selectTagDeletionCandidates(tags, {
+    now: new Date(options.checkedAt),
+    retentionDays: options.retentionDays,
+    protectedTags,
+  });
+  const record = {
+    ...baseRecord,
+    protectedTags: [...new Set(protectedTags)].sort(),
+    selectedDeletionTags: selectedTags.map(toTagSummary),
+    result: "success",
+    errors: [],
+  };
+
+  if (options.dryRun) {
+    record.garbageCollection = {
+      status: "skipped",
+      reason: "dry-run",
+    };
+    return { record, passesCleanupGate: true };
+  }
+
+  for (const tag of selectedTags) {
+    try {
+      await output("doctl", ["registry", "repository", "delete-tag", options.repository, tag.name, "--force"]);
+      record.deletedTags.push(toTagSummary(tag));
+    } catch (error) {
+      record.failedTags.push({
+        ...toTagSummary(tag),
+        errors: describeCommandFailure(error),
+      });
     }
-
-    console.log(`Deleting ${repository}:${tag}`);
-    await commandOutput("doctl", ["registry", "repository", "delete-tag", repository, tag, "--force"]);
   }
 
-  if (dryRun) {
-    console.log("Dry run complete; skipping registry garbage collection.");
-    return;
+  if (record.failedTags.length > 0) {
+    record.result = "failure";
+    record.errors = ["One or more selected registry tags could not be deleted."];
+    record.garbageCollection = {
+      status: "skipped",
+      reason: "delete-failed",
+    };
+    return { record, passesCleanupGate: false };
   }
 
-  await commandOutput("doctl", ["registry", "garbage-collection", "start", "--force"]);
+  try {
+    await output("doctl", ["registry", "garbage-collection", "start", "--force"]);
+    record.garbageCollection = {
+      status: "started",
+      reason: selectedTags.length > 0 ? "cleanup-applied" : "no-deletions",
+    };
+  } catch (error) {
+    record.result = "failure";
+    record.errors = ["DigitalOcean registry garbage collection could not be started."];
+    record.garbageCollection = {
+      status: "failed",
+      reason: "doctl-failed",
+      errors: describeCommandFailure(error),
+    };
+    return { record, passesCleanupGate: false };
+  }
+
+  return { record, passesCleanupGate: true };
+}
+
+function validateCleanupOptions(options) {
+  const errors = [];
+  if (!isNonEmptyString(options.repository)) {
+    errors.push("--repository is required.");
+  }
+  if (!Number.isFinite(options.retentionDays) || options.retentionDays < 0) {
+    errors.push("--retention-days must be zero or greater.");
+  }
+  if (!Number.isFinite(Date.parse(options.checkedAt))) {
+    errors.push("--checked-at must be an ISO-8601 timestamp.");
+  }
+  return errors;
+}
+
+function toTagSummary(tag) {
+  return {
+    name: tag.name,
+    digest: tag.digest || null,
+    updatedAt: tag.updatedAt || null,
+  };
+}
+
+function describeCommandFailure(error) {
+  const details = ["doctl registry cleanup command failed."];
+  if (typeof error === "object" && error !== null) {
+    if ("code" in error && error.code !== undefined) {
+      details.push(`exit code: ${String(error.code)}`);
+    }
+    if ("stderr" in error && typeof error.stderr === "string" && error.stderr.trim()) {
+      details.push(`stderr: ${error.stderr.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    }
+    if ("message" in error && typeof error.message === "string" && error.message.trim()) {
+      details.push(`message: ${error.message.replace(/\s+/g, " ").trim().slice(0, 1000)}`);
+    }
+  }
+  return details;
+}
+
+function parseBoolean(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  throw new Error("DIGITALOCEAN_REGISTRY_CLEANUP_DRY_RUN must be true or false.");
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 async function main(argv) {
   const [command, ...args] = argv;
   if (command === "cleanup") {
-    await cleanup(args);
-    return;
+    const result = await runDigitalOceanRegistryCleanup(parseDigitalOceanRegistryCleanupArgs(args));
+    console.log(JSON.stringify(result.record, null, 2));
+    return result.passesCleanupGate ? 0 : 1;
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retention-days=<days>] [--app-name=<name>] [--protect-tag=<tag>] [--dry-run]",
+    "Usage: node ./scripts/digitalocean-registry-cleanup.mjs cleanup [--repository=<name>] [--retention-days=<days>] [--app-name=<name>] [--protect-tag=<tag>] [--dry-run] [--out=<path>]",
   );
 }
 

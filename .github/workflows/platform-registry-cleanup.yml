@@ -47,7 +47,9 @@ jobs:
       - name: Cleanup registry tags
         run: |
           set -euo pipefail
-          dry_run="${{ github.event_name == 'schedule' && 'true' || github.event.inputs.dry_run || 'true' }}"
+          mkdir -p artifacts/release-health
+
+          dry_run="${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run || 'true' }}"
           dry_run_arg=""
           if [ "$dry_run" = "true" ]; then
             dry_run_arg="--dry-run"
@@ -59,4 +61,47 @@ jobs:
             --retention-days=7 \
             --app-name=chase-sets-staging-platform \
             --app-name=chase-sets-platform \
+            --out artifacts/release-health/digitalocean-registry-cleanup.json \
             ${dry_run_arg}
+
+      - name: Summarize registry cleanup
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/digitalocean-registry-cleanup.json"
+          if [ ! -f "$record" ]; then
+            echo "No registry cleanup record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## DigitalOcean Registry Cleanup");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Repository: ${record.repository}`);
+          console.log(`- Retention days: ${record.retentionDays}`);
+          console.log(`- Protected App Platform tags: ${record.protectedTags?.length ?? 0}`);
+          console.log(`- Cleanup candidates: ${record.selectedDeletionTags?.length ?? 0}`);
+          console.log(`- Deleted tags: ${record.deletedTags?.length ?? 0}`);
+          console.log(`- Failed deletes: ${record.failedTags?.length ?? 0}`);
+          console.log(`- Garbage collection: ${record.garbageCollection?.status ?? "unknown"}`);
+          if (record.errors?.length) {
+            console.log("");
+            console.log("### Errors");
+            for (const error of record.errors) {
+              console.log(`- ${error}`);
+            }
+          }
+          NODE
+
+      - name: Upload registry cleanup artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-registry-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/digitalocean-registry-cleanup.json
+          if-no-files-found: ignore
+          retention-days: 30
