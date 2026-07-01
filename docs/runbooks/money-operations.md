@@ -79,7 +79,7 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 - Provider webhook signatures are verified with a timestamp tolerance to reduce replay risk.
 - Processed provider webhook event ids are stored so duplicate provider events are ignored and auditable.
 - Stripe stays behind the money movement adapter. Settlement owns wallet debits, payout requests, failure reversals, read models, and reconciliation decisions; Stripe owns embedded payout setup components, external payout destination collection, transfer execution, connected-account payout execution, and webhook signing.
-- Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
+- Register provider webhooks for the selected Connect Accounts API plus `payout.paid` and `payout.failed`. Accounts v1 requires `account.updated`; Accounts v2 requires `v2.core.account[requirements].updated` and `v2.core.account.updated`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
 - Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
 
 ### Fresh Launch Provider Posture
@@ -227,9 +227,9 @@ Expected results:
 Stripe Dashboard checks:
 
 - Confirm the platform account is pinned to API version `2026-03-25.dahlia`.
-- Confirm Connect is enabled for Accounts v2 and recipient onboarding.
+- Confirm Connect is enabled for the selected Accounts API posture and embedded recipient onboarding.
 - Configure payment webhook delivery for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `payment_intent.processing`, `payment_intent.amount_capturable_updated`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed`.
-- Configure Connect webhook delivery for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`.
+- Configure Connect webhook delivery for `payout.paid`, `payout.failed`, and the account-readiness event names selected by `STRIPE_CONNECT_ACCOUNTS_API`: `account.updated` for Accounts v1; `v2.core.account[requirements].updated` and `v2.core.account.updated` for Accounts v2.
 - Create a test checkout and confirm the internal payment id appears in Stripe Checkout Session and PaymentIntent metadata.
 - Request a payout and confirm Stripe shows a transfer with transfer group `payout:<internal payout id>` followed by a connected-account payout.
 - Replay the same webhook event from the Stripe Dashboard and confirm the API reports it as ignored without duplicate ledger entries.

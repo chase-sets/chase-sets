@@ -948,6 +948,82 @@ describe("money movement adapters", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("Stripe webhook parser maps Accounts v1 account.updated into blocked provider-neutral readiness", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T13:21:00.000Z"));
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      expect(String(input)).toBe("https://stripe.test/v1/accounts/acct_v1");
+      return new Response(
+        JSON.stringify({
+          id: "acct_v1",
+          controller: {
+            stripe_dashboard: { type: "express" },
+            losses: { payments: "stripe" },
+            fees: { payer: "account" },
+            requirement_collection: "stripe",
+          },
+          capabilities: {
+            transfers: "active",
+          },
+          payouts_enabled: true,
+          requirements: { currently_due: ["external_account"] },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const rawBody = JSON.stringify({
+      id: "evt_account_v1",
+      type: "account.updated",
+      created: 1_776_000_000,
+      account: "acct_v1",
+      data: {
+        object: {
+          id: "acct_v1",
+          object: "account",
+        },
+      },
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: stripeSignature(rawBody, "whsec_test"),
+      }),
+    ).resolves.toEqual({
+      kind: "payout-readiness-updated",
+      providerEventId: "evt_account_v1",
+      providerReference: "acct_v1",
+      readiness: {
+        providerReference: "acct_v1",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "active",
+        payoutDestinationStatus: "missing",
+        payoutAccountDashboard: "express",
+        lossesCollector: "stripe",
+        feesCollector: "unknown",
+        requirementsCollector: "stripe",
+        missingRequirements: [
+          "external_account",
+          "provider_dashboard_posture",
+          "provider_fee_payer_posture",
+          "provider_loss_liability_posture",
+          "provider_requirement_collection_posture",
+        ],
+      },
+      occurredAt: "2026-04-12T13:20:00.000Z",
+    });
+    expect(calls).toEqual(["https://stripe.test/v1/accounts/acct_v1"]);
+  });
+
   it("Stripe webhook parser rejects stale signatures", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-12T14:00:00.000Z"));
