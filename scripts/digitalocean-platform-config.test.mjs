@@ -1323,6 +1323,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
+    expect(platformProductionWorkflow).toContain(
+      'export SMOKE_REQUIRE_NATIVE_MCP="${TF_VAR_production_marketplace_public_enabled:-false}"',
+    );
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
   });
 

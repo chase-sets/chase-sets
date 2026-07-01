@@ -1922,6 +1922,7 @@ jobs:
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           smoke_urls=("https://${public_domain}" "https://${admin_domain}")
+          export SMOKE_REQUIRE_NATIVE_MCP="${TF_VAR_production_marketplace_public_enabled:-false}"
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
             if [ -z "$marketplace_domain" ]; then
               echo "Production marketplace promotion was enabled but no marketplace domain was present in Terraform outputs." >&2
