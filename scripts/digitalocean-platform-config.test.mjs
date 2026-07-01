@@ -752,21 +752,43 @@ describe("DigitalOcean platform configuration", () => {
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
   });
 
-  it("retains launched production context databases even when public marketplace exposure is gated", () => {
+  it("separates provisioned database contexts from active runtime and route exposure", () => {
+    const landingContexts = terraformStringList(platformLocals, "landing_context_names");
+    const platformContexts = terraformStringList(platformLocals, "platform_context_names");
+
+    expect(landingContexts).not.toContain("checkout");
+    expect(landingContexts).not.toContain("payments");
+    expect(platformContexts).toEqual(expect.arrayContaining(["checkout", "payments", "settlement"]));
+    expect(platformLocals).toContain(
+      "active_runtime_context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names",
+    );
+    expect(platformLocals).toContain("exposed_route_context_names  = local.active_runtime_context_names");
+    expect(platformLocals).toContain("context_names = local.active_runtime_context_names");
+    expect(platformLocals).toContain(
+      "provisioned_context_names = local.is_production ? local.production_provisioned_context_names : local.active_runtime_context_names",
+    );
+    expect(platformLocals).toContain("context_database_names = local.provisioned_context_names");
+  });
+
+  it("pre-provisions production context databases even when public marketplace exposure is gated", () => {
     const activeContexts = terraformStringList(platformLocals, "platform_context_names");
-    const retainedDatabaseContexts = terraformStringList(platformLocals, "production_retained_context_database_names");
+    const additionalProvisionedContexts = terraformStringList(
+      platformLocals,
+      "production_additional_provisioned_context_names",
+    );
 
     expect(activeContexts).not.toContain("reputation");
-    expect([...retainedDatabaseContexts].sort()).toEqual([...activeContexts, "reputation"].sort());
-    expect(platformLocals).toContain("context_database_names = distinct(concat(");
-    expect(platformLocals).toContain("local.is_production ? local.production_retained_context_database_names : []");
+    expect(additionalProvisionedContexts).toEqual(["reputation"]);
+    expect(platformLocals).toContain("production_provisioned_context_names = distinct(concat(");
+    expect(platformLocals).toContain("local.platform_context_names");
+    expect(platformLocals).toContain("local.production_additional_provisioned_context_names");
     expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(4);
   });
 
   it("keeps production context database names within DigitalOcean limits", () => {
     const managedContexts = [
       ...terraformStringList(platformLocals, "platform_context_names"),
-      ...terraformStringList(platformLocals, "production_retained_context_database_names"),
+      ...terraformStringList(platformLocals, "production_additional_provisioned_context_names"),
     ];
     const databaseNameOverrides = terraformStringMap(platformLocals, "context_database_name_token_overrides");
     const databaseNames = managedContexts.map((contextName) => {
