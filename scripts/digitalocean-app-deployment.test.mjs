@@ -14,6 +14,7 @@ import {
   deployApp,
   deploymentForDiagnostics,
   deploymentComponentNames,
+  durableDatabaseDestructiveResourceChanges,
   latestDeployment,
   listDeploymentSummariesFromApi,
   parseDeploymentSummaryRows,
@@ -271,6 +272,68 @@ describe("digitalocean-app-deployment", () => {
         actions: ["delete"],
       },
     ]);
+  });
+
+  it("classifies durable database destructive Terraform changes separately", () => {
+    expect(
+      durableDatabaseDestructiveResourceChanges(
+        planFor([
+          resourceChange("digitalocean_app.platform", ["delete", "create"]),
+          resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
+          resourceChange('digitalocean_database_db.contexts["checkout"]', ["delete"]),
+          resourceChange('digitalocean_database_user.contexts["checkout"]', ["delete"]),
+          resourceChange('digitalocean_database_user.wake_listeners["checkout"]', ["delete"]),
+          resourceChange('digitalocean_database_connection_pool.contexts["checkout"]', ["delete"]),
+        ]),
+      ),
+    ).toEqual([
+      {
+        address: "digitalocean_database_cluster.postgres",
+        type: "digitalocean_database_cluster",
+        name: "postgres",
+        actions: ["delete", "create"],
+      },
+      {
+        address: 'digitalocean_database_db.contexts["checkout"]',
+        type: "digitalocean_database_db",
+        name: 'contexts["checkout"]',
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_database_user.contexts["checkout"]',
+        type: "digitalocean_database_user",
+        name: 'contexts["checkout"]',
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_database_user.wake_listeners["checkout"]',
+        type: "digitalocean_database_user",
+        name: 'wake_listeners["checkout"]',
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_database_connection_pool.contexts["checkout"]',
+        type: "digitalocean_database_connection_pool",
+        name: 'contexts["checkout"]',
+        actions: ["delete"],
+      },
+    ]);
+  });
+
+  it("blocks durable database deletes with profile and restore guidance", () => {
+    const plan = planFor([resourceChange('digitalocean_database_db.contexts["checkout"]', ["delete"])]);
+
+    expect(() => assertNoDestructiveChanges(plan)).toThrow(
+      /durable database resources without an audited resource-scoped emergency override[\s\S]*profile gating or retained context provisioning[\s\S]*PITR\/restore/,
+    );
+  });
+
+  it("does not let a broad destructive override bypass durable database deletes", () => {
+    const plan = planFor([resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"])]);
+
+    expect(() => assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toThrow(
+      "durable database resources without an audited resource-scoped emergency override",
+    );
   });
 
   it("blocks destructive Terraform changes unless an override marker is present", () => {
