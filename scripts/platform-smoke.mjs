@@ -38,6 +38,7 @@ const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
 const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
+const requireNativeMcp = readBooleanEnv("SMOKE_REQUIRE_NATIVE_MCP", true);
 const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
 const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
@@ -492,7 +493,11 @@ async function main() {
 
   await expectOk("landing home", `${landingUrl}/`);
   await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
-  await expectNativeMcpAuthenticationBoundary(landingUrl);
+  if (requireNativeMcp) {
+    await expectNativeMcpAuthenticationBoundary(landingUrl);
+  } else {
+    console.warn("Skipping native MCP smoke; SMOKE_REQUIRE_NATIVE_MCP is not true.");
+  }
   await expectOk("admin home", `${adminUrl}/`);
   await expectOk("platform API health through admin", `${adminUrl}/api/health/ready`);
   if (requireAdminGoogleWorkspaceSso) {
@@ -561,12 +566,14 @@ async function main() {
       throw new Error("Admin sign-in did not return a session token.");
     }
     const authenticatedMcpAccountId = nativeMcpAccountId || authBody.session?.account_id || null;
-    if (authenticatedMcpAccountId) {
+    if (requireNativeMcp && authenticatedMcpAccountId) {
       await expectNativeMcpInventoryRead({
         origin: adminUrl,
         sessionToken: authBody.sessionToken,
         accountId: authenticatedMcpAccountId,
       });
+    } else if (!requireNativeMcp) {
+      console.warn("Skipping authenticated native MCP smoke; SMOKE_REQUIRE_NATIVE_MCP is not true.");
     } else {
       console.warn("Skipping authenticated native MCP smoke; no account id was available.");
     }
