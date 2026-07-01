@@ -27,6 +27,7 @@ import {
   type PlatformPaymentProcessorConfig,
   type PlatformPoolConfig,
   type PlatformPostageConfig,
+  type PlatformStripeConnectAccountsApi,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
@@ -250,7 +251,7 @@ export type PlatformApiMobileMessagingConfig =
 
 export const STRIPE_PLATFORM_API_VERSION = "2026-03-25.dahlia";
 
-export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
+const REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS = [
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
   "checkout.session.async_payment_failed",
@@ -263,11 +264,21 @@ export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
   "charge.dispute.created",
   "charge.dispute.updated",
   "charge.dispute.closed",
-  "v2.core.account[requirements].updated",
-  "v2.core.account.updated",
-  "payout.paid",
-  "payout.failed",
 ] as const;
+
+const REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS: Readonly<Record<PlatformStripeConnectAccountsApi, string[]>> = {
+  v1: ["account.updated"],
+  v2: ["v2.core.account[requirements].updated", "v2.core.account.updated"],
+};
+
+export function requiredStripeWebhookEvents(connectAccountsApi: PlatformStripeConnectAccountsApi) {
+  return [
+    ...REQUIRED_STRIPE_PAYMENT_WEBHOOK_EVENTS,
+    ...REQUIRED_STRIPE_CONNECT_ACCOUNT_WEBHOOK_EVENTS[connectAccountsApi],
+    "payout.paid",
+    "payout.failed",
+  ];
+}
 
 export type StripeGoLiveCheckReport = Readonly<{
   apiVersion: typeof STRIPE_PLATFORM_API_VERSION;
@@ -694,7 +705,7 @@ export function loadConfig(): PlatformApiConfig {
     postage,
     stripeGoLive: {
       apiVersion: STRIPE_PLATFORM_API_VERSION,
-      requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
+      requiredWebhookEvents: requiredStripeWebhookEvents(stripeProvider.connectAccountsApi),
       paymentsConfigured: stripeProvider.paymentProcessor.kind === "stripe",
       connectConfigured: stripeProvider.moneyMovement.kind === "stripe",
       fakeFallbackAllowed: !productionLike,

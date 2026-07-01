@@ -11,6 +11,7 @@ const envNames = [
   "STRIPE_PUBLISHABLE_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "STRIPE_CONNECT_WEBHOOK_SECRET",
+  "STRIPE_CONNECT_ACCOUNTS_API",
   "STRIPE_API_BASE_URL",
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
@@ -348,6 +349,7 @@ describe("platform worker config", () => {
         kind: "stripe",
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
+        connectAccountsApi: "v2",
         apiBaseUrl: "https://stripe.shared.test",
       },
       postage: {
@@ -628,6 +630,7 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
       webhookSecret: "whsec_connect_test",
+      connectAccountsApi: "v2",
     });
     expect(config.postage).toEqual({
       kind: "easypost",
@@ -635,6 +638,32 @@ describe("platform worker config", () => {
       apiBaseUrl: undefined,
       mode: "test",
     });
+  });
+
+  it("loads explicit Stripe Connect Accounts API posture", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_ACCOUNTS_API = "v1";
+
+    expect(loadConfig().moneyMovement).toEqual({
+      kind: "stripe",
+      secretKey: "sk_test_123",
+      webhookSecret: "whsec_connect_test",
+      connectAccountsApi: "v1",
+      apiBaseUrl: undefined,
+    });
+  });
+
+  it("fails closed for invalid Stripe Connect Accounts API posture", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_ACCOUNTS_API = "express";
+
+    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
   });
 
   it("fails when Amazon SES email is selected without complete SES config", () => {

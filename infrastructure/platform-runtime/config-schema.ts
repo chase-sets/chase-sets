@@ -41,8 +41,11 @@ export type PlatformMoneyMovementConfig =
       kind: "stripe";
       secretKey: string;
       webhookSecret: string;
+      connectAccountsApi: PlatformStripeConnectAccountsApi;
       apiBaseUrl?: string;
     }>;
+
+export type PlatformStripeConnectAccountsApi = "v1" | "v2";
 
 export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolean> =
   | Readonly<{
@@ -105,6 +108,7 @@ export type PlatformStripeProviderConfig = Readonly<{
   webhookSecret: string | null;
   connectWebhookSecret: string | null;
   resolvedConnectWebhookSecret: string | undefined;
+  connectAccountsApi: PlatformStripeConnectAccountsApi;
   apiBaseUrl: string | undefined;
 }>;
 
@@ -343,6 +347,10 @@ export function loadStripeProviderConfig(input: {
   const webhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const connectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const apiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
+  const connectAccountsApi = getOptionalEnv("STRIPE_CONNECT_ACCOUNTS_API") ?? "v2";
+  if (connectAccountsApi !== "v1" && connectAccountsApi !== "v2") {
+    throw new Error("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
+  }
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
 
@@ -356,6 +364,7 @@ export function loadStripeProviderConfig(input: {
     webhookSecret,
     connectWebhookSecret,
     resolvedConnectWebhookSecret,
+    connectAccountsApi,
     apiBaseUrl,
     paymentProcessor:
       secretKey && publishableKey && webhookSecret
@@ -373,6 +382,7 @@ export function loadStripeProviderConfig(input: {
             kind: "stripe",
             secretKey,
             webhookSecret: resolvedConnectWebhookSecret,
+            connectAccountsApi,
             apiBaseUrl,
           }
         : { kind: "fake" },

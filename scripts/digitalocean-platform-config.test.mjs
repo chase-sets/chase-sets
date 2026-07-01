@@ -872,8 +872,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace promotion.",
     );
+    expect(platformVariables).toContain('variable "stripe_connect_accounts_api"');
+    expect(platformVariables).toContain("stripe_connect_accounts_api must be v1 or v2.");
     expect(platformMain).toContain('key   = "STRIPE_CONNECT_WEBHOOK_SECRET"');
     expect(platformMain).toContain("value = var.stripe_connect_webhook_secret");
+    expect(platformMain).toContain('key   = "STRIPE_CONNECT_ACCOUNTS_API"');
+    expect(platformMain).toContain("value = var.stripe_connect_accounts_api");
     expect(platformVariables).not.toContain('variable "stripe_connect_return_url"');
     expect(platformVariables).not.toContain('variable "stripe_connect_refresh_url"');
     expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_RETURN_URL"');
@@ -1226,6 +1230,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_stripe_connect_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_stripe_connect_accounts_api: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
@@ -1610,9 +1617,13 @@ describe("DigitalOcean platform configuration", () => {
     }
 
     expect(stagingJob).toContain("TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}");
+    expect(stagingJob).toContain("TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
     expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
       "TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}",
+    );
+    expect(productionJob).toContain(
+      "TF_VAR_stripe_connect_accounts_api: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(productionJob).toContain(
       "TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",

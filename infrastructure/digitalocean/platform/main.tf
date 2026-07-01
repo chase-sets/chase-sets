@@ -776,6 +776,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "STRIPE_CONNECT_ACCOUNTS_API"
+          value = var.stripe_connect_accounts_api
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_API_BASE_URL"
           value = var.stripe_api_base_url
           scope = "RUN_TIME"
@@ -1459,6 +1465,12 @@ resource "digitalocean_app" "platform" {
           key   = "STRIPE_CONNECT_WEBHOOK_SECRET"
           value = var.stripe_connect_webhook_secret
           type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "STRIPE_CONNECT_ACCOUNTS_API"
+          value = var.stripe_connect_accounts_api
           scope = "RUN_TIME"
         }
 

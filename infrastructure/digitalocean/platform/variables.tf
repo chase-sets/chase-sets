@@ -477,6 +477,17 @@ variable "stripe_connect_webhook_secret" {
   }
 }
 
+variable "stripe_connect_accounts_api" {
+  type        = string
+  default     = "v2"
+  description = "Stripe Connect Accounts API posture for payout account operations. Use v2 for the current implementation; v1 is the explicit launch compatibility target once implemented."
+
+  validation {
+    condition     = contains(["v1", "v2"], var.stripe_connect_accounts_api)
+    error_message = "stripe_connect_accounts_api must be v1 or v2."
+  }
+}
+
 variable "stripe_api_base_url" {
   type    = string
   default = ""

@@ -13,8 +13,24 @@ import {
 export type StripeConnectMoneyMovementOptions = Readonly<{
   secretKey: string;
   webhookSecret: string;
+  accountsApi?: StripeConnectAccountsApi;
   apiBaseUrl?: string;
   webhookToleranceSeconds?: number;
+}>;
+
+export type StripeConnectAccountsApi = "v1" | "v2";
+
+type StripeConnectAccountApiStrategy = Readonly<{
+  retrieveAccount: (providerReference: string) => Promise<StripeAccountResponse>;
+  ensurePayoutAccount: (
+    input: Parameters<MoneyMovementGateway["ensurePayoutAccount"]>[0],
+  ) => Promise<ProviderPayoutReadiness>;
+  updateAccountContactEmail: (
+    providerReference: string,
+    contactEmail: string | null | undefined,
+    idempotencyKey: string,
+  ) => Promise<void>;
+  handlesReadinessWebhook: (eventType: string) => boolean;
 }>;
 
 type StripeAccountResponse = Readonly<{
@@ -418,6 +434,7 @@ export function createStripeConnectMoneyMovementGateway(
   options: StripeConnectMoneyMovementOptions,
 ): MoneyMovementGateway {
   const apiBaseUrl = options.apiBaseUrl?.trim() || "https://api.stripe.com";
+  const accountsApi = options.accountsApi ?? "v2";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
 
@@ -460,16 +477,107 @@ export function createStripeConnectMoneyMovementGateway(
     return body as T;
   }
 
-  async function retrieveAccount(providerReference: string) {
-    const include = new URLSearchParams();
-    include.set("include[0]", "configuration.recipient");
-    include.set("include[1]", "requirements");
-    include.set("include[2]", "defaults");
+  function createAccountsV1Strategy(): StripeConnectAccountApiStrategy {
+    function notImplemented(): never {
+      throw new ProviderAdapterError(
+        "configuration",
+        "Stripe Connect Accounts v1 is selected but the Accounts v1 provisioning strategy is not implemented yet.",
+      );
+    }
 
-    return stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}?${include.toString()}`, {
-      method: "GET",
-    });
+    return {
+      retrieveAccount: async () => notImplemented(),
+      ensurePayoutAccount: async () => notImplemented(),
+      updateAccountContactEmail: async () => notImplemented(),
+      handlesReadinessWebhook: (eventType) => eventType === "account.updated",
+    };
   }
+
+  function createAccountsV2Strategy(): StripeConnectAccountApiStrategy {
+    async function retrieveAccount(providerReference: string) {
+      const include = new URLSearchParams();
+      include.set("include[0]", "configuration.recipient");
+      include.set("include[1]", "requirements");
+      include.set("include[2]", "defaults");
+
+      return stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}?${include.toString()}`, {
+        method: "GET",
+      });
+    }
+
+    async function updateAccountContactEmail(
+      providerReference: string,
+      contactEmail: string | null | undefined,
+      idempotencyKey: string,
+    ) {
+      const normalizedContactEmail = normalizeContactEmail(contactEmail);
+      if (!normalizedContactEmail) {
+        return;
+      }
+
+      await stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ contact_email: normalizedContactEmail }),
+        idempotencyKey,
+      });
+    }
+
+    return {
+      retrieveAccount,
+      async ensurePayoutAccount(input) {
+        const contactEmail = normalizeContactEmail(input.contactEmail);
+        const createdAccount = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...(contactEmail ? { contact_email: contactEmail } : {}),
+            identity: {
+              country: input.countryCode ?? "US",
+            },
+            metadata: {
+              chase_sets_account_id: input.accountId,
+            },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: {
+                      requested: true,
+                    },
+                  },
+                },
+              },
+            },
+            defaults: {
+              responsibilities: {
+                losses_collector: "application",
+                fees_collector: "application",
+              },
+            },
+            dashboard: "none",
+          }),
+          idempotencyKey: input.idempotencyKey,
+        });
+
+        const providerReference = createdAccount.id?.trim();
+        if (!providerReference) {
+          throw new Error("Stripe account response did not include an id.");
+        }
+
+        return mapAccountReadiness(await retrieveAccount(providerReference));
+      },
+      updateAccountContactEmail,
+      handlesReadinessWebhook: (eventType) =>
+        eventType === "v2.core.account[requirements].updated" || eventType === "v2.core.account.updated",
+    };
+  }
+
+  const accountStrategy = accountsApi === "v1" ? createAccountsV1Strategy() : createAccountsV2Strategy();
 
   async function configureOnDemandPayouts(providerReference: string, idempotencyKey: string) {
     await stripeRequest<unknown>("/v1/balance_settings", {
@@ -482,26 +590,6 @@ export function createStripeConnectMoneyMovementGateway(
       }),
       idempotencyKey,
       stripeAccount: providerReference,
-    });
-  }
-
-  async function updateAccountContactEmail(
-    providerReference: string,
-    contactEmail: string | null | undefined,
-    idempotencyKey: string,
-  ) {
-    const normalizedContactEmail = normalizeContactEmail(contactEmail);
-    if (!normalizedContactEmail) {
-      return;
-    }
-
-    await stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ contact_email: normalizedContactEmail }),
-      idempotencyKey,
     });
   }
 
@@ -541,59 +629,18 @@ export function createStripeConnectMoneyMovementGateway(
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
-      const contactEmail = normalizeContactEmail(input.contactEmail);
-      const createdAccount = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...(contactEmail ? { contact_email: contactEmail } : {}),
-          identity: {
-            country: input.countryCode ?? "US",
-          },
-          metadata: {
-            chase_sets_account_id: input.accountId,
-          },
-          configuration: {
-            recipient: {
-              capabilities: {
-                stripe_balance: {
-                  stripe_transfers: {
-                    requested: true,
-                  },
-                },
-              },
-            },
-          },
-          defaults: {
-            responsibilities: {
-              losses_collector: "application",
-              fees_collector: "application",
-            },
-          },
-          dashboard: "none",
-        }),
-        idempotencyKey: input.idempotencyKey,
-      });
-
-      const providerReference = createdAccount.id?.trim();
-      if (!providerReference) {
-        throw new Error("Stripe account response did not include an id.");
-      }
-
-      const readiness = mapAccountReadiness(await retrieveAccount(providerReference));
+      const readiness = await accountStrategy.ensurePayoutAccount(input);
       await configureOnDemandPayouts(readiness.providerReference, `${input.idempotencyKey}:manual-payouts`);
 
       return readiness;
     },
     async createPayoutSetupSession(input) {
-      await updateAccountContactEmail(
+      await accountStrategy.updateAccountContactEmail(
         input.providerReference,
         input.contactEmail,
         `${input.idempotencyKey}:contact-email`,
       );
-      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
+      const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_onboarding",
@@ -610,7 +657,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createPayoutAccountManagementSession(input) {
-      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
+      const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_management",
@@ -626,7 +673,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async refreshPayoutReadiness(input) {
-      return mapAccountReadiness(await retrieveAccount(input.providerReference));
+      return mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
     },
     async retrievePlatformBalance(input) {
       const balance = await stripeRequest<StripeBalanceResponse>("/v1/balance", {
@@ -758,12 +805,12 @@ export function createStripeConnectMoneyMovementGateway(
         } satisfies MoneyMovementWebhookEvent;
       }
 
-      if (event.type === "v2.core.account[requirements].updated" || event.type === "v2.core.account.updated") {
+      if (event.type && accountStrategy.handlesReadinessWebhook(event.type)) {
         const providerReference = String(object.id ?? "").trim();
         if (!providerReference) {
           return null;
         }
-        const readiness = mapAccountReadiness(await retrieveAccount(providerReference));
+        const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(providerReference));
 
         return {
           kind: "payout-readiness-updated",
