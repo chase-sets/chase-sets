@@ -138,8 +138,8 @@ locals {
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"
   } : {}
   # Wave-1 databases follow the standard context database naming (no token
-  # overrides apply); the lookup keeps this evaluable in landing-only
-  # production where the wave-1 context databases are not yet managed.
+  # overrides apply); the lookup keeps this evaluable in previews where the
+  # wave-1 context databases are not managed.
   wake_listener_database_names = {
     for context_name in local.worker_listener_source_contexts :
     context_name => lookup(
@@ -148,10 +148,10 @@ locals {
       "chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}",
     )
   }
-  # Grants can only target databases Terraform manages in this configuration;
-  # landing-only production (no marketplace public contexts) skips them and
-  # the grants resource re-runs when public promotion creates the databases
-  # because its triggers include the database/user ids.
+  # Grants can only target databases Terraform manages in this configuration.
+  # Production pre-provisions the canonical platform database set even while
+  # route exposure remains landing-only; previews still skip unmanaged
+  # listener databases.
   wake_listener_grant_contexts = [
     for context_name in local.worker_listener_source_contexts :
     context_name
@@ -402,37 +402,31 @@ locals {
     "settlement",
   ]
 
-  context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names
+  active_runtime_context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names
+  exposed_route_context_names  = local.active_runtime_context_names
 
-  # Production public exposure can be gated back to the landing-only surface
-  # while launch readiness work continues. Keep previously launched bounded
-  # context databases/users managed so an ordinary gated deploy cannot plan
-  # data-destructive deletes when the routing surface is reduced.
-  production_retained_context_database_names = [
-    "auth",
-    "catalog",
-    "checkout",
-    "commercial-terms",
-    "control",
-    "discovery",
-    "fulfillment",
-    "identity",
-    "inventory",
-    "marketplace",
-    "notifications",
-    "ordering",
-    "payments",
-    "platform-operations",
-    "pricing",
-    "public-presence",
+  # Compatibility alias while the deployable profile migration lands. Runtime
+  # env maps, pools, and active route composition should move to the explicit
+  # active/exposed locals as each profile-aware slice is cut over.
+  context_names = local.active_runtime_context_names
+
+  # Provisioning is intentionally wider than runtime exposure in production:
+  # creating a context database/user must not imply mounting its routes or
+  # running its workers. Production profile changes can move between landing,
+  # proof, and public modes without planning deletion of canonical context
+  # databases/users.
+  production_additional_provisioned_context_names = [
     "reputation",
-    "settlement",
   ]
 
-  context_database_names = distinct(concat(
-    local.context_names,
-    local.is_production ? local.production_retained_context_database_names : [],
+  production_provisioned_context_names = distinct(concat(
+    local.platform_context_names,
+    local.production_additional_provisioned_context_names,
   ))
+
+  provisioned_context_names = local.is_production ? local.production_provisioned_context_names : local.active_runtime_context_names
+
+  context_database_names = local.provisioned_context_names
 
   context_database_name_token_overrides = {
     "platform-operations" = "platform_ops"

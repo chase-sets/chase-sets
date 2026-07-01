@@ -301,6 +301,8 @@ Run once for `preview`, `staging`, and `production`. `doctl spaces keys create` 
 
 Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In preview and staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool URIs.
 
+The platform root treats database provisioning separately from runtime profile exposure. `provisioned_context_names` is the durable database/user set, `active_runtime_context_names` is the set mounted by the selected API and worker profile, and `exposed_route_context_names` is the set allowed to receive routed traffic. Production pre-provisions the canonical platform context databases plus retained historical contexts even while the runtime remains in the landing/admin-support posture. Creating a context database does not expose routes or run workers; profile activation and ingress rules do that. Preview and staging remain disposable and follow the active runtime context set so preview cleanup can still destroy preview context databases.
+
 Deploy workflows install dependencies before `doctl` authentication and scope provider/admin secrets to validation, Terraform, smoke, and release-marker steps. Dependency installation, local verification, and Docker image construction should not receive provider, database, or admin secrets.
 
 ## PR Preview Deployment
