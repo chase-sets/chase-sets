@@ -33,8 +33,10 @@ export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
   // provider — generic providers contribute their own option-kind display names.
   label: string;
   fieldName: CatalogPrimaryWorkbenchScopeQueryKey;
+  labelFieldName: CatalogPrimaryWorkbenchScopeQueryKey | null;
   options: readonly CatalogPrimaryWorkbenchSourceScopeOption[];
   selectedValue: string;
+  selectedLabel: string;
   // True when the option page could not be requested because its parent scope is
   // not selected yet (e.g. choosing a series before a language). The select is
   // disabled and the diagnostic explains which parent to pick first.
@@ -47,12 +49,20 @@ export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
 // drives. Provider-agnostic: any provider whose option kinds declare these scopes
 // gets guided controls. Finer grains (product/card, product, sku) intentionally map
 // to no field — they are below the import-scope grain the daily surface selects.
-const scopeQueryFieldByProviderScope: Readonly<Record<string, CatalogPrimaryWorkbenchScopeQueryKey>> = {
-  language: "languageCode",
-  "product-line/category": "productLineId",
-  series: "seriesId",
-  expansion: "expansionId",
-  "set-name": "expansionName",
+const scopeQueryFieldsByProviderScope: Readonly<
+  Record<
+    string,
+    Readonly<{
+      fieldName: CatalogPrimaryWorkbenchScopeQueryKey;
+      labelFieldName: CatalogPrimaryWorkbenchScopeQueryKey | null;
+    }>
+  >
+> = {
+  language: { fieldName: "languageCode", labelFieldName: null },
+  "product-line/category": { fieldName: "productLineId", labelFieldName: "productLineName" },
+  series: { fieldName: "seriesId", labelFieldName: "seriesName" },
+  expansion: { fieldName: "expansionId", labelFieldName: "expansionName" },
+  "set-name": { fieldName: "expansionId", labelFieldName: "expansionName" },
 };
 
 export function guidedSourceScopeFields(
@@ -62,24 +72,30 @@ export function guidedSourceScopeFields(
   const optionKindsByQueryKind = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.queryKind, kind]));
 
   return readModel.sourceOptions.pages.flatMap((page) => {
-    const fieldName = scopeQueryFieldByProviderScope[page.scope];
-    if (!fieldName) {
+    const fieldMapping = scopeQueryFieldsByProviderScope[page.scope];
+    if (!fieldMapping) {
       return [];
     }
 
     const parent = optionKindsByQueryKind.get(page.queryKind)?.parent ?? null;
     const parentMissing = parent?.missing ?? page.state === "not-requested";
-    const selectedValue = selectedScopeValues.get(page.scope) ?? "";
-    const parentSelectedValue = parent?.scope ? (selectedScopeValues.get(parent.scope) ?? null) : null;
+    const selectedScopeValue = selectedScopeValues.get(page.scope) ?? { value: "", label: "" };
+    const selectedValue = selectedScopeValue.value;
+    const parentSelectedValue = parent?.scope ? (selectedScopeValues.get(parent.scope)?.value ?? null) : null;
+    const options = scopeOptions(page, selectedValue, parentSelectedValue);
+    const selectedLabel =
+      selectedScopeValue.label || options.find((option) => option.value === selectedValue)?.label || selectedValue;
 
     return [
       {
         queryKind: page.queryKind,
         scope: page.scope,
         label: page.displayName,
-        fieldName,
-        options: scopeOptions(page, selectedValue, parentSelectedValue),
+        fieldName: fieldMapping.fieldName,
+        labelFieldName: fieldMapping.labelFieldName,
+        options,
         selectedValue,
+        selectedLabel,
         parentMissing,
         parentScope: parent?.scope ?? null,
         parentDiagnostic: parentMissing ? (parent?.diagnosticText ?? page.cache.diagnostics[0]?.message ?? null) : null,
@@ -88,16 +104,19 @@ export function guidedSourceScopeFields(
   });
 }
 
-function selectedSourceScopeValues(readModel: CatalogPrimaryWorkbenchReadModel): ReadonlyMap<string, string> {
-  const selections = new Map<string, string>();
+function selectedSourceScopeValues(
+  readModel: CatalogPrimaryWorkbenchReadModel,
+): ReadonlyMap<string, Readonly<{ value: string; label: string }>> {
+  const selections = new Map<string, Readonly<{ value: string; label: string }>>();
   const explicitScopes = new Set<string>();
   const parentScopeByScope = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.scope, kind.parentScope]));
   const selectedScope = scopeContextFromRouteContext(readModel.routeContext);
 
-  for (const scopeName of Object.keys(scopeQueryFieldByProviderScope)) {
-    const value = scopeFieldValue(selectedScope, scopeQueryFieldByProviderScope[scopeName]!);
+  for (const [scopeName, fieldMapping] of Object.entries(scopeQueryFieldsByProviderScope)) {
+    const label = fieldMapping.labelFieldName ? scopeFieldValue(selectedScope, fieldMapping.labelFieldName) : "";
+    const value = scopeFieldValue(selectedScope, fieldMapping.fieldName) || label;
     if (value) {
-      selections.set(scopeName, value);
+      selections.set(scopeName, { value, label });
       explicitScopes.add(scopeName);
     }
   }
@@ -110,7 +129,7 @@ function selectedSourceScopeValues(readModel: CatalogPrimaryWorkbenchReadModel):
       !selections.has(parentScope) &&
       hasExplicitDescendantSelection(parentScopeByScope, explicitScopes, parentScope)
     ) {
-      selections.set(parentScope, kind.parent.selectedValue);
+      selections.set(parentScope, { value: kind.parent.selectedValue, label: "" });
     }
   }
 

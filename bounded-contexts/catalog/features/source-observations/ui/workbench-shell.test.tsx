@@ -896,7 +896,8 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     // TCGplayer's profile declares Product Line / Set Name, not language/series.
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Product Line").name).toBe("productLineId");
-    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionName");
+    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionId");
+    expect(document.querySelector<HTMLInputElement>('input[name="expansionName"]')).not.toBeNull();
     expect(within(scopeGroup).queryByLabelText("Series")).toBeNull();
   });
 
@@ -1029,9 +1030,13 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
     expect(language.value).toBe("ja");
     expect(series.value).toBe("SV");
+    expect((form!.elements.namedItem("seriesName") as HTMLInputElement).value).toBe("Scarlet & Violet");
+    expect((form!.elements.namedItem("expansionName") as HTMLInputElement).value).toBe("Super Electric Breaker");
     const action = form!.elements.namedItem("sourceOptionAction");
     expect(action).toBeInstanceOf(HTMLInputElement);
     expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+    expect(latestSubmittedFormData().get("seriesName")).toBe("Scarlet & Violet");
+    expect(latestSubmittedFormData().get("expansionName")).toBe("Super Electric Breaker");
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });

@@ -1,9 +1,10 @@
-import { Suspense, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, Suspense, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Await, useSubmit, type SubmitFunction } from "react-router";
 import {
   Badge,
   Button,
   Fieldset,
+  HiddenInput,
   NativeSelect,
   ProgressiveDisclosure,
   TextInput,
@@ -386,31 +387,27 @@ function GuidedSourceScopeFields({
     >
       <WorkbenchFormGrid columns="three">
         {fields.map((field, index) => (
-          <NativeSelect
-            key={field.queryKind}
-            name={field.fieldName}
-            label={field.label}
-            placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
-              label: field.label,
-            })}
-            description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
-            items={field.options.map((option) => ({
-              value: option.value,
-              label: option.label,
-              description: option.description ?? undefined,
-            }))}
-            defaultValue={field.selectedValue || undefined}
-            disabled={field.parentMissing}
-            onChange={(event) =>
-              submitSourceScopeFilter(
-                event,
-                submit,
-                fields.slice(0, index),
-                field.options,
-                fields.slice(index + 1).map((dependent) => dependent.fieldName),
-              )
-            }
-          />
+          <Fragment key={field.queryKind}>
+            <NativeSelect
+              name={field.fieldName}
+              label={field.label}
+              placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
+                label: field.label,
+              })}
+              description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
+              items={field.options.map((option) => ({
+                value: option.value,
+                label: option.label,
+                description: option.description ?? undefined,
+              }))}
+              defaultValue={field.selectedValue || undefined}
+              disabled={field.parentMissing}
+              onChange={(event) =>
+                submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
+              }
+            />
+            {field.labelFieldName ? <HiddenInput name={field.labelFieldName} value={field.selectedLabel} /> : null}
+          </Fragment>
         ))}
       </WorkbenchFormGrid>
     </Fieldset>
@@ -421,22 +418,22 @@ function submitSourceScopeFilter(
   event: ChangeEvent<HTMLSelectElement>,
   submit: SubmitFunction,
   parentFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[],
-  currentOptions: CatalogPrimaryWorkbenchGuidedScopeField["options"],
-  dependentFieldNames: readonly string[],
+  currentField: CatalogPrimaryWorkbenchGuidedScopeField,
+  dependentFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[],
 ): void {
   const form = event.currentTarget.form;
   if (!form) {
     return;
   }
 
-  hydrateParentScopeFields(form, event.currentTarget.value, parentFields, currentOptions);
+  const selectedOption = findSourceScopeOption(currentField.options, event.currentTarget.value);
+  setScopeLabelFieldValue(form, currentField, selectedOption?.label ?? "");
+  hydrateParentScopeFields(form, event.currentTarget.value, parentFields, currentField.options);
   clearStaleImportContextHiddenState(form);
 
-  for (const fieldName of dependentFieldNames) {
-    const field = form.elements.namedItem(fieldName);
-    if (field instanceof HTMLSelectElement || field instanceof HTMLInputElement) {
-      field.value = "";
-    }
+  for (const field of dependentFields) {
+    setFormFieldValue(form, field.fieldName, "");
+    setScopeLabelFieldValue(form, field, "");
   }
 
   forceRefreshAllSourceOptions(form);
@@ -469,10 +466,30 @@ function hydrateParentScopeFields(
       formField.value = parentValue;
     }
 
-    parentValue = findSourceScopeOption(parentField.options, parentValue)?.parentValue ?? null;
+    const parentOption = findSourceScopeOption(parentField.options, parentValue);
+    setScopeLabelFieldValue(form, parentField, parentOption?.label ?? "");
+
+    parentValue = parentOption?.parentValue ?? null;
     if (!parentValue) {
       return;
     }
+  }
+}
+
+function setScopeLabelFieldValue(
+  form: HTMLFormElement,
+  field: CatalogPrimaryWorkbenchGuidedScopeField,
+  value: string,
+): void {
+  if (field.labelFieldName) {
+    setFormFieldValue(form, field.labelFieldName, value);
+  }
+}
+
+function setFormFieldValue(form: HTMLFormElement, fieldName: string, value: string): void {
+  const field = form.elements.namedItem(fieldName);
+  if (field instanceof HTMLSelectElement || field instanceof HTMLInputElement) {
+    field.value = value;
   }
 }
 

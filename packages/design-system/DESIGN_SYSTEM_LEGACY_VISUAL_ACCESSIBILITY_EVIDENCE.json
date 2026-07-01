@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-06-28T22:53:58.316Z",
+  "checkedAt": "2026-07-01T00:53:26.150Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -333,6 +333,7 @@
         "HiddenInput": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ]
       },
@@ -346,6 +347,7 @@
         "HiddenInput": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/catalog-sync-scope-module.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
+          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/source-scope-workset-module.tsx"
         ]
       },
