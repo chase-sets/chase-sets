@@ -1608,7 +1608,13 @@ describe("ProviderAdapterRegistry", () => {
       scopeKey: "single-card",
       values: { setCode: "1", cardName: "Elsa - Snow Queen", cardNumber: "41" },
     });
+    const setPlan = await adapter.planImport({
+      unitKey: LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { setId: "1", setName: "The First Chapter" },
+    });
     const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const setPayloads = await collectPayloads(adapter.fetchPayloads(setPlan));
     const dryRun = await runLorcastCardReferenceValidationDryRun(adapter);
     const diagnostics = await adapter.getTransportDiagnostics();
 
@@ -1642,6 +1648,14 @@ describe("ProviderAdapterRegistry", () => {
       estimatedRequestCount: 1,
       creditDiagnostic: "Lorcast is a public API with no credentialed usage or credit endpoint.",
     });
+    expect(setPlan).toMatchObject({
+      unitKey: LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      planKey: "lorcast:set:1",
+      scope: expect.objectContaining({
+        values: expect.objectContaining({ setCode: "1", setId: "1", setName: "The First Chapter" }),
+      }),
+      estimatedPayloads: 1,
+    });
     expect(payloads).toEqual([
       expect.objectContaining({
         unitKey: LORCAST_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
@@ -1658,6 +1672,18 @@ describe("ProviderAdapterRegistry", () => {
           fetchedAt: "2026-06-23T00:00:00.000Z",
           sourceUrl: "https://api.lorcast.com/v0/sets/1/cards",
           contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(setPayloads).toEqual([
+      expect.objectContaining({
+        unitKey: LORCAST_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "lorcast",
+        externalKey: "set:set_7ecb0e0c71af496a9e0110e23824e0a5",
+        payload: expect.objectContaining({
+          kind: "lorcana-set-reference",
+          setCode: "1",
+          setName: "The First Chapter",
         }),
       }),
     ]);

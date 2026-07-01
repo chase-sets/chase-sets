@@ -223,7 +223,7 @@ export function createLorcastProviderAdapter(
     async planImport(scope) {
       assertLorcastUnit(scope.unitKey);
       const setCode = requireString(
-        scope.values.setCode ?? scope.values.code,
+        scope.values.setCode ?? scope.values.code ?? scope.values.setId ?? scope.values.expansionId,
         "Lorcast import planning requires setCode.",
       );
 
