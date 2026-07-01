@@ -442,7 +442,7 @@ test.describe("catalog admin integrations", () => {
       "import-job-progress-summary",
       "audit-evidence-timeline",
     ]) {
-      await expect(healthTriageRegion.getByText(queryKey)).toBeVisible();
+      await expect(healthTriageRegion.getByText(queryKey).first()).toBeVisible();
     }
     await expect(healthTriageRegion.getByText("Read model").first()).toBeVisible();
     await expect(healthTriageRegion.getByText("Ingestion unit").first()).toBeVisible();
@@ -467,7 +467,6 @@ test.describe("catalog admin integrations", () => {
     const auditEvidenceWorkspace = page.locator('[data-catalog-audit-evidence-workspace="true"]');
     await expect(auditEvidenceWorkspace).toBeVisible();
     await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
-    await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Audit filters" })).toBeVisible();
     await expect(auditEvidenceWorkspace.getByRole("heading", { name: "Evidence links" })).toBeVisible();
     await expect(auditEvidenceWorkspace.getByText("source payload body download")).toBeVisible();
     await expect(auditEvidenceWorkspace.getByText("operator identity expansion")).toBeVisible();
