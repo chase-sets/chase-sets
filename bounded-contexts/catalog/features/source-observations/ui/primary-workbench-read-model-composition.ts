@@ -157,6 +157,7 @@ function buildCatalogPrimaryWorkbenchCore(
         : structuredScopeWithProfileLanguage(
             parsedContext.scope,
             sourceOptionNormalizationProfile,
+            input.scopes.items,
             explicitStructuredScope,
           );
   const parsedImportScope = discardParsedImportScope
@@ -888,26 +889,83 @@ function structuredSelectionImportScope(
 function structuredScopeWithProfileLanguage(
   scope: CatalogPrimaryWorkbenchRouteContext["scope"],
   activeProfile: CatalogProviderProfileVersionReview | null,
+  providerScopeRows: readonly SourceObservationIntegrationScope[],
   explicitStructuredScope: boolean,
 ): CatalogPrimaryWorkbenchRouteContext["scope"] {
   const structuredSetScope = Boolean(!scope?.seriesId && (scope?.expansionId || scope?.expansionName));
   const includesProductLineParent = Boolean(scope?.productLineId || scope?.productLineName);
-  const singleLevelSourceOptions = sourceOptionKindsForProfile(activeProfile).length <= 1;
+  const sourceOptionScopes = new Set(sourceOptionKindsForProfile(activeProfile).map((kind) => kind.scope));
+  const canSelectStructuredSet =
+    sourceOptionScopes.size === 0 || sourceOptionScopes.has("expansion") || sourceOptionScopes.has("set-name");
   if (
     !explicitStructuredScope ||
     !scope ||
     scope.languageCode ||
     !structuredSetScope ||
-    (!includesProductLineParent && !singleLevelSourceOptions)
+    (!includesProductLineParent && !canSelectStructuredSet)
   ) {
     return scope;
   }
-  const languageCode = activeProfile?.languageOptions[0]?.trim() || null;
+  const languageCode =
+    providerScopeLanguageForStructuredSet(scope, providerScopeRows) ??
+    (activeProfile?.languageOptions.length === 1 ? (activeProfile.languageOptions[0]?.trim() ?? null) : null);
   if (!languageCode) {
     return scope;
   }
 
   return { ...scope, languageCode };
+}
+
+function providerScopeLanguageForStructuredSet(
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+  providerScopeRows: readonly SourceObservationIntegrationScope[],
+): string | null {
+  if (!scope) {
+    return null;
+  }
+
+  const languages = new Set(
+    providerScopeRows
+      .filter((row) => providerScopeMatchesStructuredSet(row, scope))
+      .map((row) => row.language_code.trim())
+      .filter(Boolean),
+  );
+
+  return languages.size === 1 ? (Array.from(languages)[0] ?? null) : null;
+}
+
+function providerScopeMatchesStructuredSet(
+  row: SourceObservationIntegrationScope,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+): boolean {
+  if (!scope || row.provider_key !== scope.providerKey) {
+    return false;
+  }
+
+  return (
+    optionalScopeSegmentMatches(row.product_line_id, scope.productLineId) &&
+    optionalScopeSegmentMatches(row.product_line_name, scope.productLineName) &&
+    optionalScopeSegmentMatches(row.series_id, scope.seriesId) &&
+    optionalScopeSegmentMatches(row.series_name, scope.seriesName) &&
+    pairedScopeSegmentMatches(row.expansion_id, row.expansion_name, scope.expansionId, scope.expansionName)
+  );
+}
+
+function optionalScopeSegmentMatches(rowValue: string, selectedValue: string | null | undefined): boolean {
+  return !selectedValue || normalizedScopeSegment(rowValue) === normalizedScopeSegment(selectedValue);
+}
+
+function pairedScopeSegmentMatches(
+  rowId: string,
+  rowName: string,
+  selectedId: string | null | undefined,
+  selectedName: string | null | undefined,
+): boolean {
+  const rowSegments = new Set([rowId, rowName].map(normalizedScopeSegment).filter(Boolean));
+  return Boolean(
+    (selectedId && rowSegments.has(normalizedScopeSegment(selectedId))) ||
+    (selectedName && rowSegments.has(normalizedScopeSegment(selectedName))),
+  );
 }
 
 function legacyImportScopeConflictsWithSelectedProvider(input: {
