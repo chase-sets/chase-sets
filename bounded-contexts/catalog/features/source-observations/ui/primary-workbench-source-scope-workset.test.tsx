@@ -288,6 +288,58 @@ describe("Catalog source-scope workset", () => {
     ).toBe("The First Chapter");
   });
 
+  it("uses sibling Lorcana scope rows when Lorcast set option cache is absent", () => {
+    const unitKey = "lorcast:lorcana:single-card:reference-data";
+    const profiles = lorcanaProfiles();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&expansionId=1&profileVersion=2026.06.23",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "lorcanajson",
+            language_code: "en",
+            product_line_id: "",
+            product_line_name: "Disney Lorcana",
+            series_id: "",
+            series_name: "",
+            expansion_id: "1",
+            expansion_name: "The First Chapter",
+            total_observations: 242,
+            observed_observations: 242,
+            changed_observations: 0,
+            promoted_observations: 242,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      sourceOptionPages: [],
+      controlPlaneOverview: overviewForProfiles(profiles, "lorcana"),
+      canManageCatalog: true,
+    });
+    const lorcastUnit = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === unitKey);
+
+    expect(lorcastUnit?.commandContext).toMatchObject({
+      providerKey: "lorcast",
+      unitKey,
+      importScope: "en:1",
+      productLineName: "Disney Lorcana",
+      expansionId: "1",
+      expansionName: "The First Chapter",
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    expect(hiddenValue(form, "importScope")).toBe("en:1");
+    expect(hiddenValue(form, "productLineName")).toBe("Disney Lorcana");
+    expect(hiddenValue(form, "expansionId")).toBe("1");
+    expect(hiddenValue(form, "expansionName")).toBe("The First Chapter");
+  });
+
   it("does not project a TCGplayer MTG scope into the Yu-Gi-Oh unit", () => {
     const mtgUnit = "tcgplayer:mtg:single-card:source-observation-import";
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";

@@ -310,6 +310,7 @@ function sourceScopeUnitRow(
     selectedScope.scope,
     matchingScopes[0] ?? null,
     input.sourceOptions,
+    input.scopes,
   );
   const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
   const workbenchScope = selectedScope.hasConcreteScope
@@ -424,11 +425,12 @@ function providerCommandScope(
   selectedScope: CatalogPrimaryWorkbenchScopeContext,
   matchingScope: SourceObservationIntegrationScope | null,
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+  scopes: readonly SourceObservationIntegrationScope[],
 ): CatalogPrimaryWorkbenchScopeContext {
   const providerScope = matchingScope
     ? scopeContextFromProviderScope(matchingScope)
     : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
-  const selectedSetOption = selectedSetNameOption(candidate, selectedScope, sourceOptions);
+  const selectedSetOption = selectedSetNameOption(candidate, selectedScope, sourceOptions, scopes);
   const selectedScopeMatchesCandidate =
     selectedScope.providerKey === candidate.providerKey &&
     selectedScopeMatchesCandidateProfile(candidate, selectedScope) &&
@@ -481,6 +483,7 @@ function selectedSetNameOption(
   candidate: SourceScopeCandidate,
   selectedScope: CatalogPrimaryWorkbenchScopeContext,
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+  scopes: readonly SourceObservationIntegrationScope[],
 ): Readonly<{ label: string; productLineName: string | null }> | null {
   if (!candidate.profile || !sourceOptionKindsForProfile(candidate.profile).some((kind) => kind.scope === "set-name")) {
     return null;
@@ -497,7 +500,19 @@ function selectedSetNameOption(
   );
   const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
   if (!option?.label || option.label === selectedValue) {
-    return null;
+    const scope = scopes.find(
+      (candidateScope) =>
+        sourceScopeMatchesCandidateProductDomain(candidate, scopeContextFromProviderScope(candidateScope)) &&
+        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        Boolean(candidateScope.expansion_name) &&
+        comparableText(candidateScope.expansion_name) !== comparableText(selectedValue),
+    );
+    return scope
+      ? {
+          label: scope.expansion_name,
+          productLineName: scope.product_line_name || productLineDisplayNameFromDomain(candidate.productDomain),
+        }
+      : null;
   }
 
   return {
