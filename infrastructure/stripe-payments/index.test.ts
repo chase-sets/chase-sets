@@ -80,6 +80,8 @@ describe("Stripe payment processor gateway", () => {
       "payment_intent_data[metadata][explicit_payment_method_selection]": "true",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
+    expect(formSnapshot(init.body)).not.toHaveProperty("payment_intent_data[transfer_data][destination]");
+    expect(formSnapshot(init.body)).not.toHaveProperty("payment_intent_data[on_behalf_of]");
     expect(formSnapshot(init.body)).not.toHaveProperty("description");
     expect(formSnapshot(init.body)).not.toHaveProperty(
       "payment_intent_data[payment_method_options][card][request_three_d_secure]",
@@ -199,6 +201,8 @@ describe("Stripe payment processor gateway", () => {
       off_session: "true",
       "metadata[saved_checkout_instrument_id]": "sci_card_1",
     });
+    expect(formSnapshot(init.body)).not.toHaveProperty("transfer_data[destination]");
+    expect(formSnapshot(init.body)).not.toHaveProperty("on_behalf_of");
 
     vi.unstubAllGlobals();
   });

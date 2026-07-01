@@ -953,6 +953,111 @@ describe("money movement adapters", () => {
     });
   });
 
+  it("Stripe adapter preserves platform-held transfer and connected-account payout calls in Accounts v1 mode", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (String(input) === "https://stripe.test/v1/transfers") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Idempotency-Key")).toBe("transfer-key");
+        expect(headers.get("Stripe-Account")).toBeNull();
+        const body = new URLSearchParams(String(init?.body));
+        expect(body.get("amount")).toBe("1250");
+        expect(body.get("currency")).toBe("usd");
+        expect(body.get("destination")).toBe("acct_v1");
+        expect(body.get("transfer_group")).toBe("payout:pyo_123");
+        expect(body.get("metadata[funds_strategy]")).toBe("platform-held-on-demand-payout");
+        expect(body.get("metadata[payout_id]")).toBe("pyo_123");
+        expect(body.get("metadata[account_id]")).toBe("acc_seller");
+        expect(body.get("metadata[source_balance]")).toBe("platform");
+
+        return new Response(JSON.stringify({ id: "tr_platform_to_connected", status: "pending" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (String(input) === "https://stripe.test/v1/balance_settings") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Account")).toBe("acct_v1");
+        expect(headers.get("Idempotency-Key")).toBe("payout-key:manual-payouts");
+        expect(String(init?.body)).toContain("payments%5Bpayouts%5D%5Bschedule%5D%5Binterval%5D=manual");
+
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      expect(String(input)).toBe("https://stripe.test/v1/payouts");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toBeInstanceOf(Headers);
+      const headers = init?.headers as Headers;
+      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Stripe-Account")).toBe("acct_v1");
+      expect(headers.get("Idempotency-Key")).toBe("payout-key");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("amount")).toBe("1250");
+      expect(body.get("currency")).toBe("usd");
+      expect(body.get("metadata[funds_strategy]")).toBe("platform-held-on-demand-payout");
+      expect(body.get("metadata[transfer_group]")).toBe("payout:pyo_123");
+      expect(body.get("metadata[payout_id]")).toBe("pyo_123");
+      expect(body.get("metadata[account_id]")).toBe("acc_seller");
+
+      return new Response(JSON.stringify({ id: "po_connected", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.transferPlatformBalanceToConnectedAccount({
+        payoutId: "pyo_123" as never,
+        accountId: "acc_seller" as never,
+        providerReference: "acct_v1",
+        amount: "12.50",
+        currencyCode: "usd",
+        idempotencyKey: "transfer-key",
+      }),
+    ).resolves.toEqual({
+      providerTransferReference: "tr_platform_to_connected",
+      providerStatus: "pending",
+    });
+
+    await expect(
+      adapter.createConnectedAccountPayout({
+        payoutId: "pyo_123" as never,
+        accountId: "acc_seller" as never,
+        providerReference: "acct_v1",
+        amount: "12.50",
+        currencyCode: "usd",
+        idempotencyKey: "payout-key",
+      }),
+    ).resolves.toEqual({
+      providerPayoutReference: "po_connected",
+      providerStatus: "pending",
+    });
+
+    expect(calls.map((call) => call.input)).toEqual([
+      "https://stripe.test/v1/transfers",
+      "https://stripe.test/v1/balance_settings",
+      "https://stripe.test/v1/payouts",
+    ]);
+  });
+
   it("Stripe adapter creates embedded payout account management sessions", async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
