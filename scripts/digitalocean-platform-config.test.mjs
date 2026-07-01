@@ -560,6 +560,11 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(platformLocals, "worker_component_count", "1");
     expectTerraformAssignment(
       platformLocals,
+      "runtime_profile_name",
+      'local.marketplace_public_enabled ? "public" : "landing"',
+    );
+    expectTerraformAssignment(
+      platformLocals,
       "api_total_pool_demand",
       "tonumber(local.api_database_pool_max) * local.api_component_count * local.api_instances",
     );
@@ -589,6 +594,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain(
       "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.bootstrap_demand",
     );
+    expect(platformLocals).toContain("active_profile_connection_budget = {");
+    expect(platformLocals).toContain("profile                    = local.runtime_profile_name");
+    expect(platformLocals).toContain("active_context_count       = length(local.active_runtime_context_names)");
+    expect(platformLocals).toContain("provisioned_context_count  = length(local.provisioned_context_names)");
+    expect(platformLocals).toContain(
+      "steady_state_headroom      = local.cluster_connection_limit - local.cluster_backend_demand",
+    );
+    expect(platformLocals).toContain(
+      "rolling_deploy_headroom    = local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap",
+    );
+    expect(platformLocals).toContain("production_pgbouncer_ready = false");
+    expect(platformLocals).toContain("connection_budget_profiles = {");
+    expect(platformLocals).toContain("landing = merge(local.active_profile_connection_budget");
+    expect(platformLocals).toContain("active_context_count      = length(local.landing_context_names)");
+    expect(platformLocals).toContain("proof = merge(local.active_profile_connection_budget");
+    expect(platformLocals).toContain("public = merge(local.active_profile_connection_budget");
+    expect(platformOutputs).toContain('output "connection_budget_profiles"');
+    expect(platformOutputs).toContain("value = local.connection_budget_profiles");
 
     expect(platformMain).toContain('check "wake_connection_budget"');
     expect(platformMain).toContain("local.cluster_backend_demand <= local.cluster_connection_limit");

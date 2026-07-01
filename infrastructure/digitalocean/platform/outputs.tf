@@ -46,3 +46,7 @@ output "admin_domain" {
 output "uptime_check_targets" {
   value = local.uptime_check_targets
 }
+
+output "connection_budget_profiles" {
+  value = local.connection_budget_profiles
+}
