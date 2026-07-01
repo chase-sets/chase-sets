@@ -1246,6 +1246,88 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("keeps Scrydex Lorcana source-option recovery concrete for import preflight", async () => {
+    const unitKey = "scrydex:lorcana:single-card:source-observation-import";
+    const profileReviews = { items: [scrydexLorcanaProfileReview(unitKey)], total: 1, count: 1 };
+    const previewSourceObservationIntegrationImport = vi.fn().mockResolvedValue(scrydexLorcanaImportPreview(unitKey));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
+        items: [
+          sourceObservationScope({
+            provider_key: "scrydex",
+            language_code: "en",
+            product_line_id: "",
+            product_line_name: "Disney Lorcana",
+            series_id: "",
+            series_name: "",
+            expansion_id: "TFC",
+            expansion_name: "The First Chapter",
+            total_observations: 1,
+            observed_observations: 1,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue(
+        sourceOptionResponse("sets", {
+          status: "fresh",
+          source: "live",
+          parentValue: null,
+          degraded: false,
+          value: "TFC",
+          label: "The First Chapter",
+          metadata: { expansionId: "TFC", languageCode: "en" },
+        }),
+      ),
+      previewSourceObservationIntegrationImport,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&expansionId=TFC&expansionName=&profileVersion=&sourceOptionAction=force-refresh-all`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.importScope).toBe("en:TFC");
+    expect(routeData.readModel.importJobs.selectedScope).toMatchObject({
+      providerKey: "scrydex",
+      unitKey,
+      importScope: "en:TFC",
+    });
+    await expect(routeData.deferredImportPreview).resolves.toMatchObject({
+      providerKey: "scrydex",
+      scope: expect.objectContaining({
+        provider: "scrydex",
+        ingestionUnitKey: unitKey,
+        language: "en",
+        setId: "TFC",
+      }),
+      targets: [
+        expect.objectContaining({
+          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+        }),
+      ],
+    });
+    expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
+      provider: "scrydex",
+      ingestionUnitKey: unitKey,
+      language: "en",
+      setId: "TFC",
+    });
+  });
+
   it("drops stale import preview evidence when a structured set-name selection changes", async () => {
     const unitKey = "scrydex:one-piece:sealed-product:source-observation-import";
     const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
@@ -5137,6 +5219,38 @@ function scrydexOnePieceProfileReview(unitKey: string) {
   });
 }
 
+function scrydexLorcanaProfileReview(unitKey: string) {
+  return profileReview({
+    providerKey: "scrydex",
+    profileKey: "lorcana-card-print-source-observation",
+    profileVersion: "2026.06.23",
+    ingestionUnitKey: unitKey,
+    displayName: "Scrydex Lorcana Cards",
+    lifecycle: "active",
+    active: true,
+    status: "active",
+    connectorKind: "scrydex-json",
+    profile: {
+      providerKey: "scrydex",
+      supportedScopes: ["set-name", "lorcana/single-card"],
+    },
+    supportedScopes: ["set-name", "lorcana/single-card"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
+      },
+    ],
+  });
+}
+
 function scrydexOnePieceImportPreview(unitKey: string) {
   return {
     action: "import" as const,
@@ -5158,6 +5272,44 @@ function scrydexOnePieceImportPreview(unitKey: string) {
         planKey: "scrydex:one-piece:expansion:op16:cards",
         estimatedPayloads: null,
         transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+        usageEstimate: {
+          requestStrategy: "bulk-first" as const,
+          estimateState: "estimate-unavailable" as const,
+          estimatedRequestCount: null,
+          estimateReason: "Card page count is available only after the first Scrydex paged response.",
+          pageSize: 250,
+          selectedFields: ["id", "name", "number", "expansion"],
+          perRecordFallbackReason: null,
+          usageCheckState: "not-configured" as const,
+          creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+          degradedDiagnostic: null,
+        },
+      },
+    ],
+  };
+}
+
+function scrydexLorcanaImportPreview(unitKey: string) {
+  return {
+    action: "import" as const,
+    providerKey: "scrydex",
+    scope: {
+      provider: "scrydex",
+      ingestionUnitKey: unitKey,
+      language: "en",
+      setId: "TFC",
+    },
+    profileSnapshot: null,
+    targetCount: 1,
+    targets: [
+      {
+        targetId: "set:TFC",
+        name: "The First Chapter",
+        languageCode: "en",
+        scopeKey: "expansion-cards",
+        planKey: "scrydex:lorcana:expansion:tfc:cards",
+        estimatedPayloads: null,
+        transportSteps: ["Fetch Scrydex Lorcana expansion cards with max page size"],
         usageEstimate: {
           requestStrategy: "bulk-first" as const,
           estimateState: "estimate-unavailable" as const,
