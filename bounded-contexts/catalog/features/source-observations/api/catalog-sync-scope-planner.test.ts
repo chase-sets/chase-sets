@@ -7,6 +7,7 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
 import { unitKeyForCatalogProviderProfileVersion } from "./catalog-integration-impact-analysis";
+import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "./provider-adapters/lorcanajson";
 
 describe("Catalog sync scope planner", () => {
   it("plans Pokemon Expansion sync with required TCGdex and optional TCGplayer-style participation", async () => {
@@ -172,6 +173,56 @@ describe("Catalog sync scope planner", () => {
       eligibility: "ineligible",
       blockers: [expect.objectContaining({ code: "scope-parent-required" })],
     });
+  });
+
+  it("preserves provider set codes for LorcanaJSON set-name sync execution", async () => {
+    const lorcanajson = activeProfile("lorcanajson", "lorcana-set-reference-data");
+    const planImport = vi.fn(fakePlanImport(1));
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v1",
+        productDomain: "lorcana",
+        productForm: "set",
+        languageCode: "en",
+        reference: {
+          kind: "set",
+          id: "1",
+          name: "The First Chapter",
+        },
+        providerHints: [
+          {
+            providerKey: "lorcanajson",
+            unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+            setId: "1",
+            setName: "The First Chapter",
+          },
+        ],
+        providerParticipation: {
+          selectedUnitKeys: [LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY],
+        },
+      },
+      providerProfileVersions: [lorcanajson],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("lorcanajson", planImport)]),
+    });
+
+    expect(preview.status).toBe("ready");
+    expect(preview.units[0]?.childExecutionScope).toMatchObject({
+      provider: "lorcanajson",
+      ingestionUnitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      language: "en",
+      setId: "1",
+      setName: "The First Chapter",
+    });
+    expect(planImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        scopeKey: "set-name",
+        values: expect.objectContaining({
+          setId: "1",
+          setName: "The First Chapter",
+        }),
+      }),
+    );
   });
 });
 

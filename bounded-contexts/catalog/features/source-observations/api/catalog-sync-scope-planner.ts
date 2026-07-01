@@ -388,6 +388,7 @@ function childScopeForProviderUnit(
   const hint = providerHintFor(scope, version.providerKey, unitKey);
   const supportsSetName = version.profile.supportedScopes.includes("set-name");
   const supportsExpansion = version.profile.supportedScopes.includes("expansion");
+  const setId = hint?.setId ?? (supportsExpansion ? (scope.reference.id ?? undefined) : undefined);
 
   return {
     provider: version.providerKey,
@@ -396,7 +397,7 @@ function childScopeForProviderUnit(
     language: scope.languageCode ?? undefined,
     productLineId: hint?.productLineId ?? undefined,
     seriesId: hint?.seriesId ?? scope.reference.seriesId ?? undefined,
-    setId: supportsExpansion ? (hint?.setId ?? scope.reference.id ?? undefined) : undefined,
+    setId,
     setName: supportsSetName ? (hint?.setName ?? scope.reference.name ?? scope.reference.id ?? undefined) : undefined,
     productId: hint?.productId ?? undefined,
   };
@@ -466,11 +467,11 @@ function providerImportScopeKey(scope: SourceObservationIntegrationJobScope): st
   if (scope.productId) {
     return "product";
   }
-  if (scope.setId) {
-    return "expansion";
-  }
   if (scope.setName) {
     return "set-name";
+  }
+  if (scope.setId) {
+    return "expansion";
   }
   if (scope.seriesId) {
     return "series";

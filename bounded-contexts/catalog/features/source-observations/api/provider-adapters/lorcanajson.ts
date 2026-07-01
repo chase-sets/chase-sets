@@ -82,6 +82,7 @@ export type LorcanajsonProviderAdapterOptions = Readonly<{
   baseUrl?: string;
   now?: () => Date;
   profileVersion?: string;
+  fetchTimeoutMs?: number;
 }>;
 
 type LorcanajsonMetadata = Readonly<{
@@ -202,6 +203,7 @@ type LorcanajsonUnitKey =
   | typeof LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY;
 
 const lorcanajsonProofFetchedAt = "2026-06-23T00:00:00.000Z";
+const DEFAULT_LORCANAJSON_FETCH_TIMEOUT_MS = 30_000;
 
 export function createLorcanajsonProviderAdapter(
   options: LorcanajsonProviderAdapterOptions = {},
@@ -242,7 +244,7 @@ export function createLorcanajsonProviderAdapter(
     async planImport(scope) {
       assertLorcanajsonUnit(scope.unitKey);
       const setCode = requireString(
-        scope.values.setCode ?? scope.values.code,
+        scope.values.setCode ?? scope.values.code ?? scope.values.setId ?? scope.values.expansionId,
         "LorcanaJSON import planning requires setCode.",
       );
 
@@ -602,11 +604,34 @@ async function fetchLorcanajsonSet(
 }
 
 async function fetchJson<T>(url: string, options: LorcanajsonProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url);
-  if (!response.ok) {
-    throw new Error(`LorcanaJSON request failed with HTTP ${response.status}.`);
+  const timeoutMs = options.fetchTimeoutMs ?? DEFAULT_LORCANAJSON_FETCH_TIMEOUT_MS;
+  const abortController = timeoutMs > 0 ? new AbortController() : null;
+  const timeout =
+    abortController && timeoutMs > 0
+      ? setTimeout(() => {
+          abortController.abort();
+        }, timeoutMs)
+      : null;
+
+  try {
+    const response = await (options.fetch ?? globalThis.fetch)(
+      url,
+      abortController ? { signal: abortController.signal } : undefined,
+    );
+    if (!response.ok) {
+      throw new Error(`LorcanaJSON request failed with HTTP ${response.status}.`);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (abortController?.signal.aborted) {
+      throw new Error("LorcanaJSON request timed out before the provider returned a response.");
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
-  return (await response.json()) as T;
 }
 
 function createLorcanajsonCardPayload(input: {
