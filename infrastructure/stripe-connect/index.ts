@@ -36,6 +36,24 @@ type StripeConnectAccountApiStrategy = Readonly<{
 type StripeAccountResponse = Readonly<{
   id?: string;
   dashboard?: string | null;
+  email?: string | null;
+  payouts_enabled?: boolean | null;
+  capabilities?: Readonly<{
+    payouts?: string | null;
+    transfers?: string | null;
+  }> | null;
+  controller?: Readonly<{
+    fees?: Readonly<{
+      payer?: string | null;
+    }> | null;
+    losses?: Readonly<{
+      payments?: string | null;
+    }> | null;
+    requirement_collection?: string | null;
+    stripe_dashboard?: Readonly<{
+      type?: string | null;
+    }> | null;
+  }> | null;
   defaults?: Readonly<{
     responsibilities?: Readonly<{
       losses_collector?: string | null;
@@ -66,6 +84,7 @@ type StripeAccountResponse = Readonly<{
       }> | null;
     }> | null;
   }> | null;
+  launchPostureRequirements?: readonly string[];
 }>;
 
 type StripeRequirementDeadline = Readonly<{
@@ -349,6 +368,7 @@ function collectRequirements(account: StripeAccountResponse) {
     ...(account.requirements?.past_due ?? []),
     ...(account.requirements?.eventually_due ?? []),
     ...collectRequirementEntries(account),
+    ...(account.launchPostureRequirements ?? []),
     ...collectCapabilityRequirements(
       "stripe_balance.stripe_transfers",
       account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status_details,
@@ -369,8 +389,14 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
   }
 
   const stripeBalance = account.configuration?.recipient?.capabilities?.stripe_balance;
-  const transferCapabilityStatus = statusToCapabilityStatus(stripeBalance?.stripe_transfers?.status);
-  const payoutCapabilityStatus = statusToCapabilityStatus(stripeBalance?.payouts?.status);
+  const transferCapabilityStatus = statusToCapabilityStatus(
+    stripeBalance?.stripe_transfers?.status ?? account.capabilities?.transfers,
+  );
+  const payoutCapabilityStatus = statusToCapabilityStatus(
+    stripeBalance?.payouts?.status ??
+      account.capabilities?.payouts ??
+      (account.payouts_enabled === true ? "active" : account.payouts_enabled === false ? "inactive" : undefined),
+  );
   const missingRequirements = [...new Set(collectRequirements(account))].sort((left, right) =>
     left.localeCompare(right),
   );
@@ -389,11 +415,17 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
     transferCapabilityStatus,
     payoutCapabilityStatus,
     payoutDestinationStatus,
-    payoutAccountDashboard: dashboardToPayoutAccountDashboard(account.dashboard),
-    lossesCollector: collectorToPayoutAccountResponsibility(account.defaults?.responsibilities?.losses_collector),
-    feesCollector: collectorToPayoutAccountResponsibility(account.defaults?.responsibilities?.fees_collector),
+    payoutAccountDashboard: dashboardToPayoutAccountDashboard(
+      account.dashboard ?? account.controller?.stripe_dashboard?.type,
+    ),
+    lossesCollector: collectorToPayoutAccountResponsibility(
+      account.defaults?.responsibilities?.losses_collector ?? account.controller?.losses?.payments,
+    ),
+    feesCollector: collectorToPayoutAccountResponsibility(
+      account.defaults?.responsibilities?.fees_collector ?? account.controller?.fees?.payer,
+    ),
     requirementsCollector: collectorToPayoutAccountResponsibility(
-      account.defaults?.responsibilities?.requirements_collector,
+      account.defaults?.responsibilities?.requirements_collector ?? account.controller?.requirement_collection,
     ),
     missingRequirements,
   };
@@ -428,6 +460,31 @@ function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference:
 function normalizeContactEmail(value: string | null | undefined) {
   const contactEmail = value?.trim();
   return contactEmail ? contactEmail : null;
+}
+
+function v1AccountLaunchPostureRequirements(account: StripeAccountResponse) {
+  const requirements: string[] = [];
+  if (dashboardToPayoutAccountDashboard(account.controller?.stripe_dashboard?.type) !== "none") {
+    requirements.push("provider_dashboard_posture");
+  }
+  if (collectorToPayoutAccountResponsibility(account.controller?.losses?.payments) !== "application") {
+    requirements.push("provider_loss_liability_posture");
+  }
+  if (collectorToPayoutAccountResponsibility(account.controller?.fees?.payer) !== "application") {
+    requirements.push("provider_fee_payer_posture");
+  }
+  if (collectorToPayoutAccountResponsibility(account.controller?.requirement_collection) !== "application") {
+    requirements.push("provider_requirement_collection_posture");
+  }
+
+  return requirements;
+}
+
+function normalizeV1Account(account: StripeAccountResponse): StripeAccountResponse {
+  return {
+    ...account,
+    launchPostureRequirements: v1AccountLaunchPostureRequirements(account),
+  };
 }
 
 export function createStripeConnectMoneyMovementGateway(
@@ -478,17 +535,60 @@ export function createStripeConnectMoneyMovementGateway(
   }
 
   function createAccountsV1Strategy(): StripeConnectAccountApiStrategy {
-    function notImplemented(): never {
-      throw new ProviderAdapterError(
-        "configuration",
-        "Stripe Connect Accounts v1 is selected but the Accounts v1 provisioning strategy is not implemented yet.",
-      );
+    async function retrieveAccount(providerReference: string) {
+      const account = await stripeRequest<StripeAccountResponse>(`/v1/accounts/${providerReference}`, {
+        method: "GET",
+      });
+      return normalizeV1Account(account);
     }
 
     return {
-      retrieveAccount: async () => notImplemented(),
-      ensurePayoutAccount: async () => notImplemented(),
-      updateAccountContactEmail: async () => notImplemented(),
+      retrieveAccount,
+      async ensurePayoutAccount(input) {
+        const contactEmail = normalizeContactEmail(input.contactEmail);
+        const createdAccount = await stripeRequest<StripeAccountResponse>("/v1/accounts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: toFormBody({
+            country: input.countryCode ?? "US",
+            email: contactEmail,
+            "capabilities[transfers][requested]": "true",
+            "controller[stripe_dashboard][type]": "none",
+            "controller[losses][payments]": "application",
+            "controller[fees][payer]": "application",
+            "controller[requirement_collection]": "application",
+            "metadata[chase_sets_account_id]": input.accountId,
+            "metadata[funds_strategy]": "platform-held-on-demand-payout",
+          }),
+          idempotencyKey: input.idempotencyKey,
+        });
+
+        const providerReference = createdAccount.id?.trim();
+        if (!providerReference) {
+          throw new Error("Stripe account response did not include an id.");
+        }
+
+        return mapAccountReadiness(await retrieveAccount(providerReference));
+      },
+      async updateAccountContactEmail(providerReference, contactEmail, idempotencyKey) {
+        const normalizedContactEmail = normalizeContactEmail(contactEmail);
+        if (!normalizedContactEmail) {
+          return;
+        }
+
+        await stripeRequest<StripeAccountResponse>(`/v1/accounts/${providerReference}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: toFormBody({
+            email: normalizedContactEmail,
+          }),
+          idempotencyKey,
+        });
+      },
       handlesReadinessWebhook: (eventType) => eventType === "account.updated",
     };
   }
