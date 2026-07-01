@@ -3,7 +3,11 @@ import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
-import { selectAdminDeployedApiSmokeProbes, selectAdminDeployedPageSmokeRows } from "./admin-shell-smoke-matrix.mjs";
+import {
+  ADMIN_TOPOLOGY_MODES,
+  selectAdminDeployedApiSmokeProbes,
+  selectAdminDeployedPageSmokeRows,
+} from "./admin-shell-smoke-matrix.mjs";
 import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
@@ -40,6 +44,10 @@ const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", fa
 const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
 const requireNativeMcp = readBooleanEnv("SMOKE_REQUIRE_NATIVE_MCP", true);
 const requireFulfillmentPostage = readBooleanEnv("SMOKE_REQUIRE_FULFILLMENT_POSTAGE", true);
+const adminTopologyMode = getSmokeEnv("SMOKE_ADMIN_TOPOLOGY") || "staging";
+if (!ADMIN_TOPOLOGY_MODES.includes(adminTopologyMode)) {
+  throw new Error(`SMOKE_ADMIN_TOPOLOGY must be one of: ${ADMIN_TOPOLOGY_MODES.join(", ")}.`);
+}
 const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
 const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
@@ -460,7 +468,7 @@ async function expectAdminDeployedPageMatrix(adminOrigin, sessionToken) {
 }
 
 async function expectAdminDeployedApiProbes(adminOrigin, sessionToken) {
-  const probes = selectAdminDeployedApiSmokeProbes({ requireFulfillmentPostage });
+  const probes = selectAdminDeployedApiSmokeProbes({ requireFulfillmentPostage, topologyMode: adminTopologyMode });
   if (!requireFulfillmentPostage) {
     console.warn("Skipping fulfillment postage admin API smoke; SMOKE_REQUIRE_FULFILLMENT_POSTAGE is not true.");
   }
