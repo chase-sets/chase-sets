@@ -30,6 +30,7 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const marketplaceProviderProofStatusWorkflow = readFileSync(
   resolve(".github/workflows/marketplace-provider-proof-status.yml"),
   "utf8",
@@ -59,6 +60,23 @@ function occurrenceCount(source, needle) {
 function expectTerraformAssignment(source, localName, expression) {
   expect(source).toMatch(new RegExp(`${localName}\\s+=\\s+${expression.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 }
+
+describe("DigitalOcean platform runbook", () => {
+  it("documents the expected production admin-support component baseline and topology drift check", () => {
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Expected production App Platform component baseline before public marketplace promotion",
+    );
+    expect(digitaloceanPlatformRunbook).toContain(
+      "`admin-support-api` service size `apps-s-1vcpu-1gb` with two instances",
+    );
+    expect(digitaloceanPlatformRunbook).toContain(
+      "`marketplace`, `platform-api`, and `platform-worker` must not coexist with `admin-support-api` in production",
+    );
+    expect(digitaloceanPlatformRunbook).toContain(
+      "warns if admin-support and marketplace/platform component families coexist in one App Platform app",
+    );
+  });
+});
 
 function workflowStep(source, stepName) {
   const start = source.indexOf(`- name: ${stepName}`);
