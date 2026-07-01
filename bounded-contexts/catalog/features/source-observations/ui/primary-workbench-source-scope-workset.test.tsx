@@ -516,6 +516,39 @@ describe("Catalog source-scope workset", () => {
     expect(form?.getAttribute("action")).toContain("expansionName=The+First+Chapter");
   });
 
+  it("keeps a selected Lorcast set importable before provider scope rows exist", () => {
+    const unitKey = "lorcast:lorcana:single-card:reference-data";
+    const profiles = lorcanaProfiles();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&profileVersion=2026.06.23",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: overviewForProfiles(profiles, "lorcana"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === unitKey);
+
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "lorcast",
+      unitKey,
+      importScope: "en:1",
+      productLineName: "Disney Lorcana",
+      expansionId: "1",
+    });
+    expect(unit?.state).toBe("not-imported");
+    expect(unit?.actions.import.state).toBe("available");
+    expect(unit?.currentWorkbenchHref).toContain("importScope=en%3A1");
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    expect(hiddenValue(form, "importScope")).toBe("en:1");
+    expect(hiddenValue(form, "expansionId")).toBe("1");
+    expect(hiddenValue(form, "expansionName")).toBe("");
+    expect(screen.getAllByRole("button", { name: "Sync Lorcast Lorcana cards" }).length).toBeGreaterThan(0);
+  });
+
   it("keeps LorcanaJSON compact set scopes promotable after preview redirects", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

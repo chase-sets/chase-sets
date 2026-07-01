@@ -1142,6 +1142,7 @@ function sanitizeScopeForSourceOptionProfile(
 
   const selectableScopes = new Set(sourceOptionKindsForProfile(profile).map((kind) => kind.scope));
   const supportsSetName = selectableScopes.has("set-name");
+  const expansionIdIsSetNameSelection = supportsSetName && !scope.expansionName && !scope.seriesId && !scope.seriesName;
 
   return {
     providerKey,
@@ -1152,7 +1153,8 @@ function sanitizeScopeForSourceOptionProfile(
       selectableScopes.has("product-line/category") || supportsSetName ? (scope.productLineName ?? null) : null,
     seriesId: selectableScopes.has("series") ? (scope.seriesId ?? null) : null,
     seriesName: selectableScopes.has("series") ? (scope.seriesName ?? null) : null,
-    expansionId: selectableScopes.has("expansion") ? (scope.expansionId ?? null) : null,
+    expansionId:
+      selectableScopes.has("expansion") || expansionIdIsSetNameSelection ? (scope.expansionId ?? null) : null,
     expansionName: selectableScopes.has("expansion") || supportsSetName ? (scope.expansionName ?? null) : null,
     status: scope.status ?? null,
   };

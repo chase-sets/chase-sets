@@ -1328,6 +1328,54 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("keeps Lorcast selected set commands available before provider scope rows exist", async () => {
+    const unitKey = "lorcast:lorcana:single-card:reference-data";
+    const profileReviews = { items: [lorcastLorcanaProfileReview(unitKey)], total: 1, count: 1 };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue(
+        sourceOptionResponse("sets", {
+          status: "fresh",
+          source: "live",
+          parentValue: null,
+          degraded: false,
+          value: "1",
+          label: "The First Chapter",
+          metadata: { expansionId: "1", languageCode: "en" },
+        }),
+      ),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&profileVersion=2026.06.23&sourceOptionAction=force-refresh-all`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    const unit = routeData.readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === unitKey);
+
+    expect(routeData.readModel.routeContext.importScope).toBe("en:1");
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "lorcast",
+      unitKey,
+      importScope: "en:1",
+      productLineName: "Disney Lorcana",
+      expansionId: "1",
+    });
+    expect(unit?.actions.import).toMatchObject({
+      state: "available",
+      blockers: [],
+    });
+    expect(unit?.currentWorkbenchHref).toContain("importScope=en%3A1");
+  });
+
   it("drops stale import preview evidence when a structured set-name selection changes", async () => {
     const unitKey = "scrydex:one-piece:sealed-product:source-observation-import";
     const profileReviews = { items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 };
@@ -5256,6 +5304,38 @@ function scrydexLorcanaProfileReview(unitKey: string) {
         parentRequired: true,
         parentValueKind: "set-id",
         parentDiagnosticText: "Scrydex Lorcana card option queries require a selected set.",
+      },
+    ],
+  });
+}
+
+function lorcastLorcanaProfileReview(unitKey: string) {
+  return profileReview({
+    providerKey: "lorcast",
+    profileKey: "lorcast-lorcana-card-reference",
+    profileVersion: "2026.06.23",
+    ingestionUnitKey: unitKey,
+    displayName: "Lorcast Lorcana single-card reference data",
+    lifecycle: "active",
+    active: true,
+    status: "active",
+    connectorKind: "lorcast-json",
+    profile: {
+      providerKey: "lorcast",
+      supportedScopes: ["set-name", "lorcana/single-card"],
+    },
+    supportedScopes: ["set-name", "lorcana/single-card"],
+    languageOptions: ["en"],
+    sourceOptionKinds: [
+      {
+        queryKind: "sets",
+        queryKeySynonyms: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        parentRequired: false,
+        parentValueKind: null,
+        parentDiagnosticText: null,
       },
     ],
   });
