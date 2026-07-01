@@ -173,12 +173,9 @@ describe("admin shell smoke matrix", () => {
       "SMOKE-PROBE-EXPERIENCE-PLATFORM-FEEDBACK",
       "SMOKE-PROBE-PLATFORM-PROJECTIONS",
       "SMOKE-PROBE-WAITLIST-EXPORT",
-      "SMOKE-PROBE-CATALOG-REALTIME",
-      "SMOKE-PROBE-CATALOG-INTEGRATION-JOB-STREAM",
-      "SMOKE-PROBE-CATALOG-BULK-JOB-STREAM",
-      "SMOKE-PROBE-CATALOG-AUTHORING-JOB-STREAM",
     ]);
     expect(productionDisabledProbeIds).not.toContain("SMOKE-PROBE-COMMERCIAL-TERMS-SCHEDULES");
+    expect(productionDisabledProbeIds).not.toContain("SMOKE-PROBE-CATALOG-REALTIME");
     expect(productionDisabledProbeIds).toContain("SMOKE-PROBE-PLATFORM-PROJECTIONS");
   });
 

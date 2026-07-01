@@ -257,7 +257,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "SSE opens or returns controlled authorization response",
       "public-marketplace": "admin public ingress",
-      "production-platform-disabled": "admin public ingress",
+      "production-platform-disabled": "controlled-unavailable or valid internal origin",
     },
   },
   {
@@ -274,7 +274,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "SSE opens or returns controlled authorization/not-found response",
       "public-marketplace": "admin public ingress",
-      "production-platform-disabled": "admin public ingress",
+      "production-platform-disabled": "controlled-unavailable or valid internal origin",
     },
   },
   {
@@ -291,7 +291,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "SSE opens or returns controlled authorization/not-found response",
       "public-marketplace": "admin public ingress",
-      "production-platform-disabled": "admin public ingress",
+      "production-platform-disabled": "controlled-unavailable or valid internal origin",
     },
   },
   {
@@ -308,7 +308,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "SSE opens or returns controlled authorization/not-found response",
       "public-marketplace": "admin public ingress",
-      "production-platform-disabled": "admin public ingress",
+      "production-platform-disabled": "controlled-unavailable or valid internal origin",
     },
   },
 ];
