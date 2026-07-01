@@ -60,7 +60,7 @@ type SourceScopeSelection = Readonly<{
 export function sourceScopeWorksetFor(
   input: SourceScopeWorksetInput,
 ): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"] {
-  const selectedScope = selectedSourceScope(input.routeContext);
+  const selectedScope = selectedSourceScope(input);
   const units = sourceScopeCandidates(input)
     .filter((candidate) => candidateIsRelevantToSelection(candidate, selectedScope, input.scopes, input.routeContext))
     .map((candidate) => sourceScopeUnitRow(candidate, selectedScope, input));
@@ -102,9 +102,13 @@ function sourceScopeWorksetStatus(
   return "ready";
 }
 
-function selectedSourceScope(routeContext: CatalogPrimaryWorkbenchRouteContext): SourceScopeSelection {
+function selectedSourceScope(input: Pick<SourceScopeWorksetInput, "profiles" | "routeContext" | "sourceOptions">) {
+  const routeContext = input.routeContext;
   const explicitScope = explicitScopeFromRouteContext(routeContext);
-  const scope = scopeHasConcreteSelection(explicitScope) ? explicitScope : scopeContextFromRouteContext(routeContext);
+  const routeScope = scopeHasConcreteSelection(explicitScope)
+    ? explicitScope
+    : scopeContextFromRouteContext(routeContext);
+  const scope = enrichedSetNameSelectedScope(routeScope, input.profiles, input.sourceOptions);
   const hasConcreteScope = scopeHasConcreteSelection(scope);
   const importScope = hasConcreteScope ? importScopeFromScopeContext(scope) : null;
 
@@ -113,6 +117,38 @@ function selectedSourceScope(routeContext: CatalogPrimaryWorkbenchRouteContext):
     importScope,
     label: hasConcreteScope ? scopeDisplayLabel(scope) : "Select a source scope",
     scope,
+  };
+}
+
+function enrichedSetNameSelectedScope(
+  scope: CatalogPrimaryWorkbenchScopeContext,
+  profiles: readonly CatalogProviderProfileVersionReview[],
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+): CatalogPrimaryWorkbenchScopeContext {
+  const providerKey = scope.providerKey;
+  if (!providerKey) {
+    return scope;
+  }
+  const profile = activeProfileForProvider(profiles, providerKey);
+  if (!sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "set-name")) {
+    return scope;
+  }
+  const selectedValue = scope.expansionName ?? scope.expansionId;
+  if (!selectedValue) {
+    return scope;
+  }
+  const page = sourceOptions.pages.find(
+    (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === "set-name",
+  );
+  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  if (!option?.label || option.label === selectedValue) {
+    return scope;
+  }
+
+  return {
+    ...scope,
+    productLineName: scope.productLineName ?? productLineDisplayNameFromDomain(productDomainFromProfile(profile)),
+    expansionName: option.label,
   };
 }
 
