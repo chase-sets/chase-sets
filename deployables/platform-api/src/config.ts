@@ -8,6 +8,7 @@ import {
 import {
   getBooleanEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
+  getContextWaiterDatabaseEnvName as getSharedContextWaiterDatabaseEnvName,
   getOptionalCsvEnv,
   getOptionalEnv,
   getOptionalJsonEnv,
@@ -74,6 +75,7 @@ export type PlatformApiBaseConfig = Readonly<{
   controlDatabaseUrl?: string;
   workSignalDatabaseUrl?: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
+  contextWaiterDatabaseUrls?: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   pool?: PlatformApiPoolConfig;
   port: number;
   internalAuthSecret?: string;
@@ -514,6 +516,10 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
 
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
   return getSharedContextDatabaseEnvName(contextName);
+}
+
+export function getContextWaiterDatabaseEnvName(contextName: PlatformApiContextName) {
+  return getSharedContextWaiterDatabaseEnvName(contextName);
 }
 
 function loadBaseConfig(): PlatformApiBaseConfig {

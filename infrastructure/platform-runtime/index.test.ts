@@ -365,7 +365,7 @@ describe("platform host api registry", () => {
     expect(() =>
       createApiHost(apiRegistry, "platform-api", {
         pools: {
-          identity: {} as never,
+          identity: createPool() as never,
         },
       }),
     ).toThrow(/missing a pool for context 'auth'/);

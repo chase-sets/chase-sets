@@ -499,6 +499,41 @@ describe("durable job store", () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the configured notification waiter pool for event waits", async () => {
+    const queryPoolClient = createJobNotificationClient();
+    const waiterPoolClient = createJobNotificationClient();
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        connect: async () => queryPoolClient,
+      } as never,
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+      {
+        notificationWaiterPool: {
+          query: async () => ({ rows: [], rowCount: 0 }),
+          connect: async () => waiterPoolClient,
+        } as never,
+      },
+    );
+
+    const wait = store.waitForEvents({ jobId: "job_1", timeoutMs: 30_000 });
+
+    await vi.waitFor(() => {
+      expect(waiterPoolClient.queries).toContain("LISTEN durable_job_events");
+    });
+    expect(queryPoolClient.queries).not.toContain("LISTEN durable_job_events");
+
+    waiterPoolClient.emit("notification", {
+      channel: "durable_job_events",
+      payload: JSON.stringify({ jobId: "job_1", sequence: 1 }),
+    });
+
+    await expect(wait).resolves.toBeUndefined();
+  });
+
   it("wakes event waiters from composite envelopes and legacy notification payloads", async () => {
     const client = createJobNotificationClient();
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(

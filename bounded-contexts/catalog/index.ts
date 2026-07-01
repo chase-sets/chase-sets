@@ -12,7 +12,7 @@ import { seedCatalogDatabase } from "./support/authoring-support";
 export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
   schemaSql: catalogAuthoringSchemaSql,
-  createServices: (pool, ports) => createCatalogServices(pool, ports),
+  createServices: (pool, ports, options) => createCatalogServices(pool, ports, options),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   seedProfiles: ["catalog-integration-bootstrap", "scenario-seed"],

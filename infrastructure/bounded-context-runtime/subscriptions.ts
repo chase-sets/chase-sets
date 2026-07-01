@@ -118,6 +118,7 @@ export type MountedContextRuntimeEntry = Readonly<{
   module: BcApiModule;
   services: unknown;
   pool: PgTransactionalPool;
+  notificationWaiterPool?: PgTransactionalPool;
   projectionHandlerSets: readonly BcProjectionHandlerSet[];
 }>;
 

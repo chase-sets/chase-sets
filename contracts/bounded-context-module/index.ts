@@ -366,6 +366,10 @@ export type BcSeedOptions = Readonly<{
   environmentName?: string | null;
 }>;
 
+export type BcCreateServicesOptions<TPool = unknown> = Readonly<{
+  notificationWaiterPool?: TPool;
+}>;
+
 export interface BcApiModule<
   TServices = unknown,
   TPool = unknown,
@@ -379,7 +383,7 @@ export interface BcApiModule<
   readonly schemaSql: string;
   readonly apiMounts: readonly BcApiMount[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
-  createServices(pool: TPool, ports: THostPorts): TServices;
+  createServices(pool: TPool, ports: THostPorts, options?: BcCreateServicesOptions<TPool>): TServices;
   buildApis(services: TServices): readonly TRouter[];
   projectionHandlerSets?(services: TServices): readonly TProjectionHandlerSet[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];

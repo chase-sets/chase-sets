@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
-import { getContextDatabaseEnvName, loadBootstrapConfig, loadConfig } from "../src/config";
+import {
+  getContextDatabaseEnvName,
+  getContextWaiterDatabaseEnvName,
+  loadBootstrapConfig,
+  loadConfig,
+} from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
@@ -82,6 +87,7 @@ const envNames = [
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
+  ...platformApiContextNames().map((contextName) => getContextWaiterDatabaseEnvName(contextName)),
 ];
 
 function platformApiContextNames() {
@@ -213,6 +219,7 @@ describe("platform api config", () => {
     delete process.env.DATABASE_URL;
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.PLATFORM_WORK_SIGNAL_DATABASE_URL = "postgresql://localhost/control-direct";
+    process.env.DATABASE_URL_CATALOG_WAITER = "postgresql://localhost/catalog-direct";
     for (const contextName of platformApiContextNames()) {
       process.env[getContextDatabaseEnvName(contextName)] =
         `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
@@ -223,6 +230,7 @@ describe("platform api config", () => {
     expect(config.sharedDatabaseUrl).toBeNull();
     expect(config.controlDatabaseUrl).toBe("postgresql://localhost/control");
     expect(config.workSignalDatabaseUrl).toBe("postgresql://localhost/control-direct");
+    expect(config.contextWaiterDatabaseUrls?.catalog).toBe("postgresql://localhost/catalog-direct");
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
     expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
     expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");

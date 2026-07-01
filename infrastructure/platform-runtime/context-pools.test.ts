@@ -20,6 +20,8 @@ describe("context pools", () => {
       expect(pools.catalog).toBe(pools.payments);
       expect(pools.control).toBe(pools.auth);
       expect(pools.workSignal).toBe(pools.control);
+      expect(pools.contextWaiters.auth).toBe(pools.auth);
+      expect(pools.contextWaiters.catalog).toBe(pools.catalog);
     } finally {
       await closeContextPools(pools);
     }
@@ -40,6 +42,8 @@ describe("context pools", () => {
       expect(pools.payments).not.toBe(pools.catalog);
       expect(pools.control).not.toBe(pools.catalog);
       expect(pools.workSignal).toBe(pools.control);
+      expect(pools.contextWaiters.auth).toBe(pools.auth);
+      expect(pools.contextWaiters.catalog).toBe(pools.catalog);
       expect(pools.auth).not.toBe(pools.payments);
     } finally {
       await closeContextPools(pools);
@@ -57,6 +61,27 @@ describe("context pools", () => {
     try {
       expect(pools.control).not.toBe(pools.workSignal);
       expect(pools.workSignal).not.toBe(pools.auth);
+    } finally {
+      await closeContextPools(pools);
+    }
+  });
+
+  it("uses separate context waiter pools when direct waiter URLs are configured", async () => {
+    const pools = createContextPools(testContextRegistry, {
+      sharedDatabaseUrl: "postgresql://localhost/shared-pooled",
+      controlDatabaseUrl: "postgresql://localhost/control-pooled",
+      contextDatabaseUrls: {
+        catalog: "postgresql://localhost/catalog-pooled",
+      },
+      contextWaiterDatabaseUrls: {
+        catalog: "postgresql://localhost/catalog-direct",
+      },
+    });
+
+    try {
+      expect(pools.catalog).not.toBe(pools.contextWaiters.catalog);
+      expect(pools.contextWaiters.auth).toBe(pools.auth);
+      expect(pools.contextWaiters.payments).toBe(pools.payments);
     } finally {
       await closeContextPools(pools);
     }

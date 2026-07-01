@@ -1,6 +1,7 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
@@ -28,7 +29,11 @@ export type InventoryHostPorts = Readonly<{
   draftListingCreator?: InventoryDraftListingCreator;
 }>;
 
-export function createInventoryServices(pool: PgTransactionalPool, ports: InventoryHostPorts = {}): InventoryServices {
+export function createInventoryServices(
+  pool: PgTransactionalPool,
+  ports: InventoryHostPorts = {},
+  options: BcCreateServicesOptions<PgTransactionalPool> = {},
+): InventoryServices {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
@@ -42,6 +47,7 @@ export function createInventoryServices(pool: PgTransactionalPool, ports: Invent
   const items = createInventoryItemRuntime(deps, catalogItems, storageLocations);
   const importBatches = createInventoryImportBatchRuntime({
     db,
+    notificationWaiterPool: options.notificationWaiterPool,
     items,
     catalogItems,
     draftListingCreator: ports.draftListingCreator,

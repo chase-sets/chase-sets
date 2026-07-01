@@ -162,14 +162,12 @@ function buildPlatformWorkerProjectionWakeRelayInterestIndex(disabledProjectionK
 }
 
 function createUnusedPool() {
-  return new Proxy(
-    {},
-    {
-      get() {
-        return () => {
-          throw new Error("The platform-worker wake interest graph test must not touch database pools.");
-        };
-      },
-    },
-  ) as never;
+  const fail = () => {
+    throw new Error("The platform-worker wake interest graph test must not touch database pools.");
+  };
+
+  return {
+    query: fail,
+    connect: fail,
+  } as never;
 }

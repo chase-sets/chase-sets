@@ -114,8 +114,10 @@ describe("Production PgBouncer session-safety audit", () => {
       "Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean transaction-mode PgBouncer yet.",
     );
     expect(productionPgBouncerSessionSafety).toContain(
-      "#3234 splits platform control-plane work-signal traffic and #3238 splits context-owned durable/realtime waiters",
+      "Production pooling remains a good target after a dedicated rollout adds Terraform-managed production transaction pools",
     );
+    expect(productionPgBouncerSessionSafety).toContain("Context-owned durable/realtime waiters");
+    expect(productionPgBouncerSessionSafety).toContain("DATABASE_URL_<CONTEXT>_WAITER");
     expect(productionPgBouncerSessionSafety).toContain("Projection wake relay source listeners");
     expect(productionPgBouncerSessionSafety).toContain("Direct-only and least-privilege; never transaction-pooled.");
     expect(productionPgBouncerSessionSafety).toContain(
@@ -548,7 +550,16 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformLocals).toContain("wake_listener_database_names");
     expect(platformLocals).toContain("wake_listener_grant_contexts");
+    expect(platformLocals).toContain(
+      'api_waiter_contexts             = ["catalog", "discovery", "inventory", "marketplace"]',
+    );
+    expect(platformLocals).toContain(
+      "wake_listener_contexts          = distinct(concat(local.worker_listener_source_contexts, local.api_waiter_contexts))",
+    );
     expect(platformLocals).toContain("worker_listener_database_urls = (local.is_production || local.is_staging) ? {");
+    expect(platformLocals).toContain("api_waiter_database_urls = (local.is_production || local.is_staging) ? {");
+    expect(platformLocals).toContain("context_waiter_database_env = {");
+    expect(platformLocals).toContain('context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}_WAITER"');
     expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].name)");
     expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].password)");
     expect(platformLocals).toContain("urlencode(local.wake_listener_database_names[context_name])");
@@ -563,6 +574,8 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"')).toBe(2);
+    expect(platformMain).toContain("for_each = local.api_waiter_database_urls");
+    expect(platformMain).toContain("key   = local.context_waiter_database_env[env.key]");
     expectTerraformAssignment(
       platformLocals,
       "worker_projection_wake_relay_enabled",
@@ -606,6 +619,7 @@ describe("DigitalOcean platform configuration", () => {
       "relay_listener_demand",
       "(local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0",
     );
+    expect(platformLocals).toContain("api_waiter_listener_demand = (local.is_production || local.is_staging) ? (");
     expectTerraformAssignment(platformLocals, "bootstrap_demand", "tonumber(local.bootstrap_database_pool_max)");
     expect(platformLocals).toContain("pgbouncer_server_backend_allocation = (");
     expect(platformLocals).toContain("sum(values(local.context_database_connection_pool_sizes))");
@@ -620,12 +634,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("cluster_backend_demand = local.is_production ? (");
     expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = local.is_production ? (");
     expect(platformLocals).toContain(
-      "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.bootstrap_demand",
+      "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand",
     );
     expect(platformLocals).toContain("active_profile_connection_budget = {");
     expect(platformLocals).toContain("profile                    = local.runtime_profile_name");
     expect(platformLocals).toContain("active_context_count       = length(local.active_runtime_context_names)");
     expect(platformLocals).toContain("provisioned_context_count  = length(local.provisioned_context_names)");
+    expect(platformLocals).toContain("api_waiter_listener_demand = local.api_waiter_listener_demand");
     expect(platformLocals).toContain(
       "steady_state_headroom      = local.cluster_connection_limit - local.cluster_backend_demand",
     );

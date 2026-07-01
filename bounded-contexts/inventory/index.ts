@@ -23,7 +23,7 @@ import { seedInventoryDatabase } from "./support/runtime-support/seed";
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: contextManifest,
   schemaSql: inventorySchemaSql,
-  createServices: (pool, ports) => createInventoryServices(pool, ports),
+  createServices: (pool, ports, options) => createInventoryServices(pool, ports, options),
   buildApis: (services) => [buildInventoryApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>

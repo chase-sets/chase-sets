@@ -741,6 +741,16 @@ resource "digitalocean_app" "platform" {
           }
         }
 
+        dynamic "env" {
+          for_each = local.api_waiter_database_urls
+          content {
+            key   = local.context_waiter_database_env[env.key]
+            value = env.value
+            type  = "SECRET"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "PLATFORM_INTERNAL_AUTH_SECRET"
           value = var.platform_internal_auth_secret
