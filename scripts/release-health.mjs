@@ -51,6 +51,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     ),
     canaryPromotionDecision:
       readOption(argv, "--canary-promotion-decision") ?? readEnv("CANARY_PROMOTION_DECISION", env) ?? null,
+    productionReadinessGateOutcome:
+      readOption(argv, "--production-readiness-gate-outcome") ??
+      readEnv("PRODUCTION_READINESS_GATE_OUTCOME", env) ??
+      null,
     productionResult: readOption(argv, "--production-result") ?? readEnv("PRODUCTION_RESULT", env) ?? "unknown",
     productionStartedAt: readOption(argv, "--production-started-at") ?? readEnv("PRODUCTION_STARTED_AT", env) ?? null,
     productionCompletedAt:
@@ -297,11 +301,217 @@ export function buildReleaseHealthRecord(input) {
     };
   }
 
+  record.gates = buildGateResults(record, input);
+  record.gateSummary = summarizeGateResults(record.gates);
+
   return {
     record,
     errors,
     passesReleaseHealthGate: errors.length === 0,
   };
+}
+
+export function buildGateResults(record, input = {}) {
+  const deploymentRequired = record.deploymentRequired !== false;
+  const releaseMode = record.releaseMode ?? "normal";
+  const exposureCategories = record.releaseCategory?.exposurePostureCategories ?? [];
+  const productionRecoveryMode = record.recovery?.productionRecoveryMode ?? "unknown";
+  const restorePoint = record.recovery?.productionRestorePoint ?? {};
+  const rollbackReadinessResult = record.recovery?.rollbackReadinessResult ?? "unknown";
+  const recoveryMode = record.recovery?.mode ?? "none";
+  const canaryPromotionDecision = record.canary?.promotionDecision ?? null;
+  const readinessOutcome = normalizeGateLabel(input.productionReadinessGateOutcome ?? "not-run");
+
+  return [
+    gateResult({
+      id: "deployment-required",
+      phase: "queue",
+      owner: "ops",
+      severity: deploymentRequired ? "blocking" : "not-applicable",
+      status: deploymentRequired ? "pass" : "skipped",
+      reason: deploymentRequired ? "release changes deployable surfaces" : "release does not require deployment",
+    }),
+    gateResult({
+      id: "staging-deploy-and-smoke",
+      phase: "staging",
+      owner: "ops",
+      severity: deploymentRequired ? "blocking" : "not-applicable",
+      status: deploymentRequired ? statusForBlockingResult(record.staging?.result) : "skipped",
+      reason: `staging result: ${record.staging?.result ?? "unknown"}`,
+    }),
+    gateResult({
+      id: "production-recovery-mode",
+      phase: "production-preflight",
+      owner: "ops",
+      severity: recoveryModeSeverity(productionRecoveryMode, deploymentRequired),
+      status: deploymentRequired ? statusForRecoveryMode(productionRecoveryMode) : "skipped",
+      reason: record.recovery?.productionRecoveryReason ?? `recovery mode: ${productionRecoveryMode}`,
+    }),
+    gateResult({
+      id: "production-restore-point",
+      phase: "production-preflight",
+      owner: "ops",
+      severity: restorePointRequired(productionRecoveryMode, deploymentRequired) ? "blocking" : "not-applicable",
+      status: statusForRestorePoint(productionRecoveryMode, restorePoint, releaseMode, deploymentRequired),
+      reason: restorePointReason(productionRecoveryMode, restorePoint, releaseMode, deploymentRequired),
+    }),
+    gateResult({
+      id: "rollback-readiness",
+      phase: "production-preflight",
+      owner: "ops",
+      severity: ["rollback", "fix-forward"].includes(recoveryMode) ? "blocking" : "not-applicable",
+      status: ["rollback", "fix-forward"].includes(recoveryMode)
+        ? statusForBlockingResult(rollbackReadinessResult)
+        : "skipped",
+      reason: `recovery mode: ${recoveryMode}; rollback readiness: ${rollbackReadinessResult}`,
+    }),
+    gateResult({
+      id: "post-deploy-projection-readiness",
+      phase: "production",
+      owner: "platform-runtime",
+      severity: readinessGateSeverity(readinessOutcome, deploymentRequired),
+      status: statusForReadinessGate(readinessOutcome, deploymentRequired),
+      reason: `readiness outcome: ${readinessOutcome}`,
+    }),
+    gateResult({
+      id: "stage-1-production-canary",
+      phase: "production",
+      owner: "ops",
+      severity: deploymentRequired ? "blocking" : "not-applicable",
+      status: deploymentRequired ? statusForCanary(record.canary?.result, canaryPromotionDecision) : "skipped",
+      reason: `canary result: ${record.canary?.result ?? "unknown"}; promotion decision: ${canaryPromotionDecision ?? "unknown"}`,
+    }),
+    gateResult({
+      id: "production-smoke-and-marker",
+      phase: "production",
+      owner: "ops",
+      severity: deploymentRequired ? "blocking" : "not-applicable",
+      status: deploymentRequired ? statusForBlockingResult(record.production?.result) : "skipped",
+      reason: `production result: ${record.production?.result ?? "unknown"}`,
+    }),
+    gateResult({
+      id: "exposure-posture-proof",
+      phase: "capability-expansion",
+      owner: "ops",
+      severity: exposureCategories.length > 0 ? "deferred-proof" : "not-applicable",
+      status: exposureCategories.length > 0 ? "pass" : "skipped",
+      reason:
+        exposureCategories.length > 0
+          ? `exposure posture categories: ${exposureCategories.join(",")}`
+          : "no exposure posture category changed",
+    }),
+  ];
+}
+
+function gateResult({ id, phase, owner, severity, status, reason }) {
+  return {
+    id,
+    phase,
+    owner,
+    severity,
+    status,
+    reason,
+  };
+}
+
+function summarizeGateResults(gates) {
+  return {
+    total: gates.length,
+    blockingFailures: gates.filter((gate) => gate.severity === "blocking" && gate.status === "fail").length,
+    advisoryWarnings: gates.filter((gate) => gate.severity === "advisory" && gate.status === "warn").length,
+    deferredProof: gates.filter((gate) => gate.severity === "deferred-proof").length,
+    notApplicable: gates.filter((gate) => gate.severity === "not-applicable").length,
+  };
+}
+
+function recoveryModeSeverity(mode, deploymentRequired) {
+  if (!deploymentRequired) {
+    return "not-applicable";
+  }
+  if (mode === "precreated-fork" || mode === "manual-hold") {
+    return "blocking";
+  }
+  if (mode === "pitr") {
+    return "advisory";
+  }
+  return "blocking";
+}
+
+function statusForRecoveryMode(mode) {
+  if (mode === "pitr" || mode === "precreated-fork" || mode === "manual-hold") {
+    return "pass";
+  }
+  return "fail";
+}
+
+function restorePointRequired(mode, deploymentRequired) {
+  return deploymentRequired && (mode === "precreated-fork" || mode === "manual-hold");
+}
+
+function statusForRestorePoint(mode, restorePoint, releaseMode, deploymentRequired) {
+  if (!restorePointRequired(mode, deploymentRequired)) {
+    return "skipped";
+  }
+  if (restorePoint.result === "success") {
+    return "pass";
+  }
+  if (restorePoint.result === "bypassed" && releaseMode === "emergency" && restorePoint.bypassed) {
+    return "pass";
+  }
+  return "fail";
+}
+
+function restorePointReason(mode, restorePoint, releaseMode, deploymentRequired) {
+  if (!restorePointRequired(mode, deploymentRequired)) {
+    return `restore point not required for recovery mode: ${mode}`;
+  }
+  if (restorePoint.result === "bypassed" && releaseMode === "emergency" && restorePoint.bypassed) {
+    return "restore point bypassed by audited emergency release";
+  }
+  return `restore point result: ${restorePoint.result ?? "unknown"}`;
+}
+
+function readinessGateSeverity(outcome, deploymentRequired) {
+  if (!deploymentRequired || outcome === "not-run" || outcome === "skipped" || outcome === "unknown") {
+    return "not-applicable";
+  }
+  return outcome === "error" ? "blocking" : "advisory";
+}
+
+function statusForReadinessGate(outcome, deploymentRequired) {
+  if (!deploymentRequired || outcome === "not-run" || outcome === "skipped" || outcome === "unknown") {
+    return "skipped";
+  }
+  if (outcome === "ready") {
+    return "pass";
+  }
+  if (outcome === "budget-expired") {
+    return "warn";
+  }
+  return "fail";
+}
+
+function statusForCanary(result, promotionDecision) {
+  const normalizedResult = normalizeResult(result);
+  const normalizedDecision = normalizeGateLabel(promotionDecision);
+  if (normalizedResult === "success" || normalizedDecision === "promote") {
+    return "pass";
+  }
+  if (normalizedResult === "skipped" || normalizedResult === "bypassed") {
+    return "skipped";
+  }
+  return "fail";
+}
+
+function statusForBlockingResult(result) {
+  const normalized = normalizeResult(result);
+  if (normalized === "success") {
+    return "pass";
+  }
+  if (normalized === "skipped" || normalized === "bypassed") {
+    return "skipped";
+  }
+  return "fail";
 }
 
 export async function writeReleaseHealthRecord(options) {
@@ -340,6 +550,15 @@ function normalizeResult(value) {
   return ["success", "failure", "cancelled", "skipped", "bypassed", "unknown"].includes(normalized)
     ? normalized
     : "unknown";
+}
+
+function normalizeGateLabel(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "unknown";
 }
 
 function normalizeBoolean(value) {

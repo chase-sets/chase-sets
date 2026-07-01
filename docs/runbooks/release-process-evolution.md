@@ -353,6 +353,17 @@ Current categories are:
 
 These categories annotate release-health first. They should be used to require targeted evidence before capability exposure changes, while routine deploy health gates continue to protect every deployable release.
 
+Production release-health records include a typed `gates[]` list so operators can distinguish rollout blockers from evidence that should remain visible without forcing unnecessary restore-point forks or rollbacks:
+
+| Severity | Meaning | Promotion behavior |
+| --- | --- | --- |
+| `blocking` | Canonical-state, money movement, provider idempotency, destructive schema, rollback-unsafe, smoke, or marker safety. | Must pass before production promotion or recovery can complete, unless an audited emergency path explicitly bypasses the named control. |
+| `advisory` | Projection freshness, routine PITR recovery posture, or telemetry that informs rollout while source-of-truth safety is intact. | Recorded in release-health and the review report; does not by itself create a restore point or block unrelated deploys. |
+| `deferred-proof` | Launch, provider, tax, rollout, or capability-expansion evidence owned outside the routine deploy path. | Blocks capability enablement or expansion when the posture changes; routine deploys may continue when the posture is unchanged. |
+| `not-applicable` | Gate is skipped because the release is non-deployable or the protected capability is not in scope. | Recorded as skipped for audit clarity. |
+
+Every gate row includes `id`, `phase`, `owner`, `severity`, `status`, and `reason`. `gateSummary.blockingFailures` identifies production-stopping failures, `gateSummary.advisoryWarnings` identifies visible non-blocking warnings, and `gateSummary.deferredProof` identifies capability-proof rows to review before expanding exposure.
+
 ## Rollback And Fix-Forward Readiness
 
 Rollback automation is intentionally advisory first. Operators can validate a recovery target without deploying it:

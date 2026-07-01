@@ -44,6 +44,26 @@ describe("release health report", () => {
           releaseCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           releaseMode: "emergency",
           production: { result: "failure", completedAt: "2026-05-31T12:30:00.000Z" },
+          gates: [
+            {
+              id: "production-smoke-and-marker",
+              severity: "blocking",
+              status: "fail",
+              owner: "ops",
+            },
+            {
+              id: "post-deploy-projection-readiness",
+              severity: "advisory",
+              status: "warn",
+              owner: "platform-runtime",
+            },
+            {
+              id: "exposure-posture-proof",
+              severity: "deferred-proof",
+              status: "pass",
+              owner: "ops",
+            },
+          ],
           ci: {
             retryCount: 1,
             flakyFailureCount: 1,
@@ -72,6 +92,11 @@ describe("release health report", () => {
       canaryAbortCount: 0,
       stagingAbortCount: 0,
       staleSkipCount: 1,
+      gates: {
+        blockingFailures: 1,
+        advisoryWarnings: 1,
+        deferredProof: 1,
+      },
       ci: {
         releaseCountWithTelemetry: 1,
         affectedReleaseCount: 1,
@@ -86,6 +111,10 @@ describe("release health report", () => {
     expect(result.markdown).toContain("Batch-size posture");
     expect(result.markdown).toContain("## CI Flake Posture");
     expect(result.markdown).toContain("| verify:static | 1 | 1 |");
+    expect(result.markdown).toContain("## Production Gate Posture");
+    expect(result.markdown).toContain("| production-smoke-and-marker | 1 | 0 | 0 |");
+    expect(result.markdown).toContain("| post-deploy-projection-readiness | 0 | 1 | 0 |");
+    expect(result.markdown).toContain("| exposure-posture-proof | 0 | 0 | 1 |");
     expect(result.markdown).toContain("## Projection Freshness Evidence");
     expect(result.markdown).toContain("Projection freshness evidence posture: not-provided");
     expect(result.markdown).toContain("## Release Process Review Checklist");
