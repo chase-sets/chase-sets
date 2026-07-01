@@ -262,6 +262,7 @@ export function buildSandboxEnv(sandbox) {
     POSTGRES_DEV_DATABASE_NAME: sandbox.controlDatabaseName,
     POSTGRES_DEV_DATABASE_URL: sandbox.controlDatabaseUrl,
     PLATFORM_CONTROL_DATABASE_URL: sandbox.controlDatabaseUrl,
+    PLATFORM_WORK_SIGNAL_DATABASE_URL: sandbox.controlDatabaseUrl,
     TEST_DATABASE_URL: sandbox.adminDatabaseUrl,
     DEV_PORTAL_PORT: String(sandbox.ports.portal),
     ADMIN_WEB_PORT: String(sandbox.ports.adminWeb),

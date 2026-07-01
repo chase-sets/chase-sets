@@ -102,7 +102,7 @@ await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
   bootstrapPlatformControlPlane(pools.control),
 );
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
-const workSignalStore = createPostgresWorkSignalStore(pools.control, {
+const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
     projectionWakeIntentEnqueued: (event) =>
       recordProjectionWakeIntentEnqueueOutcome({

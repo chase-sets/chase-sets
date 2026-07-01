@@ -70,6 +70,7 @@ describe("worktree sandbox", () => {
 
     expect(env.TEST_DATABASE_URL).toBe("postgresql://postgres:postgres@localhost:7020/postgres");
     expect(env.PLATFORM_CONTROL_DATABASE_URL).toContain("/cs_abc123_control");
+    expect(env.PLATFORM_WORK_SIGNAL_DATABASE_URL).toBe(env.PLATFORM_CONTROL_DATABASE_URL);
     expect(env[getContextDatabaseEnvName("catalog")]).toContain("/cs_abc123_catalog");
     expect(env[getContextDatabaseEnvName("marketplace")]).toContain("/cs_abc123_marketplace");
     expect(env.STRIPE_WEBHOOK_FORWARD_URL).toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");

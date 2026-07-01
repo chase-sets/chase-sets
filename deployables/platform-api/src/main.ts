@@ -435,7 +435,7 @@ const mcpToolCallLimiter = realtimeStreamLimiter.limiter
   ? createMcpToolCallLimiterFromRealtime(realtimeStreamLimiter.limiter, config.mcpToolCallLimits)
   : undefined;
 const drainState = createProcessDrainState();
-const workSignalStore = createPostgresWorkSignalStore(pools.control, {
+const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   ...(config.readConsistency?.wakeBeforeWaitEnabled
     ? { readConsistencyGateway: { observer: { wakeEnqueueCompleted: recordProjectionFreshnessWakeEnqueue } } }
     : {}),

@@ -113,7 +113,9 @@ describe("Production PgBouncer session-safety audit", () => {
     expect(productionPgBouncerSessionSafety).toContain(
       "Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean transaction-mode PgBouncer yet.",
     );
-    expect(productionPgBouncerSessionSafety).toContain("#3234 splits work-signal waiter connections");
+    expect(productionPgBouncerSessionSafety).toContain(
+      "#3234 splits platform control-plane work-signal traffic and #3238 splits context-owned durable/realtime waiters",
+    );
     expect(productionPgBouncerSessionSafety).toContain("Projection wake relay source listeners");
     expect(productionPgBouncerSessionSafety).toContain("Direct-only and least-privilege; never transaction-pooled.");
     expect(productionPgBouncerSessionSafety).toContain(
@@ -560,6 +562,7 @@ describe("DigitalOcean platform configuration", () => {
       'local.is_staging ? "true" : "false"',
     );
     expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"')).toBe(2);
     expectTerraformAssignment(
       platformLocals,
       "worker_projection_wake_relay_enabled",

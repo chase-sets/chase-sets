@@ -28,6 +28,7 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 export type PlatformWorkerConfig = Readonly<{
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl: string;
+  workSignalDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
   pool: PlatformWorkerPoolConfig;
   catalogAssetStorage: PlatformWorkerCatalogAssetStorageConfig;

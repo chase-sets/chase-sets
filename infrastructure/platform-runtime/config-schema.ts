@@ -97,6 +97,7 @@ export type PlatformTcgplayerAutomationConfig = Readonly<{
 export type PlatformDatabaseConfig<TContextName extends string> = Readonly<{
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl: string;
+  workSignalDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
 }>;
 
@@ -208,6 +209,7 @@ export function loadPlatformDatabaseConfig<TContextName extends string>(input: {
 }): PlatformDatabaseConfig<TContextName> {
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
   const explicitControlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL");
+  const workSignalDatabaseUrl = getOptionalEnv("PLATFORM_WORK_SIGNAL_DATABASE_URL");
   const controlDatabaseUrl = explicitControlDatabaseUrl ?? sharedDatabaseUrl;
   if (!controlDatabaseUrl) {
     throw new Error(input.missingControlDatabaseUrlError);
@@ -238,6 +240,7 @@ export function loadPlatformDatabaseConfig<TContextName extends string>(input: {
   return {
     sharedDatabaseUrl,
     controlDatabaseUrl,
+    workSignalDatabaseUrl,
     contextDatabaseUrls,
   };
 }

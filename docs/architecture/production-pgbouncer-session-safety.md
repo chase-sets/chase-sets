@@ -6,9 +6,9 @@ Issue: #3226
 
 Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean transaction-mode PgBouncer yet.
 
-Normal bounded-context reads and writes are mostly compatible with transaction pooling, but the same runtime URLs currently also feed work-signal waiters that may attempt `LISTEN` before falling back to bounded polling. DigitalOcean documents transaction pooling as the general-use pooling mode, but session-level behavior such as prepared statements, advisory locks, and listen/notify belongs on session or direct connections. Routing every production runtime URL to transaction pools now would reduce direct backend pressure at the cost of degrading production notification latency in paths that still expect session-compatible waiters.
+Normal bounded-context reads and writes are mostly compatible with transaction pooling, but some runtime URLs still feed context-owned waiters that may attempt `LISTEN` before falling back to bounded polling. DigitalOcean documents transaction pooling as the general-use pooling mode, but session-level behavior such as prepared statements, advisory locks, and listen/notify belongs on session or direct connections. Routing every production runtime URL to transaction pools now would reduce direct backend pressure at the cost of degrading production notification latency in paths that still expect session-compatible waiters.
 
-Production pooling remains a good target after #3234 splits work-signal waiter connections from transaction-pooled query traffic.
+Production pooling remains a good target after #3234 splits platform control-plane work-signal traffic and #3238 splits context-owned durable/realtime waiters from transaction-pooled query traffic.
 
 ## Source Rules
 
@@ -21,9 +21,10 @@ Production pooling remains a good target after #3234 splits work-signal waiter c
 
 | Class | Current path | Pooling posture |
 | --- | --- | --- |
-| Bounded-context API and worker query traffic | `DATABASE_URL_<CONTEXT>` and `PLATFORM_CONTROL_DATABASE_URL` | Candidate for transaction pooling only after work-signal waiters are split from these URLs. |
+| Bounded-context API and worker query traffic | `DATABASE_URL_<CONTEXT>` and `PLATFORM_CONTROL_DATABASE_URL` | Candidate for transaction pooling only after context-owned durable/realtime waiters are split from these URLs (#3238). |
 | Event-store `pg_notify` emission | Caller transaction queryable | Transaction-pool-safe as an emission hint; durable event rows remain authoritative. |
-| Work-signal waiters | `createPostgresWorkSignalWaiter` over the same runtime pool | Direct/session-compatible until #3234 provides a separate waiter URL or equivalent split. |
+| Platform control-plane work-signal store and projection-operation waiters | `PLATFORM_WORK_SIGNAL_DATABASE_URL` | Direct/session-compatible; falls back to `PLATFORM_CONTROL_DATABASE_URL` until a separate URL is configured. |
+| Context-owned durable/realtime waiters | `createPostgresWorkSignalWaiter` over context runtime pools | Direct/session-compatible until #3238 provides per-context waiter URLs or equivalent split. |
 | Projection wake relay source listeners | `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` | Direct-only and least-privilege; never transaction-pooled. |
 | Bootstrap, migrations, grants, and production maintenance | App Platform bindings or Terraform/admin direct URLs | Direct-only. |
 | Realtime cleanup and retention | Runtime pool with bounded advisory-lock usage | Keep on current direct production posture until the waiter split proves transaction-pool safety. |
@@ -33,6 +34,7 @@ Production pooling remains a good target after #3234 splits work-signal waiter c
 Approved direct/session behavior found in the repo:
 
 - `infrastructure/platform-runtime/work-signal-composite.ts` owns `LISTEN` and `UNLISTEN` for shared work-signal waiters.
+- `deployables/platform-api/src/main.ts` wires the platform control-plane work-signal store and projection-operation waits through `PLATFORM_WORK_SIGNAL_DATABASE_URL`.
 - `infrastructure/platform-runtime/durable-job-store.ts`, `durable-job-work-units.ts`, and `control-plane.ts` wait through work-signal composite surfaces.
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` uses realtime notification and retention paths over runtime pools.
 - `deployables/platform-worker/src/main.ts` already creates dedicated projection wake relay listener pools from `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`.
@@ -42,7 +44,7 @@ Approved direct/session behavior found in the repo:
 
 Before enabling production transaction pools for runtime query traffic:
 
-1. Complete #3234 so work-signal waiters do not depend on transaction-pooled runtime URLs for production notification latency.
+1. Complete #3238 so context-owned durable/realtime waiters do not depend on transaction-pooled runtime URLs for production notification latency.
 2. Keep projection wake relay listeners on `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`.
 3. Add Terraform-managed production transaction pools only for query-safe traffic.
 4. Update the connection-budget model to count production PgBouncer backend allocation separately from direct listener, bootstrap, and maintenance demand.
