@@ -5247,6 +5247,16 @@ function scrydexLorcanaProfileReview(unitKey: string) {
         parentValueKind: null,
         parentDiagnosticText: null,
       },
+      {
+        queryKind: "cards",
+        queryKeySynonyms: ["card"],
+        displayName: "Card",
+        scope: "product/card",
+        parentScope: "set-name",
+        parentRequired: true,
+        parentValueKind: "set-id",
+        parentDiagnosticText: "Scrydex Lorcana card option queries require a selected set.",
+      },
     ],
   });
 }
