@@ -1329,6 +1329,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       'export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"',
     );
+    expect(platformProductionWorkflow).toContain('export SMOKE_ADMIN_TOPOLOGY="public-marketplace"');
+    expect(platformProductionWorkflow).toContain('export SMOKE_ADMIN_TOPOLOGY="production-platform-disabled"');
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
   });
 

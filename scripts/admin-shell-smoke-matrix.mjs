@@ -590,14 +590,39 @@ function requiresFulfillmentPostage(row) {
   return row.coverageIds.includes(ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID);
 }
 
+function apiDependencyForCoverageId(coverageId) {
+  return ADMIN_WEB_API_DEPENDENCIES.find((dependency) => dependency.smokeCoverageId === coverageId);
+}
+
+function isMandatoryProductionPlatformDisabledProbe(probe) {
+  return probe.coverageIds.includes("SMOKE-API-PLATFORM-PROJECTIONS");
+}
+
+function supportsDeployedApiProbeForTopology(probe, topologyMode) {
+  if (topologyMode !== "production-platform-disabled") {
+    return true;
+  }
+
+  if (isMandatoryProductionPlatformDisabledProbe(probe)) {
+    return true;
+  }
+
+  return probe.coverageIds.some((coverageId) => {
+    const expectation = apiDependencyForCoverageId(coverageId)?.topologyExpectations?.[topologyMode] ?? "";
+    return expectation.includes("admin-support API route") || expectation.includes("admin public ingress");
+  });
+}
+
 export function selectAdminDeployedPageSmokeRows(options = {}) {
   const { requireFulfillmentPostage = true } = options;
   return ADMIN_DEPLOYED_PAGE_SMOKE_ROWS.filter((row) => requireFulfillmentPostage || !requiresFulfillmentPostage(row));
 }
 
 export function selectAdminDeployedApiSmokeProbes(options = {}) {
-  const { requireFulfillmentPostage = true } = options;
+  const { requireFulfillmentPostage = true, topologyMode = "staging" } = options;
   return ADMIN_DEPLOYED_API_SMOKE_PROBES.filter(
-    (probe) => requireFulfillmentPostage || !requiresFulfillmentPostage(probe),
+    (probe) =>
+      (requireFulfillmentPostage || !requiresFulfillmentPostage(probe)) &&
+      supportsDeployedApiProbeForTopology(probe, topologyMode),
   );
 }

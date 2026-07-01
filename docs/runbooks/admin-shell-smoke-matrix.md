@@ -99,6 +99,7 @@ These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test --
 ## Deployed API Probe Rows
 
 These rows are also exercised by `pnpm run smoke:platform` when admin credentials are configured. The probe can pass with an authorized result or a controlled authorization/not-found result, but must not return a host-level HTML/plain-text fallback.
+Production smoke sets `SMOKE_ADMIN_TOPOLOGY`; when production runs with the marketplace platform disabled, probes for rows documented as controlled-unavailable/internal-origin only are skipped while deployed admin-support/public-ingress probes and `SMOKE-PROBE-PLATFORM-PROJECTIONS` still run.
 
 | ID | Path | Linked Coverage |
 | --- | --- | --- |

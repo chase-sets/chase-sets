@@ -161,6 +161,27 @@ describe("admin shell smoke matrix", () => {
     ).toBe(true);
   });
 
+  it("keeps production-platform-disabled API probes on deployed ingress routes", () => {
+    const productionDisabledProbeIds = selectAdminDeployedApiSmokeProbes({
+      topologyMode: "production-platform-disabled",
+    }).map((probe) => probe.id);
+
+    expect(productionDisabledProbeIds).toEqual([
+      "SMOKE-PROBE-AUTH-SESSION",
+      "SMOKE-PROBE-IDENTITY-CURRENT-ACTOR",
+      "SMOKE-PROBE-PUBLIC-PRESENCE-WAITLIST",
+      "SMOKE-PROBE-EXPERIENCE-PLATFORM-FEEDBACK",
+      "SMOKE-PROBE-PLATFORM-PROJECTIONS",
+      "SMOKE-PROBE-WAITLIST-EXPORT",
+      "SMOKE-PROBE-CATALOG-REALTIME",
+      "SMOKE-PROBE-CATALOG-INTEGRATION-JOB-STREAM",
+      "SMOKE-PROBE-CATALOG-BULK-JOB-STREAM",
+      "SMOKE-PROBE-CATALOG-AUTHORING-JOB-STREAM",
+    ]);
+    expect(productionDisabledProbeIds).not.toContain("SMOKE-PROBE-COMMERCIAL-TERMS-SCHEDULES");
+    expect(productionDisabledProbeIds).toContain("SMOKE-PROBE-PLATFORM-PROJECTIONS");
+  });
+
   it("documents deployed API probes and their linked coverage ids", () => {
     const matrixCoverageIds = new Set(ADMIN_SHELL_SMOKE_MATRIX.map((row) => row.id));
     const apiCoverageIds = new Set(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.smokeCoverageId));
@@ -193,6 +214,7 @@ describe("admin shell smoke matrix", () => {
   it("wires deployed API probes into platform smoke", () => {
     expect(platformSmoke).toContain("selectAdminDeployedApiSmokeProbes");
     expect(platformSmoke).toContain("expectAdminDeployedApiProbes");
+    expect(platformSmoke).toContain("SMOKE_ADMIN_TOPOLOGY");
   });
 
   it("keeps the matrix explicit about link, download, SSE, and durable-job evidence", () => {

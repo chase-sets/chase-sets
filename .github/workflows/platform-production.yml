@@ -1925,12 +1925,15 @@ jobs:
           export SMOKE_REQUIRE_NATIVE_MCP="${TF_VAR_production_marketplace_public_enabled:-false}"
           export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            export SMOKE_ADMIN_TOPOLOGY="public-marketplace"
             if [ -z "$marketplace_domain" ]; then
               echo "Production marketplace promotion was enabled but no marketplace domain was present in Terraform outputs." >&2
               exit 1
             fi
             export SMOKE_REQUIRE_MARKETPLACE="true"
             smoke_urls+=("https://${marketplace_domain}")
+          else
+            export SMOKE_ADMIN_TOPOLOGY="production-platform-disabled"
           fi
           cd ../../..
           pnpm run smoke:platform -- "${smoke_urls[@]}"
