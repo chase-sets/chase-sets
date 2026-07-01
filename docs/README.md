@@ -59,6 +59,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
+- [Production PgBouncer Session-Safety Audit](./architecture/production-pgbouncer-session-safety.md): production pooling decision, traffic classes, and #3234 waiter-split follow-up for transaction-pool readiness.
 
 ### Event projection runtime
 

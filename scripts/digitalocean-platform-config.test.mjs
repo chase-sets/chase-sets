@@ -32,6 +32,10 @@ const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platf
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
+const productionPgBouncerSessionSafety = readFileSync(
+  resolve("docs/architecture/production-pgbouncer-session-safety.md"),
+  "utf8",
+);
 const marketplaceProviderProofStatusWorkflow = readFileSync(
   resolve(".github/workflows/marketplace-provider-proof-status.yml"),
   "utf8",
@@ -75,6 +79,20 @@ describe("DigitalOcean platform runbook", () => {
     );
     expect(digitaloceanPlatformRunbook).toContain(
       "warns if admin-support and marketplace/platform component families coexist in one App Platform app",
+    );
+  });
+});
+
+describe("Production PgBouncer session-safety audit", () => {
+  it("documents the direct-only gate before production transaction pooling", () => {
+    expect(productionPgBouncerSessionSafety).toContain(
+      "Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean transaction-mode PgBouncer yet.",
+    );
+    expect(productionPgBouncerSessionSafety).toContain("#3234 splits work-signal waiter connections");
+    expect(productionPgBouncerSessionSafety).toContain("Projection wake relay source listeners");
+    expect(productionPgBouncerSessionSafety).toContain("Direct-only and least-privilege; never transaction-pooled.");
+    expect(productionPgBouncerSessionSafety).toContain(
+      "Add Terraform-managed production transaction pools only for query-safe traffic.",
     );
   });
 });
