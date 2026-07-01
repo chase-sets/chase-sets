@@ -252,7 +252,20 @@ The report includes SLO posture for cautious merge-queue batch tuning. Initial t
 
 Increase deployable batch size only when all thresholds pass, p95 queue wait is known, and there are at least 10 recent deployable release attempts. The report returns `increase-to-2`, `hold`, or `decrease-or-hold`; do not mutate repository merge queue rules automatically from the report. If any threshold fails, decrease or hold batch size until the cause is understood.
 
-The same report includes a release process review checklist and image group decision inputs. Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
+The same report includes a release process review checklist plus the Capacity and Image Review section. Review it weekly during the milestone sweep and after each production deploy batch. Use `release-health/v1` records, projection freshness artifacts, and `push-wake-capacity-evidence/v1`; do not resize staging or split image groups from memory, anecdotes, or one-off local timings.
+
+Generate current checked-in connection-budget evidence before a capacity review:
+
+```powershell
+pnpm run ops push-wake:capacity-evidence --out .\artifacts\release-health\push-wake-capacity-evidence.json
+pnpm run ops release-health:report `
+  --dir .\artifacts\release-health `
+  --out .\artifacts\release-health\summary.md
+```
+
+Staging capacity tuning is intentionally explicit. The current Terraform knobs are `staging_database_size`, `worker_instance_size_slug`, `worker_instance_count`, `worker_job_concurrency`, and `worker_database_pool_max`; their defaults keep staging representative enough for the shared full-platform environment. Change them only through a PR after the report shows passing production proof, passing projection freshness, passing connection-budget evidence, no staging abort or stale-skip cause under review, and at least 10 deployable release attempts. A healthy report may return `eligible-for-staging-capacity-downsize-review`, which means "open a deliberate PR for the proposed window," not "auto-downsize." If staging or production duration p95 exceeds 20 minutes while proof and budget checks pass, open a follow-up issue in the infrastructure milestone before changing Terraform.
+
+Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. The report keeps image splitting `deferred-shared-image` until at least three pressure signals recur in the reviewed evidence. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 
 Operators inspect release state from CI evidence, not an in-app dashboard. The `release-health:report` output above combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, and canary decision, with links back to the GitHub Actions runs and the `production` marker. Read GitHub refs and workflow runs directly from the GitHub API or Actions UI; the release-health JSON artifacts in `artifacts/release-health` are the durable fallback when live GitHub metadata is unavailable.
 

@@ -34,6 +34,39 @@ function record(overrides = {}) {
   };
 }
 
+function capacityEvidence(overrides = {}) {
+  return {
+    schemaVersion: "push-wake-capacity-evidence/v1",
+    checkedAt: "2026-05-31T13:00:00.000Z",
+    environments: {
+      staging: {
+        deployOverlap: { headroom: 8 },
+      },
+      production: {
+        deployOverlap: { headroom: 12 },
+      },
+    },
+    expansionDecision: {
+      posture: "wave-2-direct-listeners-fit-current-tier",
+    },
+    ...overrides,
+  };
+}
+
+function buyNowFreshnessProbe(overrides = {}) {
+  return {
+    schemaVersion: "guest-buy-now-freshness-probe/v2",
+    environment: "production",
+    checkedAt: "2026-05-31T13:00:00.000Z",
+    flow: "account",
+    promotionDecision: "promote",
+    failureReason: null,
+    readyLatencyMs: 1200,
+    segments: { writeToCheckoutReadyMs: 900, documentToReadyMs: 300 },
+    ...overrides,
+  };
+}
+
 describe("release health report", () => {
   it("builds a markdown dashboard from release records", () => {
     const result = buildReleaseHealthReport({
@@ -118,7 +151,11 @@ describe("release health report", () => {
     expect(result.markdown).toContain("## Projection Freshness Evidence");
     expect(result.markdown).toContain("Projection freshness evidence posture: not-provided");
     expect(result.markdown).toContain("## Release Process Review Checklist");
-    expect(result.markdown).toContain("## Image Group Decision Inputs");
+    expect(result.markdown).toContain("## Capacity and Image Review");
+    expect(result.markdown).toContain("Capacity review posture: hold-current-capacity");
+    expect(result.markdown).toContain(
+      "| Refresh or fix push-wake capacity evidence | Connection-budget evidence is missing or failing. |",
+    );
     expect(result.markdown).toContain("| productionFailureRate | <= 2% | 33.3% | fail |");
   });
 
@@ -133,15 +170,47 @@ describe("release health report", () => {
       readyLatencyMs: 1200,
       segments: { writeToCheckoutReadyMs: 1200, documentToReadyMs: 300 },
     };
+    const capacity = capacityEvidence();
     const classified = classifyReleaseHealthArtifacts([
       { file: "release.json", record: release },
       { file: "guest-buy-now-freshness-probe.json", record: probe },
+      { file: "push-wake-capacity-evidence.json", record: capacity },
       { file: "production-readiness-gate.json", record: { schemaVersion: "marketplace-production-readiness/v1" } },
     ]);
 
     expect(classified.releaseRecords).toEqual([release]);
     expect(classified.evidenceArtifacts.map((artifact) => artifact.record)).toEqual([probe]);
+    expect(classified.capacityArtifacts.map((artifact) => artifact.record)).toEqual([capacity]);
     expect(classified.ignoredArtifacts).toHaveLength(1);
+  });
+
+  it("marks capacity review eligible only with enough healthy releases and passing evidence", () => {
+    const result = buildReleaseHealthReport({
+      checkedAt: "2026-05-31T13:00:00.000Z",
+      records: Array.from({ length: 10 }, (_, index) =>
+        record({
+          releaseCommit: `${String(index).repeat(40)}`.padEnd(40, "0").slice(0, 40),
+        }),
+      ),
+      evidenceArtifacts: [{ record: buyNowFreshnessProbe() }],
+      capacityArtifacts: [{ record: capacityEvidence() }],
+    });
+
+    expect(result.summary.capacityEvidence).toMatchObject({
+      posture: "pass",
+      productionDeployOverlapHeadroom: 12,
+      stagingHeadroom: 8,
+    });
+    expect(result.summary.capacityReview).toMatchObject({
+      stagingCapacityDecision: "eligible-for-staging-capacity-downsize-review",
+      imageGroupDecision: "deferred-shared-image",
+      connectionBudgetCheck: "pass",
+      productionProofCheck: "pass",
+    });
+    expect(result.summary.capacityReview.followUpIssues).toEqual([]);
+    expect(result.markdown).toContain("Capacity evidence posture: pass");
+    expect(result.markdown).toContain("Production rolling-overlap headroom: 12");
+    expect(result.markdown).toContain("| none | no follow-up issue trigger in current evidence |");
   });
 
   it("summarizes projection freshness evidence with low-cardinality segment rows", () => {
