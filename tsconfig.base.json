@@ -625,6 +625,9 @@
       "@chase-sets/platform-runtime/realtime-web": [
         "./infrastructure/platform-runtime/realtime-web.ts"
       ],
+      "@chase-sets/platform-runtime/runtime-profiles": [
+        "./infrastructure/platform-runtime/runtime-profiles.ts"
+      ],
       "@chase-sets/platform-runtime/source-context-wake-registry": [
         "./infrastructure/platform-runtime/source-context-wake-registry.ts"
       ],
