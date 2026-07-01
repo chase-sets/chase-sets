@@ -724,6 +724,13 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        env {
+          key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"
+          value = local.context_database_urls["control"]
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
         dynamic "env" {
           for_each = local.context_database_env
           content {
@@ -1371,6 +1378,13 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "PLATFORM_CONTROL_DATABASE_URL"
+          value = local.context_database_urls["control"]
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PLATFORM_WORK_SIGNAL_DATABASE_URL"
           value = local.context_database_urls["control"]
           type  = "SECRET"
           scope = "RUN_TIME"

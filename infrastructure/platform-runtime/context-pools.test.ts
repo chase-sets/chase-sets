@@ -19,6 +19,7 @@ describe("context pools", () => {
       expect(pools.auth).toBe(pools.catalog);
       expect(pools.catalog).toBe(pools.payments);
       expect(pools.control).toBe(pools.auth);
+      expect(pools.workSignal).toBe(pools.control);
     } finally {
       await closeContextPools(pools);
     }
@@ -38,7 +39,24 @@ describe("context pools", () => {
       expect(pools.auth).not.toBe(pools.catalog);
       expect(pools.payments).not.toBe(pools.catalog);
       expect(pools.control).not.toBe(pools.catalog);
+      expect(pools.workSignal).toBe(pools.control);
       expect(pools.auth).not.toBe(pools.payments);
+    } finally {
+      await closeContextPools(pools);
+    }
+  });
+
+  it("uses a separate work-signal pool when a direct waiter URL is configured", async () => {
+    const pools = createContextPools(testContextRegistry, {
+      sharedDatabaseUrl: "postgresql://localhost/shared",
+      controlDatabaseUrl: "postgresql://localhost/control-pooled",
+      workSignalDatabaseUrl: "postgresql://localhost/control-direct",
+      contextDatabaseUrls: {},
+    });
+
+    try {
+      expect(pools.control).not.toBe(pools.workSignal);
+      expect(pools.workSignal).not.toBe(pools.auth);
     } finally {
       await closeContextPools(pools);
     }

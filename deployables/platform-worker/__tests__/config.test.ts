@@ -5,6 +5,7 @@ import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-r
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
+  "PLATFORM_WORK_SIGNAL_DATABASE_URL",
   "NODE_ENV",
   "PORT",
   "STRIPE_SECRET_KEY",
@@ -139,6 +140,22 @@ describe("platform worker config", () => {
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
     });
+  });
+
+  it("loads an explicit direct work-signal database URL separately from runtime query URLs", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets_pooled";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control_pooled";
+    process.env.PLATFORM_WORK_SIGNAL_DATABASE_URL = "postgresql://localhost/control_direct";
+    process.env.DATABASE_URL_AUTH = "postgresql://localhost/auth_pooled";
+    process.env.DATABASE_URL_CHECKOUT = "postgresql://localhost/checkout_pooled";
+
+    const config = loadConfig();
+
+    expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets_pooled");
+    expect(config.controlDatabaseUrl).toBe("postgresql://localhost/control_pooled");
+    expect(config.workSignalDatabaseUrl).toBe("postgresql://localhost/control_direct");
+    expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth_pooled");
+    expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout_pooled");
   });
 
   it("keeps Google Merchant sync disabled unless explicitly enabled", () => {

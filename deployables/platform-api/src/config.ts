@@ -72,6 +72,7 @@ export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistr
 export type PlatformApiBaseConfig = Readonly<{
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl?: string;
+  workSignalDatabaseUrl?: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformApiContextName, string>>>;
   pool?: PlatformApiPoolConfig;
   port: number;

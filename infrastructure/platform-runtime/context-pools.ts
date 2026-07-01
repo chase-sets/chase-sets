@@ -3,12 +3,13 @@ import { createPgPool, type PgPoolOptions, type PgTransactionalPool } from "@cha
 export type ContextPoolConfig<TContextName extends string> = Readonly<{
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl?: string | null;
+  workSignalDatabaseUrl?: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
   pool?: PgPoolOptions;
 }>;
 
 export type ContextPools<TContextName extends string> = Readonly<Record<TContextName, PgTransactionalPool>> &
-  Readonly<{ control: PgTransactionalPool }>;
+  Readonly<{ control: PgTransactionalPool; workSignal: PgTransactionalPool }>;
 
 export type ContextPoolRegistry<
   TContextName extends string,
@@ -64,9 +65,13 @@ export function createContextPools<TContextName extends string, TConfig extends 
     ]),
   ) as Readonly<Record<TContextName, PgTransactionalPool>>;
 
+  const controlDatabaseUrl = resolveControlDatabaseUrl(contextRegistry, config, resolveContextDatabaseUrl);
+  const controlPool = resolvePool(controlDatabaseUrl);
+
   return {
     ...contextPools,
-    control: resolvePool(resolveControlDatabaseUrl(contextRegistry, config, resolveContextDatabaseUrl)),
+    control: controlPool,
+    workSignal: resolvePool(config.workSignalDatabaseUrl ?? controlDatabaseUrl),
   };
 }
 

@@ -80,6 +80,7 @@ const defaultCriticalReadConsistencyRouteTuning = [
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
+  "PLATFORM_WORK_SIGNAL_DATABASE_URL",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
 ];
 
@@ -211,6 +212,7 @@ describe("platform api config", () => {
   it("loads per-context database urls without a shared fallback", () => {
     delete process.env.DATABASE_URL;
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.PLATFORM_WORK_SIGNAL_DATABASE_URL = "postgresql://localhost/control-direct";
     for (const contextName of platformApiContextNames()) {
       process.env[getContextDatabaseEnvName(contextName)] =
         `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
@@ -220,6 +222,7 @@ describe("platform api config", () => {
 
     expect(config.sharedDatabaseUrl).toBeNull();
     expect(config.controlDatabaseUrl).toBe("postgresql://localhost/control");
+    expect(config.workSignalDatabaseUrl).toBe("postgresql://localhost/control-direct");
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
     expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
     expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");
