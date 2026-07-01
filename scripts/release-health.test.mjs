@@ -44,6 +44,8 @@ describe("release health summary", () => {
       recoveryMode: "none",
       recoveryReference: "",
       recoveryTargetCommit: "",
+      productionRecoveryMode: "precreated-fork",
+      productionRecoveryReason: "Money movement changed.",
       rollbackReadinessResult: "skipped",
       productionRestorePointResult: "success",
       productionRestorePointType: "digitalocean-database-fork",
@@ -101,6 +103,8 @@ describe("release health summary", () => {
         mode: "none",
         reference: null,
         targetCommit: null,
+        productionRecoveryMode: "precreated-fork",
+        productionRecoveryReason: "Money movement changed.",
         rollbackReadinessResult: "skipped",
         productionRestorePoint: {
           result: "success",

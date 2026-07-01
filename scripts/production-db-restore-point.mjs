@@ -25,6 +25,11 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
       readOption(argv, "--bypass") ?? readEnv("PRODUCTION_DB_RESTORE_POINT_BYPASS", env) ?? "false",
       "PRODUCTION_DB_RESTORE_POINT_BYPASS",
     ),
+    skip: parseBoolean(
+      readOption(argv, "--skip") ?? readEnv("PRODUCTION_DB_RESTORE_POINT_SKIP", env) ?? "false",
+      "PRODUCTION_DB_RESTORE_POINT_SKIP",
+    ),
+    skipReason: readOption(argv, "--skip-reason") ?? readEnv("PRODUCTION_DB_RESTORE_POINT_SKIP_REASON", env),
     doctlPath: readOption(argv, "--doctl") ?? readEnv("DOCTL_PATH", env) ?? "doctl",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
@@ -66,6 +71,10 @@ export async function createProductionDbRestorePoint(options, exec) {
       status: null,
       createdAt: null,
     },
+    skip: {
+      requested: Boolean(options.skip),
+      reason: emptyToNull(options.skipReason),
+    },
     bypass: {
       requested: Boolean(options.bypass),
       allowed: false,
@@ -88,6 +97,20 @@ export async function createProductionDbRestorePoint(options, exec) {
         allowed: true,
       },
       result: "bypassed",
+      errors: [],
+    };
+    return { record, passesRestorePointGate: true };
+  }
+
+  if (options.skip) {
+    const record = {
+      ...baseRecord,
+      restorePoint: {
+        ...baseRecord.restorePoint,
+        type: "digitalocean-managed-pitr",
+        status: "not-created",
+      },
+      result: "skipped",
       errors: [],
     };
     return { record, passesRestorePointGate: true };
@@ -193,14 +216,20 @@ function validateOptions(options) {
   if (!isNonEmptyString(options.workflowRunAttempt)) {
     errors.push("GITHUB_RUN_ATTEMPT is required.");
   }
-  if (!options.bypass && !isNonEmptyString(options.sourceClusterId)) {
+  if (!options.bypass && !options.skip && !isNonEmptyString(options.sourceClusterId)) {
     errors.push("PRODUCTION_DATABASE_CLUSTER_ID is required.");
+  }
+  if (options.bypass && options.skip) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_BYPASS and PRODUCTION_DB_RESTORE_POINT_SKIP cannot both be true.");
   }
   if (options.bypass && options.releaseMode !== "emergency") {
     errors.push("PRODUCTION_DB_RESTORE_POINT_BYPASS requires RELEASE_MODE=emergency.");
   }
   if (options.bypass && !isNonEmptyString(options.emergencyReference)) {
     errors.push("PRODUCTION_DB_RESTORE_POINT_BYPASS requires EMERGENCY_RELEASE_REFERENCE.");
+  }
+  if (options.skip && !isNonEmptyString(options.skipReason)) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_SKIP requires PRODUCTION_DB_RESTORE_POINT_SKIP_REASON.");
   }
   return errors;
 }
