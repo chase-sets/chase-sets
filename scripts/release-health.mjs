@@ -94,6 +94,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     recoveryReference: readOption(argv, "--recovery-reference") ?? readEnv("RECOVERY_REFERENCE", env) ?? null,
     recoveryTargetCommit:
       readOption(argv, "--recovery-target-commit") ?? readEnv("RECOVERY_TARGET_COMMIT", env) ?? null,
+    productionRecoveryMode:
+      readOption(argv, "--production-recovery-mode") ?? readEnv("PRODUCTION_RECOVERY_MODE", env) ?? "unknown",
+    productionRecoveryReason:
+      readOption(argv, "--production-recovery-reason") ?? readEnv("PRODUCTION_RECOVERY_REASON", env) ?? null,
     rollbackReadinessResult:
       readOption(argv, "--rollback-readiness-result") ?? readEnv("ROLLBACK_READINESS_RESULT", env) ?? "unknown",
     productionRestorePointResult:
@@ -163,6 +167,9 @@ export function buildReleaseHealthRecord(input) {
   }
   if (!["none", "readiness", "rollback", "fix-forward"].includes(recoveryMode)) {
     errors.push("recoveryMode must be none, readiness, rollback, or fix-forward.");
+  }
+  if (!["pitr", "precreated-fork", "manual-hold", "unknown"].includes(input.productionRecoveryMode ?? "unknown")) {
+    errors.push("productionRecoveryMode must be pitr, precreated-fork, manual-hold, or unknown.");
   }
   if (isNonEmptyString(input.recoveryTargetCommit) && !isCommitSha(input.recoveryTargetCommit)) {
     errors.push("recoveryTargetCommit must be a 40-character Git commit SHA when provided.");
@@ -247,6 +254,8 @@ export function buildReleaseHealthRecord(input) {
       mode: recoveryMode,
       reference: emptyToNull(input.recoveryReference ?? input.emergencyReference),
       targetCommit: emptyToNull(input.recoveryTargetCommit),
+      productionRecoveryMode: input.productionRecoveryMode ?? "unknown",
+      productionRecoveryReason: emptyToNull(input.productionRecoveryReason),
       rollbackReadinessResult: normalizeResult(input.rollbackReadinessResult),
       productionRestorePoint: {
         result: normalizeResult(input.productionRestorePointResult),

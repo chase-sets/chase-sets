@@ -16,6 +16,16 @@ on:
         required: false
         default: false
         type: boolean
+      force_restore_point:
+        description: Force a precreated production database restore-point fork for this release.
+        required: false
+        default: false
+        type: boolean
+      recovery_reason:
+        description: Reason for forcing a production restore-point fork.
+        required: false
+        default: ""
+        type: string
       emergency_release:
         description: Bypass an active production release lock for an audited fix-forward or revert.
         required: false
@@ -46,6 +56,9 @@ jobs:
       deployment_required: ${{ steps.deployment_scope.outputs.deploy }}
       exposure_posture_categories: ${{ steps.deployment_scope.outputs.exposure_posture_categories }}
       exposure_posture_changed: ${{ steps.deployment_scope.outputs.exposure_posture_changed }}
+      production_recovery_mode: ${{ steps.recovery_mode.outputs.production_recovery_mode }}
+      production_recovery_reason: ${{ steps.recovery_mode.outputs.production_recovery_reason }}
+      production_restore_point_required: ${{ steps.recovery_mode.outputs.production_restore_point_required }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -115,6 +128,7 @@ jobs:
                 echo "exposure_posture_changed=false"
                 echo "exposure_posture_categories="
                 echo "exposure_posture_categories_json=[]"
+                echo "changed_files_json=[]"
               } >> "$GITHUB_OUTPUT"
               echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale deployment before staging."
               exit 0
@@ -127,6 +141,7 @@ jobs:
               echo "exposure_posture_changed=false"
               echo "exposure_posture_categories="
               echo "exposure_posture_categories_json=[]"
+              echo "changed_files_json=[]"
             } >> "$GITHUB_OUTPUT"
             echo "Manual force deployment requested for ${release_commit}."
             exit 0
@@ -144,12 +159,25 @@ jobs:
               echo "exposure_posture_changed=false"
               echo "exposure_posture_categories="
               echo "exposure_posture_categories_json=[]"
+              echo "changed_files_json=[]"
             } >> "$GITHUB_OUTPUT"
             echo "No base commit was available for ${release_commit}; deployment is required."
             exit 0
           fi
 
           node ./scripts/change-scope.mjs github-output --base="${base_commit}" --head="${release_commit}"
+
+      - name: Resolve production recovery mode
+        id: recovery_mode
+        run: |
+          set -euo pipefail
+          node ./scripts/production-recovery-mode.mjs \
+            --release-commit "${{ steps.release.outputs.release_commit }}" \
+            --changed-files-json '${{ steps.deployment_scope.outputs.changed_files_json || '[]' }}' \
+            --force-restore-point "${{ github.event_name == 'workflow_dispatch' && inputs.force_restore_point == true && 'true' || 'false' }}" \
+            --recovery-reason "${{ github.event_name == 'workflow_dispatch' && inputs.recovery_reason || '' }}" \
+            --out artifacts/release-health/production-recovery-mode.json \
+            --github-output "$GITHUB_OUTPUT"
 
   build-image:
     name: Build Release Image
@@ -1696,6 +1724,8 @@ jobs:
           RELEASE_MODE: ${{ steps.release_lock.outputs.release_mode || 'normal' }}
           EMERGENCY_RELEASE_REFERENCE: ${{ steps.release_lock.outputs.emergency_reference || '' }}
           PRODUCTION_DB_RESTORE_POINT_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
+          PRODUCTION_DB_RESTORE_POINT_SKIP: ${{ needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true' }}
+          PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: ${{ needs.resolve-release.outputs.production_recovery_mode == 'pitr' && needs.resolve-release.outputs.production_recovery_reason || '' }}
         run: |
           set -euo pipefail
           source_cluster_id="$(terraform output -raw postgres_cluster_id 2>/dev/null || true)"
@@ -1723,7 +1753,7 @@ jobs:
               echo "Using production database cluster id from Terraform plan."
             fi
           fi
-          if [ -z "$source_cluster_id" ] && [ "$PRODUCTION_DB_RESTORE_POINT_BYPASS" != "true" ]; then
+          if [ -z "$source_cluster_id" ] && [ "$PRODUCTION_DB_RESTORE_POINT_BYPASS" != "true" ] && [ "$PRODUCTION_DB_RESTORE_POINT_SKIP" != "true" ]; then
             echo "Production Terraform state did not expose postgres_cluster_id; refusing to continue without a pre-migrate restore point." >&2
             exit 1
           fi
@@ -2310,6 +2340,8 @@ jobs:
           RECOVERY_MODE: ${{ steps.production_rollback.outputs.result == 'success' && 'rollback' || github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
           RECOVERY_REFERENCE: ${{ steps.production_rollback.outputs.rollback_reference || steps.release_lock.outputs.emergency_reference }}
           RECOVERY_TARGET_COMMIT: ${{ steps.production_rollback.outputs.rollback_target_commit || '' }}
+          PRODUCTION_RECOVERY_MODE: ${{ needs.resolve-release.outputs.production_recovery_mode }}
+          PRODUCTION_RECOVERY_REASON: ${{ needs.resolve-release.outputs.production_recovery_reason }}
           ROLLBACK_READINESS_RESULT: ${{ env.SHOULD_DEPLOY == 'false' && 'skipped' || steps.rollback_readiness.outputs.result || 'failure' }}
           PRODUCTION_RESTORE_POINT_RESULT: ${{ steps.production_restore_point.outputs.restore_point_result || 'unknown' }}
           PRODUCTION_RESTORE_POINT_TYPE: ${{ steps.production_restore_point.outputs.restore_point_type || '' }}
