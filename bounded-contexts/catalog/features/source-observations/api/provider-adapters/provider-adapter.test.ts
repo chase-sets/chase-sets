@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,7 @@ import {
   runMtgjsonSourceObservationValidationDryRun,
 } from "./mtgjson";
 import {
+  createLorcanajsonProviderAdapter,
   createLorcanajsonValidationProviderAdapter,
   LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
   LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
@@ -1472,7 +1473,13 @@ describe("ProviderAdapterRegistry", () => {
       scopeKey: "single-card",
       values: { setCode: "1", cardName: "Elsa - Snow Queen", cardNumber: "41" },
     });
+    const setPlan = await adapter.planImport({
+      unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { setId: "1", setName: "The First Chapter" },
+    });
     const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const setPayloads = await collectPayloads(adapter.fetchPayloads(setPlan));
     const dryRun = await runLorcanajsonCardReferenceValidationDryRun(adapter);
 
     expect(units.map((unit) => unit.unitKey)).toEqual([
@@ -1504,6 +1511,14 @@ describe("ProviderAdapterRegistry", () => {
       estimatedRequestCount: 1,
       perRecordFallbackReason: null,
     });
+    expect(setPlan).toMatchObject({
+      unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      planKey: "lorcanajson:set:1",
+      scope: expect.objectContaining({
+        values: expect.objectContaining({ setCode: "1", setId: "1", setName: "The First Chapter" }),
+      }),
+      estimatedPayloads: 1,
+    });
     expect(payloads).toEqual([
       expect.objectContaining({
         unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
@@ -1520,6 +1535,18 @@ describe("ProviderAdapterRegistry", () => {
           fetchedAt: "2026-06-23T00:00:00.000Z",
           sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
           contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(setPayloads).toEqual([
+      expect.objectContaining({
+        unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "lorcanajson",
+        externalKey: "set:1",
+        payload: expect.objectContaining({
+          kind: "lorcana-set-reference",
+          setCode: "1",
+          setName: "The First Chapter",
         }),
       }),
     ]);
@@ -1543,6 +1570,25 @@ describe("ProviderAdapterRegistry", () => {
       ],
       diagnostics: [],
     });
+  });
+
+  it("fails LorcanaJSON payload fetches with a terminal timeout instead of hanging", async () => {
+    const fetch = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    ) as typeof globalThis.fetch;
+    const adapter = createLorcanajsonProviderAdapter({ fetch, fetchTimeoutMs: 1 });
+    const plan = await adapter.planImport({
+      unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "set",
+      values: { setCode: "1" },
+    });
+
+    await expect(collectPayloads(adapter.fetchPayloads(plan))).rejects.toThrow(
+      "LorcanaJSON request timed out before the provider returned a response.",
+    );
   });
 
   it("validates Lorcast reference data through public API ProviderAdapter extension points", async () => {
