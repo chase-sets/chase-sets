@@ -339,6 +339,18 @@ The typed profile source of truth lives in `@chase-sets/platform-runtime/runtime
 
 Mixed selections fail closed. For example, `productionMode=landing` with `CHASE_SETS_RUNTIME_PROFILE=proof` is invalid because proof routes and live provider callback expectations must not appear in landing mode. The contract also describes mounted context set, provider callback posture, private proof route exposure, worker groups, required secret posture, and smoke expectation. Terraform and workflow issues in the profiled-topology milestone should consume this contract instead of inventing component-name conditionals.
 
+Database lifecycle is a companion track to runtime profile migration, not a side effect of it. Sequence the deployable-profile work in this order:
+
+1. Introduce and consume the typed runtime profile contract.
+2. Keep `provisioned_context_names`, `active_runtime_context_names`, and `exposed_route_context_names` separate.
+3. Keep production durable database destructive-change guards active for the managed Postgres cluster, context databases, context users, wake-listener users, and context connection pools.
+4. Use `connection_budget_profiles` and the push-wake capacity evidence before changing pool maxima, worker concurrency, direct listener counts, or database tier.
+5. Treat production PgBouncer as blocked until the session-safety gate splits work-signal waiters from transaction-pooled query traffic.
+6. Cut over App Platform API/worker topology only after the profile and database evidence agree.
+7. Remove retired admin-support deployables only after production release-health and topology evidence are clean.
+
+Creating a context database/user is reversible only through reviewed database lifecycle work; it never exposes routes or starts workers by itself. Profile activation and ingress rules own exposure.
+
 ## Staging Deployment
 
 Staging deploys through `.github/workflows/platform-production.yml` after the `Platform PR` workflow succeeds for a `main` push, before production, when the release commit changed deployable runtime or Terraform surfaces. Staging is a pre-production verification check, not the release destination: it proves the release image can run Terraform-managed migrations/bootstrap and pass smoke checks against durable staging state. Manual dispatch is retained as a redeploy escape hatch for a ref already contained in `origin/main`; manual dispatch compares the requested ref with the `production` marker when available and runs staging before production only when deployment is required. If a queued automatic deployment finally starts after a newer `origin/main` commit exists, the staging job skips deployment work without marking the workflow failed, and production promotion stays skipped because staging did not deploy that stale commit.
@@ -426,6 +438,17 @@ The workflow:
 Use the `Platform Emergency Recovery` workflow as the guided front door for fix-forward, revert, rollback, and rollback-readiness paths. It validates the emergency reference, names whether release-lock bypass is allowed, and uploads `emergency-recovery-guide` evidence. Use the `Platform Rollback Readiness` workflow before rollback recovery. It validates the target commit, release tag, DOCR image, smoke-verified production marker, emergency reference, and destructive Terraform approval posture without deploying the target.
 
 Production destructive-change overrides must be explicit in the pull request. Add `.github/deployment/production-destructive-change-approved.md` only for a deliberately reviewed infrastructure migration, list each approved Terraform resource address under `Approved Destructive Changes`, and remove the marker in the same PR or an immediate follow-up when the migration is complete. The deploy helper fails closed when the plan contains a destructive action that is not listed in the marker. Durable database deletes are guarded separately for the managed Postgres cluster, context databases, context users, wake-listener users, and context connection pools: profile/topology changes should use profile gating or retained context provisioning, recovery should use PITR/restore procedures, and only an audited resource-scoped emergency override may name those database resources for deletion or replacement.
+
+Topology/release-health evidence for profile migration must include:
+
+- selected production mode and runtime/worker profiles;
+- provisioned, active runtime, and exposed route context counts;
+- `connection_budget_profiles` for landing/proof/public, including steady-state and rolling-deploy headroom;
+- PgBouncer posture, including whether production query traffic remains direct or is explicitly routed through a session-safe pooling split;
+- destructive database guard outcome and any reviewed override marker addresses;
+- restore expectation: projection rebuild for derived read models, managed Postgres PITR for cluster/database recovery, or a precreated restore-point fork only when the release recovery mode requires it.
+
+Use a precreated production database fork for release windows that carry reviewed data-destructive migrations, provider/live-money evidence that cannot be replayed safely, or an emergency reference that explicitly calls for a fork. Ordinary runtime profile changes, route exposure changes, worker runner changes, and projection rebuilds should rely on retained contexts plus the standard DigitalOcean PITR/backups posture instead of creating a fork by habit.
 
 ## Smoke Coverage
 
