@@ -1,23 +1,25 @@
-import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
+import { type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
 import {
   closeContextPools,
   createContextPools,
   type ContextPoolRegistry,
   type ContextPools,
 } from "@chase-sets/platform-runtime/context-pools";
-import { getContextDatabaseEnvName, type PlatformWorkerConfig } from "./config";
-import { workerContextRegistry } from "./generated/worker-context-registry";
-
-const platformWorkerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
-
-const platformWorkerPoolRegistry = {
-  contextNames: platformWorkerContexts,
+import {
   getContextDatabaseEnvName,
-} satisfies ContextPoolRegistry<WorkerHostContextName<typeof workerContextRegistry>, PlatformWorkerConfig>;
+  getPlatformWorkerContextsForRuntimeProfile,
+  type PlatformWorkerConfig,
+} from "./config";
+import { workerContextRegistry } from "./generated/worker-context-registry";
 
 export function createPlatformWorkerPools(
   config: PlatformWorkerConfig,
 ): ContextPools<WorkerHostContextName<typeof workerContextRegistry>> {
+  const platformWorkerPoolRegistry = {
+    contextNames: getPlatformWorkerContextsForRuntimeProfile(config.runtimeProfile),
+    getContextDatabaseEnvName,
+  } satisfies ContextPoolRegistry<WorkerHostContextName<typeof workerContextRegistry>, PlatformWorkerConfig>;
+
   return createContextPools(platformWorkerPoolRegistry, config);
 }
 

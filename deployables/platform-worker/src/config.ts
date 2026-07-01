@@ -20,6 +20,11 @@ import {
   type PlatformPostageConfig,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
+import {
+  isPlatformWorkerRuntimeProfile,
+  type PlatformWorkerRuntimeProfile,
+} from "@chase-sets/platform-runtime/runtime-profiles";
+import type { WorkerHostName } from "@chase-sets/platform-runtime/worker";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
@@ -27,6 +32,7 @@ export type PlatformWorkerContextName = WorkerHostContextName<typeof workerConte
 export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
+  runtimeProfile: PlatformWorkerRuntimeProfile;
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl: string;
   workSignalDatabaseUrl: string | null;
@@ -162,7 +168,20 @@ export type PlatformWorkerNotificationEmailConfig = Readonly<{
   }>;
 }>;
 
-const workerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
+const platformWorkerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
+const landingWorkerContexts = getWorkerHostContextNames(workerContextRegistry, "admin-support-worker");
+
+export function getPlatformWorkerHostNameForRuntimeProfile(
+  runtimeProfile: PlatformWorkerRuntimeProfile,
+): WorkerHostName {
+  return runtimeProfile === "landing" ? "admin-support-worker" : "platform-worker";
+}
+
+export function getPlatformWorkerContextsForRuntimeProfile(
+  runtimeProfile: PlatformWorkerRuntimeProfile,
+): readonly PlatformWorkerContextName[] {
+  return runtimeProfile === "landing" ? landingWorkerContexts : platformWorkerContexts;
+}
 
 export function getContextDatabaseEnvName(contextName: PlatformWorkerContextName) {
   return getSharedContextDatabaseEnvName(contextName);
@@ -177,7 +196,9 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
+  const runtimeProfile = loadRuntimeProfile();
   const productionLike = process.env.NODE_ENV === "production";
+  const workerContexts = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
   const databaseConfig = loadPlatformDatabaseConfig({
     contextNames: workerContexts,
     missingControlDatabaseUrlError: "PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required.",
@@ -199,8 +220,9 @@ export function loadConfig(): PlatformWorkerConfig {
   const twilioMessagingServiceSid = getOptionalEnv("TWILIO_MESSAGING_SERVICE_SID");
   const twilioApiBaseUrl = getOptionalEnv("TWILIO_API_BASE_URL") ?? undefined;
   const twilioStatusCallbackBaseUrl = getOptionalEnv("TWILIO_STATUS_CALLBACK_BASE_URL") ?? undefined;
+  const providerRequired = productionLike && runtimeProfile !== "landing";
   const stripeProvider = loadStripeProviderConfig({
-    productionLike,
+    productionLike: providerRequired,
     productionMissingConfigError:
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
   });
@@ -213,8 +235,7 @@ export function loadConfig(): PlatformWorkerConfig {
   const sesSourceArn = getOptionalEnv("SES_SOURCE_ARN") ?? undefined;
   const localEmailCaptureFile =
     getOptionalEnv("LOCAL_EMAIL_CAPTURE_FILE") ?? "artifacts/notifications/local-email-capture.jsonl";
-
-  if (productionLike && !easyPostApiKey) {
+  if (providerRequired && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for platform worker postage label work in production.");
   }
   if (productionLike && notificationEmailProvider === "local-capture") {
@@ -242,6 +263,7 @@ export function loadConfig(): PlatformWorkerConfig {
   const maxConcurrentRunners = getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4);
 
   return {
+    runtimeProfile,
     ...databaseConfig,
     pool: loadPoolConfig(),
     catalogAssetStorage: loadCatalogAssetStorageConfig({
@@ -327,7 +349,7 @@ export function loadConfig(): PlatformWorkerConfig {
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
     projectionWakeScheduler: {
-      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
+      enabled: runtimeProfile !== "landing" && getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
       maxConcurrentRunners: getPositiveNumberEnv("WORKER_WAKE_MAX_CONCURRENT_RUNNERS", 2),
       pollIntervalMs: getPositiveNumberEnv("WORKER_WAKE_POLL_INTERVAL_MS", 1_000),
       // Lane runner counts accept zero so an operator can kill one priority
@@ -344,7 +366,7 @@ export function loadConfig(): PlatformWorkerConfig {
       cleanupIntervalMs: getPositiveNumberEnv("WORK_SIGNAL_CLEANUP_INTERVAL_MS", 60_000),
     },
     projectionWakeRelay: {
-      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_RELAY_ENABLED", true),
+      enabled: runtimeProfile !== "landing" && getBooleanEnv("WORKER_PROJECTION_WAKE_RELAY_ENABLED", true),
       listenerDatabaseUrls: Object.fromEntries(
         workerContexts.flatMap((contextName) => {
           const listenerDatabaseUrl = getOptionalEnv(getContextListenerDatabaseEnvName(contextName));
@@ -390,7 +412,7 @@ export function loadConfig(): PlatformWorkerConfig {
           }
         : { kind: "noop" },
     postage: loadPostageConfig({
-      productionLike,
+      productionLike: providerRequired,
       productionMissingApiKeyError:
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
@@ -421,6 +443,15 @@ export function loadConfig(): PlatformWorkerConfig {
       },
     },
   };
+}
+
+function loadRuntimeProfile(): PlatformWorkerRuntimeProfile {
+  const value = getOptionalEnv("CHASE_SETS_RUNTIME_PROFILE") ?? "public";
+  if (!isPlatformWorkerRuntimeProfile(value)) {
+    throw new Error("CHASE_SETS_RUNTIME_PROFILE must be landing, proof, or public.");
+  }
+
+  return value;
 }
 
 export function describeGoogleMerchantConfigForLogs(config: PlatformWorkerGoogleMerchantConfig) {
