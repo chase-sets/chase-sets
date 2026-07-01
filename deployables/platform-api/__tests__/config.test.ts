@@ -3,6 +3,7 @@ import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/
 import {
   getContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName,
+  getPlatformApiContextsForRuntimeProfile,
   loadBootstrapConfig,
   loadConfig,
 } from "../src/config";
@@ -100,6 +101,7 @@ function resetConfigEnv() {
   }
 
   delete process.env.PORT;
+  delete process.env.CHASE_SETS_RUNTIME_PROFILE;
   delete process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
@@ -156,6 +158,7 @@ function resetConfigEnv() {
   delete process.env.PLATFORM_ADMIN_PASSWORD;
   delete process.env.PLATFORM_ADMIN_DISPLAY_NAME;
   delete process.env.PLATFORM_ADMIN_ACCOUNT_NAME;
+  delete process.env.ADMIN_REGISTRATION_ENABLED;
   delete process.env.CATALOG_ASSET_STORAGE_KIND;
   delete process.env.CATALOG_ASSET_LOCAL_ROOT;
   delete process.env.CATALOG_ASSET_PUBLIC_BASE_URL;
@@ -192,6 +195,7 @@ describe("platform api config", () => {
     expect(config.sharedDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.controlDatabaseUrl).toBe("postgresql://localhost/chase_sets");
     expect(config.contextDatabaseUrls).toEqual({});
+    expect(config.runtimeProfile).toBe("public");
     expect(config.paymentReconciliationIntervalMs).toBe(300_000);
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
     expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
@@ -235,6 +239,24 @@ describe("platform api config", () => {
     expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
     expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");
     expect(config.contextDatabaseUrls.settlement).toBe("postgresql://localhost/settlement");
+  });
+
+  it("loads the landing runtime profile with only support-context database urls", () => {
+    delete process.env.DATABASE_URL;
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    for (const contextName of getPlatformApiContextsForRuntimeProfile("landing")) {
+      process.env[getContextDatabaseEnvName(contextName)] =
+        `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
+    }
+
+    const config = loadBootstrapConfig();
+
+    expect(config.runtimeProfile).toBe("landing");
+    expect(config.contextDatabaseUrls.checkout).toBeUndefined();
+    expect(config.contextDatabaseUrls.payments).toBeUndefined();
+    expect(config.contextDatabaseUrls.settlement).toBeUndefined();
+    expect(config.contextDatabaseUrls["public-presence"]).toBe("postgresql://localhost/public_presence");
   });
 
   it("supports mixed shared and per-context database urls", () => {
@@ -538,6 +560,36 @@ describe("platform api config", () => {
     expect(() => loadConfig()).toThrow(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
+  });
+
+  it("allows production landing profile without marketplace provider secrets", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+
+    const config = loadConfig();
+
+    expect(config.runtimeProfile).toBe("landing");
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toEqual({ kind: "fake" });
+    expect(config.postage).toEqual({ kind: "sandbox" });
+    expect(config.listingPhotoStorage).toEqual({
+      kind: "filesystem",
+      rootDir: "artifacts/marketplace-listing-photos",
+      publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
+    });
+    expect(config.stripeGoLive).toMatchObject({
+      paymentsConfigured: false,
+      connectConfigured: false,
+      fakeFallbackAllowed: false,
+    });
   });
 
   it("does not require hosted payout setup URLs in production config", () => {

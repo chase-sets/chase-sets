@@ -32,6 +32,10 @@ import {
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
+  isPlatformApiRuntimeProfile,
+  type PlatformApiRuntimeProfile,
+} from "@chase-sets/platform-runtime/runtime-profiles";
+import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
@@ -71,6 +75,7 @@ export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorag
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
+  runtimeProfile: PlatformApiRuntimeProfile;
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl?: string;
   workSignalDatabaseUrl?: string | null;
@@ -87,6 +92,7 @@ export type PlatformApiBaseConfig = Readonly<{
   payoutReconciliationIntervalMs?: number | null;
   deploymentEnvironment?: string | null;
   dataProfiles?: readonly EnvironmentDataProfile[];
+  adminRegistrationEnabled?: boolean;
   taxProviderBackedQuotesRequired?: boolean;
 }>;
 
@@ -293,6 +299,13 @@ export type StripeGoLiveCheckReport = Readonly<{
 }>;
 
 const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
+const landingApiContexts = getApiHostContextNames(apiContextRegistry, "admin-support-api");
+
+export function getPlatformApiContextsForRuntimeProfile(
+  runtimeProfile: PlatformApiRuntimeProfile,
+): readonly PlatformApiContextName[] {
+  return runtimeProfile === "landing" ? landingApiContexts : platformApiContexts;
+}
 
 function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
   const value = getOptionalEnv(name) ?? "enabled";
@@ -389,6 +402,15 @@ function getDeploymentEnvironment() {
 
 function isProductionDeployment() {
   return getDeploymentEnvironment() === "production";
+}
+
+function loadRuntimeProfile(): PlatformApiRuntimeProfile {
+  const value = getOptionalEnv("CHASE_SETS_RUNTIME_PROFILE") ?? "public";
+  if (!isPlatformApiRuntimeProfile(value)) {
+    throw new Error("CHASE_SETS_RUNTIME_PROFILE must be landing, proof, or public.");
+  }
+
+  return value;
 }
 
 function isLongLivedEnvironment(environmentName: string) {
@@ -525,8 +547,9 @@ export function getContextWaiterDatabaseEnvName(contextName: PlatformApiContextN
 function loadBaseConfig(): PlatformApiBaseConfig {
   const deploymentEnvironment = getDeploymentEnvironment();
   const productionLike = isProductionDeployment();
+  const runtimeProfile = loadRuntimeProfile();
   const databaseConfig = loadPlatformDatabaseConfig({
-    contextNames: platformApiContexts,
+    contextNames: getPlatformApiContextsForRuntimeProfile(runtimeProfile),
     missingControlDatabaseUrlError:
       "PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required for platform control-plane coordination.",
     productionLike,
@@ -535,6 +558,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
   });
 
   return {
+    runtimeProfile,
     ...databaseConfig,
     pool: loadPoolConfig(),
     port: Number(process.env.PORT ?? 6182),
@@ -578,6 +602,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
+    adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
     taxProviderBackedQuotesRequired: getBooleanEnv("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", false),
   };
 }
@@ -602,6 +627,8 @@ export function loadConfig(): PlatformApiConfig {
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
+  const productionLike = isProductionDeployment();
+  const providerRequired = productionLike && baseConfig.runtimeProfile !== "landing";
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
   const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
@@ -613,11 +640,10 @@ export function loadConfig(): PlatformApiConfig {
   const mobileMessagingProvider = resolveMobileMessagingProvider(getOptionalEnv("MOBILE_MESSAGING_PROVIDER"));
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
-  const productionLike = isProductionDeployment();
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
 
   if (
-    productionLike &&
+    providerRequired &&
     (baseConfig.realtime.streamLimiter.kind !== "postgres" || !baseConfig.realtime.wakeSignalEnabled)
   ) {
     throw new Error(
@@ -626,12 +652,12 @@ export function loadConfig(): PlatformApiConfig {
   }
 
   const stripeProvider = loadStripeProviderConfig({
-    productionLike,
+    productionLike: providerRequired,
     productionMissingConfigError:
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
   });
 
-  if (productionLike && !easyPostApiKey) {
+  if (providerRequired && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for USPS postage label purchasing in production.");
   }
   if (productionLike && !getOptionalEnv(PLATFORM_INTERNAL_AUTH_SECRET_ENV)) {
@@ -656,7 +682,7 @@ export function loadConfig(): PlatformApiConfig {
     throw new Error("TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.");
   }
   const postage = loadPostageConfig({
-    productionLike,
+    productionLike: providerRequired,
     productionMissingApiKeyError: "EASYPOST_API_KEY is required for USPS postage label purchasing in production.",
     includeWebhookSecret: true,
     productionMissingWebhookSecretError:
@@ -667,7 +693,7 @@ export function loadConfig(): PlatformApiConfig {
     productionLike,
     defaultPublicBaseUrl: `http://localhost:${baseConfig.port}/catalog-assets`,
   });
-  const listingPhotoStorage = loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage);
+  const listingPhotoStorage = loadListingPhotoStorageConfig(baseConfig.port, providerRequired, catalogAssetStorage);
 
   const socialLogin: PlatformApiSocialLoginConfig = {
     ...(googleSocialLoginClientId && googleSocialLoginClientSecret

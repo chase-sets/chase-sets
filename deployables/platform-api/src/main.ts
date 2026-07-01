@@ -246,6 +246,7 @@ logger.info("Stripe go-live checks resolved.", {
 });
 
 const runtime = createPlatformApiHost({
+  runtimeProfile: config.runtimeProfile,
   pools,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
@@ -482,7 +483,9 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
     : {}),
 });
 const app = buildPlatformApiApp(runtime, {
+  runtimeProfile: config.runtimeProfile,
   internalAuthSecret: config.internalAuthSecret,
+  adminRegistrationEnabled: config.adminRegistrationEnabled,
   controlPlane,
   workSignalStore,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),

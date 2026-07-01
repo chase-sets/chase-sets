@@ -56,6 +56,7 @@ describe("platform api bootstrap", () => {
 
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createPlatformApiPools({
+      runtimeProfile: "public",
       sharedDatabaseUrl: null,
       contextDatabaseUrls: databaseUrls,
       port: 6182,
@@ -72,6 +73,7 @@ describe("platform api bootstrap", () => {
 
   it("boots with context-owned pools and replays cross-context projections", async () => {
     const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
       pools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),

@@ -543,12 +543,15 @@
       "owner": "auth",
       "risk": "important",
       "strategy": "read-model-neutral",
-      "surfaces": ["api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register"],
+      "surfaces": [
+        "api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register",
+        "api-route:deployables/platform-api/src/app.ts:POST /api/auth/register"
+      ],
       "exception": {
         "owner": "auth",
         "reviewBy": "2026-09-30",
         "issue": "#1819",
-        "reason": "The admin-support-api composition root rejects admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/admin-support-api/__tests__/app.test.ts proves the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
+        "reason": "The admin-support-api and landing-profile platform-api composition roots reject admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/admin-support-api/__tests__/app.test.ts and deployables/platform-api/src/__tests__/app.test.ts prove the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
       }
     },
     {

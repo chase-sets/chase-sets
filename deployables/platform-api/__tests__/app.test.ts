@@ -126,6 +126,37 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("keeps marketplace platform surfaces out of the landing runtime profile", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      runtimeProfile: "landing",
+      adminRegistrationEnabled: false,
+    });
+
+    const registrationResponse = await app.request("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.test" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const nativeMcpResponse = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+    });
+    const ucpResponse = await app.request("/ucp/v1/catalog/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "charizard" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const realtimeStatusResponse = await app.request("/internal/realtime/status");
+
+    expect(registrationResponse.status).toBe(403);
+    await expect(registrationResponse.json()).resolves.toMatchObject({
+      error: { code: "registration_disabled" },
+    });
+    expect(nativeMcpResponse.status).toBe(404);
+    expect(ucpResponse.status).toBe(404);
+    expect(realtimeStatusResponse.status).toBe(404);
+  });
+
   it("requires catalog manage permission for direct Catalog API mutations", async () => {
     const app = buildPlatformApiApp(createCatalogRuntime(), {
       resolveActor: vi.fn(async () => platformActor(["catalog.view"])),
