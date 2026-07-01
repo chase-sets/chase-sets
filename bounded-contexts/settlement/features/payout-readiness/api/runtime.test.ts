@@ -387,6 +387,180 @@ describe("payout readiness runtime", () => {
     vi.useRealTimers();
   });
 
+  it("records Accounts v1 account webhook readiness downgrades for known provider accounts", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "ready",
+            missing_requirements: [],
+            provider_reference: "acct_v1",
+            onboarding_status: "complete",
+            transfer_capability_status: "active",
+            payout_capability_status: "active",
+            payout_destination_status: "ready",
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+        ensurePayoutAccount: vi.fn(),
+        refreshPayoutReadiness: vi.fn(),
+        createPayoutSetupSession: vi.fn(),
+        createPayoutAccountManagementSession: vi.fn(),
+        retrievePlatformBalance: vi.fn(),
+        transferPlatformBalanceToConnectedAccount: vi.fn(),
+        createConnectedAccountPayout: vi.fn(),
+        retrieveConnectedAccountPayout: vi.fn(),
+        parseMoneyMovementWebhook: vi.fn(),
+      } as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await services.recordProviderReadinessFromWebhook(
+      {
+        providerReference: "acct_v1",
+        readiness: {
+          providerReference: "acct_v1",
+          onboardingStatus: "pending",
+          transferCapabilityStatus: "active",
+          payoutCapabilityStatus: "active",
+          payoutDestinationStatus: "missing",
+          payoutAccountDashboard: "express",
+          lossesCollector: "stripe",
+          feesCollector: "unknown",
+          requirementsCollector: "stripe",
+          missingRequirements: [
+            "external_account",
+            "provider_dashboard_posture",
+            "provider_fee_payer_posture",
+            "provider_loss_liability_posture",
+            "provider_requirement_collection_posture",
+          ],
+        },
+        recordedAt: "2026-06-01T18:00:00.000Z",
+      },
+      context,
+    );
+
+    const recordedPayload = eventStore.appendToStream.mock.calls[0]?.[0].events[0]?.payload as {
+      data?: Record<string, unknown>;
+    } & Record<string, unknown>;
+    expect(recordedPayload.data ?? recordedPayload).toMatchObject({
+      accountId: "acc_seller",
+      status: "pending",
+      providerReference: "acct_v1",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "active",
+      payoutCapabilityStatus: "active",
+      payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "express",
+      lossesCollector: "stripe",
+      feesCollector: "unknown",
+      requirementsCollector: "stripe",
+      missingRequirements: [
+        "external_account",
+        "provider_dashboard_posture",
+        "provider_fee_payer_posture",
+        "provider_loss_liability_posture",
+        "provider_requirement_collection_posture",
+      ],
+      recordedAt: "2026-06-01T18:00:00.000Z",
+    });
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-readiness-webhook-recorded",
+        accountId: "acc_seller",
+        providerReference: "acct_v1",
+        readinessStatus: "pending",
+        payoutAccountDashboard: "express",
+      }),
+    );
+  });
+
+  it("ignores Accounts v1 account webhook readiness for unknown provider accounts", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: {
+        query: vi.fn(async () => ({ rows: [] })),
+      } as never,
+      moneyMovementGateway: {
+        providerName: "stripe",
+        ensurePayoutAccount: vi.fn(),
+        refreshPayoutReadiness: vi.fn(),
+        createPayoutSetupSession: vi.fn(),
+        createPayoutAccountManagementSession: vi.fn(),
+        retrievePlatformBalance: vi.fn(),
+        transferPlatformBalanceToConnectedAccount: vi.fn(),
+        createConnectedAccountPayout: vi.fn(),
+        retrieveConnectedAccountPayout: vi.fn(),
+        parseMoneyMovementWebhook: vi.fn(),
+      } as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(
+      services.recordProviderReadinessFromWebhook(
+        {
+          providerReference: "acct_unknown",
+          readiness: {
+            providerReference: "acct_unknown",
+            onboardingStatus: "complete",
+            transferCapabilityStatus: "active",
+            payoutCapabilityStatus: "active",
+            payoutDestinationStatus: "ready",
+            payoutAccountDashboard: "none",
+            lossesCollector: "application",
+            feesCollector: "application",
+            requirementsCollector: "application",
+            missingRequirements: [],
+          },
+          recordedAt: "2026-06-01T18:00:00.000Z",
+        },
+        context,
+      ),
+    ).resolves.toBeNull();
+
+    expect(eventStore.appendToStream).not.toHaveBeenCalled();
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-readiness-webhook-ignored",
+        providerReference: "acct_unknown",
+        safeCategory: "missing_provider_account",
+      }),
+    );
+  });
+
   it("returns fresh provider readiness from refresh without waiting for projection catch-up", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T18:00:00.000Z"));
