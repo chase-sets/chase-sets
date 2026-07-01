@@ -97,6 +97,7 @@ function resetConfigEnv() {
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  delete process.env.STRIPE_CONNECT_ACCOUNTS_API;
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_WEBHOOK_SECRET;
@@ -392,6 +393,7 @@ describe("platform api config", () => {
         kind: "stripe",
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
+        connectAccountsApi: "v2",
         apiBaseUrl: "https://stripe.shared.test",
       },
       postage: {
@@ -484,8 +486,37 @@ describe("platform api config", () => {
       kind: "stripe",
       secretKey: "sk_test",
       webhookSecret: "whsec_connect_test",
+      connectAccountsApi: "v2",
       apiBaseUrl: "https://stripe.test",
     });
+  });
+
+  it("loads explicit Stripe Connect Accounts API posture", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_ACCOUNTS_API = "v1";
+
+    expect(loadConfig().moneyMovement).toEqual({
+      kind: "stripe",
+      secretKey: "sk_test",
+      webhookSecret: "whsec_connect_test",
+      connectAccountsApi: "v1",
+      apiBaseUrl: undefined,
+    });
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("account.updated");
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).not.toContain("v2.core.account.updated");
+  });
+
+  it("fails closed for invalid Stripe Connect Accounts API posture", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_ACCOUNTS_API = "express";
+
+    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
   });
 
   it("fails production config when Stripe payment or Connect secrets are missing", () => {

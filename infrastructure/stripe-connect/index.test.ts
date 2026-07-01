@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { ProviderAdapterError } from "@chase-sets/http/provider-errors";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStripeConnectMoneyMovementGateway } from "./index";
 
@@ -16,6 +17,33 @@ function stripeSignature(rawBody: string, secret: string, timestamp = 1_776_000_
 }
 
 describe("money movement adapters", () => {
+  it("fails closed when Accounts v1 is selected before the v1 strategy is implemented", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    const operation = adapter.ensurePayoutAccount({
+      accountId: "acc_seller" as never,
+      currencyCode: "usd",
+      contactEmail: "seller@example.test",
+      countryCode: "US",
+      idempotencyKey: "account-key",
+    });
+
+    await expect(operation).rejects.toMatchObject({
+      name: "ProviderAdapterError",
+      category: "configuration",
+      message:
+        "Stripe Connect Accounts v1 is selected but the Accounts v1 provisioning strategy is not implemented yet.",
+    } satisfies Partial<ProviderAdapterError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("Stripe adapter requests Accounts v2 transfer and payout capabilities", async () => {
     const calls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

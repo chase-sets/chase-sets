@@ -204,6 +204,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
             ? createStripeConnectMoneyMovementGateway({
                 secretKey: config.moneyMovement.secretKey,
                 webhookSecret: config.moneyMovement.webhookSecret,
+                accountsApi: config.moneyMovement.connectAccountsApi,
                 apiBaseUrl: config.moneyMovement.apiBaseUrl,
               })
             : createFakeMoneyMovementGateway(),
