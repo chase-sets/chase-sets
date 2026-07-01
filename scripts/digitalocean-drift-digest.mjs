@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { retiredProfileComponentNames, runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -102,6 +103,8 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       registryRepository: options.repository,
       registryRetentionDays: options.registryRetentionDays,
       releaseTagPrefix: "release-",
+      runtimeTopologyModes: Object.keys(runtimeTopologyBaselines),
+      retiredProfileComponentNames,
       observability: OBSERVABILITY_POLICIES,
     },
     collections: collection.collections,

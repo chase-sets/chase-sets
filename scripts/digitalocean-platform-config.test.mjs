@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
+import { retiredProfileComponentNames, runtimeTopologyBaselines } from "./digitalocean-runtime-topology.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
@@ -84,6 +85,16 @@ describe("DigitalOcean platform runbook", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "warns if admin-support and marketplace/platform component families coexist in one App Platform app",
     );
+    expect(digitaloceanPlatformRunbook).toContain("Runtime topology and component-count baseline");
+    expect(digitaloceanPlatformRunbook).toContain("`production-landing`");
+    expect(digitaloceanPlatformRunbook).toContain("`production-proof`");
+    expect(digitaloceanPlatformRunbook).toContain("`production-public`");
+    for (const componentName of retiredProfileComponentNames) {
+      expect(digitaloceanPlatformRunbook).toContain(componentName);
+    }
+    for (const modeName of Object.keys(runtimeTopologyBaselines)) {
+      expect(digitaloceanPlatformRunbook).toContain(`\`${modeName}\``);
+    }
   });
 
   it("documents the database companion sequence for deployable profiles", () => {
