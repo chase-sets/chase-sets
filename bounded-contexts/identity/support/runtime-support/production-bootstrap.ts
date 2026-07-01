@@ -20,6 +20,7 @@ export type PlatformAdminBootstrapResult = Readonly<{
   createdUser: boolean;
   createdAccount: boolean;
   createdMembership: boolean;
+  repairedMembershipRole: boolean;
 }>;
 
 const DEFAULT_USER_ID = "usr_platform_admin" as UserId;
@@ -58,6 +59,7 @@ export async function bootstrapPlatformAdminIdentity(
   let createdAccount = false;
   let createdUser = false;
   let createdMembership = false;
+  let repairedMembershipRole = false;
 
   if (!(await services.accounts.getAccount(accountId))) {
     await services.accounts.commandHandler({
@@ -108,7 +110,7 @@ export async function bootstrapPlatformAdminIdentity(
   }
 
   const existingMembership = await services.db.query(
-    "SELECT membership_id FROM identity_memberships WHERE membership_id = $1",
+    "SELECT membership_id, role_key FROM identity_memberships WHERE membership_id = $1",
     [membershipId],
   );
   if (existingMembership.rows.length === 0) {
@@ -124,6 +126,16 @@ export async function bootstrapPlatformAdminIdentity(
       context,
     });
     createdMembership = true;
+  } else if (existingMembership.rows[0]?.role_key !== "platform-admin") {
+    await services.memberships.commandHandler({
+      streamId: `identity.membership-${membershipId}`,
+      command: {
+        type: "ChangeMembershipRole",
+        roleKey: "platform-admin",
+      },
+      context,
+    });
+    repairedMembershipRole = true;
   }
 
   await drainIdentityProjectors(services);
@@ -136,5 +148,6 @@ export async function bootstrapPlatformAdminIdentity(
     createdUser,
     createdAccount,
     createdMembership,
+    repairedMembershipRole,
   };
 }
