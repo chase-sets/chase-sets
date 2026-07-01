@@ -59,6 +59,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
+- [Deployable Runtime Profiles](./architecture/deployable-runtime-profiles.md): `landing`/`proof`/`public` runtime profile contract, deployable role model, database lifecycle boundary, and topology evidence checklist.
 - [Deployable Profile Database Companion](./architecture/deployable-profile-database-companion.md): database lifecycle companion sequence for profile migrations, including provisioned/active/exposed context sets, budget evidence, PgBouncer posture, and restore/rebuild gates.
 - [Production PgBouncer Session-Safety Audit](./architecture/production-pgbouncer-session-safety.md): production pooling decision, traffic classes, and #3234 waiter-split follow-up for transaction-pool readiness.
 
@@ -156,6 +157,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0011: Production Observability Stack](./adr/0011-production-observability-stack.md)
 - [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md)
 - [ADR 0013: Checkout Payments Dependency Direction](./adr/0013-checkout-payments-dependency-direction.md)
+- [ADR 0014: Stripe Connect Accounts API Boundary](./adr/0014-stripe-connect-accounts-api-boundary.md)
+- [ADR 0015: Deployables As Runtime Composition Roots](./adr/0015-deployables-as-runtime-composition-roots.md)
+- [ADR 0016: Profiled Production Topology](./adr/0016-profiled-production-topology.md)
+- [ADR 0017: Database Provisioning Is Separate From Runtime Activation](./adr/0017-database-provisioning-runtime-activation.md)
 
 ## Generated Markdown
 

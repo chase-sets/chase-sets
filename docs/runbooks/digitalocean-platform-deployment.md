@@ -327,7 +327,7 @@ The App Platform components share the same runtime image and differ only by run 
 
 ## Runtime Profiles
 
-Deployables are runtime composition roots, not bounded-context ownership boundaries. Bounded contexts remain the canonical home for behavior, read models, UI slices, events, and tests; profiles only decide which composition root hosts those slices in a given production posture.
+Deployables are runtime composition roots, not bounded-context ownership boundaries. Bounded contexts remain the canonical home for behavior, read models, UI slices, events, and tests; profiles only decide which composition root hosts those slices in a given production posture. See [Deployable Runtime Profiles](../architecture/deployable-runtime-profiles.md) for the durable contract and ADR links.
 
 The typed profile source of truth lives in `@chase-sets/platform-runtime/runtime-profiles`. Production mode and API/worker profiles use the same natural names:
 
