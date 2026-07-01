@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { describeGoogleMerchantConfigForLogs, loadConfig } from "../src/config";
+import {
+  describeGoogleMerchantConfigForLogs,
+  getPlatformWorkerContextsForRuntimeProfile,
+  loadConfig,
+} from "../src/config";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+  "CHASE_SETS_RUNTIME_PROFILE",
   "NODE_ENV",
   "PORT",
   "STRIPE_SECRET_KEY",
@@ -107,6 +112,22 @@ const envNames = [
   "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
   "CATALOG_ASSET_S3_FORCE_PATH_STYLE",
   "PLATFORM_API_URL",
+  "DATABASE_URL_AUTH",
+  "DATABASE_URL_CATALOG",
+  "DATABASE_URL_CHECKOUT",
+  "DATABASE_URL_COMMERCIAL_TERMS",
+  "DATABASE_URL_DISCOVERY",
+  "DATABASE_URL_FULFILLMENT",
+  "DATABASE_URL_IDENTITY",
+  "DATABASE_URL_INVENTORY",
+  "DATABASE_URL_MARKETPLACE",
+  "DATABASE_URL_NOTIFICATIONS",
+  "DATABASE_URL_ORDERING",
+  "DATABASE_URL_PAYMENTS",
+  "DATABASE_URL_PLATFORM_OPERATIONS",
+  "DATABASE_URL_PRICING",
+  "DATABASE_URL_PUBLIC_PRESENCE",
+  "DATABASE_URL_SETTLEMENT",
 ];
 
 function clearConfigEnv() {
@@ -129,6 +150,7 @@ describe("platform worker config", () => {
 
     const config = loadConfig();
 
+    expect(config.runtimeProfile).toBe("public");
     expect(config.paymentProcessor).toEqual({ kind: "fake" });
     expect(config.moneyMovement).toEqual({ kind: "fake" });
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
@@ -140,6 +162,38 @@ describe("platform worker config", () => {
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
     });
+  });
+
+  it("maps the landing runtime profile to the admin-support worker context set", () => {
+    expect(getPlatformWorkerContextsForRuntimeProfile("landing")).toEqual([
+      "auth",
+      "catalog",
+      "fulfillment",
+      "identity",
+      "ordering",
+      "platform-operations",
+      "public-presence",
+    ]);
+  });
+
+  it("loads the landing runtime profile without full-platform context URLs or wake runners", () => {
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DATABASE_URL_CHECKOUT = "postgresql://localhost/checkout";
+
+    const config = loadConfig();
+
+    expect(config.runtimeProfile).toBe("landing");
+    expect(config.contextDatabaseUrls.checkout).toBeUndefined();
+    expect(config.projectionWakeScheduler.enabled).toBe(false);
+    expect(config.projectionWakeRelay.enabled).toBe(false);
+  });
+
+  it("rejects unknown runtime profiles", () => {
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "support";
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+
+    expect(() => loadConfig()).toThrow("CHASE_SETS_RUNTIME_PROFILE must be landing, proof, or public.");
   });
 
   it("loads an explicit direct work-signal database URL separately from runtime query URLs", () => {
@@ -591,6 +645,23 @@ describe("platform worker config", () => {
     expect(() => loadConfig()).toThrow(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
     );
+  });
+
+  it("does not require marketplace provider secrets in production landing profile", () => {
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.NODE_ENV = "production";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.com";
+
+    const config = loadConfig();
+
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toEqual({ kind: "fake" });
+    expect(config.postage).toEqual({ kind: "sandbox" });
   });
 
   it("fails production config when EasyPost is missing", () => {

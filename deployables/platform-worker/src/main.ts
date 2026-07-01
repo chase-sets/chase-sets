@@ -78,6 +78,7 @@ import {
   type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
 import {
+  getPlatformWorkerHostNameForRuntimeProfile,
   loadConfig,
   type PlatformWorkerCatalogAssetStorageConfig,
   type PlatformWorkerGoogleMerchantConfig,
@@ -97,6 +98,8 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
+const workerKind = getPlatformWorkerHostNameForRuntimeProfile(config.runtimeProfile);
+const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
   bootstrapPlatformControlPlane(pools.control),
@@ -194,7 +197,7 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
-runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
+runtime = createWorkerHost(workerContextRegistry, workerKind, {
   pools,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
@@ -245,29 +248,35 @@ const projectionRunners = collectWorkerRunners(runtime, {
   projectionOperationLeaseTtlMs: config.leaseTtlMs,
   projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
   workSignalStore,
-  observer: createWorkerObserver("platform-worker"),
+  observer: createWorkerObserver(workerKind),
 });
-const inventoryImportJobRunners = createInventoryJobRunners(runtime.services, config);
+const inventoryImportJobRunners = platformWorkerGroupsEnabled
+  ? createInventoryJobRunners(runtime.services, config)
+  : [];
 const bulkJobRunners = [
   ...createCatalogBulkJobRunners(runtime.services, config),
-  ...createGoogleShoppingJobRunners(runtime.services, config),
-  ...createPricingJobRunners(runtime.services, config),
-  ...createSettlementJobRunners(runtime.services, config),
+  ...(platformWorkerGroupsEnabled
+    ? [
+        ...createGoogleShoppingJobRunners(runtime.services, config),
+        ...createPricingJobRunners(runtime.services, config),
+        ...createSettlementJobRunners(runtime.services, config),
+      ]
+    : []),
 ];
-const notificationDispatchRunners = createNotificationDispatchRunners(
-  runtime,
-  config.workerId,
-  emailNotificationAdapter,
-);
-const scheduledJobRunners = [
-  ...createScheduledJobRunners(runtime.services, config, controlPlane),
-  createWorkSignalCleanupRunner({
-    controlPlane,
-    workSignalStore,
-    intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
-    observer: createProjectionWakeSchedulerLogObserver(),
-  }),
-];
+const notificationDispatchRunners = platformWorkerGroupsEnabled
+  ? createNotificationDispatchRunners(runtime, config.workerId, emailNotificationAdapter)
+  : [];
+const scheduledJobRunners = platformWorkerGroupsEnabled
+  ? [
+      ...createScheduledJobRunners(runtime.services, config, controlPlane),
+      createWorkSignalCleanupRunner({
+        controlPlane,
+        workSignalStore,
+        intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
+        observer: createProjectionWakeSchedulerLogObserver(),
+      }),
+    ]
+  : [];
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
 // disabled `<target-context>:<projection-name>` keys are removed from the wake
 // scheduler's hosted groups and marked disabled in the relay interest index,
@@ -340,7 +349,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver("platform-worker", group.name),
+    observer: createWorkerObserver(workerKind, group.name),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -488,8 +497,9 @@ assertRunnerLaneIsolation(runnerCapacity, { workerName: "Platform worker" });
 await runWorkerStartupDatabaseStep("record initial worker heartbeat", () =>
   controlPlane.heartbeatWorker({
     workerId: config.workerId,
-    workerKind: "platform-worker",
+    workerKind,
     metadata: {
+      runtimeProfile: config.runtimeProfile,
       runnerCount,
       runnerGroups: runnerGroupMetadata(runnerGroups),
       runnerCapacity,
@@ -502,8 +512,9 @@ const heartbeatTimer = setInterval(
     void controlPlane
       .heartbeatWorker({
         workerId: config.workerId,
-        workerKind: "platform-worker",
+        workerKind,
         metadata: {
+          runtimeProfile: config.runtimeProfile,
           runnerCount,
           runnerGroups: runnerGroupMetadata(runnerGroups),
           runnerCapacity,
@@ -561,6 +572,8 @@ app.get("/internal/workers/status", async (c) => {
   ]);
   return c.json({
     status: "ok",
+    runtimeProfile: config.runtimeProfile,
+    workerKind,
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
     capacity: runnerCapacity,
     databasePoolPressure: getDatabasePoolPressure(),
@@ -612,6 +625,8 @@ startGracefulHttpServer({
       type: "platform-worker.started",
       port: info.port,
       workerId: config.workerId,
+      runtimeProfile: config.runtimeProfile,
+      workerKind,
       runnerCount,
       runnerGroups: runnerGroupMetadata(runnerGroups),
       runnerCapacity,
