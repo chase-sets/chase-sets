@@ -475,6 +475,47 @@ describe("Catalog source-scope workset", () => {
     expect(form?.getAttribute("action")).toContain("expansionName=The+First+Chapter");
   });
 
+  it("uses provider scope labels when Lorcast route state carries numeric set ids", () => {
+    const unitKey = "lorcast:lorcana:single-card:reference-data";
+    const profiles = lorcanaProfiles();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=lorcast&unitKey=lorcast:lorcana:single-card:reference-data&importScope=en%3A1&languageCode=en&productLineName=Disney%20Lorcana&expansionId=1&expansionName=1&profileVersion=2026.06.23",
+      scopes: {
+        items: [
+          lorcanaScope("lorcast", {
+            product_line_id: "",
+            expansion_id: "1",
+            observed_observations: 1,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: overviewForProfiles(profiles, "lorcana"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === unitKey);
+
+    expect(unit?.commandContext).toMatchObject({
+      providerKey: "lorcast",
+      unitKey,
+      importScope: "en:1",
+      productLineName: "Disney Lorcana",
+      expansionId: "1",
+      expansionName: "The First Chapter",
+    });
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", unitKey);
+    expect(hiddenValue(form, "importScope")).toBe("en:1");
+    expect(hiddenValue(form, "expansionId")).toBe("1");
+    expect(hiddenValue(form, "expansionName")).toBe("The First Chapter");
+    expect(form?.getAttribute("action")).toContain("expansionName=The+First+Chapter");
+  });
+
   it("keeps LorcanaJSON compact set scopes promotable after preview redirects", () => {
     const unitKey = "lorcanajson:lorcana:single-card:reference-data";
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
