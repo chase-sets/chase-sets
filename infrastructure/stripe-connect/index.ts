@@ -119,6 +119,13 @@ type StripeAccountSessionResponse = Readonly<{
   expires_at?: number | string | null;
 }>;
 
+type StripeErrorResponse = Readonly<{
+  error?: Readonly<{
+    code?: string | null;
+    message?: string | null;
+  }> | null;
+}>;
+
 type StripeBalanceResponse = Readonly<{
   available?: readonly Readonly<{ amount?: number; currency?: string }>[];
 }>;
@@ -457,6 +464,15 @@ function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference:
   return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
 }
 
+function providerFailureCategoryFromStripeError(message: string, status: number, code?: string | null) {
+  const classifiedText = [code, message].filter(Boolean).join(" ");
+  if (classifiedText.toLowerCase().includes("rejected")) {
+    return "provider_declined";
+  }
+
+  return providerFailureCategoryFromText(classifiedText, providerFailureCategoryFromHttpStatus(status));
+}
+
 function normalizeContactEmail(value: string | null | undefined) {
   const contactEmail = value?.trim();
   return contactEmail ? contactEmail : null;
@@ -516,16 +532,15 @@ export function createStripeConnectMoneyMovementGateway(
     const body = await response.json().catch(() => null);
 
     if (!response.ok) {
+      const stripeError =
+        typeof body === "object" && body !== null && "error" in body ? (body as StripeErrorResponse).error : null;
       const message =
-        typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof (body as { error?: { message?: unknown } }).error?.message === "string"
-          ? (body as { error: { message: string } }).error.message
+        stripeError && typeof stripeError.message === "string"
+          ? stripeError.message
           : `Stripe request failed with status ${response.status}.`;
 
       throw new ProviderAdapterError(
-        providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status)),
+        providerFailureCategoryFromStripeError(message, response.status, stripeError?.code),
         message,
         response.status,
       );

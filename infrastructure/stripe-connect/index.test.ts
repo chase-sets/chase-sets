@@ -428,6 +428,233 @@ describe("money movement adapters", () => {
     ]);
   });
 
+  it("Stripe adapter creates Accounts v1 embedded payout setup account sessions", async () => {
+    const calls: Array<{ input: string; method: string | undefined }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), method: init?.method });
+
+      if (String(input) === "https://stripe.test/v1/accounts/acct_v1" && init?.method === "POST") {
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+        expect(headers.get("Idempotency-Key")).toBe("embedded-v1-setup-key:contact-email");
+        const body = new URLSearchParams(String(init?.body));
+        expect(body.get("email")).toBe("seller@example.test");
+
+        return new Response(JSON.stringify({ id: "acct_v1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (String(input) === "https://stripe.test/v1/accounts/acct_v1") {
+        expect(init?.method).toBe("GET");
+        return new Response(
+          JSON.stringify({
+            id: "acct_v1",
+            controller: {
+              stripe_dashboard: { type: "none" },
+              losses: { payments: "application" },
+              fees: { payer: "application" },
+              requirement_collection: "application",
+            },
+            capabilities: {
+              transfers: "pending",
+            },
+            payouts_enabled: false,
+            requirements: { currently_due: ["external_account"] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toBeInstanceOf(Headers);
+      const headers = init?.headers as Headers;
+      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+      expect(headers.get("Idempotency-Key")).toBe("embedded-v1-setup-key");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("account")).toBe("acct_v1");
+      expect(body.get("components[account_onboarding][enabled]")).toBe("true");
+      expect(body.get("components[account_onboarding][features][external_account_collection]")).toBe("true");
+      expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("true");
+      expect([...body.keys()].some((key) => key.startsWith("components[account_management]"))).toBe(false);
+
+      return new Response(
+        JSON.stringify({
+          client_secret: "acs_secret_v1_setup",
+          expires_at: 1_777_000_000,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutSetupSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_v1",
+        contactEmail: " seller@example.test ",
+        idempotencyKey: "embedded-v1-setup-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_v1",
+      clientSecret: "acs_secret_v1_setup",
+      expiresAt: "2026-04-24T03:06:40.000Z",
+      components: ["payout-setup"],
+      readiness: {
+        providerReference: "acct_v1",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "pending",
+        payoutCapabilityStatus: "inactive",
+        payoutDestinationStatus: "missing",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
+        missingRequirements: ["external_account"],
+      },
+    });
+    expect(calls).toEqual([
+      { input: "https://stripe.test/v1/accounts/acct_v1", method: "POST" },
+      { input: "https://stripe.test/v1/accounts/acct_v1", method: "GET" },
+      { input: "https://stripe.test/v1/account_sessions", method: "POST" },
+    ]);
+  });
+
+  it("Stripe adapter creates Accounts v1 embedded payout account management sessions", async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(input));
+
+      if (String(input) === "https://stripe.test/v1/accounts/acct_v1") {
+        expect(init?.method).toBe("GET");
+        return new Response(
+          JSON.stringify({
+            id: "acct_v1",
+            controller: {
+              stripe_dashboard: { type: "none" },
+              losses: { payments: "application" },
+              fees: { payer: "application" },
+              requirement_collection: "application",
+            },
+            capabilities: {
+              transfers: "active",
+            },
+            payouts_enabled: true,
+            requirements: { currently_due: [] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
+      expect(init?.method).toBe("POST");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("account")).toBe("acct_v1");
+      expect(body.get("components[account_management][enabled]")).toBe("true");
+      expect(body.get("components[account_management][features][external_account_collection]")).toBe("true");
+      expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("true");
+      expect([...body.keys()].some((key) => key.startsWith("components[account_onboarding]"))).toBe(false);
+
+      return new Response(
+        JSON.stringify({
+          client_secret: "acs_secret_v1_manage",
+          expires_at: 1_777_000_000,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      accountsApi: "v1",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutAccountManagementSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_v1",
+        idempotencyKey: "embedded-v1-manage-key",
+      }),
+    ).resolves.toEqual({
+      providerReference: "acct_v1",
+      clientSecret: "acs_secret_v1_manage",
+      expiresAt: "2026-04-24T03:06:40.000Z",
+      components: ["payout-account-management"],
+    });
+    expect(calls).toEqual(["https://stripe.test/v1/accounts/acct_v1", "https://stripe.test/v1/account_sessions"]);
+  });
+
+  it.each([
+    ["expired", "account_session_expired", "Stripe account session expired.", "configuration"],
+    ["incomplete", "account_session_incomplete", "Account requirements are incomplete.", "capability_missing"],
+    ["rejected", "account_session_rejected", "Stripe rejected the account session.", "provider_declined"],
+  ] as const)(
+    "Stripe adapter surfaces Accounts v1 %s account session provider errors",
+    async (_name, code, message, category) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "https://stripe.test/v1/accounts/acct_v1") {
+          expect(init?.method).toBe("GET");
+          return new Response(
+            JSON.stringify({
+              id: "acct_v1",
+              controller: {
+                stripe_dashboard: { type: "none" },
+                losses: { payments: "application" },
+                fees: { payer: "application" },
+                requirement_collection: "application",
+              },
+              capabilities: {
+                transfers: "pending",
+              },
+              payouts_enabled: false,
+              requirements: { currently_due: ["external_account"] },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ error: { code, message } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      const adapter = createStripeConnectMoneyMovementGateway({
+        secretKey: "sk_test",
+        webhookSecret: "whsec_test",
+        accountsApi: "v1",
+        apiBaseUrl: "https://stripe.test",
+      });
+
+      await expect(
+        adapter.createPayoutSetupSession({
+          accountId: "acc_seller" as never,
+          providerReference: "acct_v1",
+          idempotencyKey: "embedded-v1-error-key",
+        }),
+      ).rejects.toMatchObject({
+        name: "ProviderAdapterError",
+        category,
+        providerStatus: 400,
+        message,
+      });
+    },
+  );
+
   it("Stripe adapter keeps embedded Stripe user authentication for Stripe-collected accounts", async () => {
     const calls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
