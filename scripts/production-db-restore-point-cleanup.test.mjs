@@ -3,6 +3,7 @@ import {
   cleanupProductionDbRestorePoints,
   parseDoctlDatabaseListOutput,
   parseProductionDbRestorePointCleanupArgs,
+  selectHeldRestorePoints,
   selectRestorePointCleanupCandidates,
 } from "./production-db-restore-point-cleanup.mjs";
 
@@ -48,9 +49,22 @@ describe("production restore-point cleanup", () => {
     const candidates = selectRestorePointCleanupCandidates(clusters, {
       prefix: "cs-prod-rp-",
       cutoff: new Date("2026-06-28T12:00:00.000Z"),
+      holdNames: [],
     });
 
     expect(candidates.map((candidate) => candidate.id)).toEqual(["db-old-restore"]);
+  });
+
+  it("excludes held restore-point forks from cleanup candidates", () => {
+    expect(selectHeldRestorePoints(clusters, ["cs-prod-rp-abcdef12-28349079203-1"])).toEqual([clusters[0]]);
+
+    const candidates = selectRestorePointCleanupCandidates(clusters, {
+      prefix: "cs-prod-rp-",
+      cutoff: new Date("2026-06-28T12:00:00.000Z"),
+      holdNames: ["db-old-restore"],
+    });
+
+    expect(candidates).toEqual([]);
   });
 
   it("dry-runs by default and records candidates without deleting them", async () => {
@@ -66,6 +80,7 @@ describe("production restore-point cleanup", () => {
       result: "success",
       cutoff: "2026-06-28T12:00:00.000Z",
       restorePoints: {
+        held: [],
         candidates: [{ id: "db-old-restore", name: "cs-prod-rp-abcdef12-28349079203-1" }],
         deleted: [],
         failed: [],
@@ -130,10 +145,14 @@ describe("production restore-point cleanup", () => {
   });
 
   it("parses CLI and environment options", () => {
-    const options = parseProductionDbRestorePointCleanupArgs(["--min-age-hours", "2", "--apply"], {
-      DOCTL_PATH: "custom-doctl",
-      PRODUCTION_DB_RESTORE_POINT_CLEANUP_OUT: "artifacts/cleanup.json",
-    });
+    const options = parseProductionDbRestorePointCleanupArgs(
+      ["--min-age-hours", "2", "--hold-name", "db-cli-hold", "--apply"],
+      {
+        DOCTL_PATH: "custom-doctl",
+        PRODUCTION_DB_RESTORE_POINT_CLEANUP_OUT: "artifacts/cleanup.json",
+        PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: "db-env-hold,cs-prod-rp-held\ncs-prod-rp-held",
+      },
+    );
 
     expect(options).toMatchObject({
       doctlPath: "custom-doctl",
@@ -141,6 +160,7 @@ describe("production restore-point cleanup", () => {
       prefix: "cs-prod-rp-",
       minAgeHours: 2,
       apply: true,
+      holdNames: ["db-cli-hold", "db-env-hold", "cs-prod-rp-held"],
     });
   });
 });
