@@ -102,13 +102,15 @@ function sourceScopeWorksetStatus(
   return "ready";
 }
 
-function selectedSourceScope(input: Pick<SourceScopeWorksetInput, "profiles" | "routeContext" | "sourceOptions">) {
+function selectedSourceScope(
+  input: Pick<SourceScopeWorksetInput, "profiles" | "routeContext" | "scopes" | "sourceOptions">,
+) {
   const routeContext = input.routeContext;
   const explicitScope = explicitScopeFromRouteContext(routeContext);
   const routeScope = scopeHasConcreteSelection(explicitScope)
     ? explicitScope
     : scopeContextFromRouteContext(routeContext);
-  const scope = enrichedSetNameSelectedScope(routeScope, input.profiles, input.sourceOptions);
+  const scope = enrichedSetNameSelectedScope(routeScope, input.profiles, input.sourceOptions, input.scopes);
   const hasConcreteScope = scopeHasConcreteSelection(scope);
   const importScope = hasConcreteScope ? importScopeFromScopeContext(scope) : null;
 
@@ -124,6 +126,7 @@ function enrichedSetNameSelectedScope(
   scope: CatalogPrimaryWorkbenchScopeContext,
   profiles: readonly CatalogProviderProfileVersionReview[],
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+  scopes: readonly SourceObservationIntegrationScope[],
 ): CatalogPrimaryWorkbenchScopeContext {
   const providerKey = scope.providerKey;
   if (!providerKey) {
@@ -142,7 +145,26 @@ function enrichedSetNameSelectedScope(
   );
   const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
   if (!option?.label || option.label === selectedValue) {
-    return scope;
+    const productDomain = normalizeProductDomain(productDomainFromProfile(profile));
+    const siblingScope = scopes.find((candidateScope) => {
+      const candidateContext = scopeContextFromProviderScope(candidateScope);
+      const candidateDomain = normalizeProductDomain(productDomainFromScope(candidateContext));
+      return (
+        Boolean(productDomain && candidateDomain && productDomainsMatch(productDomain, candidateDomain)) &&
+        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        Boolean(candidateScope.expansion_name) &&
+        comparableText(candidateScope.expansion_name) !== comparableText(selectedValue)
+      );
+    });
+    return siblingScope
+      ? {
+          ...scope,
+          productLineName:
+            scope.productLineName ??
+            (siblingScope.product_line_name || productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
+          expansionName: siblingScope.expansion_name,
+        }
+      : scope;
   }
 
   return {

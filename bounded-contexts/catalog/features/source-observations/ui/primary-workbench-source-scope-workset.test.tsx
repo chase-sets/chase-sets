@@ -322,6 +322,10 @@ describe("Catalog source-scope workset", () => {
     });
     const lorcastUnit = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === unitKey);
 
+    expect(readModel.sourceScopeWorkset.selectedScope).toMatchObject({
+      importScope: "en:1",
+      label: "lorcast / en / Disney Lorcana / The First Chapter",
+    });
     expect(lorcastUnit?.commandContext).toMatchObject({
       providerKey: "lorcast",
       unitKey,
@@ -333,6 +337,7 @@ describe("Catalog source-scope workset", () => {
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
+    expect(screen.getAllByText("lorcast / en / Disney Lorcana / The First Chapter").length).toBeGreaterThan(0);
     const form = sourceScopeCommandForm("start-provider-import", unitKey);
     expect(hiddenValue(form, "importScope")).toBe("en:1");
     expect(hiddenValue(form, "productLineName")).toBe("Disney Lorcana");
