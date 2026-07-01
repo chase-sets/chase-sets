@@ -129,6 +129,39 @@ describe("production database restore point", () => {
     });
   });
 
+  it("records routine PITR restore-point skips without calling doctl", async () => {
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        sourceClusterId: "",
+        skip: true,
+        skipReason: "recovery mode pitr: routine deploy",
+      },
+      async () => {
+        throw new Error("doctl should not be called for PITR skips");
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(true);
+    expect(result.record).toMatchObject({
+      result: "skipped",
+      sourceClusterId: "",
+      restorePoint: {
+        type: "digitalocean-managed-pitr",
+        clusterId: null,
+        status: "not-created",
+      },
+      skip: {
+        requested: true,
+        reason: "recovery mode pitr: routine deploy",
+      },
+      bypass: {
+        requested: false,
+        allowed: false,
+      },
+    });
+  });
+
   it("rejects restore-point bypass outside emergency mode", async () => {
     const result = await createProductionDbRestorePoint(
       {
@@ -146,6 +179,27 @@ describe("production database restore point", () => {
     expect(result.record.errors).toContain("PRODUCTION_DB_RESTORE_POINT_BYPASS requires RELEASE_MODE=emergency.");
   });
 
+  it("rejects ambiguous bypass and skip requests", async () => {
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        bypass: true,
+        skip: true,
+        skipReason: "routine deploy",
+        releaseMode: "emergency",
+        emergencyReference: "INC-2026-06-28-001",
+      },
+      async () => {
+        throw new Error("doctl should not be called");
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(result.record.errors).toContain(
+      "PRODUCTION_DB_RESTORE_POINT_BYPASS and PRODUCTION_DB_RESTORE_POINT_SKIP cannot both be true.",
+    );
+  });
+
   it("parses supported doctl JSON output shapes", () => {
     expect(parseDoctlForkOutput('[{"id":"db_1"}]')).toEqual({ id: "db_1" });
     expect(parseDoctlForkOutput('{"database":{"id":"db_2"}}')).toEqual({ id: "db_2" });
@@ -159,6 +213,8 @@ describe("production database restore point", () => {
       RELEASE_COMMIT: "b".repeat(40),
       GITHUB_RUN_ID: "456",
       GITHUB_RUN_ATTEMPT: "1",
+      PRODUCTION_DB_RESTORE_POINT_SKIP: "true",
+      PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: "pitr",
     });
 
     expect(options).toMatchObject({
@@ -168,6 +224,8 @@ describe("production database restore point", () => {
       releaseCommit: "b".repeat(40),
       workflowRunId: "456",
       workflowRunAttempt: "1",
+      skip: true,
+      skipReason: "pitr",
     });
   });
 
