@@ -44,6 +44,7 @@ type ProviderSyncJourney = Readonly<{
   scope: readonly ScopeSelection[];
   preflight?: ImportPreflightExpectation;
   requiresTerminalSync?: boolean;
+  allowPartialWithReview?: boolean;
 }>;
 
 type ImportPreflightExpectation = Readonly<{
@@ -352,6 +353,7 @@ const lorcanaLaunchProviderSyncJourneys: readonly ProviderSyncJourney[] = [
       { label: "Set Name", choice: tcgplayerLorcanaSetChoice },
     ],
     requiresTerminalSync: true,
+    allowPartialWithReview: true,
   },
   {
     name: "Lorcana sealed products through the shared TCGplayer provider",
@@ -437,6 +439,8 @@ test.describe("catalog staging provider sync UAT", () => {
             journey.unitKey,
             selectedScope,
             syncAttempt.previousJobRows,
+            undefined,
+            { allowPartialWithReview: journey.allowPartialWithReview },
           );
         }
       });
