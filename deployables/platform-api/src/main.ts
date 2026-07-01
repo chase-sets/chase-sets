@@ -55,6 +55,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
+  recordPublicPresenceWaitlistAnalytics,
   recordProjectionFreshnessWakeEnqueue,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
@@ -178,6 +179,41 @@ const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
+const waitlistAnalyticsRecorder = {
+  record(event: {
+    event: string;
+    section?: string | null;
+    target?: string | null;
+    field?: string | null;
+    role?: string | null;
+    interest?: string | null;
+    variant?: string | null;
+    status?: string | null;
+    page_path?: string | null;
+    utm_source?: string | null;
+    utm_medium?: string | null;
+    utm_campaign?: string | null;
+    checked?: boolean | null;
+  }) {
+    recordPublicPresenceWaitlistAnalytics(event);
+    logger.info("Public waitlist analytics event captured.", {
+      type: "public_presence.waitlist.analytics_event",
+      event: event.event,
+      section: event.section,
+      target: event.target,
+      field: event.field,
+      role: event.role,
+      interest: event.interest,
+      variant: event.variant,
+      status: event.status,
+      page_path: event.page_path,
+      utm_source: event.utm_source,
+      utm_medium: event.utm_medium,
+      utm_campaign: event.utm_campaign,
+      checked: event.checked,
+    });
+  },
+};
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
@@ -221,6 +257,7 @@ const runtime = createPlatformApiHost({
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
+    waitlistAnalyticsRecorder,
     listingPhotoStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,

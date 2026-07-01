@@ -4,7 +4,7 @@ Public Presence landing-page analytics are provider-neutral.
 
 The UI emits browser `CustomEvent` events named `chase-sets:waitlist-analytics` and also pushes the same bounded detail object into `window.dataLayer` when a deployable provides one. This keeps the bounded context testable without adding a vendor SDK, cookie, or third-party script.
 
-The `public-web` deployable owns operational capture. It listens for `chase-sets:waitlist-analytics`, posts an allowlisted subset of bounded properties to `/analytics/waitlist`, and records OpenTelemetry metrics and sanitized logs through the shared observability stack. Grafana visualizes those metrics from the existing Prometheus/Loki pipeline.
+The `public-web` deployable owns only the browser bridge. It listens for `chase-sets:waitlist-analytics` and posts an allowlisted subset of bounded properties to `/api/public-presence/analytics/waitlist`. The Public Presence API owns validation and vocabulary, then records through a `platform-api` host port into OpenTelemetry metrics and sanitized logs. Grafana visualizes those metrics from the existing Prometheus/Loki pipeline.
 
 Current event names:
 

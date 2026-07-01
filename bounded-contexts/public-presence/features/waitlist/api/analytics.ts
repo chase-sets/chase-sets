@@ -1,16 +1,12 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import {
-  loadObservabilityConfig,
-  recordPublicPresenceWaitlistAnalytics,
-  startObservability,
-} from "@chase-sets/observability";
-import { waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
+import { Hono } from "hono";
+import { waitlistAnalyticsEventNames, type WaitlistAnalyticsEventName } from "../ui/analytics";
+import type { PublicPresenceApiEnv } from "../../../api";
 
 const allowedEvents = new Set<string>(waitlistAnalyticsEventNames);
 const invalidAnalyticsLabel = Symbol("invalid analytics label");
 
-type WaitlistAnalyticsPayload = Readonly<{
-  event: string;
+export type WaitlistAnalyticsPayload = Readonly<{
+  event: WaitlistAnalyticsEventName;
   section?: string | null;
   target?: string | null;
   field?: string | null;
@@ -25,69 +21,36 @@ type WaitlistAnalyticsPayload = Readonly<{
   checked?: boolean | null;
 }>;
 
-export function loader(_args: LoaderFunctionArgs) {
-  return new Response(null, {
-    status: 405,
-    headers: { Allow: "POST" },
-  });
-}
+export type WaitlistAnalyticsRecorder = Readonly<{
+  record: (payload: WaitlistAnalyticsPayload) => void | Promise<void>;
+}>;
 
-export async function action({ request }: ActionFunctionArgs) {
-  if (request.method.toUpperCase() !== "POST") {
-    return new Response(null, {
-      status: 405,
-      headers: { Allow: "POST" },
-    });
-  }
+export const noopWaitlistAnalyticsRecorder: WaitlistAnalyticsRecorder = {
+  record: () => undefined,
+};
 
-  const payload = parsePayload(await request.text());
-  if (!payload) {
-    return new Response("Invalid waitlist analytics event.", { status: 400 });
-  }
+export function createWaitlistAnalyticsRoutes(recorder: WaitlistAnalyticsRecorder = noopWaitlistAnalyticsRecorder) {
+  const app = new Hono<PublicPresenceApiEnv>();
 
-  const observability = getPublicWebObservability();
+  app.post("/analytics/waitlist", async (c) => {
+    const payload = parseWaitlistAnalyticsPayload(await c.req.text());
+    if (!payload) {
+      return c.text("Invalid waitlist analytics event.", 400);
+    }
 
-  recordPublicPresenceWaitlistAnalytics({
-    event: payload.event,
-    section: payload.section,
-    target: payload.target,
-    field: payload.field,
-    role: payload.role,
-    interest: payload.interest,
-    variant: payload.variant,
-    status: payload.status,
+    await recorder.record(payload);
+    return new Response(null, { status: 204 });
   });
 
-  observability.logger.info("Public waitlist analytics event captured.", {
-    type: "public_presence.waitlist.analytics_event",
-    event: payload.event,
-    section: payload.section,
-    target: payload.target,
-    field: payload.field,
-    role: payload.role,
-    interest: payload.interest,
-    variant: payload.variant,
-    status: payload.status,
-    page_path: payload.page_path,
-    utm_source: payload.utm_source,
-    utm_medium: payload.utm_medium,
-    utm_campaign: payload.utm_campaign,
-    checked: payload.checked,
+  app.all("/analytics/waitlist", (c) => {
+    c.header("Allow", "POST");
+    return c.body(null, 405);
   });
 
-  return new Response(null, { status: 204 });
+  return app;
 }
 
-function getPublicWebObservability() {
-  return startObservability(
-    loadObservabilityConfig(process.env, {
-      serviceName: "public-web",
-      serviceVersion: "0.1.0",
-    }),
-  );
-}
-
-function parsePayload(text: string): WaitlistAnalyticsPayload | null {
+export function parseWaitlistAnalyticsPayload(text: string): WaitlistAnalyticsPayload | null {
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -132,7 +95,7 @@ function parsePayload(text: string): WaitlistAnalyticsPayload | null {
   }
 
   return {
-    event,
+    event: event as WaitlistAnalyticsEventName,
     section,
     target,
     field,
