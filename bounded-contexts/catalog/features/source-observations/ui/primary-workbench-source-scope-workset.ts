@@ -573,7 +573,7 @@ function profileCanSelectScope(
   if (Boolean(scope.seriesId || scope.seriesName) && !selectableScopes.has("series")) {
     return false;
   }
-  if (scope.expansionId && !selectableScopes.has("expansion") && !(selectsSetName && scope.expansionName)) {
+  if (scope.expansionId && !selectableScopes.has("expansion") && !selectsSetName) {
     return false;
   }
   if (scope.expansionName && !selectableScopes.has("expansion") && !selectableScopes.has("set-name")) {
