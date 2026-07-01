@@ -890,8 +890,16 @@ function structuredScopeWithProfileLanguage(
   activeProfile: CatalogProviderProfileVersionReview | null,
   explicitStructuredScope: boolean,
 ): CatalogPrimaryWorkbenchRouteContext["scope"] {
-  const nameBasedSetScope = Boolean(!scope?.seriesId && !scope?.expansionId && scope?.expansionName);
-  if (!explicitStructuredScope || !scope || scope.languageCode || !nameBasedSetScope) {
+  const structuredSetScope = Boolean(!scope?.seriesId && (scope?.expansionId || scope?.expansionName));
+  const includesProductLineParent = Boolean(scope?.productLineId || scope?.productLineName);
+  const singleLevelSourceOptions = sourceOptionKindsForProfile(activeProfile).length <= 1;
+  if (
+    !explicitStructuredScope ||
+    !scope ||
+    scope.languageCode ||
+    !structuredSetScope ||
+    (!includesProductLineParent && !singleLevelSourceOptions)
+  ) {
     return scope;
   }
   const languageCode = activeProfile?.languageOptions[0]?.trim() || null;
