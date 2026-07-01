@@ -46,6 +46,12 @@ variable "droplet_image" {
   description = "Base image used for the observability host."
 }
 
+variable "droplet_backups_enabled" {
+  type        = bool
+  default     = false
+  description = "Whether DigitalOcean Droplet backups are enabled for the reproducible observability host. Keep false unless an environment-specific drill or incident record intentionally accepts the extra cost."
+}
+
 variable "ssh_key_fingerprints" {
   type        = list(string)
   default     = []
@@ -66,6 +72,17 @@ variable "volume_size_gib" {
   validation {
     condition     = var.volume_size_gib >= 50
     error_message = "volume_size_gib must be at least 50 GiB for production observability data."
+  }
+}
+
+variable "acceptable_telemetry_data_loss_window_hours" {
+  type        = number
+  default     = 24
+  description = "Maximum accepted telemetry data loss window for this self-hosted observability environment. This is an explicit posture record; it does not create backups by itself."
+
+  validation {
+    condition     = var.acceptable_telemetry_data_loss_window_hours > 0 && var.acceptable_telemetry_data_loss_window_hours <= 24
+    error_message = "acceptable_telemetry_data_loss_window_hours must be greater than 0 and no more than 24 hours."
   }
 }
 
@@ -130,6 +147,12 @@ variable "otel_collector_image" {
 }
 
 variable "prometheus_retention" {
-  type    = string
-  default = "30d"
+  type        = string
+  default     = "30d"
+  description = "Prometheus TSDB retention window. Keep staging short and increase production only when incident-response evidence needs it."
+
+  validation {
+    condition     = can(regex("^[0-9]+[hd]$", var.prometheus_retention))
+    error_message = "prometheus_retention must be a duration such as 24h, 7d, or 30d."
+  }
 }

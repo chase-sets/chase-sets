@@ -24,11 +24,23 @@ describe("digitalocean-drift-digest", () => {
         restorePointPrefix: "cs-prod-rp-",
         registryRepository: "chase-sets-platform",
         registryRetentionDays: 7,
+        observability: {
+          staging: {
+            dropletBackupsExpected: false,
+            acceptableTelemetryDataLossWindowHours: 24,
+            volumeSizeGibMaximum: 100,
+          },
+          production: {
+            dropletBackupsExpected: false,
+            acceptableTelemetryDataLossWindowHours: 24,
+            volumeSizeGibMinimum: 100,
+          },
+        },
       },
       summary: {
         unknownChaseSetsResources: 1,
         cleanupCandidates: 2,
-        warningFindings: 3,
+        warningFindings: 5,
       },
     });
     expect(result.record.resources.apps).toEqual([
@@ -67,6 +79,24 @@ describe("digitalocean-drift-digest", () => {
           resourceType: "droplet",
           resourceName: "chase-sets-dev-todd",
           severity: "advisory",
+        }),
+        expect.objectContaining({
+          category: "observability-backup-posture",
+          resourceType: "droplet",
+          resourceName: "chase-sets-staging-observability",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          category: "observability-backup-posture",
+          resourceType: "droplet",
+          resourceName: "chase-sets-observability",
+          severity: "advisory",
+        }),
+        expect.objectContaining({
+          category: "observability-volume-posture",
+          resourceType: "volume",
+          resourceName: "chase-sets-staging-observability-data",
+          severity: "warning",
         }),
         expect.objectContaining({
           category: "uptime-alerts",
@@ -168,12 +198,19 @@ function responseFor(args) {
       },
       {
         id: 2,
+        name: "chase-sets-staging-observability",
+        status: "active",
+        size_slug: "s-1vcpu-1gb",
+        backups: true,
+      },
+      {
+        id: 3,
         name: "chase-sets-dev-todd",
         status: "active",
         size_slug: "s-1vcpu-1gb",
       },
       {
-        id: 3,
+        id: 4,
         name: "chase-sets-manual-box",
         status: "active",
         size_slug: "s-1vcpu-1gb",
@@ -181,7 +218,10 @@ function responseFor(args) {
     ];
   }
   if (command === "compute volume list --output json") {
-    return [{ id: "vol-1", name: "chase-sets-observability-data", size_gigabytes: 100 }];
+    return [
+      { id: "vol-1", name: "chase-sets-observability-data", size_gigabytes: 100 },
+      { id: "vol-2", name: "chase-sets-staging-observability-data", size_gigabytes: 250 },
+    ];
   }
   if (command === "monitoring uptime list --output json") {
     return [{ id: "uptime-1", name: "chase-sets-platform-public-down", target: "https://chasesets.com" }];

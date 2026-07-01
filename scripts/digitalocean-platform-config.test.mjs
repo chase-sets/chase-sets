@@ -11,6 +11,7 @@ const platformVariables = readFileSync(resolve("infrastructure/digitalocean/plat
 const observabilityMain = readFileSync(resolve("infrastructure/digitalocean/observability/main.tf"), "utf8");
 const observabilityLocals = readFileSync(resolve("infrastructure/digitalocean/observability/locals.tf"), "utf8");
 const observabilityOutputs = readFileSync(resolve("infrastructure/digitalocean/observability/outputs.tf"), "utf8");
+const observabilityVariables = readFileSync(resolve("infrastructure/digitalocean/observability/variables.tf"), "utf8");
 const observabilityCaddyfile = readFileSync(
   resolve("infrastructure/digitalocean/observability/templates/Caddyfile.tftpl"),
   "utf8",
@@ -1665,6 +1666,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
     expect(observabilityMain).toContain('resource "digitalocean_firewall" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_record" "observability_a"');
+    expect(observabilityMain).toContain("backups    = var.droplet_backups_enabled");
+    expect(observabilityMain).toContain('check "observability_storage_posture"');
+    expect(observabilityMain).toContain('check "observability_retention_posture"');
+    expect(observabilityVariables).toContain('variable "droplet_backups_enabled"');
+    expect(observabilityVariables).toContain("default     = false");
+    expect(observabilityVariables).toContain('variable "acceptable_telemetry_data_loss_window_hours"');
     expect(observabilityMain).toContain('port_range       = "80"');
     expect(observabilityMain).toContain('port_range       = "443"');
     expect(observabilityLocals).toContain("../../observability/stack");

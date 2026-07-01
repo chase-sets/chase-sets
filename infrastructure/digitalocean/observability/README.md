@@ -12,6 +12,13 @@ It owns:
 
 Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`.
 
+Cost and recovery posture:
+
+- `droplet_backups_enabled` defaults to `false` because the host is reproducible from Terraform and cloud-init. Enable it only for a named drill or incident where the extra Droplet image recovery value is worth the cost.
+- The attached volume is the durable observability data surface. The default posture accepts up to 24 hours of telemetry loss and requires a manual volume snapshot before destructive maintenance or risky host replacement.
+- Staging keeps Droplet backups off and the observability volume at or below 100 GiB unless an active drill or incident needs more.
+- Production keeps at least a 100 GiB observability volume. Increasing `prometheus_retention` or enabling Droplet backups should reference the operational evidence that needs the longer recovery window.
+
 The key outputs feed the platform deploy pipeline:
 
 - `otlp_endpoint` -> `OBSERVABILITY_OTLP_ENDPOINT` GitHub environment variable when overriding the default.
