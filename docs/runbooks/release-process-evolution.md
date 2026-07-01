@@ -139,6 +139,14 @@ Minimum schema:
     "primary": "ordinary-deploy|exposure-posture-change|emergency-recovery",
     "exposurePostureCategories": ["live-money-provider"]
   },
+  "runtimeProfile": {
+    "productionMode": "landing|proof|public|null",
+    "apiProfile": "landing|proof|public|null",
+    "workerProfile": "landing|proof|public|null",
+    "provisionedContextCount": 0,
+    "activeRuntimeContextCount": 0,
+    "exposedRouteContextCount": 0
+  },
   "staging": { "startedAt": "<iso>", "completedAt": "<iso>", "result": "success|failure|skipped" },
   "canary": {
     "startedAt": "<iso|null>",
@@ -194,6 +202,8 @@ Track these measures from the records:
 Use GitHub Actions summaries and artifacts first. Emit the same events to observability after production telemetry has stable cardinality limits.
 
 Release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
+
+Profile-aware releases should populate `runtimeProfile` from the same topology evidence described in [Deployable Runtime Profiles](../architecture/deployable-runtime-profiles.md). The selected production mode, API profile, worker profile, and provisioned/active/exposed context counts let operators distinguish ordinary code deploys from capability exposure changes and database lifecycle changes.
 
 Staging abort records are release evidence, not production releases. Treat `attempt.phase: "staging"` with `attempt.result: "failure"` or `"cancelled"` as an abort that must be reviewed before queue tuning. Treat `attempt.reason: "staging-not-deployed"` as a stale skip; it should not count as a production failure, but repeated stale skips are a signal that deployment cadence and queue latency need review.
 
