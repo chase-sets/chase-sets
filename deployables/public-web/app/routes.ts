@@ -20,7 +20,6 @@ export default [
   route(".well-known/appspecific/com.chrome.devtools.json", "routes/chrome-devtools.ts"),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
-  route("analytics/waitlist", "routes/waitlist-analytics.ts"),
   route(protectionRedirectPath, "routes/order-protection-redirect.ts"),
   route(feesRedirectPath, "routes/sales-fees-redirect.ts"),
   route("*", "routes/not-found.tsx"),

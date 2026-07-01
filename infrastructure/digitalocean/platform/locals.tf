@@ -643,7 +643,8 @@ locals {
     }
   }
 
-  public_web_instances              = local.is_production ? 2 : 1
+  public_web_instances              = 1
+  marketplace_web_instances         = local.is_production ? 2 : 1
   api_instances                     = local.is_production ? 2 : 1
   admin_web_instances               = 1
   worker_default_instance_size_slug = local.is_staging ? "apps-s-1vcpu-2gb" : var.app_instance_size_slug

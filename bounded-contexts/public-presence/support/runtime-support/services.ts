@@ -9,15 +9,18 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
+import { noopWaitlistAnalyticsRecorder, type WaitlistAnalyticsRecorder } from "../../features/waitlist/api/analytics";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
 
 export type PublicPresenceHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
+  waitlistAnalyticsRecorder?: WaitlistAnalyticsRecorder;
 }>;
 
 export type PublicPresenceServices = Readonly<{
   waitlist: ReturnType<typeof createWaitlistRuntime>;
   promoBar: ReturnType<typeof createPromoBarRuntime>;
+  waitlistAnalyticsRecorder: WaitlistAnalyticsRecorder;
   notificationOutbox: NotificationOutbox;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -35,6 +38,7 @@ export function createPublicPresenceServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
+  const waitlistAnalyticsRecorder = ports.waitlistAnalyticsRecorder ?? noopWaitlistAnalyticsRecorder;
   const promoBar = createPromoBarRuntime(db);
   const waitlist = createWaitlistRuntime({
     eventStore,
@@ -46,6 +50,7 @@ export function createPublicPresenceServices(
   return {
     waitlist,
     promoBar,
+    waitlistAnalyticsRecorder,
     notificationOutbox,
     projectors: [...waitlist.projectors],
     pool,

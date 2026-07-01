@@ -50,6 +50,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by event projectors."
+    },
+    {
+      "portName": "waitlistAnalyticsRecorder",
+      "providedBy": "platform-api",
+      "purpose": "Operational landing-page analytics recorder for bounded waitlist event labels."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],
@@ -71,12 +76,20 @@
       "owner": "public-presence",
       "risk": "informational",
       "strategy": "non-user-visible",
-      "surfaces": ["route-action:deployables/public-web/app/routes/waitlist-analytics.ts"],
+      "surfaces": [
+        "api-route:bounded-contexts/public-presence/features/waitlist/api/analytics.ts:POST /analytics/waitlist"
+      ],
       "exception": {
         "owner": "public-presence",
         "reviewBy": "2026-09-30",
-        "issue": "#1819",
-        "reason": "Public Presence owns the waitlist analytics event vocabulary and documents public-web capture as directional funnel observability in bounded-contexts/public-presence/docs/landing-page-analytics.md. deployables/public-web/app/routes/public-web.test.tsx proves the route accepts bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+        "issue": "#3215",
+        "reason": "Waitlist analytics capture records bounded operational landing-page labels through a platform-api host port and returns only a 204 acknowledgement; no user-visible Public Presence read depends on this POST result. bounded-contexts/public-presence/tests/api.test.ts proves supported analytics are recorded and unsupported/private labels are rejected before recording."
+      },
+      "proof": {
+        "authoritativeResponse": "The Public Presence API accepts only bounded allowlisted waitlist analytics labels and records them through a platform-api host port with a 204 non-user-visible response.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /analytics/waitlist accepts bounded labels, rejects unsupported/private labels, and returns 204."
+        ]
       }
     },
     {

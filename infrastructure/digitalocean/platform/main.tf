@@ -519,7 +519,7 @@ resource "digitalocean_app" "platform" {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
         instance_size_slug = var.app_instance_size_slug
-        instance_count     = local.public_web_instances
+        instance_count     = local.marketplace_web_instances
         http_port          = 8080
 
         image {

@@ -4,6 +4,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import {
   createAdminPromoBarRoutes,
   createAdminWaitlistRoutes,
+  createWaitlistAnalyticsRoutes,
   createPublicPromoBarRoutes,
   createPublicWaitlistRoutes,
   type PublicPresenceApiEnv,
@@ -91,6 +92,12 @@ function publicPromoBarAppFor(services: PromoBarServices) {
   const app = new Hono<PublicPresenceApiEnv>();
   app.route("/", createPublicPromoBarRoutes(services));
   return app;
+}
+
+function publicAnalyticsAppFor(record = vi.fn()) {
+  const app = new Hono<PublicPresenceApiEnv>();
+  app.route("/", createWaitlistAnalyticsRoutes({ record }));
+  return { app, record };
 }
 
 function adminPromoBarAppFor(
@@ -246,6 +253,96 @@ describe("public presence API", () => {
     await expect(response.json()).resolves.toMatchObject({
       items: [{ id: "pbm_shipping", title: "Earn 5% toward shipping." }],
     });
+  });
+
+  it("captures bounded waitlist analytics events", async () => {
+    const { app, record } = publicAnalyticsAppFor();
+    const response = await app.request("/analytics/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "cta_clicked",
+        section: "hero",
+        target: "waitlist_form",
+        role: "sell",
+        interest: "low-sales-fees",
+        variant: "seller_first_v1",
+        page_path: "/?utm_source=launch&utm_campaign=beta",
+        utm_source: "launch",
+        utm_medium: "social",
+        utm_campaign: "founder wave",
+      }),
+    });
+
+    expect(response.status).toBe(204);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "cta_clicked",
+        section: "hero",
+        target: "waitlist_form",
+        role: "sell",
+        page_path: "/?utm_source=launch&utm_campaign=beta",
+        utm_campaign: "founder wave",
+      }),
+    );
+  });
+
+  it("rejects unsupported waitlist analytics events and non-POST methods", async () => {
+    const { app, record } = publicAnalyticsAppFor();
+    const invalid = await app.request("/analytics/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "email_submitted", email: "seller@example.com" }),
+    });
+    const get = await app.request("/analytics/waitlist");
+
+    expect(invalid.status).toBe(400);
+    expect(get.status).toBe(405);
+    expect(get.headers.get("Allow")).toBe("POST");
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("rejects arbitrary waitlist analytics label text before recording", async () => {
+    const { app, record } = publicAnalyticsAppFor();
+    const response = await app.request("/analytics/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "cta_clicked",
+        section: "seller@example.com",
+        target: "waitlist form",
+        role: "sell",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("rejects unbounded waitlist analytics source fields before recording", async () => {
+    const { app, record } = publicAnalyticsAppFor();
+    const urlResponse = await app.request("/analytics/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "landing_page_view",
+        page_path: "https://evil.example/?email=seller@example.com",
+        utm_source: "launch",
+      }),
+    });
+    const emailResponse = await app.request("/analytics/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "landing_page_view",
+        page_path: "/?utm_source=seller@example.com",
+        utm_source: "seller@example.com",
+      }),
+    });
+
+    expect(urlResponse.status).toBe(400);
+    expect(emailResponse.status).toBe(400);
+    expect(record).not.toHaveBeenCalled();
   });
 
   it("protects promo bar management with public-presence.view", async () => {

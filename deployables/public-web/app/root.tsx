@@ -18,7 +18,7 @@ import { publicPresenceT as t, waitlistAnalyticsEventNames } from "@chase-sets/p
 
 export const waitlistAnalyticsBridgeScript = `
 (() => {
-  const endpoint = "/analytics/waitlist";
+  const endpoint = "/api/public-presence/analytics/waitlist";
   const allowedEvents = new Set(${JSON.stringify(waitlistAnalyticsEventNames)});
 
   function readBounded(value) {

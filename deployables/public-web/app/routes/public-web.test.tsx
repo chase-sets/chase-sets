@@ -9,7 +9,6 @@ import { loader as orderProtectionRedirectLoader } from "./order-protection-redi
 import { loader as robotsLoader } from "./robots";
 import { loader as salesFeesRedirectLoader } from "./sales-fees-redirect";
 import { loader as sitemapLoader } from "./sitemap";
-import { action as waitlistAnalyticsAction, loader as waitlistAnalyticsLoader } from "./waitlist-analytics";
 import { waitlistAnalyticsBridgeScript } from "../root";
 
 describe("public web deployable", () => {
@@ -34,7 +33,7 @@ describe("public web deployable", () => {
 
   it("installs a bounded waitlist analytics bridge script", () => {
     expect(waitlistAnalyticsBridgeScript).toContain("chase-sets:waitlist-analytics");
-    expect(waitlistAnalyticsBridgeScript).toContain("/analytics/waitlist");
+    expect(waitlistAnalyticsBridgeScript).toContain("/api/public-presence/analytics/waitlist");
     expect(waitlistAnalyticsBridgeScript).toContain("page_path");
     expect(waitlistAnalyticsBridgeScript).toContain("utm_source");
     expect(waitlistAnalyticsBridgeScript).toContain("readAttribution");
@@ -115,115 +114,6 @@ describe("public web deployable", () => {
     const response = notFoundLoader();
 
     expect(response.status).toBe(404);
-  });
-
-  it("captures bounded waitlist analytics events", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const response = await waitlistAnalyticsAction({
-      request: new Request("https://chasesets.com/analytics/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "cta_clicked",
-          section: "hero",
-          target: "waitlist_form",
-          role: "sell",
-          interest: "low-sales-fees",
-          variant: "seller_first_v1",
-          page_path: "/?utm_source=launch&utm_campaign=beta",
-          utm_source: "launch",
-          utm_medium: "social",
-          utm_campaign: "founder wave",
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(204);
-    vi.unstubAllEnvs();
-  });
-
-  it("rejects unsupported waitlist analytics events", async () => {
-    const response = await waitlistAnalyticsAction({
-      request: new Request("https://chasesets.com/analytics/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: "email_submitted", email: "seller@example.com" }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(400);
-    expect(
-      waitlistAnalyticsLoader({
-        request: new Request("https://chasesets.com/analytics/waitlist"),
-        params: {},
-        context: undefined,
-      } as never).status,
-    ).toBe(405);
-  });
-
-  it("rejects arbitrary analytics label text before logging", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const response = await waitlistAnalyticsAction({
-      request: new Request("https://chasesets.com/analytics/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "cta_clicked",
-          section: "seller@example.com",
-          target: "waitlist form",
-          role: "sell",
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(400);
-    vi.unstubAllEnvs();
-  });
-
-  it("rejects unbounded analytics source fields before logging", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const response = await waitlistAnalyticsAction({
-      request: new Request("https://chasesets.com/analytics/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "landing_page_view",
-          page_path: "https://evil.example/?email=seller@example.com",
-          utm_source: "launch",
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(400);
-    vi.unstubAllEnvs();
-  });
-
-  it("rejects source attribution that looks like private contact data", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const response = await waitlistAnalyticsAction({
-      request: new Request("https://chasesets.com/analytics/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "landing_page_view",
-          page_path: "/?utm_source=seller@example.com",
-          utm_source: "seller@example.com",
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(400);
-    vi.unstubAllEnvs();
   });
 
   it("redirects renamed policy URLs to their canonical public pages", () => {

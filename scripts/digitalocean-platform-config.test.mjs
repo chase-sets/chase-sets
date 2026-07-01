@@ -75,8 +75,12 @@ describe("DigitalOcean platform runbook", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Expected production App Platform component baseline before public marketplace promotion",
     );
+    expect(digitaloceanPlatformRunbook).toContain("`public-web` service size `apps-s-1vcpu-1gb` with one instance");
     expect(digitaloceanPlatformRunbook).toContain(
       "`admin-support-api` service size `apps-s-1vcpu-1gb` with two instances",
+    );
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Full App Platform static-site hosting is deferred while the home route still owns the no-JavaScript waitlist form action",
     );
     expect(digitaloceanPlatformRunbook).toContain(
       "`marketplace`, `platform-api`, and `platform-worker` must not coexist with `admin-support-api` in production",
@@ -479,6 +483,10 @@ describe("DigitalOcean platform configuration", () => {
       "settlement_payout_reconciliation_job_lanes",
       'local.is_staging ? "2" : "1"',
     );
+    expectTerraformAssignment(platformLocals, "public_web_instances", "1");
+    expectTerraformAssignment(platformLocals, "marketplace_web_instances", "local.is_production ? 2 : 1");
+    expect(platformMain).toContain("instance_count     = local.public_web_instances");
+    expect(platformMain).toContain("instance_count     = local.marketplace_web_instances");
     expectTerraformAssignment(platformLocals, "default_worker_instances", "local.is_staging ? 2 : 1");
     expectTerraformAssignment(
       platformLocals,

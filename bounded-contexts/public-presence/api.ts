@@ -6,10 +6,12 @@ import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import type { PromoBarMessageTone } from "./features/promo-bar/api/contracts";
 import type { PromoBarServices } from "./features/promo-bar/api/runtime";
+import { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics";
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
+export { createWaitlistAnalyticsRoutes } from "./features/waitlist/api/analytics";
 
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 20;
@@ -323,6 +325,7 @@ export function createAdminPromoBarRoutes(services: PromoBarServices) {
 
 export function buildPublicPresencePublicApi(services: PublicPresenceServices) {
   const app = new Hono<PublicPresenceApiEnv>();
+  app.route("/", createWaitlistAnalyticsRoutes(services.waitlistAnalyticsRecorder));
   app.route("/", createPublicWaitlistRoutes(services.waitlist));
   app.route("/", createPublicPromoBarRoutes(services.promoBar));
   return app;
