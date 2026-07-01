@@ -14,6 +14,12 @@ const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
 const APP_SPEC_IMAGE_COLLECTIONS = ["jobs", "services", "workers", "static_sites", "functions"];
 const ROLLBACK_TARGET_SCHEMA_VERSION = "digitalocean-app-rollback-target/v1";
+const DURABLE_DATABASE_DESTRUCTIVE_RESOURCE_NAMES = new Map([
+  ["digitalocean_database_cluster", new Set(["postgres"])],
+  ["digitalocean_database_db", new Set(["contexts"])],
+  ["digitalocean_database_user", new Set(["contexts", "wake_listeners"])],
+  ["digitalocean_database_connection_pool", new Set(["contexts"])],
+]);
 
 function truncateDiagnosticMessage(message, maxLength = MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH) {
   if (message.length <= maxLength) {
@@ -421,6 +427,16 @@ export function destructiveResourceChanges(plan) {
     }));
 }
 
+function durableDatabaseDestructiveResource(change) {
+  const names = DURABLE_DATABASE_DESTRUCTIVE_RESOURCE_NAMES.get(change.type);
+  const baseName = change.name.split("[")[0];
+  return names?.has(baseName) ?? false;
+}
+
+export function durableDatabaseDestructiveResourceChanges(plan) {
+  return destructiveResourceChanges(plan).filter(durableDatabaseDestructiveResource);
+}
+
 export function approvedDestructiveChangeAddressesFromText(text) {
   const headingMatch = /^## Approved Destructive Changes\s*$/m.exec(text);
   if (!headingMatch) {
@@ -453,6 +469,8 @@ export function assertNoDestructiveChanges(plan, options = {}) {
     return destructiveChanges;
   }
 
+  const durableDatabaseChanges = destructiveChanges.filter(durableDatabaseDestructiveResource);
+
   if (options.allowedDestructiveAddresses?.length > 0) {
     const allowed = new Set(options.allowedDestructiveAddresses);
     const unapprovedChanges = destructiveChanges.filter((change) => !allowed.has(change.address));
@@ -469,6 +487,15 @@ export function assertNoDestructiveChanges(plan, options = {}) {
       console.warn(`- ${change.address}: ${change.actions.join(",")}`);
     }
     return destructiveChanges;
+  }
+
+  if (durableDatabaseChanges.length > 0) {
+    const summary = durableDatabaseChanges
+      .map((change) => `- ${change.address}: ${change.actions.join(",")}`)
+      .join("\n");
+    throw new Error(
+      `Production Terraform plan would delete durable database resources without an audited resource-scoped emergency override:\n${summary}\nExpected paths: use profile gating or retained context provisioning for runtime posture changes, PITR/restore procedures for recovery, or a reviewed production destructive-change approval marker that names each exact resource address.`,
+    );
   }
 
   if (options.allowDestructiveChanges) {
