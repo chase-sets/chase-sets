@@ -301,10 +301,8 @@ export function createMultiContextTestPools<TContextName extends string>(
   ) as Readonly<Record<TContextName, PgTransactionalPool>>;
 }
 
-export async function resetMultiContextTestSchemas(
-  pools: Readonly<Record<string, PgTransactionalPool>>,
-): Promise<void> {
-  const uniquePools = [...new Set(Object.values(pools))];
+export async function resetMultiContextTestSchemas(pools: Readonly<Record<string, unknown>>): Promise<void> {
+  const uniquePools = [...new Set(Object.values(pools).filter(isPgTransactionalPool))];
 
   await Promise.all(
     uniquePools.map((pool) =>
@@ -315,8 +313,16 @@ export async function resetMultiContextTestSchemas(
   );
 }
 
-export async function closeMultiContextTestPools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
-  await Promise.all(Object.values(pools).map((pool) => (pool as unknown as { end: () => Promise<void> }).end()));
+export async function closeMultiContextTestPools(pools: Readonly<Record<string, unknown>>): Promise<void> {
+  await Promise.all(
+    Object.values(pools)
+      .filter(isPgTransactionalPool)
+      .map((pool) => (pool as unknown as { end: () => Promise<void> }).end()),
+  );
+}
+
+function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
+  return Boolean(value && typeof value === "object" && "query" in value);
 }
 
 export type MountedContextTestDefinition<

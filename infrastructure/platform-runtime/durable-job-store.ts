@@ -209,14 +209,16 @@ export function createPostgresDurableJobStore<
   tables: DurableJobTables,
   options: {
     eventSnapshot?: (job: DurableJobRecord<TPayload, TProgress, TResult>) => TSnapshot;
+    notificationWaiterPool?: PgTransactionalPool;
     notificationRetryCooldownMs?: number;
   } = {},
 ): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
-  const notificationWaiter = isTransactionalPool(db)
-    ? createDurableJobNotificationWaiter(db, notifyChannel, {
+  const notificationPool = options.notificationWaiterPool ?? db;
+  const notificationWaiter = isTransactionalPool(notificationPool)
+    ? createDurableJobNotificationWaiter(notificationPool, notifyChannel, {
         retryCooldownMs: options.notificationRetryCooldownMs,
       })
     : null;

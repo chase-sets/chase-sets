@@ -237,6 +237,7 @@ const realtimeStores = runtime.mountedContexts
   .map((entry) => ({
     contextName: entry.contextName,
     db: entry.pool,
+    notificationWaiterPool: entry.notificationWaiterPool ?? entry.pool,
   }));
 let realtimeActiveConnectionCount = 0;
 const realtimeObserver = {
@@ -350,7 +351,10 @@ const realtimeObserver = {
   },
 } satisfies RealtimeObserver;
 const realtimeWakeSignal = config.realtime.wakeSignalEnabled
-  ? createPlatformRealtimeWakeSignal([...new Set(realtimeStores.map((store) => store.db))], realtimeObserver)
+  ? createPlatformRealtimeWakeSignal(
+      [...new Set(realtimeStores.map((store) => store.notificationWaiterPool))],
+      realtimeObserver,
+    )
   : undefined;
 const ucpObserver = {
   signedWriteRejected: (event) => {

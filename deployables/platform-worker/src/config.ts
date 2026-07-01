@@ -2,6 +2,7 @@ import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-se
 import {
   getBooleanEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
+  getContextWaiterDatabaseEnvName as getSharedContextWaiterDatabaseEnvName,
   getOptionalEnv,
   getOptionalPositiveNumberEnv,
   getPositiveNumberEnv,
@@ -30,6 +31,7 @@ export type PlatformWorkerConfig = Readonly<{
   controlDatabaseUrl: string;
   workSignalDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
+  contextWaiterDatabaseUrls?: Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
   pool: PlatformWorkerPoolConfig;
   catalogAssetStorage: PlatformWorkerCatalogAssetStorageConfig;
   port: number;
@@ -164,6 +166,10 @@ const workerContexts = getWorkerHostContextNames(workerContextRegistry, "platfor
 
 export function getContextDatabaseEnvName(contextName: PlatformWorkerContextName) {
   return getSharedContextDatabaseEnvName(contextName);
+}
+
+export function getContextWaiterDatabaseEnvName(contextName: PlatformWorkerContextName) {
+  return getSharedContextWaiterDatabaseEnvName(contextName);
 }
 
 export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerContextName) {

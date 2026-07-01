@@ -17,6 +17,7 @@ Terraform also exposes `connection_budget_profiles` so release operators can ins
 - **Non-production query traffic is pooled.** Terraform creates one managed PgBouncer transaction pool per context database. App components (API, worker, bootstrap job) hold client-side connections to PgBouncer; the cluster backends those clients can occupy are capped by the server-side pool `size` values in `context_database_connection_pool_sizes`, not by app pool maxima. The sum of those sizes is the worst-case backend footprint of all pooled traffic.
 - **Production query traffic is direct.** Production uses App Platform database bindings (`${db-<context>.DATABASE_URL}`), which are direct, session-compatible cluster connections. App pool maxima therefore count one-for-one against cluster backends. This binding path is semantically identical to the staging contract for runtime behavior — same env var names, same per-context URL split, session-capable connections — which is why it passes the parity check rather than being a different topology.
 - **`LISTEN` is incompatible with transaction pooling.** PgBouncer transaction mode swaps the server connection between transactions, so notifications are silently unreliable. Every budgeted listener must use a direct or session-compatible connection. That is why staging and production both get explicit per-context direct `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` values built from the same Terraform expression, using dedicated least-privilege `cs_<env>_<context>_wake_listener` users (#1243: `CONNECT` + schema `USAGE` + event-store `SELECT` only) instead of the owning context users or App Platform bindings. The listener connection **count** is unchanged by the least-privilege credentials — still one direct backend per direct-listened source context (`relay_listener_demand`), enforced by `check "wake_listener_least_privilege"` alongside the parity check.
+- **Context-owned API waiters are split from query traffic.** Platform API receives direct/session-compatible `DATABASE_URL_<CONTEXT>_WAITER` values for `catalog`, `discovery`, `inventory`, and `marketplace`. Durable job event waits and realtime wake listeners use those waiter pools, while durable job writes, realtime replay reads, retention cleanup, and ordinary bounded-context queries stay on `DATABASE_URL_<CONTEXT>`.
 - **`DATABASE_POOL_MAX` is per database URL, not per process.** Each deployable creates one `node-postgres` pool per unique context database URL with `max = DATABASE_POOL_MAX`. The theoretical cap is therefore `pool max × attached databases` per process. The budget instead treats `DATABASE_POOL_MAX` as the per-process concurrent-backend allowance, which is honest because: worker runner concurrency is held at or below the pool max by the existing `worker_runner_capacity` check; API concurrent backend use is bounded by in-flight requests; and the 5-second pool idle timeout (`DATABASE_POOL_IDLE_TIMEOUT_MS`) reaps idle backends quickly. The asserted headroom absorbs bursts above the allowance.
 
 ## Listener And Channel Inventory
@@ -27,8 +28,8 @@ One shared notification channel per concern, never one channel or pool per conte
 | --- | --- | --- | --- | --- |
 | `platform_event_store_commits` | Each direct-listened source-context database: `checkout`, `identity`, `inventory`, `marketplace`, `ordering`, `payments` | The single active worker-owned relay only (fenced lease; standby workers hold no listeners) | Direct (`WORKER_LISTENER_DATABASE_URL_<CONTEXT>` in staging and production, dedicated least-privilege wake-listener users) | `relay_listener_demand` (1 per direct-listened source context) |
 | `platform_projection_operation_events` | Control database | API control-plane waiters for projection-operation events via the work-signal composite | `PLATFORM_WORK_SIGNAL_DATABASE_URL` direct/session-compatible pool when configured; falls back to the control pool | Inside `api_total_pool_demand` |
-| `durable_job_events` (default) and context-named durable-job channels (for example `catalog_source_observation_durable_job_events`) | The database owning each durable-job store (context or control) | API durable-job SSE waiters via the work-signal composite — one lazily connected listener per store pool/channel | Same pooled-checkout semantics and polling fallback as above; listener reconnects are circuit-broken (60 s cooldown) | Inside `api_total_pool_demand` |
-| `realtime_projection_patch` | `catalog`, `discovery`, `marketplace` context databases | Platform API realtime SSE wake signal via the work-signal composite — one lazily connected listener per unique realtime context pool (≤3 per API instance) | Checked out of the pooled context connections; reliable only over direct connections (production), best-effort over staging transaction pools with 1s SSE polling fallback | Inside `api_total_pool_demand` |
+| `durable_job_events` (default) and context-named durable-job channels (for example `catalog_source_observation_durable_job_events`) | The database owning each durable-job store (context or control) | API durable-job SSE waiters via the work-signal composite — one lazily connected listener per store pool/channel | Direct waiter pools through `DATABASE_URL_CATALOG_WAITER` and `DATABASE_URL_INVENTORY_WAITER`; listener reconnects are circuit-broken (60 s cooldown) | `api_waiter_listener_demand` |
+| `realtime_projection_patch` | `catalog`, `discovery`, `marketplace` context databases | Platform API realtime SSE wake signal via the work-signal composite — one lazily connected listener per unique realtime waiter pool (≤3 per API instance) | Direct waiter pools through `DATABASE_URL_CATALOG_WAITER`, `DATABASE_URL_DISCOVERY_WAITER`, and `DATABASE_URL_MARKETPLACE_WAITER`; SSE keeps 1s polling fallback | `api_waiter_listener_demand` |
 
 Rejected patterns (per #1236, enforced by this budget and the guardrail inventory):
 
@@ -48,9 +49,10 @@ Direct cluster backends (what the check asserts, from `push-wake-capacity-eviden
 | --- | --- | --- |
 | PgBouncer server-side allocation | 17 platform contexts with overrides: auth 3 + catalog 6 + control 4 + discovery 3 + identity 3 + marketplace 3 + notifications 2 + public-presence 3; all other contexts 1 | 36 |
 | Relay listeners (active relay only) | 6 direct-listened source contexts × 1 | 6 |
+| API waiter listeners | 4 waiter contexts × 1 API component × 1 instance | 4 |
 | Bootstrap/maintenance reservation | one bootstrap pool (the staging bootstrap job itself rides PgBouncer; this covers the direct Terraform grant connection and ad hoc maintenance) | 4 |
-| **Steady-state total** | 36 + 6 + 4 | **46 ≤ 94** (headroom 48) |
-| **Deploy overlap** | 36 + 2 × 6 + 4 (old and new relay may briefly both hold listeners; PgBouncer backends do not grow with client count) | **52 ≤ 94** (headroom 42) |
+| **Steady-state total** | 36 + 6 + 4 + 4 | **50 ≤ 94** (headroom 44) |
+| **Deploy overlap** | 36 + 2 × 6 + 2 × 4 + 4 (old and new relay/API generations may briefly both hold listeners; PgBouncer backends do not grow with client count) | **60 ≤ 94** (headroom 34) |
 
 Client-side PgBouncer connections (not cluster backends, listed for completeness): platform-api 6 × 1 component × 1 instance = 6; platform-worker 11 × 1 component × 2 instances = 22.
 
@@ -63,9 +65,10 @@ Everything is direct. The budget assumes the consolidated topology that now runs
 | API pools | 6 pool max × 1 component × 2 instances | 12 |
 | Worker pools | 7 pool max × 1 component × 1 instance | 7 |
 | Relay listeners (budgeted worst case, relay currently killed) | 6 direct-listened source contexts × 1 | 6 |
+| API waiter listeners | 4 waiter contexts × 1 API component × 2 instances | 8 |
 | Bootstrap (transient PRE_DEPLOY) | one bootstrap pool | 4 |
-| **Steady-state total** | 12 + 7 + 6 + 4 | **29 ≤ 94** (headroom 65) |
-| **Deploy overlap** | 2 × (12 + 7) + 2 × 6 + 4 (App Platform starts replacement containers before stopping old ones) | **54 ≤ 94** (headroom 40) |
+| **Steady-state total** | 12 + 7 + 6 + 8 + 4 | **37 ≤ 94** (headroom 57) |
+| **Deploy overlap** | 2 × (12 + 7) + 2 × 6 + 2 × 8 + 4 (App Platform starts replacement containers before stopping old ones) | **70 ≤ 94** (headroom 24) |
 
 The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect.
 
@@ -77,7 +80,7 @@ The rolling-deploy overlap envelope is the binding production constraint. It is 
 - `proof` currently shares the public runtime shape until #3213/#3214 split route exposure and worker runner groups for proof mode.
 - `public` preserves the full marketplace context surface.
 
-Each entry includes `active_context_count`, `exposed_context_count`, `provisioned_context_count`, `steady_state_demand`, `rolling_deploy_demand`, `cluster_connection_limit`, `steady_state_headroom`, `rolling_deploy_headroom`, and `production_pgbouncer_ready`. `production_pgbouncer_ready` remains `false` until #3238 separates transaction-pooled query traffic from context-owned durable/realtime waiters.
+Each entry includes `active_context_count`, `exposed_context_count`, `provisioned_context_count`, `steady_state_demand`, `rolling_deploy_demand`, `cluster_connection_limit`, `steady_state_headroom`, `rolling_deploy_headroom`, and `production_pgbouncer_ready`. `production_pgbouncer_ready` remains `false` until a dedicated production transaction-pool rollout adds query-safe production PgBouncer pools and proves the direct waiter/listener topology.
 
 ### Preview (`non_production_database_size` = `db-s-1vcpu-1gb`, budgeted limit 19)
 
@@ -86,7 +89,7 @@ Previews compute to 21 (PgBouncer allocation, all pools size 1) + 0 listeners + 
 ## Topology Parity Contract
 
 - The same locals produce both environments' wiring: `worker_listener_source_contexts`, `worker_listener_database_urls`, `context_database_urls`, pool maxima, and the wake enablement flags. Environment differences are explicit scale/ramp expressions (`local.is_staging ? … : …`), never structural branches. Listener URLs are a single shared expression for staging and production (dedicated wake-listener users on direct cluster URLs); query traffic remains pooled in non-production and binding-direct in production per the semantics above.
-- Env var names are identical in staging and production: `DATABASE_URL_<CONTEXT>`, `PLATFORM_CONTROL_DATABASE_URL`, `PLATFORM_WORK_SIGNAL_DATABASE_URL`, `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED`, `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED`.
+- Env var names are identical in staging and production: `DATABASE_URL_<CONTEXT>`, `DATABASE_URL_<CONTEXT>_WAITER`, `PLATFORM_CONTROL_DATABASE_URL`, `PLATFORM_WORK_SIGNAL_DATABASE_URL`, `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED`, `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED`.
 - `check "wake_listener_topology_parity"` fails the plan when the listener URL map keys stop matching `worker_listener_source_contexts` in either staging or production, or when a preview grows listener URLs. `check "wake_listener_least_privilege"` fails the plan when a listener URL stops embedding its dedicated wake-listener user.
 - The operator procedure for collecting deployed-environment parity evidence (Terraform checks, app spec env vars, worker status, wake-status) is the [Topology Parity Inspection section of Push-Wake Operations](../runbooks/push-wake-operations.md#topology-parity-inspection-1243-evidence).
 - Per-environment rollout is carried by the kill switches and the [source-context wake registry](./source-context-wake-registry.md), not by differing infrastructure shape.
@@ -95,10 +98,10 @@ Previews compute to 21 (PgBouncer allocation, all pools size 1) + 0 listeners + 
 
 Each additional direct LISTEN source context costs 1 steady-state backend and 2 overlap backends in production. Against the current worst-case envelopes:
 
-- Staging can absorb all remaining direct listener waves on the current tier (steady-state headroom 48, overlap headroom 42).
-- Production has twenty remaining direct listener slots on the current tier after the consolidated one-API/one-worker topology. The remaining wave-2 listener expansion (`catalog`, `fulfillment`) adds 4 overlap backends and fits at 58/94, but it still requires route/worker rollout evidence before enablement.
+- Staging can absorb all remaining direct listener waves on the current tier (steady-state headroom 44, overlap headroom 34).
+- Production has twelve remaining direct listener slots on the current tier after the consolidated one-API/one-worker topology and API waiter split. The remaining wave-2 relay listener expansion (`catalog`, `fulfillment`) adds 4 overlap backends and fits at 74/94, but it still requires route/worker rollout evidence before enablement.
 - The runtime registry currently has eight staging-enabled relay contexts (`catalog`, wave 1, `identity`, `inventory`, `settlement`), while Terraform provisions direct listener URLs for wave 1 plus `identity` and `inventory`. Missing direct listener URLs are an intentional catch-up-only posture, not notification-latency proof for those contexts. Moving both active catch-up-only registry sources (`catalog`, `settlement`) to direct LISTEN in production would add 4 overlap backends and fits the current tier after deployable consolidation; enablement still needs issue-specific latency and convergence evidence.
-- Composite wake origins (durable jobs, projection operations, realtime) add query/notify load but no new connections: their composite emitters and waiters ride the already-budgeted pooled connections of the database that owns each channel (control database for projection operations, owning context/control pools for durable jobs, realtime context pools for realtime). Their load (not connection) budgets are owned by the durable wake-store capacity evidence (#1246) and composite phase evidence (#1248/#1249).
+- Composite wake origins add query/notify load, and API-owned durable/realtime waiters now add the `api_waiter_listener_demand` direct-connection envelope above. Their throughput and latency budgets are still owned by durable wake-store capacity evidence (#1246) and composite phase evidence (#1248/#1249); their connection budget is owned here.
 
 ## Budget Violation And Rollback Behavior
 

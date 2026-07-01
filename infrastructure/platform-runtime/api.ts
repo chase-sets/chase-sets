@@ -76,6 +76,11 @@ export type ApiHostMount = BcApiMount &
     router: unknown;
   }>;
 
+type ApiHostPools = Readonly<
+  Record<string, PgTransactionalPool | Readonly<Record<string, PgTransactionalPool>> | undefined>
+> &
+  Readonly<{ contextWaiters?: Readonly<Record<string, PgTransactionalPool>> }>;
+
 export function getApiHostEntries<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
@@ -115,30 +120,30 @@ export function createApiHost(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   options: Readonly<{
-    pools: Readonly<Record<string, PgTransactionalPool>>;
+    pools: ApiHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
   }>,
 ): ApiHostRuntime {
   const entries = getApiHostEntries(registry, hostName);
   const services = Object.fromEntries(
     entries.map((entry) => {
-      const pool = options.pools[entry.contextName];
-      if (!pool) {
-        throw new Error(`API host '${hostName}' is missing a pool for context '${entry.contextName}'.`);
-      }
+      const pool = getContextPool(options.pools, hostName, entry.contextName);
+      const notificationWaiterPool = options.pools.contextWaiters?.[entry.contextName] ?? pool;
 
       return [
         entry.contextName,
         entry.module.createServices(
           createProjectionAwarePool(pool),
           getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
+          { notificationWaiterPool: createProjectionAwarePool(notificationWaiterPool) },
         ),
       ];
     }),
   );
 
   const mountedContexts = entries.map((entry) => {
-    const pool = options.pools[entry.contextName];
+    const pool = getContextPool(options.pools, hostName, entry.contextName);
+    const notificationWaiterPool = options.pools.contextWaiters?.[entry.contextName] ?? pool;
     const contextServices = services[entry.contextName];
     const mountRole = getApiHostMountRole(entry.manifest as ApiContextManifest, hostName);
 
@@ -148,6 +153,7 @@ export function createApiHost(
       module: entry.module,
       services: contextServices,
       pool,
+      notificationWaiterPool,
       projectionHandlerSets:
         mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
     };
@@ -167,6 +173,19 @@ export function createApiHost(
     projectionGroups,
     subscriptionRunners,
   };
+}
+
+function getContextPool(pools: ApiHostPools, hostName: ApiHostName, contextName: string): PgTransactionalPool {
+  const pool = pools[contextName];
+  if (isPgTransactionalPool(pool)) {
+    return pool;
+  }
+
+  throw new Error(`API host '${hostName}' is missing a pool for context '${contextName}'.`);
+}
+
+function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
+  return Boolean(value && typeof value === "object" && "query" in value);
 }
 
 export function resolveApiHostMounts(runtime: ApiHostRuntime): readonly ApiHostMount[] {

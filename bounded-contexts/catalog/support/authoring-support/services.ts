@@ -2,6 +2,7 @@ import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
+import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createCatalogAliasRuntime } from "../../features/alias-equivalence/api/runtime";
 import { createBlueprintRuntime } from "../../features/blueprints/api/runtime";
@@ -45,7 +46,11 @@ export type CatalogServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogHostPorts = {}): CatalogServices {
+export function createCatalogServices(
+  pool: PgTransactionalPool,
+  ports: CatalogHostPorts = {},
+  options: BcCreateServicesOptions<PgTransactionalPool> = {},
+): CatalogServices {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
@@ -56,6 +61,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     eventStore,
     checkpointStore,
     db,
+    notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
     tcgplayerAutomationCatalogClient: ports.tcgplayerAutomationCatalogClient,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,

@@ -5,11 +5,16 @@ export type ContextPoolConfig<TContextName extends string> = Readonly<{
   controlDatabaseUrl?: string | null;
   workSignalDatabaseUrl?: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
+  contextWaiterDatabaseUrls?: Readonly<Partial<Record<TContextName, string>>>;
   pool?: PgPoolOptions;
 }>;
 
 export type ContextPools<TContextName extends string> = Readonly<Record<TContextName, PgTransactionalPool>> &
-  Readonly<{ control: PgTransactionalPool; workSignal: PgTransactionalPool }>;
+  Readonly<{
+    control: PgTransactionalPool;
+    workSignal: PgTransactionalPool;
+    contextWaiters: Readonly<Record<TContextName, PgTransactionalPool>>;
+  }>;
 
 export type ContextPoolRegistry<
   TContextName extends string,
@@ -64,6 +69,12 @@ export function createContextPools<TContextName extends string, TConfig extends 
       resolvePool(resolveContextDatabaseUrl(contextName)),
     ]),
   ) as Readonly<Record<TContextName, PgTransactionalPool>>;
+  const contextWaiters = Object.fromEntries(
+    contextRegistry.contextNames.map((contextName) => [
+      contextName,
+      resolvePool(config.contextWaiterDatabaseUrls?.[contextName] ?? resolveContextDatabaseUrl(contextName)),
+    ]),
+  ) as Readonly<Record<TContextName, PgTransactionalPool>>;
 
   const controlDatabaseUrl = resolveControlDatabaseUrl(contextRegistry, config, resolveContextDatabaseUrl);
   const controlPool = resolvePool(controlDatabaseUrl);
@@ -72,12 +83,21 @@ export function createContextPools<TContextName extends string, TConfig extends 
     ...contextPools,
     control: controlPool,
     workSignal: resolvePool(config.workSignalDatabaseUrl ?? controlDatabaseUrl),
+    contextWaiters,
   };
 }
 
-export async function closeContextPools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
-  const uniquePools = [...new Set(Object.values(pools))];
+export async function closeContextPools(pools: Readonly<Record<string, unknown>>): Promise<void> {
+  const contextWaiters =
+    "contextWaiters" in pools
+      ? Object.values(pools.contextWaiters as Readonly<Record<string, PgTransactionalPool>>)
+      : [];
+  const uniquePools = [...new Set([...Object.values(pools), ...contextWaiters])].filter(isPgTransactionalPool);
   await Promise.all(uniquePools.map((pool) => (pool as PgTransactionalPool & { end: () => Promise<void> }).end()));
+}
+
+function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
+  return Boolean(value && typeof value === "object" && "query" in value && "connect" in value);
 }
 
 function resolveControlDatabaseUrl<TContextName extends string, TConfig extends ContextPoolConfig<TContextName>>(

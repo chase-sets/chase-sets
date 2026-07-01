@@ -99,6 +99,7 @@ export type PlatformDatabaseConfig<TContextName extends string> = Readonly<{
   controlDatabaseUrl: string;
   workSignalDatabaseUrl: string | null;
   contextDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
+  contextWaiterDatabaseUrls: Readonly<Partial<Record<TContextName, string>>>;
 }>;
 
 export type PlatformStripeProviderConfig = Readonly<{
@@ -201,6 +202,10 @@ export function getContextDatabaseEnvName(contextName: string) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
 
+export function getContextWaiterDatabaseEnvName(contextName: string) {
+  return `${getContextDatabaseEnvName(contextName)}_WAITER`;
+}
+
 export function loadPlatformDatabaseConfig<TContextName extends string>(input: {
   contextNames: readonly TContextName[];
   missingControlDatabaseUrlError: string;
@@ -225,6 +230,13 @@ export function loadPlatformDatabaseConfig<TContextName extends string>(input: {
       return databaseUrl ? [[contextName, databaseUrl]] : [];
     }),
   ) as Readonly<Partial<Record<TContextName, string>>>;
+  const contextWaiterDatabaseUrls = Object.fromEntries(
+    input.contextNames.flatMap((contextName) => {
+      const databaseUrl = getOptionalEnv(getContextWaiterDatabaseEnvName(contextName));
+
+      return databaseUrl ? [[contextName, databaseUrl]] : [];
+    }),
+  ) as Readonly<Partial<Record<TContextName, string>>>;
   const missingContextNames = input.contextNames.filter(
     (contextName) => !sharedDatabaseUrl && !contextDatabaseUrls[contextName],
   );
@@ -242,6 +254,7 @@ export function loadPlatformDatabaseConfig<TContextName extends string>(input: {
     controlDatabaseUrl,
     workSignalDatabaseUrl,
     contextDatabaseUrls,
+    contextWaiterDatabaseUrls,
   };
 }
 

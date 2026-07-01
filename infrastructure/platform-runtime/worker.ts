@@ -123,6 +123,10 @@ export type WorkerProjectionOperationEvent = Readonly<{
   streamId: string | null;
 }>;
 
+type WorkerHostPools = Readonly<
+  Record<string, PgTransactionalPool | Readonly<Record<string, PgTransactionalPool>> | undefined>
+>;
+
 export type DurableJobLaneRunContext = Readonly<{
   workflowName: string;
   laneName: string;
@@ -203,17 +207,14 @@ export function createWorkerHost(
   registry: WorkerContextRegistry,
   hostName: WorkerHostName,
   options: Readonly<{
-    pools: Readonly<Record<string, PgTransactionalPool>>;
+    pools: WorkerHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
   }>,
 ): WorkerHostRuntime {
   const entries = getWorkerHostEntries(registry, hostName);
   const services = Object.fromEntries(
     entries.map((entry) => {
-      const pool = options.pools[entry.contextName];
-      if (!pool) {
-        throw new Error(`Worker host '${hostName}' is missing a pool for context '${entry.contextName}'.`);
-      }
+      const pool = getContextPool(options.pools, hostName, entry.contextName);
 
       return [
         entry.contextName,
@@ -226,7 +227,7 @@ export function createWorkerHost(
   );
 
   const mountedContexts = entries.map((entry) => {
-    const pool = options.pools[entry.contextName];
+    const pool = getContextPool(options.pools, hostName, entry.contextName);
     const contextServices = services[entry.contextName];
     const mountRole = getWorkerHostMountRole(entry.manifest, hostName);
 
@@ -249,6 +250,19 @@ export function createWorkerHost(
     projectionGroups,
     subscriptionRunners,
   };
+}
+
+function getContextPool(pools: WorkerHostPools, hostName: WorkerHostName, contextName: string): PgTransactionalPool {
+  const pool = pools[contextName];
+  if (isPgTransactionalPool(pool)) {
+    return pool;
+  }
+
+  throw new Error(`Worker host '${hostName}' is missing a pool for context '${contextName}'.`);
+}
+
+function isPgTransactionalPool(value: unknown): value is PgTransactionalPool {
+  return Boolean(value && typeof value === "object" && "query" in value);
 }
 
 export function collectWorkerRunners(

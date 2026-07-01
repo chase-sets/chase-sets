@@ -10,7 +10,11 @@ describe("platform api database pools", () => {
       workSignalDatabaseUrl: "postgresql://localhost/control-direct",
       contextDatabaseUrls: {
         auth: "postgresql://localhost/auth",
+        catalog: "postgresql://localhost/catalog",
         payments: "postgresql://localhost/payments",
+      },
+      contextWaiterDatabaseUrls: {
+        catalog: "postgresql://localhost/catalog-direct",
       },
       port: 6182,
     });
@@ -26,8 +30,14 @@ describe("platform api database pools", () => {
       expect(pools.auth).not.toBe(pools.catalog);
       expect(pools.payments).not.toBe(pools.catalog);
       expect(pools.workSignal).not.toBe(pools.control);
+      expect(pools.contextWaiters.catalog).not.toBe(pools.catalog);
+      expect(pools.contextWaiters.auth).toBe(pools.auth);
       expect(runtime.mountedContexts.length).toBeGreaterThan(0);
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "catalog")?.pool).toBe(pools.catalog);
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "catalog")?.notificationWaiterPool).toBe(
+        pools.contextWaiters.catalog,
+      );
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool).toBe(pools.payments);
     } finally {
       await closePlatformApiPools(pools);

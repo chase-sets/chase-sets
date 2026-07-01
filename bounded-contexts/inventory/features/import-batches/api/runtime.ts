@@ -1,6 +1,6 @@
 import { getEventCommitMetadata, runWithEventCommitMetadata, type EventCommitMetadata } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { CommandReceiptMetadata } from "@chase-sets/http/responses";
 import {
   createDurableJobExecutionContext,
@@ -128,6 +128,7 @@ export type InventoryImportBatchServices = Readonly<{
 
 type InventoryImportBatchRuntimeDeps = Readonly<{
   db: PgQueryable;
+  notificationWaiterPool?: PgTransactionalPool;
   items: InventoryItemServices;
   catalogItems: InventoryCatalogItemServices;
   draftListingCreator?: InventoryDraftListingCreator;
@@ -555,10 +556,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     InventoryImportBatchJobPayload,
     InventoryImportBatchJobProgress,
     InventoryImportBatchJobResult
-  >(deps.db, {
-    jobsTable: "inventory_import_batch_jobs",
-    eventsTable: "inventory_import_batch_job_events",
-  });
+  >(
+    deps.db,
+    {
+      jobsTable: "inventory_import_batch_jobs",
+      eventsTable: "inventory_import_batch_job_events",
+    },
+    { notificationWaiterPool: deps.notificationWaiterPool },
+  );
   const workUnitStore = createPostgresDurableJobWorkUnitStore<
     InventoryImportBatchJobPayload,
     InventoryImportBatchJobProgress,

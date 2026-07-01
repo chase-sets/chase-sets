@@ -24,6 +24,7 @@ import {
   type ReadConsistencyMiddlewareOptions,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware, recordProjectionFreshnessAudit } from "@chase-sets/observability";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   createHealthRoutes,
   type HealthProjectionReplaySummary,
@@ -97,8 +98,8 @@ export type BuildPlatformApiOptions = Readonly<{
 
 export function createPlatformApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
-  const commercialTermsPool = options.pools["commercial-terms"];
-  const settlementPool = options.pools.settlement;
+  const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
+  const settlementPool = getPlatformApiPool(options.pools.settlement);
   const commercialTermsResolver = commercialTermsPool
     ? createCommercialTermsResolver({
         db: commercialTermsPool,
@@ -134,6 +135,10 @@ export function createPlatformApiHost(options: Parameters<typeof createApiHost>[
     },
   });
   return runtime;
+}
+
+function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
+  return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
 function createIdentityCommercialTermsAccountSource(

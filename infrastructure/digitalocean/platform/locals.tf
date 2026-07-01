@@ -133,15 +133,17 @@ locals {
   # targets preview environments and the relay falls back to catch-up-only
   # behavior.
   worker_listener_source_contexts = ["checkout", "identity", "inventory", "marketplace", "ordering", "payments"]
+  api_waiter_contexts             = ["catalog", "discovery", "inventory", "marketplace"]
+  wake_listener_contexts          = distinct(concat(local.worker_listener_source_contexts, local.api_waiter_contexts))
   wake_listener_database_users = (local.is_production || local.is_staging) ? {
-    for context_name in local.worker_listener_source_contexts :
+    for context_name in local.wake_listener_contexts :
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"
   } : {}
   # Wave-1 databases follow the standard context database naming (no token
   # overrides apply); the lookup keeps this evaluable in previews where the
   # wave-1 context databases are not managed.
   wake_listener_database_names = {
-    for context_name in local.worker_listener_source_contexts :
+    for context_name in local.wake_listener_contexts :
     context_name => lookup(
       local.context_databases,
       context_name,
@@ -153,12 +155,23 @@ locals {
   # route exposure remains landing-only; previews still skip unmanaged
   # listener databases.
   wake_listener_grant_contexts = [
-    for context_name in local.worker_listener_source_contexts :
+    for context_name in local.wake_listener_contexts :
     context_name
     if contains(keys(local.wake_listener_database_users), context_name) && contains(keys(local.context_databases), context_name)
   ]
   worker_listener_database_urls = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
+    context_name => format(
+      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      urlencode(digitalocean_database_user.wake_listeners[context_name].name),
+      urlencode(digitalocean_database_user.wake_listeners[context_name].password),
+      digitalocean_database_cluster.postgres.host,
+      digitalocean_database_cluster.postgres.port,
+      urlencode(local.wake_listener_database_names[context_name]),
+    )
+  } : {}
+  api_waiter_database_urls = (local.is_production || local.is_staging) ? {
+    for context_name in local.api_waiter_contexts :
     context_name => format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_user.wake_listeners[context_name].name),
@@ -228,6 +241,9 @@ locals {
   # cannot violate the budget. Previews define no listener URLs and budget
   # zero.
   relay_listener_demand = (local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0
+  api_waiter_listener_demand = (local.is_production || local.is_staging) ? (
+    length(local.api_waiter_contexts) * local.api_component_count * local.api_instances
+  ) : 0
 
   # Bootstrap PRE_DEPLOY jobs are transient (single instance, finished before
   # replacement app containers start) but still occupy backends while running,
@@ -273,6 +289,7 @@ locals {
     worker_instances           = local.worker_instances
     bootstrap_demand           = local.bootstrap_demand
     relay_listener_demand      = local.relay_listener_demand
+    api_waiter_listener_demand = local.api_waiter_listener_demand
     pgbouncer_backend_demand   = local.pgbouncer_server_backend_allocation
     steady_state_demand        = local.cluster_backend_demand
     rolling_deploy_demand      = local.cluster_backend_demand_deploy_overlap
@@ -308,9 +325,9 @@ locals {
   # PgBouncer server-side allocation, the direct relay listeners, and the
   # bootstrap reservation reach the cluster.
   cluster_backend_demand = local.is_production ? (
-    local.api_total_pool_demand + local.worker_total_pool_demand + local.relay_listener_demand + local.bootstrap_demand
+    local.api_total_pool_demand + local.worker_total_pool_demand + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand
     ) : (
-    local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.bootstrap_demand
+    local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand
   )
 
   # Rolling-deploy overlap envelope: App Platform starts replacement
@@ -319,9 +336,9 @@ locals {
   # allocation does not grow with client count, which is exactly why
   # non-production query traffic stays on pooled URLs.
   cluster_backend_demand_deploy_overlap = local.is_production ? (
-    2 * (local.api_total_pool_demand + local.worker_total_pool_demand) + 2 * local.relay_listener_demand + local.bootstrap_demand
+    2 * (local.api_total_pool_demand + local.worker_total_pool_demand) + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand
     ) : (
-    local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + local.bootstrap_demand
+    local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + 2 * local.api_waiter_listener_demand + local.bootstrap_demand
   )
 
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
@@ -534,6 +551,11 @@ locals {
     for context_name in local.context_names :
     context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}"
     if context_name != "control"
+  }
+
+  context_waiter_database_env = {
+    for context_name in local.api_waiter_contexts :
+    context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}_WAITER"
   }
 
   admin_support_context_names = [

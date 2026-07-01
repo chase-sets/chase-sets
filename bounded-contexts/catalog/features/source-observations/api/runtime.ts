@@ -1222,7 +1222,10 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_bulk_review_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toSourceObservationBulkJobEventSnapshot },
+    {
+      eventSnapshot: toSourceObservationBulkJobEventSnapshot,
+      notificationWaiterPool: deps.notificationWaiterPool,
+    },
   );
   const bulkReviewWorkUnitStore = createPostgresDurableJobWorkUnitStore<
     SourceObservationBulkJobPayload,
@@ -1256,7 +1259,10 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_integration_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toSourceObservationIntegrationJobEventSnapshot },
+    {
+      eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
+      notificationWaiterPool: deps.notificationWaiterPool,
+    },
   );
   const catalogSyncRunStore = createPostgresDurableJobStore<
     CatalogSyncRunPayload,
@@ -1269,7 +1275,10 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_integration_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toCatalogSyncRunFanoutEventSnapshot },
+    {
+      eventSnapshot: toCatalogSyncRunFanoutEventSnapshot,
+      notificationWaiterPool: deps.notificationWaiterPool,
+    },
   );
   const integrationWorkUnitStore = createPostgresDurableJobWorkUnitStore<
     SourceObservationIntegrationJobPayload,
