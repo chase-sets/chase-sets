@@ -269,7 +269,12 @@ function sourceScopeUnitRow(
       providerScopeMatchesCandidateProductDomain(candidate, scope) &&
       providerScopeMatchesSelectedScope(selectedScope.scope, scope),
   );
-  const routeScope = providerCommandScope(candidate, selectedScope.scope, matchingScopes[0] ?? null);
+  const routeScope = providerCommandScope(
+    candidate,
+    selectedScope.scope,
+    matchingScopes[0] ?? null,
+    input.sourceOptions,
+  );
   const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
   const workbenchScope = selectedScope.hasConcreteScope
     ? routeScope
@@ -382,10 +387,12 @@ function providerCommandScope(
   candidate: SourceScopeCandidate,
   selectedScope: CatalogPrimaryWorkbenchScopeContext,
   matchingScope: SourceObservationIntegrationScope | null,
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
 ): CatalogPrimaryWorkbenchScopeContext {
   const providerScope = matchingScope
     ? scopeContextFromProviderScope(matchingScope)
     : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
+  const selectedSetOption = selectedSetNameOption(candidate, selectedScope, sourceOptions);
   const selectedScopeMatchesCandidate =
     selectedScope.providerKey === candidate.providerKey &&
     selectedScopeMatchesCandidateProfile(candidate, selectedScope) &&
@@ -405,7 +412,7 @@ function providerCommandScope(
     ),
     productLineName: scopedValue(
       canProjectSelectedScope ? selectedScope.productLineName : null,
-      providerScope.productLineName,
+      providerScope.productLineName ?? selectedSetOption?.productLineName ?? null,
       preferProviderScope,
     ),
     seriesId: scopedValue(
@@ -424,13 +431,42 @@ function providerCommandScope(
       preferProviderScope,
     ),
     expansionName: scopedNameValue(
-      canProjectSelectedScope ? selectedScope.expansionName : null,
+      canProjectSelectedScope ? (selectedSetOption?.label ?? selectedScope.expansionName) : null,
       providerScope.expansionName,
       canProjectSelectedScope ? selectedScope.expansionId : null,
       providerScope.expansionId,
       preferProviderScope,
     ),
     status: canProjectSelectedScope ? (selectedScope.status ?? null) : null,
+  };
+}
+
+function selectedSetNameOption(
+  candidate: SourceScopeCandidate,
+  selectedScope: CatalogPrimaryWorkbenchScopeContext,
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+): Readonly<{ label: string; productLineName: string | null }> | null {
+  if (!candidate.profile || !sourceOptionKindsForProfile(candidate.profile).some((kind) => kind.scope === "set-name")) {
+    return null;
+  }
+
+  const selectedValue = selectedScope.expansionName ?? selectedScope.expansionId;
+  if (!selectedValue) {
+    return null;
+  }
+
+  const page = sourceOptions.pages.find(
+    (candidatePage) =>
+      candidatePage.request.providerKey === candidate.providerKey && candidatePage.scope === "set-name",
+  );
+  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  if (!option?.label || option.label === selectedValue) {
+    return null;
+  }
+
+  return {
+    label: option.label,
+    productLineName: productLineDisplayNameFromDomain(candidate.productDomain),
   };
 }
 
@@ -498,6 +534,23 @@ function productDomainFromProductLineName(productLineName: string | null): strin
   }
 
   return normalized;
+}
+
+function productLineDisplayNameFromDomain(productDomain: string | null): string | null {
+  switch (normalizeProductDomain(productDomain)) {
+    case "lorcana":
+      return "Disney Lorcana";
+    case "mtg":
+      return "Magic: The Gathering";
+    case "onepiece":
+      return "One Piece Card Game";
+    case "pokemon":
+      return "Pokemon";
+    case "yugioh":
+      return "Yu-Gi-Oh!";
+    default:
+      return null;
+  }
 }
 
 function productDomainFromProductLineId(productLineId: string | null): string | null {
