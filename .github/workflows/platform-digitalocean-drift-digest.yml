@@ -1,0 +1,83 @@
+name: Platform DigitalOcean Drift Digest
+
+on:
+  schedule:
+    - cron: "47 10 * * 2"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-digitalocean-drift-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Build DigitalOcean Drift Digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Build drift digest
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+
+          node ./scripts/digitalocean-drift-digest.mjs \
+            --repository="${PLATFORM_IMAGE_REPOSITORY}" \
+            --out artifacts/release-health/digitalocean-drift-digest.json
+
+      - name: Summarize drift digest
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/digitalocean-drift-digest.json"
+          if [ ! -f "$record" ]; then
+            echo "No DigitalOcean drift digest was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const summary = record.summary ?? {};
+          console.log("## DigitalOcean Drift Digest");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Observed resources: ${summary.observedResources ?? 0}`);
+          console.log(`- Terraform-managed resources: ${summary.terraformManagedResources ?? 0}`);
+          console.log(`- Unknown Chase Sets resources: ${summary.unknownChaseSetsResources ?? 0}`);
+          console.log(`- Cleanup candidates: ${summary.cleanupCandidates ?? 0}`);
+          console.log(`- Advisory findings: ${summary.advisoryFindings ?? 0}`);
+          console.log(`- Warning findings: ${summary.warningFindings ?? 0}`);
+          console.log(`- Collection errors: ${summary.collectionErrors ?? 0}`);
+          if (record.findings?.length) {
+            console.log("");
+            console.log("### Findings");
+            for (const finding of record.findings.slice(0, 20)) {
+              console.log(`- [${finding.severity}] ${finding.category}: ${finding.resourceType} ${finding.resourceName}`);
+            }
+          }
+          NODE
+
+      - name: Upload drift digest artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-digitalocean-drift-digest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/digitalocean-drift-digest.json
+          if-no-files-found: ignore
+          retention-days: 30
