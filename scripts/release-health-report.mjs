@@ -12,7 +12,12 @@ const WAKE_DRILL_VERSION = "staging-wake-drills/v1";
 const ACCOUNT_CART_PROBE_VERSION = "account-cart-consistency-probe/v1";
 const NON_BUY_NOW_UAT_VERSION = "non-buy-now-post-write-freshness-uat/v1";
 const ROUTE_MATRIX_EVIDENCE_VERSION = "read-consistency-route-matrix-evidence/v1";
+const PUSH_WAKE_CAPACITY_EVIDENCE_VERSION = "push-wake-capacity-evidence/v1";
 const FRESHNESS_SUSTAINED_WINDOW_TARGET_DAYS = 30;
+const CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS = 10;
+const CAPACITY_REVIEW_STAGING_DURATION_WARN_SECONDS = 20 * 60;
+const CAPACITY_REVIEW_PRODUCTION_DURATION_WARN_SECONDS = 20 * 60;
+const CAPACITY_REVIEW_IMAGE_SPLIT_REPEAT_COUNT = 3;
 const FRESHNESS_EVIDENCE_SCHEMA_VERSIONS = new Set([
   WAKE_DRILL_VERSION,
   ACCOUNT_CART_PROBE_VERSION,
@@ -76,6 +81,7 @@ export async function runReleaseHealthReport(options) {
     ...options,
     records: classified.releaseRecords,
     evidenceArtifacts: classified.evidenceArtifacts,
+    capacityArtifacts: classified.capacityArtifacts,
     ignoredArtifactCount: classified.ignoredArtifacts.length,
   });
 
@@ -94,6 +100,16 @@ export function buildReleaseHealthReport(input) {
   const ci = summarizeCiPosture(records);
   const freshness = summarizeFreshnessEvidence(input.evidenceArtifacts ?? []);
   const gates = summarizeGatePosture(records);
+  const capacityEvidence = summarizeCapacityEvidence(input.capacityArtifacts ?? []);
+  const capacityReview = evaluateCapacityAndImageReview({
+    records,
+    deployableRecords,
+    timing,
+    slo,
+    freshness,
+    gates,
+    capacityEvidence,
+  });
   const summary = {
     releaseCount: records.length,
     deployableReleaseCount: deployableRecords.length,
@@ -110,6 +126,8 @@ export function buildReleaseHealthReport(input) {
     timing,
     slo,
     freshness,
+    capacityEvidence,
+    capacityReview,
   };
 
   const lines = [
@@ -143,6 +161,8 @@ export function buildReleaseHealthReport(input) {
     `- Projection freshness sustained span: ${formatEvidenceWindow(summary.freshness.sustainedWindow)}`,
     `- Projection freshness ready p95: ${formatOptionalMs(summary.freshness.sustainedWindow.readyLatencyP95Ms)}`,
     `- Projection freshness durable convergence p95: ${formatOptionalMs(summary.freshness.sustainedWindow.durableConvergenceP95Ms)}`,
+    `- Capacity review posture: ${summary.capacityReview.stagingCapacityDecision}`,
+    `- Image group review posture: ${summary.capacityReview.imageGroupDecision}`,
     "",
     "## CI Flake Posture",
     "",
@@ -188,12 +208,31 @@ export function buildReleaseHealthReport(input) {
     "- Record any developer or operator friction that is not visible in release-health artifacts.",
     "- Open follow-up issues for recurring abort reasons, canary gaps, or rollback-readiness gaps.",
     "",
-    "## Image Group Decision Inputs",
+    "## Capacity and Image Review",
     "",
+    `- Review cadence: ${summary.capacityReview.reviewCadence}`,
+    `- Evidence source: ${summary.capacityReview.evidenceSource}`,
+    `- Staging capacity decision: ${summary.capacityReview.stagingCapacityDecision}`,
+    `- Staging capacity reason: ${summary.capacityReview.stagingCapacityReason}`,
+    `- Image group decision: ${summary.capacityReview.imageGroupDecision}`,
+    `- Image group reason: ${summary.capacityReview.imageGroupReason}`,
+    `- Connection budget check: ${summary.capacityReview.connectionBudgetCheck}`,
+    `- Production proof check: ${summary.capacityReview.productionProofCheck}`,
+    `- Capacity evidence artifacts: ${summary.capacityEvidence.artifactCount}`,
+    `- Capacity evidence posture: ${summary.capacityEvidence.posture}`,
+    `- Production rolling-overlap headroom: ${formatOptionalCount(summary.capacityEvidence.productionDeployOverlapHeadroom)}`,
+    `- Staging backend headroom: ${formatOptionalCount(summary.capacityEvidence.stagingHeadroom)}`,
+    `- Staging duration p95: ${formatOptionalSeconds(summary.capacityReview.signals.stagingDurationP95Seconds)}`,
+    `- Production duration p95: ${formatOptionalSeconds(summary.capacityReview.signals.productionDurationP95Seconds)}`,
     `- Average staging duration: ${formatOptionalSeconds(summary.timing.averageStagingDurationSeconds)}`,
     `- Average production duration: ${formatOptionalSeconds(summary.timing.averageProductionDurationSeconds)}`,
+    "- Staging capacity changes require passing production proof, passing projection freshness, and current connection-budget evidence before Terraform variables are changed.",
     "- Split deployable image groups only when release-health evidence shows repeated wait, build, or rollback cost concentrated in one deployable boundary.",
     "- Keep the shared image when the expected operator cost of another image, dashboard, rollback path, and release gate is higher than the measured release delay.",
+    "",
+    "| Follow-up issue | Trigger |",
+    "| --- | --- |",
+    ...formatCapacityFollowUpRows(summary.capacityReview),
     "",
     "## Releases",
     "",
@@ -254,6 +293,7 @@ function summarizeGatePosture(records) {
 export function classifyReleaseHealthArtifacts(artifacts) {
   const releaseRecords = [];
   const evidenceArtifacts = [];
+  const capacityArtifacts = [];
   const ignoredArtifacts = [];
 
   for (const artifact of artifacts) {
@@ -263,12 +303,14 @@ export function classifyReleaseHealthArtifacts(artifacts) {
       releaseRecords.push(record);
     } else if (isFreshnessEvidenceRecord(record)) {
       evidenceArtifacts.push({ ...artifact, record });
+    } else if (schemaVersion === PUSH_WAKE_CAPACITY_EVIDENCE_VERSION) {
+      capacityArtifacts.push({ ...artifact, record });
     } else {
       ignoredArtifacts.push(artifact);
     }
   }
 
-  return { releaseRecords, evidenceArtifacts, ignoredArtifacts };
+  return { releaseRecords, evidenceArtifacts, capacityArtifacts, ignoredArtifacts };
 }
 
 function formatReleaseRow(record) {
@@ -374,6 +416,209 @@ export function evaluateReleaseSloPosture(records, timing = summarizeTimings(rec
           ? "Release-health evidence supports testing a merge queue batch size of 2."
           : "Hold batch size until release-health evidence is complete.",
   };
+}
+
+function summarizeCapacityEvidence(artifacts) {
+  const records = artifacts.map((artifact) => artifact.record ?? artifact);
+  const latest = records
+    .filter((record) => record?.schemaVersion === PUSH_WAKE_CAPACITY_EVIDENCE_VERSION)
+    .sort((a, b) => Date.parse(b.checkedAt ?? "") - Date.parse(a.checkedAt ?? ""))[0];
+
+  if (!latest) {
+    return {
+      artifactCount: records.length,
+      posture: "not-provided",
+      reason: "No push-wake capacity evidence artifact was included in the release-health report input.",
+      latestCheckedAt: null,
+      stagingHeadroom: null,
+      productionDeployOverlapHeadroom: null,
+      listenerExpansionPosture: "unknown",
+    };
+  }
+
+  const stagingHeadroom = numericHeadroom(latest.environments?.staging?.deployOverlap?.headroom);
+  const productionDeployOverlapHeadroom = numericHeadroom(latest.environments?.production?.deployOverlap?.headroom);
+  const hasBudgetHeadroom =
+    stagingHeadroom !== null &&
+    stagingHeadroom >= 0 &&
+    productionDeployOverlapHeadroom !== null &&
+    productionDeployOverlapHeadroom >= 0;
+
+  return {
+    artifactCount: records.length,
+    posture: hasBudgetHeadroom ? "pass" : "fail",
+    reason: hasBudgetHeadroom
+      ? "Latest push-wake capacity evidence keeps staging and production rolling-overlap connection budgets within the checked-in limits."
+      : "Latest push-wake capacity evidence is missing headroom or exceeds a checked-in connection budget.",
+    latestCheckedAt: latest.checkedAt ?? null,
+    stagingHeadroom,
+    productionDeployOverlapHeadroom,
+    listenerExpansionPosture: latest.expansionDecision?.posture ?? "unknown",
+  };
+}
+
+function evaluateCapacityAndImageReview({
+  records,
+  deployableRecords,
+  timing,
+  slo,
+  freshness,
+  gates,
+  capacityEvidence,
+}) {
+  const stagingAbortCount = deployableRecords.filter(isStagingAbort).length;
+  const staleSkipCount = deployableRecords.filter(isStaleStagingSkip).length;
+  const productionFailureCount = deployableRecords.filter((record) =>
+    ["failure", "cancelled"].includes(record.production?.result),
+  ).length;
+  const canaryAbortCount = records.filter((record) => record.canary?.result === "failure").length;
+  const rollbackCount = records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length;
+  const productionSuccessCount = deployableRecords.filter((record) => record.production?.result === "success").length;
+  const stagingDurationP95Seconds = percentile(timing.stagingDurationSeconds, 0.95);
+  const productionDurationP95Seconds = percentile(timing.productionDurationSeconds, 0.95);
+  const queueWaitP95Seconds = percentile(timing.queueWaitSeconds, 0.95);
+  const deployableSampleReady = deployableRecords.length >= CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS;
+  const connectionBudgetPass = capacityEvidence.posture === "pass";
+  const productionProofPass =
+    productionSuccessCount > 0 &&
+    productionFailureCount === 0 &&
+    canaryAbortCount === 0 &&
+    gates.blockingFailures === 0;
+  const freshnessPass = freshness.posture === "pass";
+  const highStagingDuration =
+    stagingDurationP95Seconds !== null && stagingDurationP95Seconds > CAPACITY_REVIEW_STAGING_DURATION_WARN_SECONDS;
+  const highProductionDuration =
+    productionDurationP95Seconds !== null &&
+    productionDurationP95Seconds > CAPACITY_REVIEW_PRODUCTION_DURATION_WARN_SECONDS;
+
+  let stagingCapacityDecision = "hold-current-capacity";
+  let stagingCapacityReason =
+    "Capacity changes require enough release samples, passing production proof, passing freshness evidence, and current connection-budget evidence.";
+
+  if (!connectionBudgetPass) {
+    stagingCapacityReason =
+      "Hold current capacity until a passing push-wake capacity evidence artifact proves staging and production connection budgets.";
+  } else if (!productionProofPass) {
+    stagingCapacityReason =
+      "Hold current capacity until production proof has a successful release with no production failure or canary abort in the reviewed sample.";
+  } else if (!freshnessPass) {
+    stagingCapacityReason = "Hold current capacity until projection freshness evidence is passing.";
+  } else if (!deployableSampleReady) {
+    stagingCapacityReason = `Hold current capacity until at least ${CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS} deployable release attempts are included.`;
+  } else if (stagingAbortCount > 0 || staleSkipCount > 0 || productionFailureCount > 0 || rollbackCount > 0) {
+    stagingCapacityReason =
+      "Hold current capacity while release aborts, stale skips, production failures, or recovery events are reviewed.";
+  } else if (highStagingDuration || highProductionDuration) {
+    stagingCapacityDecision = "open-capacity-review-issue";
+    stagingCapacityReason =
+      "Open a capacity review issue because release duration p95 exceeds the review threshold while proof and connection budgets are otherwise passing.";
+  } else {
+    stagingCapacityDecision = "eligible-for-staging-capacity-downsize-review";
+    stagingCapacityReason =
+      "Evidence is healthy enough to review a cautious staging downsize window, but Terraform capacity variables still require an explicit PR.";
+  }
+
+  const imagePressureSignals = [
+    queueWaitP95Seconds !== null && queueWaitP95Seconds > 1800,
+    highStagingDuration,
+    highProductionDuration,
+    rollbackCount > 0,
+    stagingAbortCount > 0,
+    staleSkipCount > 0,
+  ].filter(Boolean).length;
+  const imageGroupDecision =
+    imagePressureSignals >= CAPACITY_REVIEW_IMAGE_SPLIT_REPEAT_COUNT
+      ? "open-image-group-split-investigation-issue"
+      : "deferred-shared-image";
+  const imageGroupReason =
+    imageGroupDecision === "open-image-group-split-investigation-issue"
+      ? "Repeated release-health pressure signals crossed the investigation threshold; require boundary-specific ownership, dashboard, rollback, and gate evidence before splitting."
+      : "Keep the shared platform image until repeated release-health pressure signals show an image boundary is the dominant release cost.";
+
+  return {
+    reviewCadence: "weekly during milestone review and after each production deploy batch",
+    evidenceSource: "release-health/v1 records plus push-wake-capacity-evidence/v1 and projection freshness artifacts",
+    stagingCapacityDecision,
+    stagingCapacityReason,
+    imageGroupDecision,
+    imageGroupReason,
+    connectionBudgetCheck: connectionBudgetPass ? "pass" : capacityEvidence.posture,
+    productionProofCheck: productionProofPass ? "pass" : "hold",
+    followUpIssues: capacityFollowUpIssues({
+      connectionBudgetPass,
+      productionProofPass,
+      freshnessPass,
+      deployableSampleReady,
+      highStagingDuration,
+      highProductionDuration,
+      imageGroupDecision,
+      stagingAbortCount,
+      staleSkipCount,
+    }),
+    signals: {
+      deployableAttemptCount: deployableRecords.length,
+      stagingAbortCount,
+      staleSkipCount,
+      productionFailureCount,
+      canaryAbortCount,
+      rollbackCount,
+      blockingGateFailures: gates.blockingFailures,
+      queueWaitP95Seconds,
+      stagingDurationP95Seconds,
+      productionDurationP95Seconds,
+      connectionBudgetPosture: capacityEvidence.posture,
+      capacityListenerExpansionPosture: capacityEvidence.listenerExpansionPosture,
+      batchSizeRecommendation: slo.batchSizeRecommendation,
+    },
+  };
+}
+
+function capacityFollowUpIssues(input) {
+  const issues = [];
+  if (!input.connectionBudgetPass) {
+    issues.push({
+      title: "Refresh or fix push-wake capacity evidence",
+      trigger: "Connection-budget evidence is missing or failing.",
+    });
+  }
+  if (!input.productionProofPass) {
+    issues.push({
+      title: "Restore production proof before capacity tuning",
+      trigger: "Production proof is missing, failed, or canary aborted.",
+    });
+  }
+  if (!input.freshnessPass) {
+    issues.push({
+      title: "Resolve projection freshness before capacity tuning",
+      trigger: "Projection freshness evidence is not passing.",
+    });
+  }
+  if (!input.deployableSampleReady) {
+    issues.push({
+      title: "Collect enough release-health samples for capacity review",
+      trigger: `Fewer than ${CAPACITY_REVIEW_MIN_DEPLOYABLE_ATTEMPTS} deployable attempts are included.`,
+    });
+  }
+  if (input.highStagingDuration || input.highProductionDuration) {
+    issues.push({
+      title: "Review staging capacity from release duration evidence",
+      trigger: "Staging or production duration p95 exceeded the capacity review threshold.",
+    });
+  }
+  if (input.stagingAbortCount > 0 || input.staleSkipCount > 0) {
+    issues.push({
+      title: "Review staging abort and stale-skip causes",
+      trigger: "Release-health records include staging aborts or stale staging skips.",
+    });
+  }
+  if (input.imageGroupDecision === "open-image-group-split-investigation-issue") {
+    issues.push({
+      title: "Investigate App Platform image group split",
+      trigger: "Repeated release-health pressure signals crossed the image split investigation threshold.",
+    });
+  }
+
+  return issues;
 }
 
 function summarizeFreshnessEvidence(artifacts) {
@@ -876,6 +1121,16 @@ function formatGateRows(gates) {
   );
 }
 
+function formatCapacityFollowUpRows(capacityReview) {
+  if (capacityReview.followUpIssues.length === 0) {
+    return ["| none | no follow-up issue trigger in current evidence |"];
+  }
+
+  return capacityReview.followUpIssues.map((issue) =>
+    [issue.title, issue.trigger].map(escapeMarkdownCell).join(" | ").replace(/^/, "| ").replace(/$/, " |"),
+  );
+}
+
 function isStagingAbort(record) {
   return (
     ["failure", "cancelled"].includes(record.staging?.result) ||
@@ -893,6 +1148,10 @@ function isStaleStagingSkip(record) {
 
 function nonNegativeInteger(value) {
   return Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+function numericHeadroom(value) {
+  return Number.isFinite(value) ? value : null;
 }
 
 function average(values) {
@@ -921,6 +1180,10 @@ function formatPercent(value) {
 
 function formatOptionalSeconds(seconds) {
   return seconds === null ? "unknown" : formatSeconds(seconds);
+}
+
+function formatOptionalCount(value) {
+  return value === null ? "unknown" : String(value);
 }
 
 function formatOptionalMs(value) {
