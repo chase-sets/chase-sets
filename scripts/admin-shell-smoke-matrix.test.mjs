@@ -6,10 +6,13 @@ import {
   ADMIN_PARTIAL_ACTOR_EVIDENCE_ROWS,
   ADMIN_DEPLOYED_API_SMOKE_PROBES,
   ADMIN_DEPLOYED_PAGE_SMOKE_ROWS,
+  ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID,
   ADMIN_SHELL_SECTIONS,
   ADMIN_SHELL_SMOKE_MATRIX,
   ADMIN_TOPOLOGY_MODES,
   ADMIN_WEB_API_DEPENDENCIES,
+  selectAdminDeployedApiSmokeProbes,
+  selectAdminDeployedPageSmokeRows,
 } from "./admin-shell-smoke-matrix.mjs";
 
 const runbook = readFileSync(resolve("docs/runbooks/admin-shell-smoke-matrix.md"), "utf8");
@@ -133,8 +136,29 @@ describe("admin shell smoke matrix", () => {
   });
 
   it("wires the deployed page matrix into platform smoke", () => {
-    expect(platformSmoke).toContain("ADMIN_DEPLOYED_PAGE_SMOKE_ROWS");
+    expect(platformSmoke).toContain("selectAdminDeployedPageSmokeRows");
     expect(platformSmoke).toContain("expectAdminDeployedPageMatrix");
+  });
+
+  it("keeps fulfillment postage smoke rows gated by launch approval", () => {
+    expect(selectAdminDeployedPageSmokeRows()).toEqual(ADMIN_DEPLOYED_PAGE_SMOKE_ROWS);
+    expect(selectAdminDeployedApiSmokeProbes()).toEqual(ADMIN_DEPLOYED_API_SMOKE_PROBES);
+
+    const deferredPageRows = selectAdminDeployedPageSmokeRows({ requireFulfillmentPostage: false });
+    const deferredApiProbes = selectAdminDeployedApiSmokeProbes({ requireFulfillmentPostage: false });
+
+    expect(deferredPageRows).not.toContainEqual(
+      expect.objectContaining({ id: "SMOKE-PAGE-COMMERCE-POSTAGE-POLICIES" }),
+    );
+    expect(deferredApiProbes).not.toContainEqual(
+      expect.objectContaining({ id: "SMOKE-PROBE-MARKETPLACE-POSTAGE-POLICIES" }),
+    );
+    expect(
+      deferredPageRows.every((row) => !row.coverageIds.includes(ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID)),
+    ).toBe(true);
+    expect(
+      deferredApiProbes.every((probe) => !probe.coverageIds.includes(ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID)),
+    ).toBe(true);
   });
 
   it("documents deployed API probes and their linked coverage ids", () => {
@@ -167,7 +191,7 @@ describe("admin shell smoke matrix", () => {
   });
 
   it("wires deployed API probes into platform smoke", () => {
-    expect(platformSmoke).toContain("ADMIN_DEPLOYED_API_SMOKE_PROBES");
+    expect(platformSmoke).toContain("selectAdminDeployedApiSmokeProbes");
     expect(platformSmoke).toContain("expectAdminDeployedApiProbes");
   });
 
