@@ -469,7 +469,7 @@ async function expectDisplayTemplateDetail(page: Page) {
   await expect(page.getByRole("heading", { name: "Edit Display Template" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Key", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Target kind" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Title template", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Title Template", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Edit Display Template" })).toHaveCount(0);
 }
