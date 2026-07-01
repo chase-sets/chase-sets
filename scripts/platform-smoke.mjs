@@ -3,7 +3,7 @@ import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
-import { ADMIN_DEPLOYED_API_SMOKE_PROBES, ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
+import { selectAdminDeployedApiSmokeProbes, selectAdminDeployedPageSmokeRows } from "./admin-shell-smoke-matrix.mjs";
 import {
   isNativeMcpAnonymousDiscoveryRejected,
   isNativeMcpPermissionBoundaryError,
@@ -39,6 +39,7 @@ const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", 
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
 const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
 const requireNativeMcp = readBooleanEnv("SMOKE_REQUIRE_NATIVE_MCP", true);
+const requireFulfillmentPostage = readBooleanEnv("SMOKE_REQUIRE_FULFILLMENT_POSTAGE", true);
 const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
 const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
@@ -449,13 +450,21 @@ async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
 }
 
 async function expectAdminDeployedPageMatrix(adminOrigin, sessionToken) {
-  for (const row of ADMIN_DEPLOYED_PAGE_SMOKE_ROWS) {
+  const rows = selectAdminDeployedPageSmokeRows({ requireFulfillmentPostage });
+  if (!requireFulfillmentPostage) {
+    console.warn("Skipping fulfillment postage admin page smoke; SMOKE_REQUIRE_FULFILLMENT_POSTAGE is not true.");
+  }
+  for (const row of rows) {
     await expectAdminHtmlPage({ adminOrigin, sessionToken, row });
   }
 }
 
 async function expectAdminDeployedApiProbes(adminOrigin, sessionToken) {
-  for (const probe of ADMIN_DEPLOYED_API_SMOKE_PROBES) {
+  const probes = selectAdminDeployedApiSmokeProbes({ requireFulfillmentPostage });
+  if (!requireFulfillmentPostage) {
+    console.warn("Skipping fulfillment postage admin API smoke; SMOKE_REQUIRE_FULFILLMENT_POSTAGE is not true.");
+  }
+  for (const probe of probes) {
     await expectAdminApiProbe({ adminOrigin, sessionToken, probe });
   }
 }

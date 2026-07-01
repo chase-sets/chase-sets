@@ -1,4 +1,5 @@
 export const ADMIN_TOPOLOGY_MODES = ["staging", "public-marketplace", "production-platform-disabled"];
+export const ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID = "SMOKE-API-MARKETPLACE-POSTAGE-POLICIES";
 
 export const ADMIN_SHELL_SECTIONS = ["Access", "Catalog", "Commerce", "Growth", "Support", "Platform"];
 
@@ -133,7 +134,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     sourceEvidence: ["admin/postage-policies"],
     contract: "internal-origin server call",
     localProxyPrefix: "/api/marketplace",
-    smokeCoverageId: "SMOKE-API-MARKETPLACE-POSTAGE-POLICIES",
+    smokeCoverageId: ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID,
     topologyExpectations: {
       staging: "internal-origin or authenticated API data",
       "public-marketplace": "internal-origin",
@@ -401,7 +402,7 @@ export const ADMIN_DEPLOYED_PAGE_SMOKE_ROWS = [
     path: "/commerce/postage-policies",
     section: "Commerce",
     expectedText: ["Commerce", "Postage Policies"],
-    coverageIds: ["SMOKE-SHELL-COMMERCE", "SMOKE-API-MARKETPLACE-POSTAGE-POLICIES"],
+    coverageIds: ["SMOKE-SHELL-COMMERCE", ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID],
   },
   {
     id: "SMOKE-PAGE-GROWTH-GOOGLE-SHOPPING",
@@ -491,7 +492,7 @@ export const ADMIN_DEPLOYED_API_SMOKE_PROBES = [
     accept: "application/json",
     expectedStatuses: [200, 401, 403, 503],
     expectedContentTypes: ["application/json"],
-    coverageIds: ["SMOKE-API-MARKETPLACE-POSTAGE-POLICIES"],
+    coverageIds: [ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID],
   },
   {
     id: "SMOKE-PROBE-MARKETPLACE-GOOGLE-SHOPPING",
@@ -584,3 +585,19 @@ export const ADMIN_DEPLOYED_API_SMOKE_PROBES = [
     coverageIds: ["SMOKE-API-CATALOG-AUTHORING-JOB-STREAM"],
   },
 ];
+
+function requiresFulfillmentPostage(row) {
+  return row.coverageIds.includes(ADMIN_FULFILLMENT_POSTAGE_SMOKE_COVERAGE_ID);
+}
+
+export function selectAdminDeployedPageSmokeRows(options = {}) {
+  const { requireFulfillmentPostage = true } = options;
+  return ADMIN_DEPLOYED_PAGE_SMOKE_ROWS.filter((row) => requireFulfillmentPostage || !requiresFulfillmentPostage(row));
+}
+
+export function selectAdminDeployedApiSmokeProbes(options = {}) {
+  const { requireFulfillmentPostage = true } = options;
+  return ADMIN_DEPLOYED_API_SMOKE_PROBES.filter(
+    (probe) => requireFulfillmentPostage || !requiresFulfillmentPostage(probe),
+  );
+}
