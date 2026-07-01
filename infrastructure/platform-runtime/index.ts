@@ -5,5 +5,6 @@ export * from "./health";
 export * from "./http";
 export * from "./meta";
 export * from "./post-write-consistency";
+export * from "./runtime-profiles";
 export * from "./web";
 export * from "./web-route-config";

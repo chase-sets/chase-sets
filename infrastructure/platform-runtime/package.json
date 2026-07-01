@@ -28,6 +28,7 @@
     "./projection-push-migration": "./projection-push-migration.ts",
     "./projection-wake-relay": "./projection-wake-relay.ts",
     "./projection-wake-scheduler": "./projection-wake-scheduler.ts",
+    "./runtime-profiles": "./runtime-profiles.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
     "./meta": "./meta.ts",

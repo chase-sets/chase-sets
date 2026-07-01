@@ -323,6 +323,20 @@ The workflow:
 
 The App Platform components share the same runtime image and differ only by run command, environment, scaling, health checks, and ingress routing.
 
+## Runtime Profiles
+
+Deployables are runtime composition roots, not bounded-context ownership boundaries. Bounded contexts remain the canonical home for behavior, read models, UI slices, events, and tests; profiles only decide which composition root hosts those slices in a given production posture.
+
+The typed profile source of truth lives in `@chase-sets/platform-runtime/runtime-profiles`. Production mode and API/worker profiles use the same natural names:
+
+| Production mode | `CHASE_SETS_RUNTIME_PROFILE` | `CHASE_SETS_WORKER_PROFILE` | Runtime posture |
+| --- | --- | --- | --- |
+| `landing` | `landing` | `landing` | Landing and admin support only; no public marketplace runtime. |
+| `proof` | `proof` | `proof` | Private production marketplace proof for provider and live-money evidence. |
+| `public` | `public` | `public` | Full public marketplace runtime after launch gates pass. |
+
+Mixed selections fail closed. For example, `productionMode=landing` with `CHASE_SETS_RUNTIME_PROFILE=proof` is invalid because proof routes and live provider callback expectations must not appear in landing mode. The contract also describes mounted context set, provider callback posture, private proof route exposure, worker groups, required secret posture, and smoke expectation. Terraform and workflow issues in the profiled-topology milestone should consume this contract instead of inventing component-name conditionals.
+
 ## Staging Deployment
 
 Staging deploys through `.github/workflows/platform-production.yml` after the `Platform PR` workflow succeeds for a `main` push, before production, when the release commit changed deployable runtime or Terraform surfaces. Staging is a pre-production verification check, not the release destination: it proves the release image can run Terraform-managed migrations/bootstrap and pass smoke checks against durable staging state. Manual dispatch is retained as a redeploy escape hatch for a ref already contained in `origin/main`; manual dispatch compares the requested ref with the `production` marker when available and runs staging before production only when deployment is required. If a queued automatic deployment finally starts after a newer `origin/main` commit exists, the staging job skips deployment work without marking the workflow failed, and production promotion stays skipped because staging did not deploy that stale commit.
