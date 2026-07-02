@@ -81,7 +81,19 @@ function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys" | "u
       }),
       listAccounts: vi.fn(async () => ({ items: [], total: 0 })),
       getAccount: vi.fn(async () => null),
-      getAccountForRead: vi.fn(async () => null),
+      getAccountForRead: vi.fn(async (accountId: string) =>
+        accountId === actor.accountId
+          ? {
+              account_id: actor.accountId,
+              account_type: "business",
+              badges: [],
+              display_name: "Card Vault",
+              name: "Card Vault LLC",
+              status: "active",
+              updated_at: "2026-07-01T00:00:00.000Z",
+            }
+          : null,
+      ),
       getAccountState: vi.fn(async () => null),
       projectors: [],
     },

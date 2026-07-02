@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { navigateAfterWrite, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
-import type { Invitation } from "../../support/request-support/api-client";
+import type { Account, Invitation } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { InvitationListPage } from "../../features/invitations/ui/invitation-list-page";
@@ -11,8 +11,11 @@ import { createIdentityRequestApiClient } from "../../support/route-support/iden
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const page = readOffsetPageParams(request);
-  const data = await api.listInvitations<ListResponse<Invitation>>(page.query);
-  return { ...data, limit: page.limit, offset: page.offset };
+  const [data, accounts] = await Promise.all([
+    api.listInvitations<ListResponse<Invitation>>(page.query),
+    api.listAccounts<ListResponse<Account>>("limit=500&offset=0"),
+  ]);
+  return { accounts: accounts.items, initialData: { ...data, limit: page.limit, offset: page.offset } };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -40,5 +43,5 @@ export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invit
 
 export default function InvitationsRoute() {
   const data = useLoaderData<typeof loader>();
-  return <InvitationListPage initialData={data} />;
+  return <InvitationListPage accounts={data.accounts} initialData={data.initialData} />;
 }

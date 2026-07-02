@@ -19,7 +19,7 @@ test.describe("access admin invitations", () => {
 
     const actor = await getCurrentActorDisplay(page);
     const invitationEmail = `admin-access-${Date.now().toString(36)}@example.test`;
-    await page.getByRole("textbox", { name: "Account" }).fill(actor.account.account_id);
+    await page.getByLabel("Account", { exact: true }).selectOption(actor.account.account_id);
     await page.getByRole("textbox", { name: "Email" }).fill(invitationEmail);
     await page.getByLabel("Role").selectOption("viewer");
     await page.getByRole("button", { name: "Create" }).click();

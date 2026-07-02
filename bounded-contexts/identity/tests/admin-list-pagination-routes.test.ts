@@ -40,7 +40,7 @@ describe("Identity admin list pagination routes", () => {
       "invitations",
       invitationsLoader,
       "/access/invitations?limit=25&offset=50",
-      ["/api/identity/invitations?limit=25&offset=50"],
+      ["/api/identity/accounts?limit=500&offset=0", "/api/identity/invitations?limit=25&offset=50"],
     ],
     [
       "api keys",
@@ -67,6 +67,32 @@ describe("Identity admin list pagination routes", () => {
     expect(observedUrls.map((url) => new URL(url).pathname + new URL(url).search).sort()).toEqual(
       [...expectedApiPaths].sort(),
     );
+  });
+
+  it("loads invitation pagination and account picker options from Identity APIs", async () => {
+    const observedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        observedUrls.push(requestUrl(input));
+        return jsonResponse({ items: [], total: 72, count: 0 });
+      }),
+    );
+
+    const data = await invitationsLoader({
+      request: loaderRequest("/access/invitations?limit=25&offset=50"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(data).toMatchObject({
+      accounts: [],
+      initialData: { limit: 25, offset: 50, total: 72 },
+    });
+    expect(observedUrls.map((url) => new URL(url).pathname + new URL(url).search).sort()).toEqual([
+      "/api/identity/accounts?limit=500&offset=0",
+      "/api/identity/invitations?limit=25&offset=50",
+    ]);
   });
 
   it("normalizes unsafe list pagination before forwarding it to Identity APIs", async () => {
