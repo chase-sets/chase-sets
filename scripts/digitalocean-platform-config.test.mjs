@@ -32,6 +32,30 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const platformDigitalOceanDriftDigestWorkflow = readFileSync(
+  resolve(".github/workflows/platform-digitalocean-drift-digest.yml"),
+  "utf8",
+);
+const platformDigitalOceanTokenRotationReminderWorkflow = readFileSync(
+  resolve(".github/workflows/platform-digitalocean-token-rotation-reminder.yml"),
+  "utf8",
+);
+const platformEmergencyRecoveryWorkflow = readFileSync(
+  resolve(".github/workflows/platform-emergency-recovery.yml"),
+  "utf8",
+);
+const platformProductionRestorePointCleanupWorkflow = readFileSync(
+  resolve(".github/workflows/platform-production-restore-point-cleanup.yml"),
+  "utf8",
+);
+const platformRegistryCleanupWorkflow = readFileSync(
+  resolve(".github/workflows/platform-registry-cleanup.yml"),
+  "utf8",
+);
+const platformRollbackReadinessWorkflow = readFileSync(
+  resolve(".github/workflows/platform-rollback-readiness.yml"),
+  "utf8",
+);
 const platformTerraformStateSnapshotWorkflow = readFileSync(
   resolve(".github/workflows/platform-terraform-state-snapshot.yml"),
   "utf8",
@@ -1917,6 +1941,63 @@ describe("DigitalOcean platform configuration", () => {
     for (const step of platformPlanApplySteps) {
       expect(step).not.toMatch(/\n\s+TF_VAR_[A-Za-z0-9_]+:/);
     }
+  });
+
+  it("uses scoped DigitalOcean tokens for advisory and cleanup workflows", () => {
+    expect(platformDigitalOceanDriftDigestWorkflow).toContain(
+      "DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_READONLY_TOKEN }}",
+    );
+    expect(platformDigitalOceanDriftDigestWorkflow).toContain("token: ${{ secrets.DIGITALOCEAN_READONLY_TOKEN }}");
+    expect(platformDigitalOceanDriftDigestWorkflow).not.toContain("${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+
+    expect(platformRegistryCleanupWorkflow).toContain(
+      "DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}",
+    );
+    expect(platformRegistryCleanupWorkflow).toContain("token: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}");
+    expect(platformRegistryCleanupWorkflow).not.toContain("${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+
+    for (const destructiveWorkflow of [
+      platformPrWorkflow,
+      platformProductionWorkflow,
+      platformStagingResetWorkflow,
+      platformDatabaseRestoreDrillWorkflow,
+      platformProductionRestorePointCleanupWorkflow,
+      platformRollbackReadinessWorkflow,
+    ]) {
+      expect(destructiveWorkflow).toContain("${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    }
+    expect(platformEmergencyRecoveryWorkflow).not.toContain("DIGITALOCEAN_READONLY_TOKEN");
+    expect(platformEmergencyRecoveryWorkflow).not.toContain("DIGITALOCEAN_REGISTRY_TOKEN");
+
+    expect(digitaloceanPlatformRunbook).toContain("DigitalOcean API Token Scope Inventory");
+    expect(digitaloceanPlatformRunbook).toContain("`DIGITALOCEAN_READONLY_TOKEN`");
+    expect(digitaloceanPlatformRunbook).toContain("`DIGITALOCEAN_REGISTRY_TOKEN`");
+    expect(digitaloceanPlatformRunbook).toContain(
+      "Spaces and Terraform-state least privilege remain separate follow-up work.",
+    );
+  });
+
+  it("opens or updates the quarterly DigitalOcean token rotation issue without DO secrets", () => {
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
+      "name: Platform DigitalOcean Token Rotation Reminder",
+    );
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain('cron: "17 14 6 1,4,7,10 *"');
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("workflow_dispatch: {}");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("issues: write");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
+      'ROTATION_ISSUE_TITLE: "[ops] Rotate DigitalOcean tokens"',
+    );
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue edit");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("gh issue create");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_ACCESS_TOKEN");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_READONLY_TOKEN");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("DIGITALOCEAN_REGISTRY_TOKEN");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("90-day expiration");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
+      "DigitalOcean Control Panel -> Account -> API -> Tokens",
+    );
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).not.toContain("${{ secrets.");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
   });
 
   it("uploads Terraform plan text artifacts without retaining raw JSON plans", () => {
