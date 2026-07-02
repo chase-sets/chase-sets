@@ -9,6 +9,7 @@
     "component",
     "dimension",
     "display-template",
+    "product-contents",
     "product-measure-profile",
     "reference-type",
     "reference-record"
@@ -24,6 +25,7 @@
     "dimensions",
     "display-templates",
     "fields",
+    "product-contents",
     "product-measures",
     "reference-data",
     "source-observations"
@@ -477,6 +479,11 @@
         "Fulfillment package planning projections"
       ]
     },
+    "product-contents": {
+      "classification": "slice",
+      "purpose": "Own Catalog Product Contents configuration, resolved product-to-product containment facts, and forward/reverse read models.",
+      "expectedConsumers": ["Internal catalog module composition", "Discovery product contents projections"]
+    },
     "source-observations": {
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
@@ -499,6 +506,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "product-contents",
         "product-measures",
         "reference-data",
         "source-observations"
@@ -564,6 +572,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "product-contents",
         "reference-data",
         "source-observations"
       ]

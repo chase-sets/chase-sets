@@ -1,0 +1,396 @@
+import { describe, expect, it, vi } from "vitest";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
+import { createProductContentRuntime } from "./runtime";
+
+type ProductContentTypeRow = Readonly<{
+  content_type_id: string;
+  key: string;
+  display_name: unknown;
+  status: string;
+  sort_order: number;
+  discovery_search_weight: number | null;
+  updated_at: string;
+}>;
+
+type InclusionPolicyRow = Readonly<{
+  inclusion_policy_id: string;
+  key: string;
+  display_name: unknown;
+  status: string;
+  sort_order: number;
+  updated_at: string;
+}>;
+
+type CatalogItemRow = Readonly<{
+  catalog_item_id: string;
+  status: string;
+  blueprint_id: string | null;
+  dimension_rules: unknown;
+  canonical_dimension_order: unknown;
+}>;
+
+type ProductContentRow = Readonly<{
+  line_id: string;
+  container_catalog_item_id: string;
+  container_selected_options: unknown;
+  container_product_id: string | null;
+  contained_catalog_item_id: string | null;
+  contained_selected_options: unknown;
+  contained_product_id: string | null;
+  quantity: number | null;
+  content_type_id: string;
+  inclusion_policy_id: string | null;
+  provenance: unknown;
+  resolution_status: "resolved" | "unresolved";
+  target_lifecycle_status: string | null;
+  resolved_fact_hash: string;
+  resolver_version: number;
+  resolved_at: string;
+  updated_at: string;
+}>;
+
+function parseJson(value: unknown) {
+  return typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+}
+
+function createContentDb(items: readonly CatalogItemRow[]) {
+  const contentTypes: ProductContentTypeRow[] = [];
+  const inclusionPolicies: InclusionPolicyRow[] = [];
+  const resolved = new Map<string, ProductContentRow>();
+
+  const db = {
+    query: vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("INSERT INTO catalog_product_content_types")) {
+        const row: ProductContentTypeRow = {
+          content_type_id: String(params?.[0] ?? ""),
+          key: String(params?.[1] ?? ""),
+          display_name: parseJson(params?.[2]),
+          status: "active",
+          sort_order: Number(params?.[3] ?? 100),
+          discovery_search_weight: params?.[4] === null || params?.[4] === undefined ? null : Number(params[4]),
+          updated_at: "2026-07-01T00:00:00.000Z",
+        };
+        contentTypes.splice(
+          Math.max(
+            contentTypes.findIndex((existing) => existing.content_type_id === row.content_type_id),
+            contentTypes.length,
+          ),
+          1,
+          row,
+        );
+        return { rows: [] as T[] };
+      }
+
+      if (sql.includes("INSERT INTO catalog_product_content_inclusion_policies")) {
+        const row: InclusionPolicyRow = {
+          inclusion_policy_id: String(params?.[0] ?? ""),
+          key: String(params?.[1] ?? ""),
+          display_name: parseJson(params?.[2]),
+          status: "active",
+          sort_order: Number(params?.[3] ?? 100),
+          updated_at: "2026-07-01T00:00:00.000Z",
+        };
+        inclusionPolicies.splice(
+          Math.max(
+            inclusionPolicies.findIndex((existing) => existing.inclusion_policy_id === row.inclusion_policy_id),
+            inclusionPolicies.length,
+          ),
+          1,
+          row,
+        );
+        return { rows: [] as T[] };
+      }
+
+      if (sql.includes("FROM catalog_items") && sql.includes("catalog_item_id = $1")) {
+        return { rows: items.filter((item) => item.catalog_item_id === params?.[0]) as T[] };
+      }
+
+      if (sql.includes("FROM catalog_product_content_types")) {
+        return {
+          rows: [...contentTypes].sort(
+            (left, right) => left.sort_order - right.sort_order || left.key.localeCompare(right.key),
+          ) as T[],
+        };
+      }
+
+      if (sql.includes("FROM catalog_product_content_inclusion_policies")) {
+        return {
+          rows: [...inclusionPolicies].sort(
+            (left, right) => left.sort_order - right.sort_order || left.key.localeCompare(right.key),
+          ) as T[],
+        };
+      }
+
+      if (sql.includes("SELECT container_catalog_item_id") && sql.includes("contained_catalog_item_id IS NOT NULL")) {
+        return {
+          rows: [...resolved.values()].filter((row) => row.contained_catalog_item_id !== null) as T[],
+        };
+      }
+
+      if (sql.includes("DELETE FROM catalog_resolved_product_contents")) {
+        for (const [lineId, row] of [...resolved.entries()]) {
+          if (row.container_catalog_item_id === params?.[0] && row.container_product_id === (params?.[1] ?? null)) {
+            resolved.delete(lineId);
+          }
+        }
+        return { rows: [] as T[] };
+      }
+
+      if (sql.includes("INSERT INTO catalog_resolved_product_contents")) {
+        const row: ProductContentRow = {
+          line_id: String(params?.[0] ?? ""),
+          container_catalog_item_id: String(params?.[1] ?? ""),
+          container_selected_options: parseJson(params?.[2]),
+          container_product_id: typeof params?.[3] === "string" ? String(params[3]) : null,
+          contained_catalog_item_id: typeof params?.[4] === "string" ? String(params[4]) : null,
+          contained_selected_options: parseJson(params?.[5]),
+          contained_product_id: typeof params?.[6] === "string" ? String(params[6]) : null,
+          quantity: typeof params?.[7] === "number" ? Number(params[7]) : null,
+          content_type_id: String(params?.[8] ?? ""),
+          inclusion_policy_id: typeof params?.[9] === "string" ? String(params[9]) : null,
+          provenance: parseJson(params?.[10]),
+          resolution_status: params?.[11] === "unresolved" ? "unresolved" : "resolved",
+          target_lifecycle_status: typeof params?.[12] === "string" ? String(params[12]) : null,
+          resolved_fact_hash: String(params?.[13] ?? ""),
+          resolver_version: Number(params?.[14] ?? 1),
+          resolved_at: String(params?.[15] ?? ""),
+          updated_at: "2026-07-01T00:00:00.000Z",
+        };
+        resolved.set(row.line_id, row);
+        return { rows: [] as T[] };
+      }
+
+      if (sql.includes("FROM catalog_resolved_product_contents") && sql.includes("container_catalog_item_id = $1")) {
+        return {
+          rows: [...resolved.values()]
+            .filter((row) => row.container_catalog_item_id === params?.[0])
+            .sort((left, right) => left.content_type_id.localeCompare(right.content_type_id)) as T[],
+        };
+      }
+
+      if (sql.includes("FROM catalog_resolved_product_contents") && sql.includes("contained_catalog_item_id = $1")) {
+        return {
+          rows: [...resolved.values()]
+            .filter((row) => row.contained_catalog_item_id === params?.[0])
+            .sort((left, right) => left.content_type_id.localeCompare(right.content_type_id)) as T[],
+        };
+      }
+
+      return { rows: [] as T[] };
+    }),
+  } as unknown as PgQueryable;
+
+  return { db, resolved, contentTypes, inclusionPolicies };
+}
+
+function createEventStore(existingEvents: StoredEvent[] = []) {
+  const appended: AppendToStreamInput[] = [];
+  const eventStore: EventStore = {
+    appendToStream: vi.fn(async (input: AppendToStreamInput) => {
+      appended.push(input);
+      return [];
+    }),
+    readStream: async (_input: ReadStreamInput): Promise<StoredEvent[]> => existingEvents,
+    readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
+  };
+  return { eventStore, appended };
+}
+
+function createCheckpointStore(): ProjectionCheckpointStore {
+  return {
+    loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+    saveCheckpoint: async () => undefined,
+  };
+}
+
+const context = {
+  tenantId: "tnt_test" as never,
+  audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+};
+
+describe("product content runtime", () => {
+  it("publishes resolved product contents and projects forward and reverse lookup rows", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_sealed",
+        canonical_dimension_order: ["language"],
+        dimension_rules: [
+          {
+            dimensionId: "language",
+            required: true,
+            allowedOptions: [{ optionId: "en" }, { optionId: "ja" }],
+          },
+        ],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_card",
+        canonical_dimension_order: ["finish"],
+        dimension_rules: [
+          {
+            dimensionId: "finish",
+            required: true,
+            allowedOptions: [{ optionId: "standard" }, { optionId: "foil" }],
+          },
+        ],
+      },
+    ]);
+    const { eventStore, appended } = createEventStore();
+    const services = createProductContentRuntime({ db, eventStore, checkpointStore: createCheckpointStore() });
+
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+      sortOrder: 10,
+      discoverySearchWeight: 0.5,
+    });
+    await services.upsertInclusionPolicy({
+      inclusionPolicyId: "pcp_guaranteed",
+      key: "guaranteed",
+      displayName: localizedTextMapFromEnglish("Guaranteed"),
+      sortOrder: 10,
+    });
+
+    await services.replaceProductContents(
+      {
+        containerCatalogItemId: "cat_box" as never,
+        containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
+        lines: [
+          {
+            containedCatalogItemId: "cat_card" as never,
+            containedSelectedOptions: [{ dimensionId: "finish", optionId: "foil" }],
+            quantity: 1,
+            contentTypeId: "pct_included_item",
+            inclusionPolicyId: "pcp_guaranteed",
+            provenance: { source: "manual" },
+          },
+        ],
+      },
+      context,
+    );
+
+    expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
+    expect(appended[0]?.events.map((event) => event.eventType)).toEqual([
+      "catalog.product-contents.replaced",
+      "catalog.product-contents.resolved",
+    ]);
+    expect(appended[0]?.events[1]?.payload).toMatchObject({
+      containerCatalogItemId: "cat_box",
+      containerProductId: "cat_box::language:en",
+      lines: [
+        {
+          containedCatalogItemId: "cat_card",
+          containedProductId: "cat_card::finish:foil",
+          quantity: 1,
+          contentTypeId: "pct_included_item",
+          inclusionPolicyId: "pcp_guaranteed",
+          resolutionStatus: "resolved",
+        },
+      ],
+    });
+
+    const handler = services.projectors[0]?.handlers["catalog.product-contents.resolved"];
+    await handler?.({
+      id: "evt_1",
+      type: "catalog.product-contents.resolved",
+      data: appended[0]?.events[1]?.payload,
+      tenantId: "tnt_test",
+      streamId: appended[0]?.streamId,
+      streamVersion: 2,
+      globalPosition: "1",
+      trace: { traceId: null },
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: {
+        occurredAt: "2026-07-01T00:00:00.000Z",
+        recordedAt: "2026-07-01T00:00:00.000Z",
+      },
+      metadata: {},
+    } as never);
+
+    expect(resolved.size).toBe(1);
+    expect((await services.listProductContentsForContainer("cat_box"))[0]).toMatchObject({
+      containerProductId: "cat_box::language:en",
+      containedProductId: "cat_card::finish:foil",
+      provenance: { source: "manual" },
+    });
+    expect((await services.listProductContainersForContained("cat_card"))[0]).toMatchObject({
+      containerCatalogItemId: "cat_box",
+      containedCatalogItemId: "cat_card",
+    });
+  });
+
+  it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_a",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_b",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const { eventStore } = createEventStore();
+    const services = createProductContentRuntime({ db, eventStore, checkpointStore: createCheckpointStore() });
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+    });
+
+    await expect(
+      services.replaceProductContents(
+        {
+          containerCatalogItemId: "cat_a" as never,
+          lines: [{ containedCatalogItemId: "cat_a" as never, quantity: 1, contentTypeId: "pct_included_item" }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Product Content Line cannot contain itself.");
+
+    resolved.set("existing", {
+      line_id: "existing",
+      container_catalog_item_id: "cat_b",
+      container_selected_options: null,
+      container_product_id: null,
+      contained_catalog_item_id: "cat_a",
+      contained_selected_options: null,
+      contained_product_id: null,
+      quantity: 1,
+      content_type_id: "pct_included_item",
+      inclusion_policy_id: null,
+      provenance: {},
+      resolution_status: "resolved",
+      target_lifecycle_status: "active",
+      resolved_fact_hash: "hash",
+      resolver_version: 1,
+      resolved_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+
+    await expect(
+      services.replaceProductContents(
+        {
+          containerCatalogItemId: "cat_a" as never,
+          lines: [{ containedCatalogItemId: "cat_b" as never, quantity: 1, contentTypeId: "pct_included_item" }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Product Contents cannot create cycles.");
+  });
+});
