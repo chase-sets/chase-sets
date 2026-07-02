@@ -114,6 +114,16 @@ async function expectAuthenticatedAdminShell(page: Page) {
 }
 
 async function expectMobileAdminShell(page: Page) {
+  if (
+    await page
+      .getByRole("heading", { name: "Admin sections" })
+      .isVisible()
+      .catch(() => false)
+  ) {
+    await page.goto(authenticatedReturnTo, { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
+    await expectAuthenticatedAdminShell(page);
+  }
+
   const mobileLocalNav = page.locator("nav.fixed.inset-x-0.bottom-0");
   await expect(mobileLocalNav.getByRole("link", { name: "Accounts" })).toBeVisible({ timeout: pageReadyTimeoutMs });
 
