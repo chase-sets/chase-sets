@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnvFile } from "./lib/env.mjs";
 import { applySandboxEnv, ensureWorktreeSandboxEnvironment, mergeSandboxEnvFile } from "./lib/sandbox.mjs";
+import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
@@ -15,7 +16,7 @@ const dockerImage = process.env.STRIPE_CLI_DOCKER_IMAGE ?? "stripe/stripe-cli";
 const defaultForwardUrl = sandboxEnv.STRIPE_WEBHOOK_FORWARD_URL;
 const defaultConnectForwardUrl =
   sandboxEnv.STRIPE_CONNECT_WEBHOOK_FORWARD_URL ??
-  defaultForwardUrl?.replace("/api/payments/provider/webhooks", "/api/settlement/provider/money-movement/webhooks");
+  defaultForwardUrl?.replace(PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH);
 const readyFilePath = process.env.STRIPE_READY_FILE ?? null;
 const supportedWebhookEvents = [
   "checkout.session.completed",

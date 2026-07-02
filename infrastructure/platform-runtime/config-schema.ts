@@ -1,3 +1,9 @@
+import type {
+  ReadConsistencyExactDependencyMode,
+  ReadConsistencyRouteTuning,
+} from "@chase-sets/bounded-context-runtime";
+import { ENVIRONMENT_DATA_PROFILES } from "@chase-sets/bounded-context-module";
+
 export type PlatformPoolConfig = Readonly<{
   max: number;
   idleTimeoutMillis: number;
@@ -117,6 +123,8 @@ export type PlatformStripeProviderConfig = Readonly<{
   apiBaseUrl: string | undefined;
 }>;
 
+export const PLATFORM_DATA_PROFILES = ENVIRONMENT_DATA_PROFILES;
+
 const DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 
@@ -212,6 +220,74 @@ export function getRequiredPositiveNumberEnv(name: string, defaultValue: number)
   }
 
   throw new Error(`${name} must be a positive number.`);
+}
+
+export function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
+  const value = getOptionalEnv(name) ?? "enabled";
+  if (value === "enabled" || value === "target-context") {
+    return value;
+  }
+
+  throw new Error(`${name} must be enabled or target-context.`);
+}
+
+export function loadReadConsistencyRouteTuningEnv(input: {
+  envName: string;
+  criticalRouteTuning?: readonly ReadConsistencyRouteTuning[];
+}): readonly ReadConsistencyRouteTuning[] {
+  const value = getOptionalJsonEnv<unknown>(input.envName) ?? [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${input.envName} must be a JSON array.`);
+  }
+
+  const environmentRouteTuning = value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`${input.envName}[${index}] must be an object.`);
+    }
+
+    const mountPath = entry.mountPath;
+    const routePath = entry.routePath;
+    const targetContextName = entry.targetContextName;
+    const timeoutMs = entry.timeoutMs;
+    const pollIntervalMs = entry.pollIntervalMs;
+    const exactDependencyMode = entry.exactDependencyMode;
+
+    if (typeof mountPath !== "string" || !mountPath.trim().startsWith("/")) {
+      throw new Error(`${input.envName}[${index}].mountPath must be an absolute path string.`);
+    }
+    if (typeof routePath !== "string" || !routePath.trim().startsWith("/")) {
+      throw new Error(`${input.envName}[${index}].routePath must be an absolute path string.`);
+    }
+    if (targetContextName !== undefined && (typeof targetContextName !== "string" || !targetContextName.trim())) {
+      throw new Error(`${input.envName}[${index}].targetContextName must be a string when set.`);
+    }
+    if (timeoutMs !== undefined && !isPositiveNumber(timeoutMs)) {
+      throw new Error(`${input.envName}[${index}].timeoutMs must be a positive number when set.`);
+    }
+    if (pollIntervalMs !== undefined && !isPositiveNumber(pollIntervalMs)) {
+      throw new Error(`${input.envName}[${index}].pollIntervalMs must be a positive number when set.`);
+    }
+    if (
+      exactDependencyMode !== undefined &&
+      exactDependencyMode !== "enabled" &&
+      exactDependencyMode !== "target-context"
+    ) {
+      throw new Error(`${input.envName}[${index}].exactDependencyMode must be enabled or target-context when set.`);
+    }
+
+    return {
+      mountPath: mountPath.trim(),
+      routePath: routePath.trim(),
+      ...(typeof targetContextName === "string" ? { targetContextName: targetContextName.trim() } : {}),
+      ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
+      ...(typeof pollIntervalMs === "number" ? { pollIntervalMs } : {}),
+      ...(typeof exactDependencyMode === "string"
+        ? { exactDependencyMode: exactDependencyMode as ReadConsistencyExactDependencyMode }
+        : {}),
+    };
+  });
+
+  return [...(input.criticalRouteTuning ?? []), ...environmentRouteTuning];
 }
 
 export function getRequiredNonNegativeNumberEnv(name: string, defaultValue: number) {
@@ -665,4 +741,8 @@ function readOptionalBooleanOverride(
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

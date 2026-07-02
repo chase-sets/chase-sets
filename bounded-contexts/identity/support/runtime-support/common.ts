@@ -1,4 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { SocialLoginProviderKey } from "@chase-sets/auth-context";
 
 export type AccountType = "personal" | "business" | "enterprise";
 export type AccountStatus = "active" | "suspended" | "closed";
@@ -8,7 +9,7 @@ export type InvitationStatus = "pending" | "accepted" | "declined" | "cancelled"
 export type SessionStatus = "active" | "revoked" | "expired";
 export type ApiKeyStatus = "active" | "revoked";
 export type AuthMethodKey = "password" | "magic-link" | "passkey" | "sms-code" | "social-login";
-export type SocialLoginProviderKey = "google" | "facebook";
+export type { SocialLoginProviderKey };
 export type ContactMethodType = "email" | "phone";
 export type ContactMethod = Readonly<{
   contactMethodId: string;

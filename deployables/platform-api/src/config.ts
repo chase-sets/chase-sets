@@ -14,7 +14,9 @@ import {
   getOptionalJsonEnv,
   getOptionalPositiveNumberEnv,
   getPositiveNumberEnv,
+  getReadConsistencyExactDependencyModeEnv,
   getRequiredPositiveNumberEnv,
+  loadReadConsistencyRouteTuningEnv,
   loadCatalogAssetStorageConfig,
   loadPlatformDatabaseConfig,
   loadPoolConfig,
@@ -22,6 +24,7 @@ import {
   loadStorageConfig,
   loadStripeProviderConfig,
   loadTcgplayerAutomationConfig,
+  PLATFORM_DATA_PROFILES,
   resolveEnumEnv,
   resolveMobileMessagingProvider,
   type PlatformCatalogAssetStorageConfig,
@@ -307,81 +310,11 @@ export function getPlatformApiContextsForRuntimeProfile(
   return getApiHostContextNames(apiContextRegistry, "platform-api", runtimeProfile);
 }
 
-function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
-  const value = getOptionalEnv(name) ?? "enabled";
-  if (value === "enabled" || value === "target-context") {
-    return value;
-  }
-
-  throw new Error(`${name} must be enabled or target-context.`);
-}
-
 function loadReadConsistencyRouteTuning(): readonly ReadConsistencyRouteTuning[] {
-  const value = getOptionalJsonEnv<unknown>("READ_CONSISTENCY_ROUTE_TUNING_JSON") ?? [];
-  if (!Array.isArray(value)) {
-    throw new Error("READ_CONSISTENCY_ROUTE_TUNING_JSON must be a JSON array.");
-  }
-
-  const environmentRouteTuning = value.map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}] must be an object.`);
-    }
-
-    const mountPath = entry.mountPath;
-    const routePath = entry.routePath;
-    const targetContextName = entry.targetContextName;
-    const timeoutMs = entry.timeoutMs;
-    const pollIntervalMs = entry.pollIntervalMs;
-    const exactDependencyMode = entry.exactDependencyMode;
-
-    if (typeof mountPath !== "string" || !mountPath.trim().startsWith("/")) {
-      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].mountPath must be an absolute path string.`);
-    }
-    if (typeof routePath !== "string" || !routePath.trim().startsWith("/")) {
-      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].routePath must be an absolute path string.`);
-    }
-    if (targetContextName !== undefined && (typeof targetContextName !== "string" || !targetContextName.trim())) {
-      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].targetContextName must be a string when set.`);
-    }
-    if (timeoutMs !== undefined && !isPositiveNumber(timeoutMs)) {
-      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].timeoutMs must be a positive number when set.`);
-    }
-    if (pollIntervalMs !== undefined && !isPositiveNumber(pollIntervalMs)) {
-      throw new Error(
-        `READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].pollIntervalMs must be a positive number when set.`,
-      );
-    }
-    if (
-      exactDependencyMode !== undefined &&
-      exactDependencyMode !== "enabled" &&
-      exactDependencyMode !== "target-context"
-    ) {
-      throw new Error(
-        `READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].exactDependencyMode must be enabled or target-context when set.`,
-      );
-    }
-
-    return {
-      mountPath: mountPath.trim(),
-      routePath: routePath.trim(),
-      ...(typeof targetContextName === "string" ? { targetContextName: targetContextName.trim() } : {}),
-      ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
-      ...(typeof pollIntervalMs === "number" ? { pollIntervalMs } : {}),
-      ...(typeof exactDependencyMode === "string"
-        ? { exactDependencyMode: exactDependencyMode as ReadConsistencyExactDependencyMode }
-        : {}),
-    };
+  return loadReadConsistencyRouteTuningEnv({
+    envName: "READ_CONSISTENCY_ROUTE_TUNING_JSON",
+    criticalRouteTuning: CRITICAL_READ_CONSISTENCY_ROUTE_TUNING,
   });
-
-  return [...CRITICAL_READ_CONSISTENCY_ROUTE_TUNING, ...environmentRouteTuning];
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPositiveNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function getDeploymentEnvironment() {
@@ -431,12 +364,7 @@ function assertDataProfilesAllowed(
 function loadDataProfiles(environmentName: string): readonly EnvironmentDataProfile[] {
   const explicitProfiles = getOptionalCsvEnv("PLATFORM_DATA_PROFILES");
   if (explicitProfiles.length > 0) {
-    const allowedProfiles = new Set<EnvironmentDataProfile>([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-      "scenario-seed",
-      "representative-commerce-state",
-    ]);
+    const allowedProfiles = new Set<EnvironmentDataProfile>(PLATFORM_DATA_PROFILES);
     for (const profile of explicitProfiles) {
       if (!allowedProfiles.has(profile as EnvironmentDataProfile)) {
         throw new Error(`PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`);

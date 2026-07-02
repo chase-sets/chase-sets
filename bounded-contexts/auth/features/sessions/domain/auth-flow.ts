@@ -1,4 +1,6 @@
-export type AuthMethod = "password" | "magic-link" | "passkey" | "sms-code" | "google" | "facebook";
+import type { SocialLoginProviderKey } from "@chase-sets/auth-context";
+
+export type AuthMethod = "password" | "magic-link" | "passkey" | "sms-code" | SocialLoginProviderKey;
 
 export const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 export const AUTH_ACCOUNT_SELECTION_TTL_MS = 1000 * 60 * 10;

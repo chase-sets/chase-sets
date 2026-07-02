@@ -3,12 +3,13 @@ import { createHmac } from "node:crypto";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { FULFILLMENT_POSTAGE_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const EASYPOST_REFUND_EVENT_REPLAY_VERSION = "easypost-refund-event-replay/v1";
 export const EASYPOST_REFUND_EVENT_REPLAY_CONFIRM = "replay easypost refund event";
 
 const DEFAULT_EASYPOST_API_BASE_URL = "https://api.easypost.com/v2";
-const DEFAULT_WEBHOOK_URL = "https://chasesets.com/api/fulfillment/provider/postage/webhooks";
+const DEFAULT_WEBHOOK_URL = `https://chasesets.com${FULFILLMENT_POSTAGE_WEBHOOK_PATH}`;
 
 export function parseEasyPostRefundEventReplayArgs(argv, env = process.env) {
   return {

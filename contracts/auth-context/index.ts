@@ -1,6 +1,15 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
+export const SOCIAL_LOGIN_PROVIDERS = ["google", "facebook"] as const;
+
+export type SocialLoginProviderKey = (typeof SOCIAL_LOGIN_PROVIDERS)[number];
+
+const SOCIAL_LOGIN_PROVIDER_SET = new Set<string>(SOCIAL_LOGIN_PROVIDERS);
+
+export function isSocialLoginProviderKey(value: unknown): value is SocialLoginProviderKey {
+  return typeof value === "string" && SOCIAL_LOGIN_PROVIDER_SET.has(value);
+}
 
 export type ResolvedActor = Readonly<{
   sessionId: string;

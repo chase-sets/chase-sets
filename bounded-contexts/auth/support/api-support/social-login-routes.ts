@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
 import {
   AUTH_SOCIAL_LOGIN_STATE_TTL_MS,
   createExpiryTimestamp,
@@ -72,9 +73,9 @@ const ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS = [
   { path: "/platform", permissions: ["projection-operations.view"] },
 ] as const satisfies readonly { path: string; permissions: readonly string[] }[];
 
-function isSocialLoginProviderName(value: string): value is SocialLoginProviderName {
-  return value === "google" || value === "facebook";
-}
+const isSocialLoginProviderName = isSocialLoginProviderKey satisfies (
+  value: string,
+) => value is SocialLoginProviderName;
 
 function isSocialLoginJourney(value: string): value is SocialLoginJourney {
   return value === "sign-in" || value === "registration" || value === "admin";

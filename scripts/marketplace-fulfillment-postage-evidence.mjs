@@ -9,11 +9,12 @@ import {
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { FULFILLMENT_POSTAGE_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const MARKETPLACE_FULFILLMENT_POSTAGE_EVIDENCE_VERSION = "marketplace-fulfillment-postage-evidence/v1";
 const MAX_FULFILLMENT_POSTAGE_PROOF_AGE_DAYS = 30;
 const PRODUCTION_POSTAGE_WEBHOOK_HOSTS = new Set(["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"]);
-const PRODUCTION_POSTAGE_WEBHOOK_PATH = "/api/fulfillment/provider/postage/webhooks";
+const PRODUCTION_POSTAGE_WEBHOOK_PATH = FULFILLMENT_POSTAGE_WEBHOOK_PATH;
 
 export const REQUIRED_FULFILLMENT_POSTAGE_PROOFS = [
   "easyPostProductionModeProven",
