@@ -29,10 +29,7 @@ import { seedDisplayTemplates } from "../../features/display-templates/api/seed"
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
-import {
-  seedProductContentConfiguration,
-  seedProductContentScenario,
-} from "../../features/product-contents/api/seed";
+import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import {
   seedLorcanaReferenceData,
   seedMagicReferenceData,
@@ -130,7 +127,8 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_items")) {
-    console.log("Catalog scenario items already exist. Skipping scenario seed.");
+    console.log("Catalog scenario items already exist. Reconciling Product Contents scenario.");
+    await seedProductContentScenario(services);
     return;
   }
 

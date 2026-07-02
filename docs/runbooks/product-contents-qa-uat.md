@@ -4,7 +4,7 @@ Product Contents QA closes only after the implementation PRs for Catalog authori
 
 ## Seeded Scenario
 
-Catalog bootstrap reconciles Product Content Type and Product Content Inclusion Policy configuration during `catalog-integration-bootstrap`. Non-production `scenario-seed` also writes one representative relationship:
+Catalog bootstrap reconciles Product Content Type and Product Content Inclusion Policy configuration during `catalog-integration-bootstrap`. After scenario Catalog Item projections are available, non-production `scenario-seed` also reconciles one representative relationship:
 
 - container: Prismatic Evolutions Booster Pack
 - contained: Pikachu, Prismatic Evolutions

@@ -3,6 +3,10 @@ import type { CatalogServices } from "../../../support/authoring-support/service
 import { seedContext } from "../../../support/seed-support/context";
 import type { CatalogItemId } from "../../../ids";
 
+const scenarioContainerCatalogItemId = catalogSeedIds.items.prismaticEvolutionsBoosterPack as CatalogItemId;
+const scenarioContainedCatalogItemId = catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId;
+const scenarioCatalogItemIds = [scenarioContainerCatalogItemId, scenarioContainedCatalogItemId] as const;
+
 export async function seedProductContentConfiguration(services: CatalogServices): Promise<void> {
   await services.productContents.upsertContentType({
     contentTypeId: catalogSeedIds.productContentTypes.card,
@@ -65,15 +69,20 @@ export async function seedProductContentConfiguration(services: CatalogServices)
   });
 }
 
-export async function seedProductContentScenario(services: CatalogServices): Promise<void> {
+export async function seedProductContentScenario(services: CatalogServices): Promise<boolean> {
   await seedProductContentConfiguration(services);
+
+  if (!(await scenarioCatalogItemsAreProjected(services))) {
+    console.log("Catalog Product Contents scenario skipped until scenario Catalog Item projections are available.");
+    return false;
+  }
 
   await services.productContents.replaceProductContents(
     {
-      containerCatalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack as CatalogItemId,
+      containerCatalogItemId: scenarioContainerCatalogItemId,
       lines: [
         {
-          containedCatalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId,
+          containedCatalogItemId: scenarioContainedCatalogItemId,
           quantity: 1,
           contentTypeId: catalogSeedIds.productContentTypes.card,
           inclusionPolicyId: catalogSeedIds.productContentInclusionPolicies.randomized,
@@ -86,6 +95,20 @@ export async function seedProductContentScenario(services: CatalogServices): Pro
     },
     seedContext,
   );
+  return true;
+}
+
+async function scenarioCatalogItemsAreProjected(services: CatalogServices): Promise<boolean> {
+  try {
+    const result = await services.db.query<{ catalog_item_id: string }>(
+      `SELECT catalog_item_id FROM catalog_items WHERE catalog_item_id = ANY($1::text[])`,
+      [scenarioCatalogItemIds],
+    );
+    const projectedIds = new Set(result.rows.map((row) => row.catalog_item_id));
+    return scenarioCatalogItemIds.every((catalogItemId) => projectedIds.has(catalogItemId));
+  } catch {
+    return false;
+  }
 }
 
 function l10n(en: string) {

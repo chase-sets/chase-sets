@@ -9,12 +9,22 @@ function createSeedServices() {
     upsertInclusionPolicy: vi.fn(async () => undefined),
     replaceProductContents: vi.fn(async () => undefined),
   };
+  const db = {
+    query: vi.fn(async () => ({
+      rows: [
+        { catalog_item_id: catalogSeedIds.items.prismaticEvolutionsBoosterPack },
+        { catalog_item_id: catalogSeedIds.items.pikachuPrismaticEvolutions },
+      ],
+    })),
+  };
 
   return {
     services: {
       productContents,
+      db,
     } as unknown as CatalogServices,
     productContents,
+    db,
   };
 }
 
@@ -37,10 +47,13 @@ describe("product contents seed", () => {
   });
 
   it("adds a representative scenario relationship for end-to-end rollout proof", async () => {
-    const { services, productContents } = createSeedServices();
+    const { services, productContents, db } = createSeedServices();
 
-    await seedProductContentScenario(services);
+    await expect(seedProductContentScenario(services)).resolves.toBe(true);
 
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("FROM catalog_items"), [
+      [catalogSeedIds.items.prismaticEvolutionsBoosterPack, catalogSeedIds.items.pikachuPrismaticEvolutions],
+    ]);
     expect(productContents.replaceProductContents).toHaveBeenCalledTimes(1);
     expect(productContents.replaceProductContents).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -56,5 +69,18 @@ describe("product contents seed", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("waits for Catalog Item projections before writing the representative scenario relationship", async () => {
+    const { services, productContents, db } = createSeedServices();
+    db.query.mockResolvedValueOnce({
+      rows: [{ catalog_item_id: catalogSeedIds.items.prismaticEvolutionsBoosterPack }],
+    });
+
+    await expect(seedProductContentScenario(services)).resolves.toBe(false);
+
+    expect(productContents.upsertContentType).toHaveBeenCalledTimes(4);
+    expect(productContents.upsertInclusionPolicy).toHaveBeenCalledTimes(4);
+    expect(productContents.replaceProductContents).not.toHaveBeenCalled();
   });
 });
