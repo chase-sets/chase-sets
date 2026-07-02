@@ -466,6 +466,78 @@ describe("marketplace account payment route", () => {
     expect(screen.getAllByRole("button", { name: "Retry payment" }).length).toBeGreaterThan(0);
   });
 
+  it("does not render manual guest claim token entry when no gated local token is present", () => {
+    mockUseActionData.mockReturnValue({
+      status: "claim-link-sent",
+      token: null,
+      expiresAt: "2026-05-04T16:00:00.000Z",
+      displayName: "Jane Smith",
+    });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "captured",
+        processor_status: "succeeded",
+        captured_at: "2026-04-01T00:05:00.000Z",
+      }),
+      orders: [buildPurchase({ status: "paid" })],
+      isGuestCheckoutPayment: true,
+      guestClaimContext: {
+        accountId: "acc_guest",
+        paymentId: "pay_1",
+        contactEmail: "jane@example.com",
+        contactName: "Jane Smith",
+      },
+      showSupportDetails: false,
+      buyerEmail: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByText("Save this order")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Email me a claim link" })).toBeTruthy();
+    expect(screen.queryByLabelText("Claim token")).toBeNull();
+    expect(screen.queryByText("Local recovery token. In production this arrives by email.")).toBeNull();
+  });
+
+  it("renders manual guest claim token entry only when action data carries a gated local token", () => {
+    mockUseActionData.mockReturnValue({
+      status: "claim-link-sent",
+      token: "magic_token",
+      expiresAt: "2026-05-04T16:00:00.000Z",
+      displayName: "Jane Smith",
+    });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "captured",
+        processor_status: "succeeded",
+        captured_at: "2026-04-01T00:05:00.000Z",
+      }),
+      orders: [buildPurchase({ status: "paid" })],
+      isGuestCheckoutPayment: true,
+      guestClaimContext: {
+        accountId: "acc_guest",
+        paymentId: "pay_1",
+        contactEmail: "jane@example.com",
+        contactName: "Jane Smith",
+      },
+      showSupportDetails: false,
+      buyerEmail: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByLabelText("Claim token")).toHaveProperty("value", "magic_token");
+    expect(screen.getByText("Local recovery token. In production this arrives by email.")).toBeTruthy();
+  });
+
   it("confirms a pending Stripe payment and revalidates afterward", async () => {
     const paymentElement = {
       mount: vi.fn(),
