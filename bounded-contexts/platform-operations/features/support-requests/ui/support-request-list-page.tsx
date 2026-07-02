@@ -11,6 +11,7 @@ import {
   Grid,
   Inset,
   Inline,
+  LinkButton,
   Page,
   PageHeader,
   PageSection,
@@ -21,14 +22,16 @@ import {
   TextInput,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { SupportFlowSummary, SupportRequestListItem } from "./contracts";
+import type { SupportFlowSummary, SupportOrderLookup, SupportRequestListItem } from "./contracts";
 
 type SupportRequestListPageProps = Readonly<{
   buyerRequests: readonly SupportRequestListItem[];
   sellerRequests: readonly SupportRequestListItem[];
   flows: readonly SupportFlowSummary[];
   actionError?: string | null;
+  lookupError?: string | null;
   openedSupportRequestId?: string | null;
+  supportOrder?: SupportOrderLookup | null;
 }>;
 
 function statusTone(status: string) {
@@ -142,9 +145,13 @@ function SupportFlowTable({ flows }: Readonly<{ flows: readonly SupportFlowSumma
   return <DataTable rows={[...flows]} columns={columns} getRowId={(flow) => flow.flowType} />;
 }
 
-function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFlowSummary[] }>) {
+function SupportRequestOpenPanel({
+  flows,
+  supportOrder,
+}: Readonly<{ flows: readonly SupportFlowSummary[]; supportOrder?: SupportOrderLookup | null }>) {
   type OpenedByRole = SupportFlowSummary["openedBy"][number];
-  const [openedByRole, setOpenedByRole] = useState<OpenedByRole>("buyer");
+  const [lookupRole, setLookupRole] = useState<OpenedByRole>("buyer");
+  const openedByRole = supportOrder?.openedByRole ?? lookupRole;
   const visibleFlows = useMemo(
     () => flows.filter((flow) => flow.openedBy.includes(openedByRole)),
     [flows, openedByRole],
@@ -160,39 +167,81 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
   function changeRole(nextRole: string) {
     const role = nextRole as OpenedByRole;
     const nextFlows = flows.filter((flow) => flow.openedBy.includes(role));
-    setOpenedByRole(role);
+    setLookupRole(role);
     setSelectedFlowType(nextFlows[0]?.flowType ?? "");
+  }
+
+  if (!supportOrder) {
+    return (
+      <Surface>
+        <RouterForm method="get" spacing="md">
+          <HiddenInput type="hidden" name="role" value={lookupRole} readOnly />
+          <Grid columns={{ base: 1, md: 3 }}>
+            <TextInput
+              label={t("support.features.supportRequests.ui.supportRequestListPage.lookup.order")}
+              name="orderId"
+              pattern="ord_.+"
+              placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
+              required
+              title={t("support.features.supportRequests.ui.supportRequestListPage.open.order.hint")}
+            />
+            <Select
+              label={t("support.features.supportRequests.ui.supportRequestListPage.lookup.role")}
+              value={lookupRole}
+              onValueChange={changeRole}
+              items={[
+                {
+                  value: "buyer",
+                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.buyer"),
+                },
+                {
+                  value: "seller",
+                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.seller"),
+                },
+              ]}
+            />
+          </Grid>
+          <Cluster justify="end">
+            <Button type="submit">
+              {t("support.features.supportRequests.ui.supportRequestListPage.lookup.submit")}
+            </Button>
+          </Cluster>
+        </RouterForm>
+      </Surface>
+    );
   }
 
   return (
     <Surface>
       <RouterForm method="post" spacing="md">
-        <HiddenInput type="hidden" name="openedByRole" value={openedByRole} />
-        <HiddenInput type="hidden" name="flowType" value={selectedFlowType} />
-        <Grid columns={{ base: 1, md: 3 }}>
-          <TextInput
-            label={t("support.features.supportRequests.ui.supportRequestListPage.open.order")}
-            name="orderId"
-            pattern="ord_.+"
-            placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
-            required
-            title={t("support.features.supportRequests.ui.supportRequestListPage.open.order.hint")}
-          />
-          <Select
-            label={t("support.features.supportRequests.ui.supportRequestListPage.open.role")}
-            value={openedByRole}
-            onValueChange={changeRole}
-            items={[
-              {
-                value: "buyer",
-                label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.buyer"),
-              },
-              {
-                value: "seller",
-                label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.seller"),
-              },
-            ]}
-          />
+        <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
+        <HiddenInput type="hidden" name="openedByRole" value={supportOrder.openedByRole} readOnly />
+        <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
+        <Inset>
+          <Stack>
+            <Inline>
+              <Badge tone="neutral">{supportOrder.openedByRole}</Badge>
+              <Text element="span" size="sm" weight="semibold">
+                {supportOrder.orderId}
+              </Text>
+            </Inline>
+            <Inline>
+              <Text element="span" size="xs" tone="secondary" weight="semibold">
+                {t("support.features.supportRequests.ui.supportRequestListPage.lookup.status")}
+              </Text>
+              <Text element="span" size="sm">
+                {supportOrder.status}
+              </Text>
+              <Text element="span" size="xs" tone="secondary" weight="semibold">
+                {t("support.features.supportRequests.ui.supportRequestListPage.lookup.total")}
+              </Text>
+              <Text element="span" size="sm">
+                {supportOrder.totalAmount}
+              </Text>
+            </Inline>
+          </Stack>
+        </Inset>
+        <Grid columns={{ base: 1, md: 2 }}>
           <Select
             label={t("support.features.supportRequests.ui.supportRequestListPage.open.issue")}
             value={selectedFlowType}
@@ -228,6 +277,9 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
           </Inset>
         ) : null}
         <Cluster justify="end">
+          <LinkButton href="/account/support" tone="secondary">
+            {t("support.features.supportRequests.ui.supportRequestListPage.lookup.change")}
+          </LinkButton>
           <Button type="submit">{t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}</Button>
         </Cluster>
       </RouterForm>
@@ -240,7 +292,9 @@ export function SupportRequestListPage({
   sellerRequests,
   flows,
   actionError,
+  lookupError,
   openedSupportRequestId,
+  supportOrder,
 }: SupportRequestListPageProps) {
   return (
     <Page>
@@ -259,12 +313,13 @@ export function SupportRequestListPage({
       ) : null}
 
       {actionError ? <Banner tone="danger" title={actionError} /> : null}
+      {lookupError ? <Banner tone="danger" title={lookupError} /> : null}
 
       <PageSection
         title={t("support.features.supportRequests.ui.supportRequestListPage.open.title")}
         description={t("support.features.supportRequests.ui.supportRequestListPage.open.description")}
       >
-        <SupportRequestOpenPanel flows={flows} />
+        <SupportRequestOpenPanel flows={flows} supportOrder={supportOrder} />
       </PageSection>
 
       <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>

@@ -80,6 +80,14 @@ describe("platform operations request API clients", () => {
   it("returns support request snapshots from mutating calls", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.endsWith("/orders/ord_1?role=buyer")) {
+        return jsonResponse({
+          orderId: "ord_1",
+          openedByRole: "buyer",
+          status: "ready-for-fulfillment",
+          totalAmount: "24.00",
+        });
+      }
       if (url.endsWith("/ops/escalate-overdue")) {
         return jsonResponse({ escalated: 2, skipped: 1 });
       }
@@ -101,6 +109,12 @@ describe("platform operations request API clients", () => {
     });
     const client = createSupportRequestApiClient({ baseUrl: "https://api.example.test", fetch: fetchMock as never });
 
+    await expect(client.getSupportOrderContext("ord_1", "buyer")).resolves.toEqual({
+      orderId: "ord_1",
+      openedByRole: "buyer",
+      status: "ready-for-fulfillment",
+      totalAmount: "24.00",
+    });
     await expect(
       client.openSupportRequest({
         orderId: "ord_1",
@@ -145,6 +159,10 @@ describe("platform operations request API clients", () => {
       status: "cancelled",
     });
 
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/support-requests/orders/ord_1?role=buyer",
+      expect.objectContaining({ headers: undefined }),
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/ops/sup_1/evidence",
       expect.objectContaining({

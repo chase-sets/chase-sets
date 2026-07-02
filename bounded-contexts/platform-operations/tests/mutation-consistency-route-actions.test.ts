@@ -16,7 +16,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import { action as accountSupportAction } from "../routes/marketplace/account-support";
+import { action as accountSupportAction, loader as accountSupportLoader } from "../routes/marketplace/account-support";
 import { action as platformFeedbackDetailAction } from "../routes/admin/platform-feedback-detail";
 import { action as platformFeedbackListAction } from "../routes/admin/platform-feedback";
 import { action as projectionOperationsAction } from "../routes/admin/projection-operations";
@@ -335,5 +335,56 @@ describe("platform operations mutation consistency route actions", () => {
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+  });
+
+  it("loads account support with account-scoped order context from the query handoff", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/support-requests/flows")) {
+        return jsonResponse({ items: [] });
+      }
+      if (url.endsWith("/support-requests/purchases") || url.endsWith("/support-requests/sales")) {
+        return jsonResponse({ items: [], total: 0, count: 0 });
+      }
+      if (url.endsWith("/support-requests/orders/ord_1?role=buyer")) {
+        return jsonResponse({
+          orderId: "ord_1",
+          openedByRole: "buyer",
+          status: "ready-for-fulfillment",
+          totalAmount: "24.00",
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["support.view"] });
+
+    const result = (await accountSupportLoader({
+      request: new Request("http://localhost/account/support?orderId=ord_1&role=buyer", {
+        headers: { cookie: "session=abc" },
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as {
+      supportOrder: { orderId: string; openedByRole: string; status: string; totalAmount: string } | null;
+      lookupError: string | null;
+    };
+
+    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      permission: "support.view",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/api/marketplace/support-requests/orders/ord_1?role=buyer",
+      expect.any(Object),
+    );
+    expect(result.supportOrder).toEqual({
+      orderId: "ord_1",
+      openedByRole: "buyer",
+      status: "ready-for-fulfillment",
+      totalAmount: "24.00",
+    });
+    expect(result.lookupError).toBeNull();
   });
 });

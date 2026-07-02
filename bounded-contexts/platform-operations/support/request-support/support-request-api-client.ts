@@ -2,6 +2,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type {
   SupportFlowSummary,
+  SupportOrderLookup,
   SupportRequestCommandSnapshot,
   SupportRequestDetail,
   SupportRequestEscalationSnapshot,
@@ -10,6 +11,7 @@ import type {
 
 export type {
   SupportFlowSummary,
+  SupportOrderLookup,
   SupportRequestCommandSnapshot,
   SupportRequestDetail,
   SupportRequestEscalationSnapshot,
@@ -58,6 +60,14 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           headers: resolveHeaders(options.headers),
         }),
       ),
+    getSupportOrderContext: async (orderId: string, role?: string | null) => {
+      const query = role ? `?role=${encodeURIComponent(role)}` : "";
+      return parseJsonResponse<SupportOrderLookup>(
+        await clientFetch(`${baseUrl}/support-requests/orders/${encodeURIComponent(orderId)}${query}`, {
+          headers: resolveHeaders(options.headers),
+        }),
+      );
+    },
     listSupportOperationsQueue: async (query = "") =>
       parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
         await clientFetch(`${baseUrl}/support-requests/ops${query ? `?${query}` : ""}`, {

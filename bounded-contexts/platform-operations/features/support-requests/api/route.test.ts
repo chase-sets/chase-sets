@@ -57,6 +57,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
   return {
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(() => []),
+    getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
     submitEvidence: vi.fn(),
     recordResponse: vi.fn(),
@@ -76,6 +77,31 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
+  it("returns account-scoped support order context for marketplace support lookup", async () => {
+    const getSupportOrderContext = vi.fn(async () => ({
+      orderId: "ord_1",
+      openedByRole: "buyer" as const,
+      status: "ready-for-fulfillment",
+      totalAmount: "24.00",
+    }));
+    const services = createServices({ getSupportOrderContext });
+
+    const response = await buildApp(services, ["support.view"]).request("/support-requests/orders/ord_1?role=buyer");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      orderId: "ord_1",
+      openedByRole: "buyer",
+      status: "ready-for-fulfillment",
+      totalAmount: "24.00",
+    });
+    expect(getSupportOrderContext).toHaveBeenCalledWith({
+      orderId: "ord_1",
+      accountId: "acc_operator",
+      openedByRole: "buyer",
+    });
+  });
+
   it.each([
     [
       "openSupportRequest",

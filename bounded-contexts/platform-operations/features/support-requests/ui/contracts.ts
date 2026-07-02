@@ -2,6 +2,12 @@ import type { SupportFlowDefinition } from "../domain/flow-catalog";
 import type { SupportRequestDetailRow, SupportRequestListRow } from "../read-model/queries";
 
 export type SupportFlowSummary = SupportFlowDefinition;
+export type SupportOrderLookup = Readonly<{
+  orderId: string;
+  openedByRole: "buyer" | "seller";
+  status: string;
+  totalAmount: string;
+}>;
 export type SupportRequestListItem = SupportRequestListRow;
 export type SupportRequestDetail = SupportRequestDetailRow;
 

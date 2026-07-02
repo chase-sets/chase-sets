@@ -76,6 +76,55 @@ const context = {
 };
 
 describe("support request runtime", () => {
+  it("returns an account-scoped support order context before opening a request", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return {
+            rows: [
+              {
+                order_id: "ord_1",
+                buyer_account_id: "acc_buyer",
+                seller_account_id: "acc_seller",
+                status: "ready-for-fulfillment",
+                total_amount: "24.00",
+              },
+            ],
+          };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.getSupportOrderContext({
+        orderId: "ord_1",
+        accountId: "acc_buyer",
+        openedByRole: "buyer",
+      }),
+    ).resolves.toEqual({
+      orderId: "ord_1",
+      openedByRole: "buyer",
+      status: "ready-for-fulfillment",
+      totalAmount: "24.00",
+    });
+
+    await expect(
+      runtime.getSupportOrderContext({
+        orderId: "ord_1",
+        accountId: "acc_seller",
+        openedByRole: "buyer",
+      }),
+    ).rejects.toThrow("Only the buyer can open this buyer support flow.");
+  });
+
   it("opens a buyer support request from an order source and rejects duplicates", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
