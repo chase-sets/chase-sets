@@ -22,6 +22,7 @@ on:
           - lorcana-launch
           - tcgplayer-pokemon-targeted
           - all-provider-regression
+          - staging-representative-catalog
           - m50-final-proof
 
 permissions:
@@ -58,7 +59,7 @@ jobs:
             m50-final-proof)
               journey_matrix='{"include":[{"journey_scope":"lorcana-launch"},{"journey_scope":"all-provider-regression"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression)
+            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)

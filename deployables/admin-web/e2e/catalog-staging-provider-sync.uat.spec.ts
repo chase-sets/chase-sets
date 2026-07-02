@@ -18,6 +18,7 @@ const supportedProviderUatJourneyScopes = [
   "lorcana-launch",
   "tcgplayer-pokemon-targeted",
   "all-provider-regression",
+  "staging-representative-catalog",
 ] as const;
 
 type SelectChoice = Readonly<{
@@ -148,8 +149,57 @@ const tcgplayerLorcanaSetChoice: SelectChoice = {
   labels: ["The First Chapter"],
 };
 
+const lorcanaFloodbornSetChoice: SelectChoice = {
+  labels: ["Rise of the Floodborn"],
+  values: ["ROTF", "2"],
+};
+
+const tcgplayerLorcanaFloodbornSetChoice: SelectChoice = {
+  labels: ["Rise of the Floodborn"],
+};
+
 const tcgplayerLorcanaProductLineChoice: SelectChoice = {
   labels: ["Disney Lorcana", "Lorcana"],
+  fallbackToFirstAvailableOption: {},
+};
+
+const tcgdexSurgingSparksExpansionChoice: SelectChoice = {
+  labels: ["Surging Sparks"],
+  values: ["SV08", "SV8"],
+  fallbackToFirstAvailableOption: { valuePattern: /^SV0?8$/i },
+};
+
+const tcgdexBattlePartnersExpansionChoice: SelectChoice = {
+  labels: ["Battle Partners"],
+  values: ["SV09", "SV9"],
+  fallbackToFirstAvailableOption: { valuePattern: /^SV0?9$/i },
+};
+
+const scryfallFifthDawnSetChoice: SelectChoice = {
+  labels: ["Fifth Dawn"],
+  values: ["5DN"],
+  fallbackToFirstAvailableOption: { valuePattern: /^5DN$/i },
+};
+
+const scryfallTimeSpiralSetChoice: SelectChoice = {
+  labels: ["Time Spiral"],
+  values: ["TSP"],
+  fallbackToFirstAvailableOption: { valuePattern: /^TSP$/i },
+};
+
+const tcgplayerMtgProductLineChoice: SelectChoice = {
+  labels: ["Magic", "Magic: The Gathering"],
+  values: ["1"],
+  fallbackToFirstAvailableOption: {},
+};
+
+const tcgplayerFifthDawnSetChoice: SelectChoice = {
+  labels: ["Fifth Dawn"],
+  fallbackToFirstAvailableOption: {},
+};
+
+const tcgplayerTimeSpiralSetChoice: SelectChoice = {
+  labels: ["Time Spiral"],
   fallbackToFirstAvailableOption: {},
 };
 
@@ -393,6 +443,141 @@ const yugiohProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   },
 ];
 
+const tcgdexRepresentativePokemonJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "Pokemon English Surging Sparks through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["English"], values: ["en"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexSurgingSparksExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon Traditional Chinese Surging Sparks through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["Traditional Chinese", "Chinese Traditional"], values: ["zh-tw"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexSurgingSparksExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon Korean Surging Sparks through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["Korean"], values: ["ko"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexSurgingSparksExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "Pokemon Japanese Battle Partners through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["Japanese"], values: ["ja"] } },
+      { label: "Series", choice: { labels: ["Scarlet & Violet"], values: ["SV"] } },
+      { label: "Expansion", choice: tcgdexBattlePartnersExpansionChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+];
+
+const scryfallRepresentativeMtgJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "MTG Fifth Dawn card prints through Scryfall",
+    providerKey: "scryfall",
+    unitKey: "scryfall:mtg:single-card:reference-data",
+    scope: [{ label: "Set", choice: scryfallFifthDawnSetChoice }],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "MTG Time Spiral card prints through Scryfall",
+    providerKey: "scryfall",
+    unitKey: "scryfall:mtg:single-card:reference-data",
+    scope: [{ label: "Set", choice: scryfallTimeSpiralSetChoice }],
+    requiresTerminalSync: true,
+  },
+];
+
+const tcgplayerRepresentativeMtgJourneys: readonly ProviderSyncJourney[] = [
+  {
+    name: "MTG Fifth Dawn single cards through TCGplayer",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerMtgProductLineChoice },
+      { label: "Set Name", choice: tcgplayerFifthDawnSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  {
+    name: "MTG Time Spiral single cards through TCGplayer",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerMtgProductLineChoice },
+      { label: "Set Name", choice: tcgplayerTimeSpiralSetChoice },
+    ],
+    requiresTerminalSync: true,
+    allowPartialWithReview: true,
+  },
+  {
+    name: "MTG Fifth Dawn sealed products through TCGplayer",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerMtgProductLineChoice },
+      { label: "Set Name", choice: tcgplayerFifthDawnSetChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+  {
+    name: "MTG Time Spiral sealed products through TCGplayer",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: tcgplayerMtgProductLineChoice },
+      { label: "Set Name", choice: tcgplayerTimeSpiralSetChoice },
+    ],
+    requiresTerminalSync: true,
+  },
+];
+
+const lorcanaFloodbornProviderSyncJourneys: readonly ProviderSyncJourney[] = lorcanaLaunchProviderSyncJourneys.map(
+  (journey) => ({
+    ...journey,
+    name: journey.name.replace("Lorcana", "Lorcana Rise of the Floodborn"),
+    scope: journey.scope.map((selection) => ({
+      ...selection,
+      choice:
+        journey.providerKey === "tcgplayer" && selection.label === "Set Name"
+          ? tcgplayerLorcanaFloodbornSetChoice
+          : selection.label === "Set"
+            ? lorcanaFloodbornSetChoice
+            : selection.choice,
+    })),
+  }),
+);
+
+const stagingRepresentativeCatalogProviderSyncJourneys: readonly ProviderSyncJourney[] = [
+  ...lorcanaLaunchProviderSyncJourneys,
+  ...lorcanaFloodbornProviderSyncJourneys,
+  ...onePieceLaunchProviderSyncJourneys,
+  ...yugiohProviderSyncJourneys,
+  ...tcgdexRepresentativePokemonJourneys,
+  ...scryfallRepresentativeMtgJourneys,
+  ...tcgplayerRepresentativeMtgJourneys,
+];
+
 const providerSyncJourneys =
   providerUatJourneyScope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
@@ -400,7 +585,9 @@ const providerSyncJourneys =
       ? []
       : providerUatJourneyScope === "lorcana-launch"
         ? lorcanaLaunchProviderSyncJourneys
-        : onePieceLaunchProviderSyncJourneys;
+        : providerUatJourneyScope === "staging-representative-catalog"
+          ? stagingRepresentativeCatalogProviderSyncJourneys
+          : onePieceLaunchProviderSyncJourneys;
 
 const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
   name: "Lorcana downstream Catalog Items projection through LorcanaJSON",
@@ -429,6 +616,31 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(sanitized).toContain("[email redacted]");
     expect(sanitized).not.toContain("fake-token");
     expect(sanitized).not.toContain("user@example.test");
+  });
+
+  test("covers the staging representative catalog provider matrix", () => {
+    expect(supportedProviderUatJourneyScopes).toContain("staging-representative-catalog");
+    expect(stagingRepresentativeCatalogProviderSyncJourneys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerKey: "tcgdex", name: expect.stringContaining("English") }),
+        expect.objectContaining({ providerKey: "tcgdex", name: expect.stringContaining("Traditional Chinese") }),
+        expect.objectContaining({ providerKey: "tcgdex", name: expect.stringContaining("Korean") }),
+        expect.objectContaining({ providerKey: "tcgdex", name: expect.stringContaining("Battle Partners") }),
+        expect.objectContaining({ providerKey: "scryfall", unitKey: "scryfall:mtg:single-card:reference-data" }),
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+        }),
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+        }),
+        expect.objectContaining({ providerKey: "lorcanajson", name: expect.stringContaining("Floodborn") }),
+        expect.objectContaining({ providerKey: "lorcast", name: expect.stringContaining("Floodborn") }),
+        expect.objectContaining({ providerKey: "scrydex", name: expect.stringContaining("Floodborn") }),
+        expect.objectContaining({ providerKey: "tcgplayer", name: expect.stringContaining("Floodborn") }),
+      ]),
+    );
   });
 });
 
