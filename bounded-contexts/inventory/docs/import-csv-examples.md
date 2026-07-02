@@ -4,12 +4,14 @@ Inventory imports use a review-first batch. Rows are validated before they creat
 
 ## Chase Sets CSV
 
-Use this when the file already contains Chase Sets catalog and storage identifiers.
+Use this when the file already contains Chase Sets catalog identifiers and storage location names.
 
 ```csv
-catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap,rowNote
-cat_seed_charizard_base_set,loc_seed_main,2,Raw,Near Mint,125.00,1,Base Set restock
+catalogItemId,storageLocation,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap,rowNote
+cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,125.00,1,Base Set restock
 ```
+
+Use `storageLocation` for the visible active storage location name. `storageLocationId` is still accepted when an exported file already contains internal Chase Sets storage identifiers.
 
 Option columns may use Catalog dimension ids or visible dimension labels. Option values may use option ids, codes, or visible labels.
 
