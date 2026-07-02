@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
+import type { ProductContentLineInput, ReplaceProductContentsInput } from "../../product-contents/api/runtime";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import {
@@ -16,6 +17,8 @@ import type {
   SourceObservationOnePieceCardPrintNormalized,
   SourceObservationOnePieceSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
+  SourceObservationProductContentsPromotion,
+  SourceObservationProductContentsPromotionLine,
 } from "../domain/domain";
 import type { CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
 
@@ -50,12 +53,24 @@ export type CatalogProviderPromotionCommandPlanDiagnostic = Readonly<{
   code:
     | "missing-promotion-capability"
     | "missing-normalized-field"
+    | "missing-product-contents-content-type"
+    | "ambiguous-product-contents-content-type"
+    | "missing-product-contents-target"
+    | "ambiguous-product-contents-target"
     | "missing-reference-target"
     | "unsupported-observation-kind"
     | "unsupported-profile-mapping-kind"
     | CatalogProviderPromotionPreflightBlocked["code"];
   path: string;
   diagnosticText: string;
+}>;
+
+export type CatalogProviderProductContentsPromotionPlan = Readonly<{
+  planKind: "product-contents-promotion";
+  replacement: ReplaceProductContentsInput;
+  review: Readonly<{
+    lineCount: number;
+  }>;
 }>;
 
 export type CatalogProviderPromotionCommandPlan = Readonly<{
@@ -69,6 +84,7 @@ export type CatalogProviderPromotionCommandPlan = Readonly<{
   planFingerprint: string;
   requiresReview: true;
   commands: readonly CatalogItemCommand[];
+  productContents: CatalogProviderProductContentsPromotionPlan | null;
   review: Readonly<{
     normalizedKind: string;
     commandCount: number;
@@ -105,6 +121,7 @@ export function planCatalogProviderPromotionCommands(input: {
   setReferenceId?: ReferenceRecordId;
   metadata: Readonly<{ title: string; subtitle: string }>;
   productAssetSet: ProductAssetSet | null;
+  productContentsPromotion?: SourceObservationProductContentsPromotion | null;
   preflight?: CatalogProviderPromotionPreflight;
 }): CatalogProviderPromotionCommandPlanResult {
   const diagnostics = promotionDiagnostics(input);
@@ -117,6 +134,10 @@ export function planCatalogProviderPromotionCommands(input: {
   }
 
   const commands = commandsForNormalizedKind(input);
+  const productContents = productContentsPromotionPlan({
+    catalogItemId: input.catalogItemId,
+    promotion: input.productContentsPromotion ?? input.normalized.productContentsPromotion ?? null,
+  });
   const sourceProductReferencesLinked = commands.filter(
     (command) => command.type === "LinkExternalProductReference",
   ).length;
@@ -127,6 +148,7 @@ export function planCatalogProviderPromotionCommands(input: {
     mode: input.mode,
     mappingKind: input.profile.normalizedObservationMapping.kind,
     commands,
+    productContents,
   });
 
   return {
@@ -142,6 +164,7 @@ export function planCatalogProviderPromotionCommands(input: {
       planFingerprint,
       requiresReview: true,
       commands,
+      productContents,
       review: {
         normalizedKind: input.normalized.kind,
         commandCount: commands.length,
@@ -161,6 +184,7 @@ function promotionDiagnostics(input: {
   catalog: CatalogProviderPromotionResolvedCatalogMapping;
   expansionReferenceId?: ReferenceRecordId;
   setReferenceId?: ReferenceRecordId;
+  productContentsPromotion?: SourceObservationProductContentsPromotion | null;
   preflight?: CatalogProviderPromotionPreflight;
 }): CatalogProviderPromotionCommandPlanDiagnostic[] {
   const diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[] = [];
@@ -398,7 +422,141 @@ function promotionDiagnostics(input: {
     });
   }
 
+  diagnostics.push(
+    ...productContentsPromotionDiagnostics({
+      promotion: input.productContentsPromotion ?? input.normalized.productContentsPromotion ?? null,
+    }),
+  );
+
   return diagnostics;
+}
+
+function productContentsPromotionDiagnostics(input: {
+  promotion: SourceObservationProductContentsPromotion | null;
+}): CatalogProviderPromotionCommandPlanDiagnostic[] {
+  if (!input.promotion || input.promotion.lines.length === 0) {
+    return [];
+  }
+
+  const diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[] = [];
+  for (const [index, line] of input.promotion.lines.entries()) {
+    const contentType = resolveProductContentsContentType(line);
+    if (contentType.status === "missing") {
+      diagnostics.push({
+        code: "missing-product-contents-content-type",
+        path: `normalized.productContentsPromotion.lines.${index}.contentTypeId`,
+        diagnosticText: "Product Contents promotion requires a configured Product Content Type for each line.",
+      });
+    }
+    if (contentType.status === "ambiguous") {
+      diagnostics.push({
+        code: "ambiguous-product-contents-content-type",
+        path: `normalized.productContentsPromotion.lines.${index}.candidateContentTypeIds`,
+        diagnosticText:
+          "Product Contents promotion found multiple possible Product Content Types; review must choose one before writing Product Contents.",
+      });
+    }
+
+    const target = resolveProductContentsTarget(line);
+    if (target.status === "missing") {
+      diagnostics.push({
+        code: "missing-product-contents-target",
+        path: `normalized.productContentsPromotion.lines.${index}.candidateCatalogItemIds`,
+        diagnosticText: "Product Contents promotion requires one reviewed contained Catalog Item target for each line.",
+      });
+    }
+    if (target.status === "ambiguous") {
+      diagnostics.push({
+        code: "ambiguous-product-contents-target",
+        path: `normalized.productContentsPromotion.lines.${index}.candidateCatalogItemIds`,
+        diagnosticText:
+          "Product Contents promotion found multiple possible contained Catalog Item targets; review must choose one before writing Product Contents.",
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+function productContentsPromotionPlan(input: {
+  catalogItemId: CatalogItemId;
+  promotion: SourceObservationProductContentsPromotion | null;
+}): CatalogProviderProductContentsPromotionPlan | null {
+  if (!input.promotion || input.promotion.lines.length === 0) {
+    return null;
+  }
+
+  const lines: ProductContentLineInput[] = input.promotion.lines.map((line) => {
+    const target = resolveProductContentsTarget(line);
+    const contentType = resolveProductContentsContentType(line);
+    return {
+      containedCatalogItemId: target.status === "resolved" ? target.catalogItemId : null,
+      containedSelectedOptions: line.containedSelectedOptions ?? [],
+      quantity: typeof line.quantity === "number" ? line.quantity : null,
+      contentTypeId: contentType.status === "resolved" ? contentType.contentTypeId : "",
+      inclusionPolicyId: line.inclusionPolicyId ?? null,
+      provenance: line.provenance ?? {},
+    };
+  });
+
+  return {
+    planKind: "product-contents-promotion",
+    replacement: {
+      containerCatalogItemId: input.catalogItemId,
+      lines,
+    },
+    review: { lineCount: lines.length },
+  };
+}
+
+function resolveProductContentsContentType(
+  line: SourceObservationProductContentsPromotionLine,
+):
+  | Readonly<{ status: "resolved"; contentTypeId: string }>
+  | Readonly<{ status: "missing" }>
+  | Readonly<{ status: "ambiguous" }> {
+  const direct = nonEmptyString(line.contentTypeId) ? line.contentTypeId.trim() : null;
+  if (direct) {
+    return { status: "resolved", contentTypeId: direct };
+  }
+
+  const candidates = uniqueStrings(line.candidateContentTypeIds ?? []);
+  if (candidates.length === 1) {
+    return { status: "resolved", contentTypeId: candidates[0] };
+  }
+  if (candidates.length === 0) {
+    return { status: "missing" };
+  }
+  return { status: "ambiguous" };
+}
+
+function resolveProductContentsTarget(
+  line: SourceObservationProductContentsPromotionLine,
+):
+  | Readonly<{ status: "resolved"; catalogItemId: CatalogItemId }>
+  | Readonly<{ status: "missing" }>
+  | Readonly<{ status: "ambiguous" }> {
+  const direct = nonEmptyString(line.containedCatalogItemId) ? line.containedCatalogItemId.trim() : null;
+  if (direct) {
+    return { status: "resolved", catalogItemId: direct as CatalogItemId };
+  }
+
+  const candidates = uniqueStrings(line.candidateCatalogItemIds ?? []);
+  if (candidates.length === 1) {
+    return { status: "resolved", catalogItemId: candidates[0] as CatalogItemId };
+  }
+  if (candidates.length === 0) {
+    return { status: "missing" };
+  }
+  return { status: "ambiguous" };
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))].sort();
 }
 
 function requireNormalizedString(
@@ -1304,6 +1462,7 @@ export function catalogProviderPromotionPlanFingerprint(input: {
   mappingKind: string;
   mode: CatalogProviderPromotionMode;
   commands: readonly CatalogItemCommand[];
+  productContents?: CatalogProviderProductContentsPromotionPlan | null;
 }): string {
   return createHash("sha256")
     .update(
@@ -1314,6 +1473,7 @@ export function catalogProviderPromotionPlanFingerprint(input: {
         mappingKind: input.mappingKind,
         mode: input.mode,
         commands: input.commands,
+        productContents: input.productContents ?? null,
       }),
     )
     .digest("hex");

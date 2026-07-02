@@ -534,7 +534,7 @@ function ygojsonSealedProductNormalizedObservation(): YgojsonExecutableMappingCo
         "reference-hierarchy",
       ]),
       imageUrls: ygojsonConstantExpression([], "catalog-truth", ["normalized-observation", "hash-material"]),
-      sealedContentsEvidence: ygojsonOptionalPathExpression("sealedProduct.contents", "catalog-merge-evidence", [
+      productContentsEvidence: ygojsonOptionalPathExpression("sealedProduct.contents", "catalog-merge-evidence", [
         "normalized-observation",
         "hash-material",
       ]),
