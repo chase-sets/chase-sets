@@ -51,6 +51,7 @@ import {
 import {
   normalizeInventoryImportSellerSku,
   resolveInventoryImportAccountSkuMapping,
+  type InventoryImportAccountSkuMapping,
 } from "../read-model/account-sku-mappings";
 
 export type InventoryDraftListingCreator = (
@@ -92,6 +93,17 @@ export type InventoryImportBatchServices = Readonly<{
   listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
   getNativeCsvTemplate: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
   getNativeCsvExport: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
+  resolveRow: (
+    params: Readonly<{
+      batchId: string;
+      rowId: string;
+      accountId: AccountId;
+      catalogItemId: string;
+      selectedOptions: readonly InventorySelectedOptionEntry[];
+      storageLocationId: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<InventoryImportBatchDetail>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -581,6 +593,22 @@ function rowIdForBatchRow(batchId: string, rowNumber: number): string {
   return `imr_${batchId.replace(/^imb_/, "")}_${rowNumber}`;
 }
 
+function accountSkuMappingChoice(mapping: InventoryImportAccountSkuMapping): string {
+  const selectedOptions =
+    mapping.selected_options.length > 0
+      ? mapping.selected_options.map((option) => `${option.dimensionId}:${option.optionId}`).join("|")
+      : "no options";
+  return `${mapping.catalog_item_id} (${selectedOptions})`;
+}
+
+function accountSkuMappingConflictMessage(
+  sellerSku: string,
+  mappings: readonly InventoryImportAccountSkuMapping[],
+): string {
+  const choices = mappings.map(accountSkuMappingChoice).join(", ");
+  return `Seller SKU '${sellerSku}' has multiple mappings for this account: ${choices}.`;
+}
+
 async function refreshBatchCounts(db: PgQueryable, batchId: string) {
   await db.query(
     `UPDATE inventory_import_batches AS batch
@@ -752,7 +780,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
           resolutionError =
             accountSkuResolution.status === "ambiguous"
-              ? `Seller SKU '${sellerSku}' has multiple mappings for this account.`
+              ? accountSkuMappingConflictMessage(sellerSku, accountSkuResolution.mappings)
               : `Seller SKU '${sellerSku}' is not mapped for this account.`;
           if (accountSkuResolution.status === "ambiguous") {
             break;
@@ -893,6 +921,189 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       rowNote: clean(values.rowNote),
       validationErrors: errors,
     };
+  }
+
+  async function persistAccountSkuMapping(
+    accountId: AccountId,
+    sellerSku: string | null,
+    catalogItemId: string,
+    selectedOptions: readonly InventorySelectedOptionEntry[],
+  ) {
+    if (!sellerSku) {
+      return;
+    }
+
+    const normalizedSellerSku = normalizeInventoryImportSellerSku(sellerSku);
+    if (!normalizedSellerSku) {
+      return;
+    }
+
+    const existing = await resolveInventoryImportAccountSkuMapping(deps.db, { accountId, sellerSku });
+    if (existing.status === "ambiguous") {
+      throw new InventoryDomainError(accountSkuMappingConflictMessage(sellerSku, existing.mappings));
+    }
+
+    if (existing.status === "mapped") {
+      await deps.db.query(
+        `UPDATE inventory_import_account_sku_mappings
+         SET seller_sku = $2,
+             normalized_seller_sku = $3,
+             catalog_item_id = $4,
+             selected_options = $5::jsonb,
+             updated_at = now()
+         WHERE mapping_id = $1
+           AND account_id = $6`,
+        [
+          existing.mapping.mapping_id,
+          sellerSku,
+          normalizedSellerSku,
+          catalogItemId,
+          JSON.stringify(selectedOptions),
+          accountId,
+        ],
+      );
+      return;
+    }
+
+    await deps.db.query(
+      `INSERT INTO inventory_import_account_sku_mappings (
+         mapping_id,
+         account_id,
+         seller_sku,
+         normalized_seller_sku,
+         catalog_item_id,
+         selected_options,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, now(), now())`,
+      [createId("sku_map"), accountId, sellerSku, normalizedSellerSku, catalogItemId, JSON.stringify(selectedOptions)],
+    );
+  }
+
+  function rowForManualResolution(
+    batch: InventoryImportBatchDetail,
+    row: InventoryImportBatchDetail["rows"][number],
+    params: Readonly<{
+      catalogItemId: string;
+      selectedOptions: readonly InventorySelectedOptionEntry[];
+      storageLocationId: string;
+    }>,
+  ): NormalizedInventoryImportRow {
+    const [normalizedRow] = getInventoryImportSourceAdapter(batch.source_key).normalize({
+      parsedRows: [{ rowNumber: row.row_number, values: row.raw_row }],
+      quantityMode: row.quantity_mode,
+      defaultStorageLocationId: batch.default_storage_location_id,
+    });
+    if (!normalizedRow) {
+      throw new InventoryDomainError("Import row could not be normalized for review.");
+    }
+
+    return {
+      ...normalizedRow,
+      values: {
+        ...normalizedRow.values,
+        catalogItemId: params.catalogItemId,
+        storageLocationId: params.storageLocationId,
+        ...Object.fromEntries(
+          params.selectedOptions.map((option) => [`option:${option.dimensionId}`, option.optionId]),
+        ),
+      },
+      rowFingerprint: `${normalizedRow.rowFingerprint}|review:${params.catalogItemId}:${params.storageLocationId}`,
+    };
+  }
+
+  async function resolveBatchRow(
+    params: Parameters<InventoryImportBatchServices["resolveRow"]>[0],
+  ): Promise<InventoryImportBatchDetail> {
+    const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
+    if (!detail) {
+      throw new InventoryDomainError("Import batch not found.");
+    }
+
+    const row = detail.rows.find((candidate) => candidate.row_id === params.rowId);
+    if (!row) {
+      throw new InventoryDomainError("Import row not found.");
+    }
+    if (row.status === "committed") {
+      throw new InventoryDomainError("Committed import rows cannot be changed.");
+    }
+
+    const validated = await validateRow(
+      params.accountId,
+      rowForManualResolution(detail, row, params),
+      row.quantity_mode,
+    );
+    if (validated.validationErrors.length > 0 || !validated.catalogItemId || !validated.productId) {
+      throw new InventoryDomainError(`Import row fix is incomplete: ${validated.validationErrors.join(" ")}`);
+    }
+    if (!validated.storageLocationId) {
+      throw new InventoryDomainError("Import row fix is incomplete: Storage location was not found.");
+    }
+
+    if (detail.source_key === "native-csv") {
+      await persistAccountSkuMapping(
+        params.accountId,
+        validated.sellerSku,
+        validated.catalogItemId,
+        validated.selectedOptions,
+      );
+    }
+
+    await deps.db.query(
+      `UPDATE inventory_import_batch_rows
+       SET status = $2,
+           external_reference = $3::jsonb,
+           row_fingerprint = $4,
+           quantity_mode = $5,
+           quantity_delta = $6,
+           set_quantity = $7,
+           source_price_amount = $8,
+           resolution_status = 'resolved',
+           catalog_item_id = $9,
+           product_id = $10,
+           selected_options = $11::jsonb,
+           storage_location_id = $12,
+           total_quantity = $13,
+           acquisition_cost_amount = $14,
+           seller_sku = $15,
+           listing_price_amount = $16,
+           listing_quantity_cap = $17,
+           row_note = $18,
+           validation_errors = $19::jsonb,
+           updated_at = now()
+       WHERE row_id = $1
+         AND batch_id = $20
+         AND status <> 'committed'`,
+      [
+        row.row_id,
+        validated.status,
+        validated.externalReference ? JSON.stringify(validated.externalReference) : null,
+        validated.rowFingerprint,
+        validated.quantityMode,
+        validated.quantityDelta,
+        validated.setQuantity,
+        validated.sourcePriceAmount,
+        validated.catalogItemId,
+        validated.productId,
+        JSON.stringify(validated.selectedOptions),
+        validated.storageLocationId,
+        validated.totalQuantity,
+        validated.acquisitionCostAmount,
+        validated.sellerSku,
+        validated.listingPriceAmount,
+        validated.listingQuantityCap,
+        validated.rowNote,
+        JSON.stringify(validated.validationErrors),
+        params.batchId,
+      ],
+    );
+    await refreshBatchCounts(deps.db, params.batchId);
+
+    const nextDetail = await getImportBatch(deps.db, params.batchId, params.accountId);
+    if (!nextDetail) {
+      throw new InventoryDomainError("Import batch not found.");
+    }
+    return nextDetail;
   }
 
   async function commitBatchRows(
@@ -1448,6 +1659,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       });
       return buildNativeInventoryExportCsv(rows);
     },
+    resolveRow: (params) => resolveBatchRow(params),
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {
       const quantityMode = params.quantityMode ?? "add";

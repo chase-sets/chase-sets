@@ -7,6 +7,7 @@ import type { ImportCsvRow } from "../domain/csv";
 import { listInventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { parseSelectedOptionsInput } from "../../inventory-items/integrations/catalog/versioning";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
@@ -67,6 +68,16 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
         : null,
     sourceFilename:
       typeof body.sourceFilename === "string" && body.sourceFilename.trim() ? body.sourceFilename.trim() : null,
+  };
+}
+
+async function parseResolveRowRequest(c: Context<InventoryApiEnv>) {
+  const body = (await c.req.json().catch(() => ({}))) as Readonly<Record<string, unknown>>;
+
+  return {
+    catalogItemId: String(body.catalogItemId ?? "").trim(),
+    storageLocationId: String(body.storageLocationId ?? "").trim(),
+    selectedOptions: parseSelectedOptionsInput(body.selectedOptions),
   };
 }
 
@@ -183,6 +194,36 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         c.get("context"),
       );
       return c.json(toInventoryImportBatchJobStatus(job), 202);
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: errorMessage(error),
+          },
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/:id/rows/:rowId/resolve", async (c) => {
+    const actor = c.get("actor");
+    const body = await parseResolveRowRequest(c);
+
+    try {
+      const detail = await services.resolveRow(
+        {
+          batchId: c.req.param("id"),
+          rowId: c.req.param("rowId"),
+          accountId: actor.accountId as AccountId,
+          catalogItemId: body.catalogItemId,
+          selectedOptions: body.selectedOptions,
+          storageLocationId: body.storageLocationId,
+        },
+        c.get("context"),
+      );
+      return c.json(detail);
     } catch (error) {
       return c.json(
         {

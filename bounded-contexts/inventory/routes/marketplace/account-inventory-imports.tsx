@@ -5,6 +5,7 @@ import { readApiErrorCode } from "@chase-sets/http/responses";
 import { loadAfterWrite } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { parseSelectedOptionsInput } from "../../features/inventory-items/integrations/catalog/versioning";
 import {
   createInventoryRequestApiClient,
   InventoryApiError,
@@ -128,6 +129,17 @@ export async function action({ request }: ActionFunctionArgs) {
       const batchId = String(formData.get("batchId") ?? "");
       const job = await api.commitImportBatch(batchId);
       return redirect(`/account/inventory/imports/${batchId}?jobId=${encodeURIComponent(job.jobId)}`);
+    }
+
+    if (intent === "resolve-row") {
+      const batchId = String(formData.get("batchId") ?? "");
+      const rowId = String(formData.get("rowId") ?? "");
+      await api.resolveImportBatchRow(batchId, rowId, {
+        catalogItemId: String(formData.get("catalogItemId") ?? ""),
+        selectedOptions: parseSelectedOptionsInput(String(formData.get("selectedOptions") ?? "")),
+        storageLocationId: String(formData.get("storageLocationId") ?? ""),
+      });
+      return redirect(`/account/inventory/imports/${batchId}`);
     }
 
     return redirect("/account/inventory/imports");

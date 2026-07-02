@@ -132,6 +132,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.actions": "Actions",
   "inventory.features.importBatches.ui.importBatchPage.adapter.version": "Adapter v{version}",
   "inventory.features.importBatches.ui.importBatchPage.add.stock": "Add stock",
+  "inventory.features.importBatches.ui.importBatchPage.apply.row.fix": "Apply row fix",
   "inventory.features.importBatches.ui.importBatchPage.batch": "Batch",
   "inventory.features.importBatches.ui.importBatchPage.batch.summary": "Batch summary",
   "inventory.features.importBatches.ui.importBatchPage.cap.quantity": "Cap: {quantity}",

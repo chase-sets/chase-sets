@@ -159,6 +159,40 @@ class ImportBatchDb implements PgQueryable {
       return this.result(rows as Row[]);
     }
 
+    if (sql.includes("UPDATE inventory_import_account_sku_mappings")) {
+      const mappingId = String(values[0]);
+      const accountId = String(values[5]);
+      this.accountSkuMappings = this.accountSkuMappings.map((mapping) =>
+        mapping.mapping_id === mappingId && mapping.account_id === accountId
+          ? {
+              ...mapping,
+              seller_sku: String(values[1]),
+              normalized_seller_sku: String(values[2]),
+              catalog_item_id: String(values[3]),
+              selected_options: JSON.parse(String(values[4])) as InventorySelectedOptionEntry[],
+              updated_at: now,
+            }
+          : mapping,
+      );
+      return this.result([]);
+    }
+
+    if (sql.includes("INSERT INTO inventory_import_account_sku_mappings")) {
+      this.accountSkuMappings = [
+        ...this.accountSkuMappings,
+        {
+          mapping_id: String(values[0]),
+          account_id: String(values[1]),
+          seller_sku: String(values[2]),
+          normalized_seller_sku: String(values[3]),
+          catalog_item_id: String(values[4]),
+          selected_options: JSON.parse(String(values[5])) as InventorySelectedOptionEntry[],
+          updated_at: now,
+        },
+      ];
+      return this.result([]);
+    }
+
     if (sql.includes("FROM inventory_storage_locations") && sql.includes("storage_location_id = $1")) {
       const location = this.locations.get(String(values[0]));
       const rows = location && (!values[1] || location.account_id === values[1]) ? [location] : [];
@@ -257,6 +291,38 @@ class ImportBatchDb implements PgQueryable {
 
     if (sql.includes("UPDATE inventory_import_batches AS batch")) {
       this.refreshBatch(String(values[0]));
+      return this.result([]);
+    }
+
+    if (sql.includes("UPDATE inventory_import_batch_rows") && sql.includes("resolution_status = 'resolved'")) {
+      const rowId = String(values[0]);
+      this.rows = this.rows.map((row) =>
+        row.row_id === rowId && row.batch_id === values[19]
+          ? {
+              ...row,
+              status: values[1] as StoredRow["status"],
+              external_reference: typeof values[2] === "string" ? JSON.parse(String(values[2])) : null,
+              row_fingerprint: String(values[3]),
+              quantity_mode: values[4] as StoredRow["quantity_mode"],
+              quantity_delta: typeof values[5] === "number" ? values[5] : null,
+              set_quantity: typeof values[6] === "number" ? values[6] : null,
+              source_price_amount: typeof values[7] === "string" ? values[7] : null,
+              resolution_status: "resolved",
+              catalog_item_id: String(values[8]),
+              product_id: String(values[9]),
+              selected_options: JSON.parse(String(values[10])) as InventorySelectedOptionEntry[],
+              storage_location_id: String(values[11]),
+              total_quantity: typeof values[12] === "number" ? values[12] : null,
+              acquisition_cost_amount: typeof values[13] === "string" ? values[13] : null,
+              seller_sku: typeof values[14] === "string" ? values[14] : null,
+              listing_price_amount: typeof values[15] === "string" ? values[15] : null,
+              listing_quantity_cap: typeof values[16] === "number" ? values[16] : null,
+              row_note: typeof values[17] === "string" ? values[17] : null,
+              validation_errors: JSON.parse(String(values[18])) as string[],
+              updated_at: now,
+            }
+          : row,
+      );
       return this.result([]);
     }
 
@@ -815,6 +881,96 @@ describe("inventory import batch runtime", () => {
     });
   });
 
+  it("persists picker-fixed native seller SKU mappings so reruns auto-accept", async () => {
+    const db = dbWithLocations();
+    const services = runtime(db);
+    const firstBatch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: ["sellerSku,storageLocationId,totalQuantity", "box-a-101,loc_active,2"].join("\n"),
+      },
+      context,
+    );
+
+    const fixedBatch = await services.resolveRow(
+      {
+        accountId: "acc_1" as AccountId,
+        batchId: firstBatch.batch_id,
+        rowId: firstBatch.rows[0]!.row_id,
+        catalogItemId: "cat_active",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+        storageLocationId: "loc_active",
+      },
+      context,
+    );
+    const rerunBatch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: ["sellerSku,storageLocationId,totalQuantity", "box-a-101,loc_active,2"].join("\n"),
+      },
+      context,
+    );
+
+    expect(fixedBatch).toMatchObject({
+      accepted_count: 1,
+      rejected_count: 0,
+    });
+    expect(fixedBatch.rows[0]).toMatchObject({
+      status: "accepted",
+      resolution_status: "resolved",
+      catalog_item_id: "cat_active",
+      product_id: "cat_active::condition:near_mint",
+      validation_errors: [],
+    });
+    expect(db.accountSkuMappings).toEqual([
+      expect.objectContaining({
+        account_id: "acc_1",
+        seller_sku: "box-a-101",
+        normalized_seller_sku: "box-a-101",
+        catalog_item_id: "cat_active",
+        selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+      }),
+    ]);
+    expect(rerunBatch.rows[0]).toMatchObject({
+      status: "accepted",
+      resolution_status: "resolved",
+      catalog_item_id: "cat_active",
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+    });
+  });
+
+  it("updates one existing account seller SKU mapping from a picker fix", async () => {
+    const db = dbWithLocations();
+    addAccountSkuMapping(db, { sellerSku: "stale-sku", catalogItemId: "cat_unknown", selectedOptions: [] });
+    const services = runtime(db);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: ["sellerSku,storageLocationId,totalQuantity", "stale-sku,loc_active,2"].join("\n"),
+      },
+      context,
+    );
+
+    await services.resolveRow(
+      {
+        accountId: "acc_1" as AccountId,
+        batchId: batch.batch_id,
+        rowId: batch.rows[0]!.row_id,
+        catalogItemId: "cat_active",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+        storageLocationId: "loc_active",
+      },
+      context,
+    );
+
+    expect(db.accountSkuMappings).toHaveLength(1);
+    expect(db.accountSkuMappings[0]).toMatchObject({
+      seller_sku: "stale-sku",
+      catalog_item_id: "cat_active",
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+    });
+  });
+
   it("rejects duplicate seller SKU mappings instead of guessing", async () => {
     const db = dbWithLocations();
     addAccountSkuMapping(db, { mappingId: "sku_map_1", sellerSku: "duplicate-sku", catalogItemId: "cat_active" });
@@ -831,8 +987,40 @@ describe("inventory import batch runtime", () => {
     expect(batch.rows[0]).toMatchObject({
       status: "rejected",
       catalog_item_id: null,
-      validation_errors: ["Seller SKU 'duplicate-sku' has multiple mappings for this account."],
+      validation_errors: [
+        "Seller SKU 'duplicate-sku' has multiple mappings for this account: cat_active (condition:near_mint), cat_other (condition:near_mint).",
+      ],
     });
+  });
+
+  it("rejects picker fixes when duplicate seller SKU mappings name conflicting choices", async () => {
+    const db = dbWithLocations();
+    addAccountSkuMapping(db, { mappingId: "sku_map_1", sellerSku: "duplicate-sku", catalogItemId: "cat_active" });
+    addAccountSkuMapping(db, { mappingId: "sku_map_2", sellerSku: "duplicate-sku", catalogItemId: "cat_other" });
+    const services = runtime(db);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: ["sellerSku,storageLocationId,totalQuantity", "duplicate-sku,loc_active,2"].join("\n"),
+      },
+      context,
+    );
+
+    await expect(
+      services.resolveRow(
+        {
+          accountId: "acc_1" as AccountId,
+          batchId: batch.batch_id,
+          rowId: batch.rows[0]!.row_id,
+          catalogItemId: "cat_active",
+          selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+          storageLocationId: "loc_active",
+        },
+        context,
+      ),
+    ).rejects.toThrow(
+      "Seller SKU 'duplicate-sku' has multiple mappings for this account: cat_active (condition:near_mint), cat_other (condition:near_mint).",
+    );
   });
 
   it("keeps explicit and default storage location ids ahead of row labels", async () => {

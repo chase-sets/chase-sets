@@ -122,6 +122,49 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Cap: 2");
   });
 
+  it("renders picker controls for unresolved native row fixes", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[batch()]}
+        storageLocations={[
+          {
+            storage_location_id: "loc_active",
+            account_id: "acc_1",
+            name: "Active shelf",
+            description: null,
+            ship_from_code: "CHI",
+            ship_from_address: {
+              name: "Chase Sets",
+              line1: "100 Market St",
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+            },
+            is_archived: false,
+            updated_at: timestamp,
+          },
+        ]}
+        detail={detail([
+          row({
+            status: "rejected",
+            resolution_status: "unresolved",
+            catalog_item_id: null,
+            product_id: null,
+            storage_location_id: "loc_active",
+            validation_errors: ["Seller SKU 'box-a-101' is not mapped for this account."],
+          }),
+        ])}
+      />,
+    );
+
+    expect(html).toContain("Apply row fix");
+    expect(html).toContain("Search catalog");
+    expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
+    expect(html).toMatch(/<select[^>]*name="storageLocationId"/);
+    expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
+  });
+
   it("renders the all-rejected and fully committed states without commit controls", () => {
     const allRejected = renderToString(
       <InventoryImportBatchPage
