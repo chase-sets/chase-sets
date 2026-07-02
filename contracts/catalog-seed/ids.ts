@@ -10,6 +10,8 @@ export type SeedCategoryId = TypedUlid<"ctg">;
 export type SeedReferenceTypeId = TypedUlid<"rft">;
 export type SeedReferenceRecordId = TypedUlid<"ref">;
 export type SeedDisplayTemplateId = TypedUlid<"dtp">;
+export type SeedProductContentTypeId = TypedUlid<"pct">;
+export type SeedProductContentInclusionPolicyId = TypedUlid<"pcp">;
 
 export const catalogSeedIds = {
   dimensions: {
@@ -137,6 +139,18 @@ export const catalogSeedIds = {
     onePieceSealedProduct: "dtp_seed_one_piece_sealed_product" as SeedDisplayTemplateId,
     lorcanaCardPrintDefault: "dtp_seed_lorcana_card_print_default" as SeedDisplayTemplateId,
     lorcanaSealedProduct: "dtp_seed_lorcana_sealed_product" as SeedDisplayTemplateId,
+  },
+  productContentTypes: {
+    card: "pct_seed_card" as SeedProductContentTypeId,
+    pack: "pct_seed_pack" as SeedProductContentTypeId,
+    accessory: "pct_seed_accessory" as SeedProductContentTypeId,
+    insertedItem: "pct_seed_inserted_item" as SeedProductContentTypeId,
+  },
+  productContentInclusionPolicies: {
+    guaranteed: "pcp_seed_guaranteed" as SeedProductContentInclusionPolicyId,
+    randomized: "pcp_seed_randomized" as SeedProductContentInclusionPolicyId,
+    variableAssortment: "pcp_seed_variable_assortment" as SeedProductContentInclusionPolicyId,
+    optional: "pcp_seed_optional" as SeedProductContentInclusionPolicyId,
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
