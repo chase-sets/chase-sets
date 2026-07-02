@@ -65,6 +65,17 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
     ];
   }
 
+  if (message.templateId === "auth_guest_checkout_claim_link") {
+    return [
+      "Use this secure link to save your guest checkout order to your Chase Sets account:",
+      String(message.templateData.claimLink ?? ""),
+      "",
+      "This link expires soon. If you did not request this email, you can ignore it.",
+      "",
+      "Chase Sets",
+    ];
+  }
+
   if (message.templateId === "waitlist_signup_confirmation") {
     return [
       String(message.templateData.headline ?? "You are on the Chase Sets early access list."),

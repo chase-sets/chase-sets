@@ -1,4 +1,5 @@
 import {
+  createAccountUserTestActor,
   createAnonymousTestActor,
   createInternalSystemTestActor,
   createTestApp,
@@ -10,18 +11,35 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
 
-const { mockCreateIdentityAuthRequestClient, mockCreateGuestAccount } = vi.hoisted(() => ({
-  mockCreateIdentityAuthRequestClient: vi.fn(),
-  mockCreateGuestAccount: vi.fn(),
-}));
+const { mockClaimGuestAccount, mockCreateIdentityAuthRequestClient, mockCreateGuestAccount, mockStartInteractiveAuth } =
+  vi.hoisted(() => ({
+    mockClaimGuestAccount: vi.fn(),
+    mockCreateIdentityAuthRequestClient: vi.fn(),
+    mockCreateGuestAccount: vi.fn(),
+    mockStartInteractiveAuth: vi.fn(),
+  }));
+
+vi.mock("../runtime-support/services", async () => {
+  const actual = await vi.importActual<typeof import("../runtime-support/services")>("../runtime-support/services");
+
+  return {
+    ...actual,
+    startInteractiveAuth: mockStartInteractiveAuth,
+  };
+});
 
 vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
 }));
 
-function buildApp(services: Partial<AuthServices> & Pick<AuthServices, "auth" | "db" | "identity">) {
+function buildApp(
+  services: Partial<AuthServices> & Pick<AuthServices, "auth" | "db" | "identity">,
+  actor:
+    | ReturnType<typeof createAnonymousTestActor>
+    | ReturnType<typeof createAccountUserTestActor> = createAnonymousTestActor(),
+) {
   return createTestApp<AuthApiEnv>({
-    actor: createAnonymousTestActor(),
+    actor,
     context: createTestEventStoreContext(createInternalSystemTestActor(), {
       tenantId: "ten_test",
       trace: {},
@@ -37,6 +55,9 @@ function createServices(options: { existingUser?: { user_id: string } | null }) 
     db: {
       query: vi.fn(async () => ({ rows: [] })),
     },
+    notificationOutbox: {
+      enqueueNotification: vi.fn(async () => undefined),
+    },
     auth: {
       issueOpaqueToken: vi.fn(() => "guest_token"),
       hashSecret: vi.fn((value: string) => `hashed:${value}`),
@@ -45,7 +66,15 @@ function createServices(options: { existingUser?: { user_id: string } | null }) 
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
       getUserByEmail: vi.fn(async () => options.existingUser ?? null),
     },
-  } as unknown as Pick<AuthServices, "auth" | "db" | "identity">;
+  } as unknown as Pick<AuthServices, "auth" | "db" | "identity" | "notificationOutbox">;
+}
+
+function createGuestActor() {
+  return createAccountUserTestActor({
+    accountId: "acc_guest",
+    roleKey: "guest-buyer",
+    permissions: ["guest-checkout.manage"],
+  });
 }
 
 useMockReset();
@@ -130,6 +159,136 @@ describe("guest checkout auth routes", () => {
     expect(services.auth.hashSecret).toHaveBeenCalledWith("guest_token");
     expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE identity_guest_checkout_tokens"), [
       "hashed:guest_token",
+    ]);
+  });
+
+  it("requests an emailed guest claim continuation without putting the continuation in the response", async () => {
+    const services = createServices({ existingUser: null });
+    vi.mocked(services.auth.issueOpaqueToken)
+      .mockReturnValueOnce("claim_token")
+      .mockReturnValueOnce("continuation_token");
+    vi.mocked(services.db.query).mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM identity_guest_checkout_tokens")) {
+        return {
+          rows: [
+            {
+              token_id: "cmd_guest",
+              account_id: "acc_guest",
+              contact_email: "buyer@example.com",
+              contact_name: "Buyer Example",
+              token_hash: "hashed:guest_token",
+              expires_at: "2026-05-04T16:00:00.000Z",
+              revoked_at: null,
+            },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    });
+    const app = buildApp(services, createGuestActor());
+
+    const response = await app.request("/guest-checkout/claim-link/request", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: "chase_sets_guest_checkout=guest_token",
+      },
+      body: JSON.stringify({
+        paymentId: "pay_guest_1",
+        origin: "https://marketplace.chasesets.com",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      tokenId: expect.stringMatching(/^cmd_/),
+      token: "claim_token",
+      expiresAt: expect.any(String),
+    });
+    expect(JSON.stringify(body)).not.toContain("continuation_token");
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_guest_checkout_claim_tokens"),
+      expect.arrayContaining([
+        "acc_guest",
+        "pay_guest_1",
+        "buyer@example.com",
+        "Buyer Example",
+        "hashed:claim_token",
+        "hashed:continuation_token",
+      ]),
+    );
+    expect(services.notificationOutbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "auth.guest-checkout-claim-link.requested",
+          templateData: {
+            claimLink:
+              "https://marketplace.chasesets.com/checkout/payments/pay_guest_1?claimContinuation=continuation_token",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("consumes a guest claim continuation without requiring the guest checkout cookie", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing" } });
+    vi.mocked(services.db.query).mockImplementation(async (sql: string) => {
+      if (sql.includes("UPDATE identity_guest_checkout_claim_tokens")) {
+        return {
+          rows: [
+            {
+              token_id: "cmd_claim",
+              account_id: "acc_guest",
+              payment_id: "pay_guest_1",
+              email: "buyer@example.com",
+              display_name: "Buyer Example",
+              expires_at: "2026-05-04T16:00:00.000Z",
+              consumed_at: null,
+            },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    });
+    mockClaimGuestAccount.mockResolvedValue({ membershipId: "mem_guest" });
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      claimGuestAccount: mockClaimGuestAccount,
+    });
+    mockStartInteractiveAuth.mockResolvedValue({
+      type: "session-started",
+      userId: "usr_existing",
+      sessionId: "ses_1",
+      sessionToken: "session_token",
+      session: { session_id: "ses_1", expires_at: "2026-05-04T16:00:00.000Z" },
+      memberships: [],
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/guest-checkout/claim-with-continuation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentId: "pay_guest_1",
+        continuation: "continuation_token",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      type: "session-started",
+      sessionToken: "session_token",
+    });
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("continuation_token");
+    expect(mockClaimGuestAccount).toHaveBeenCalledWith({
+      accountId: "acc_guest",
+      userId: "usr_existing",
+      roleKey: "owner",
+    });
+    expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE identity_guest_checkout_tokens"), [
+      "acc_guest",
     ]);
   });
 });

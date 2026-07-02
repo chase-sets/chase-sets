@@ -33,6 +33,7 @@ const ANONYMOUS_ROUTES = new Set([
   "POST /api/auth/guest-checkout/start",
   "POST /api/auth/guest-checkout/claim-link/request",
   "POST /api/auth/guest-checkout/claim-with-magic-link",
+  "POST /api/auth/guest-checkout/claim-with-continuation",
   "POST /api/auth/guest-checkout/claim-with-passkey",
   "POST /api/auth/account-selection/resolve",
   "POST /api/auth/account-selection/complete",
@@ -61,6 +62,7 @@ function isInternalGuestCheckoutClaimRoute(pathname: string) {
     pathname === "/api/auth/guest-checkout/claim-context" ||
     pathname === "/api/auth/guest-checkout/claim-link/request" ||
     pathname === "/api/auth/guest-checkout/claim-with-magic-link" ||
+    pathname === "/api/auth/guest-checkout/claim-with-continuation" ||
     pathname === "/api/auth/guest-checkout/claim-with-passkey"
   );
 }

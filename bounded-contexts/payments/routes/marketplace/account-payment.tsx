@@ -121,8 +121,25 @@ function canExposeGuestPaymentClaimLocalRecoveryToken() {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(request);
-  const pathname = new URL(resolvedRequest.url).pathname;
+  const url = new URL(resolvedRequest.url);
+  const pathname = url.pathname;
   const isGuestCheckoutPayment = pathname.startsWith("/checkout/payments/");
+  const claimContinuation = url.searchParams.get("claimContinuation")?.trim();
+  if (isGuestCheckoutPayment && claimContinuation) {
+    const result = await createInternalAuthRequestApiClient(
+      resolvedRequest,
+    ).claimGuestCheckoutWithClaimContinuation<InteractiveAuthResult>({
+      continuation: claimContinuation,
+      paymentId: params.paymentId,
+    });
+    const response = completeBrowserAuthentication(resolvedRequest, result, {
+      defaultSuccessPath: `/account/payments/${params.paymentId}`,
+      accountSelectionPath: "/account/select",
+    });
+    clearGuestCheckoutCookie(response.headers, resolvedRequest);
+    throw response;
+  }
+
   const actor = isGuestCheckoutPayment
     ? await resolveActorFromAuthApi({ request: resolvedRequest })
     : await requireActorFromAuthApi({
@@ -242,7 +259,10 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
       const result = await createInternalAuthRequestApiClient(request).requestGuestCheckoutClaimLink<{
         token: string;
         expiresAt: string;
-      }>({ paymentId: params.paymentId });
+      }>({
+        paymentId: params.paymentId,
+        origin: new URL(request.url).origin,
+      });
 
       return {
         status: "claim-link-sent",
@@ -253,6 +273,13 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
     }
 
     if (intent === "claim-link-consume") {
+      if (!canExposeGuestPaymentClaimLocalRecoveryToken()) {
+        return {
+          scope: "claim",
+          error: t("payments.routes.marketplace.accountPayment.claim.token.entry.is.not.available"),
+        };
+      }
+
       const result = await createInternalAuthRequestApiClient(
         request,
       ).claimGuestCheckoutWithMagicLink<InteractiveAuthResult>({
