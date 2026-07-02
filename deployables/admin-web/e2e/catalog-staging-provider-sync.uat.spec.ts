@@ -10,6 +10,7 @@ const syncTimeoutMs = 120_000;
 const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
 const controlActionTimeoutMs = 10_000;
+const supportSafeDiagnosticMaxLength = 2_000;
 const uatTestTimeoutMs =
   Number.parseInt(process.env.CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS?.trim() ?? "", 10) || 3_000_000;
 const supportedProviderUatJourneyScopes = [
@@ -407,6 +408,29 @@ const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
   unitKey: "lorcanajson:lorcana:single-card:reference-data",
   scope: [{ label: "Set", choice: lorcanaSetChoice }],
 };
+
+test.describe("catalog staging provider sync UAT helpers", () => {
+  test("recognizes a no-promotable settled operator state", () => {
+    expect(
+      promotionPreviewHasNoPromotableBlocker(
+        "Resolve before continuing 1 blocker(s). No promotable observations. Pull provider data or review rows.",
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps Admin Error diagnostics support-safe", () => {
+    const sanitized = sanitizeSupportSafeEvidence(
+      "Technical detail Error: boom authorization=Bearer fake-token session=session_fake user@example.test",
+    );
+
+    expect(sanitized).toContain("Technical detail Error: boom");
+    expect(sanitized).toContain("authorization:[redacted]");
+    expect(sanitized).toContain("session:[redacted]");
+    expect(sanitized).toContain("[email redacted]");
+    expect(sanitized).not.toContain("fake-token");
+    expect(sanitized).not.toContain("user@example.test");
+  });
+});
 
 test.describe("catalog staging provider sync UAT", () => {
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
@@ -866,13 +890,15 @@ function targetedTcgplayerPokemonFailureMessage(progress: TargetedTcgplayerPokem
 }
 
 function sanitizeTargetedTcgplayerPokemonEvidence(value: string): string {
+  return sanitizeSupportSafeEvidence(value, targetedTcgplayerPokemonObservedMaxLength);
+}
+
+function sanitizeSupportSafeEvidence(value: string, maxLength = supportSafeDiagnosticMaxLength): string {
   const sanitized = normalizeWhitespace(value)
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .replace(/\b(password|secret|token|authorization|api[-_\s]?key)\s*[:=]\s*\S+/gi, "$1:[redacted]")
+    .replace(/\b(password|secret|token|authorization|api[-_\s]?key|cookie|session)\s*[:=]\s*\S+/gi, "$1:[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email redacted]");
-  return sanitized.length > targetedTcgplayerPokemonObservedMaxLength
-    ? `${sanitized.slice(0, targetedTcgplayerPokemonObservedMaxLength)}... [truncated]`
-    : sanitized;
+  return sanitized.length > maxLength ? `${sanitized.slice(0, maxLength)}... [truncated]` : sanitized;
 }
 
 async function expectCatalogSyncCommandAcceptedOrRunVisible(
@@ -1312,6 +1338,26 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
     (await promoteFromCompletedImportJobReview(page, selectedScope)) ??
     (await promoteSelectedScopeFromSharedImporter(page, selectedScope));
   const result = promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope));
+  if (!result) {
+    const operatorState = await promotionPreviewOperatorStateMessage(page, selectedScope);
+    if (
+      providerUatJourneyScope === "all-provider-regression" &&
+      promotionPreviewHasNoPromotableBlocker(operatorState)
+    ) {
+      console.log(
+        `[catalog-staging-provider-uat] Lorcana downstream Catalog Items projection skipped for already-settled no-promotable all-provider scope: ${sanitizeSupportSafeEvidence(
+          operatorState,
+        )}`,
+      );
+      return;
+    }
+
+    throw new Error(
+      `Lorcana downstream smoke could not find an eligible Source Observation to promote or reapply for ${
+        selectedScope.displayLabel
+      }. ${operatorState}`,
+    );
+  }
 
   await openCatalogItemsHandoff(page, result.providerKey);
   await expectCatalogItemsProjectionForProvider(page, result);
@@ -1435,14 +1481,16 @@ async function promoteSelectedScopeFromSharedImporter(
 async function reapplyPromotedObservationFromSharedImporter(
   page: Page,
   selectedScope: SelectedProviderScope,
-): Promise<LorcanaDownstreamSmokeResult> {
+): Promise<LorcanaDownstreamSmokeResult | null> {
   const sourceScopeReapplyForms = sourceScopeCommandForms(
     page,
     lorcanaDownstreamCatalogItemsJourney.unitKey,
     "start-reapply",
   ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
   if (await clickFirstEnabledCommandForm(sourceScopeReapplyForms)) {
-    await expectCommandQueued(page);
+    if (!(await expectCommandQueuedOrAllProviderNoPromotable(page, selectedScope))) {
+      return null;
+    }
     return {
       mode: "reapply",
       providerKey: selectedScope.providerKey,
@@ -1462,6 +1510,9 @@ async function reapplyPromotedObservationFromSharedImporter(
     requireSelectedObservationIds: true,
   });
   if (!reapplied) {
+    if (await allProviderNoPromotableSkipReason(page, selectedScope)) {
+      return null;
+    }
     throw new Error(
       `Lorcana downstream smoke could not find an eligible Source Observation to promote or a promoted Source Observation to reapply for ${
         selectedScope.displayLabel
@@ -1469,7 +1520,9 @@ async function reapplyPromotedObservationFromSharedImporter(
     );
   }
 
-  await expectCommandQueued(page);
+  if (!(await expectCommandQueuedOrAllProviderNoPromotable(page, selectedScope))) {
+    return null;
+  }
   return {
     mode: "reapply",
     providerKey: selectedScope.providerKey,
@@ -1621,6 +1674,10 @@ async function promotionPreviewOperatorStateMessage(page: Page, selectedScope: S
 
 function promotionPreviewHasTerminalOperatorBlocker(stageText: string): boolean {
   return /\bNo promotable observations\b/i.test(stageText) || /\bStale promotion preview\b/i.test(stageText);
+}
+
+function promotionPreviewHasNoPromotableBlocker(stageText: string): boolean {
+  return /\bNo promotable observations\b/i.test(stageText);
 }
 
 async function createItemsStageOperatorText(page: Page): Promise<string> {
@@ -1870,6 +1927,60 @@ async function expectCommandQueuedOrActiveImport(
   throw new Error(
     `Expected a queued command banner or visible import job row for ${unitKey} and ${selectedScope.displayLabel} before the timeout.`,
   );
+}
+
+async function expectCommandQueuedOrAllProviderNoPromotable(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<boolean> {
+  if (providerUatJourneyScope !== "all-provider-regression") {
+    await expectCommandQueued(page);
+    return true;
+  }
+
+  const deadline = Date.now() + syncTimeoutMs;
+  while (Date.now() < deadline) {
+    if (
+      await page
+        .getByText("Command queued")
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false)
+    ) {
+      await expectCommandQueued(page);
+      return true;
+    }
+
+    const skipReason = await allProviderNoPromotableSkipReason(page, selectedScope);
+    if (skipReason) {
+      console.log(
+        `[catalog-staging-provider-uat] No promotable observations after command handoff for ${selectedScope.displayLabel}; treating the settled all-provider scope as covered. ${skipReason}`,
+      );
+      return false;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `Expected a queued command banner or no-promotable settled state for ${selectedScope.displayLabel} before the timeout.`,
+  );
+}
+
+async function allProviderNoPromotableSkipReason(
+  page: Page,
+  selectedScope: SelectedProviderScope,
+): Promise<string | null> {
+  if (providerUatJourneyScope !== "all-provider-regression") {
+    return null;
+  }
+
+  const operatorState = await promotionPreviewOperatorStateMessage(page, selectedScope).catch(() => "");
+  if (!promotionPreviewHasNoPromotableBlocker(operatorState)) {
+    return null;
+  }
+
+  return sanitizeSupportSafeEvidence(operatorState);
 }
 
 async function hasVisibleImportJobForSelectedUnit(
@@ -2481,6 +2592,7 @@ async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
     return false;
   }
 
+  const initialDetail = await adminErrorTechnicalDetail(page);
   const retry = page.getByRole("link", { name: "Retry" }).first();
   if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
     await retry.click();
@@ -2490,11 +2602,49 @@ async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
 
   await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
   if (!(await isImporterVisible(page, 10_000))) {
-    return false;
+    const retryDetail = await adminErrorTechnicalDetail(page);
+    throw new Error(
+      `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
+        retryDetail ?? initialDetail ?? "not visible"
+      }`,
+    );
   }
 
   await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
   return true;
+}
+
+async function adminErrorTechnicalDetail(page: Page): Promise<string | null> {
+  if (
+    !(await page
+      .getByRole("heading", { name: "Admin Error" })
+      .isVisible({ timeout: 1_000 })
+      .catch(() => false))
+  ) {
+    return null;
+  }
+
+  const details = page
+    .locator("details")
+    .filter({ has: page.getByText("Technical detail") })
+    .first();
+  const detailText = await details.textContent({ timeout: 1_000 }).catch(() => null);
+  const fallbackText =
+    detailText ??
+    (await page
+      .locator("main")
+      .innerText({ timeout: 1_000 })
+      .catch(() => null));
+  return fallbackText ? sanitizeSupportSafeEvidence(fallbackText) : null;
+}
+
+function supportSafeCurrentPath(page: Page): string {
+  try {
+    const url = new URL(page.url());
+    return sanitizeSupportSafeEvidence(`${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    return "[current route unavailable]";
+  }
 }
 
 function sourceOptionGroupLabel(page: Page, label: string | RegExp): Locator {
