@@ -1801,6 +1801,28 @@ describe("DigitalOcean platform configuration", () => {
     }
   });
 
+  it("uploads Terraform plan text artifacts without retaining raw JSON plans", () => {
+    const stagingPlanStep = workflowStep(platformProductionWorkflow, "Terraform plan");
+    const productionPlanStep = workflowSteps(platformProductionWorkflow, "Terraform plan").at(-1);
+    const stagingUploadStep = workflowStep(platformProductionWorkflow, "Upload staging Terraform plan");
+    const productionUploadStep = workflowStep(platformProductionWorkflow, "Upload production Terraform plan");
+
+    expect(stagingPlanStep).toContain("terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json");
+    expect(productionPlanStep).toContain(
+      "terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json",
+    );
+    expect(stagingUploadStep).toContain(
+      "path: infrastructure/digitalocean/platform/artifacts/terraform-plans/staging-tfplan.txt",
+    );
+    expect(productionUploadStep).toContain(
+      "path: infrastructure/digitalocean/platform/artifacts/terraform-plans/production-tfplan.txt",
+    );
+    expect(stagingUploadStep).not.toContain("staging-tfplan.*");
+    expect(stagingUploadStep).not.toContain("staging-tfplan.json");
+    expect(productionUploadStep).not.toContain("production-tfplan.*");
+    expect(productionUploadStep).not.toContain("production-tfplan.json");
+  });
+
   it("provisions the checked-in observability stack behind scoped public endpoints", () => {
     expect(observabilityMain).toContain('resource "digitalocean_droplet" "observability"');
     expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
