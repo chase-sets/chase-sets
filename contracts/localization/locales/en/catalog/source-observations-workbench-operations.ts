@@ -443,6 +443,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates":
     "No duplicate evidence reported",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized": "Normalized facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.productContents":
+    "Product Contents evidence",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.title": "{name} evidence",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.language": "Language",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.observed.after": "Observed after",
@@ -473,6 +475,38 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.payload.summary":
     "{kind}; {imageCount} image URL(s); {externalReferenceCount} external reference(s) summarized.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required": "Preview required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.line":
+    "Line {lineNumber}: {state}; type {contentType}; policy {policy}; quantity {quantity}; target {target}; options {options}; provenance {provenance}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.lines.unresolved":
+    "{count} Product Contents line(s); {unresolved} unresolved before promotion.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.none":
+    "No Product Contents evidence on this observation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.policy.none": "none",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.promoted":
+    "{count} Product Contents line(s) were promoted through Catalog commands.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.provenance.key":
+    "Provenance key: {key}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.provenance.none":
+    "No provenance keys",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.quantity.variable": "variable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.rejected":
+    "{count} Product Contents line(s) were rejected with this Source Observation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.reviewable":
+    "{count} Product Contents line(s) are resolved and reviewable for promotion.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.selectedOption":
+    "{dimensionId}:{optionId}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.selectedOptions.none":
+    "all selected Options",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.ambiguous":
+    "{count} candidate Catalog Items",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.resolved":
+    "Catalog Item {catalogItemId}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.unresolved":
+    "unresolved Catalog Item",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.unresolved":
+    "Provider Product Contents evidence is retained, but no reviewed Product Contents promotion is resolved yet.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.unresolvedContentType":
+    "unresolved Product Content Type",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply": "Reapply",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.replay": "Replay",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary":
