@@ -69,6 +69,17 @@ type StoredLocation = Readonly<{
   updated_at: string;
 }>;
 
+type StoredInventoryItem = Readonly<{
+  item_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  storage_location_id: string;
+  total_quantity: number;
+  selected_options: readonly InventorySelectedOptionEntry[];
+  acquisition_cost_amount: string | null;
+  updated_at: string;
+}>;
+
 const now = "2026-05-09T00:00:00.000Z";
 
 const productSchema = {
@@ -117,6 +128,7 @@ class ImportBatchDb implements PgQueryable {
   public readonly batches = new Map<string, StoredBatch>();
   public rows: StoredRow[] = [];
   public readonly locations = new Map<string, StoredLocation>();
+  public readonly items = new Map<string, StoredInventoryItem>();
 
   public async query<Row = Record<string, unknown>>(
     sql: string,
@@ -136,6 +148,23 @@ class ImportBatchDb implements PgQueryable {
         .sort(
           (left, right) => Number(left.is_archived) - Number(right.is_archived) || left.name.localeCompare(right.name),
         );
+      return this.result(rows as Row[]);
+    }
+
+    if (sql.includes("item.catalog_catalog_item_id AS catalog_item_id")) {
+      const accountId = String(values[0]);
+      const rows = [...this.items.values()]
+        .filter((item) => item.account_id === accountId)
+        .sort(
+          (left, right) => right.updated_at.localeCompare(left.updated_at) || left.item_id.localeCompare(right.item_id),
+        )
+        .map((item) => ({
+          catalog_item_id: item.catalog_catalog_item_id,
+          storage_location_id: item.storage_location_id,
+          total_quantity: item.total_quantity,
+          selected_options: item.selected_options,
+          acquisition_cost_amount: item.acquisition_cost_amount,
+        }));
       return this.result(rows as Row[]);
     }
 
@@ -447,6 +476,41 @@ describe("inventory import batch runtime", () => {
     expect(template).toContain("loc_active");
     expect(template).toContain("Example for Active shelf");
     expect(template).not.toContain("loc_archived");
+  });
+
+  it("exports current account inventory in native CSV import format", async () => {
+    const db = dbWithLocations();
+    db.items.set("inv_1", {
+      item_id: "inv_1",
+      account_id: "acc_1",
+      catalog_catalog_item_id: "cat_active",
+      storage_location_id: "loc_active",
+      total_quantity: 6,
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+      acquisition_cost_amount: "1.25",
+      updated_at: now,
+    });
+    db.items.set("inv_other", {
+      item_id: "inv_other",
+      account_id: "acc_other",
+      catalog_catalog_item_id: "cat_other",
+      storage_location_id: "loc_active",
+      total_quantity: 99,
+      selected_options: [],
+      acquisition_cost_amount: null,
+      updated_at: now,
+    });
+    const services = runtime(db);
+
+    const csv = await services.getNativeCsvExport({ accountId: "acc_1" as AccountId });
+
+    expect(csv).toBe(
+      [
+        "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+        "cat_active,loc_active,6,near_mint,1.25,,,,",
+      ].join("\n"),
+    );
+    expect(csv).not.toContain("cat_other");
   });
 
   it("accepts valid dynamic option rows and rejects row-level validation failures", async () => {

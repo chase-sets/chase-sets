@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNativeInventoryImportCsvTemplate, parseImportCsv } from "./csv";
+import { buildNativeInventoryExportCsv, buildNativeInventoryImportCsvTemplate, parseImportCsv } from "./csv";
 
 describe("parseImportCsv", () => {
   it("parses a valid stock intake row with dynamic option columns", () => {
@@ -54,6 +54,48 @@ describe("buildNativeInventoryImportCsvTemplate", () => {
   it("renders a header-only template when the account has no active storage locations", () => {
     expect(buildNativeInventoryImportCsvTemplate([])).toBe(
       "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+    );
+  });
+});
+
+describe("buildNativeInventoryExportCsv", () => {
+  it("renders current inventory in native import format with dynamic option columns", () => {
+    const csv = buildNativeInventoryExportCsv([
+      {
+        catalog_item_id: "cat_1",
+        storage_location_id: "loc_1",
+        total_quantity: 3,
+        selected_options: [
+          { dimensionId: "form", optionId: "Raw" },
+          { dimensionId: "condition", optionId: "Near Mint" },
+        ],
+        acquisition_cost_amount: "1.25",
+      },
+      {
+        catalog_item_id: "cat_2",
+        storage_location_id: "loc_2",
+        total_quantity: 0,
+        selected_options: [{ dimensionId: "language", optionId: "en" }],
+        acquisition_cost_amount: null,
+        seller_sku: "seller-2",
+        listing_price_amount: "5.00",
+        listing_quantity_cap: 2,
+        row_note: "quoted, note",
+      },
+    ]);
+
+    expect(csv).toBe(
+      [
+        "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,option:language,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+        "cat_1,loc_1,3,Raw,Near Mint,,1.25,,,,",
+        'cat_2,loc_2,0,,,en,,seller-2,5.00,2,"quoted, note"',
+      ].join("\n"),
+    );
+  });
+
+  it("renders a header-only export when the account has no inventory", () => {
+    expect(buildNativeInventoryExportCsv([])).toBe(
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
     );
   });
 });

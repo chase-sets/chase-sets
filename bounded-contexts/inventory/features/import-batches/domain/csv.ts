@@ -8,6 +8,21 @@ export type NativeInventoryImportTemplateStorageLocation = Readonly<{
   name: string;
 }>;
 
+export type NativeInventoryExportRow = Readonly<{
+  catalog_item_id: string;
+  storage_location_id: string;
+  total_quantity: number;
+  selected_options: readonly Readonly<{
+    dimensionId: string;
+    optionId: string;
+  }>[];
+  acquisition_cost_amount: string | null;
+  seller_sku?: string | null;
+  listing_price_amount?: string | null;
+  listing_quantity_cap?: number | null;
+  row_note?: string | null;
+}>;
+
 export const nativeInventoryImportCsvTemplateHeaders = [
   "catalogItemId",
   "storageLocationId",
@@ -40,6 +55,38 @@ export function buildNativeInventoryImportCsvTemplate(
   return [nativeInventoryImportCsvTemplateHeaders, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
+export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExportRow[]) {
+  const optionColumns = nativeInventoryExportOptionColumns(rows);
+  const headers = [
+    "catalogItemId",
+    "storageLocationId",
+    "totalQuantity",
+    ...optionColumns.map((dimensionId) => `option:${dimensionId}`),
+    "acquisitionCostAmount",
+    "sellerSku",
+    "listingPriceAmount",
+    "listingQuantityCap",
+    "rowNote",
+  ];
+
+  const csvRows = rows.map((row) => {
+    const selectedOptions = new Map(row.selected_options.map((option) => [option.dimensionId, option.optionId]));
+    return [
+      row.catalog_item_id,
+      row.storage_location_id,
+      String(row.total_quantity),
+      ...optionColumns.map((dimensionId) => selectedOptions.get(dimensionId) ?? ""),
+      row.acquisition_cost_amount ?? "",
+      row.seller_sku ?? "",
+      row.listing_price_amount ?? "",
+      row.listing_quantity_cap == null ? "" : String(row.listing_quantity_cap),
+      row.row_note ?? "",
+    ];
+  });
+
+  return [headers, ...csvRows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
 export function parseImportCsv(text: string): ImportCsvRow[] {
   const records = parseRecords(text);
   if (records.length === 0) {
@@ -61,6 +108,23 @@ export function parseImportCsv(text: string): ImportCsvRow[] {
 
     return [{ rowNumber: index + 2, values }];
   });
+}
+
+function nativeInventoryExportOptionColumns(rows: readonly NativeInventoryExportRow[]) {
+  const dimensionIds: string[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    for (const option of row.selected_options) {
+      const dimensionId = option.dimensionId.trim();
+      if (dimensionId.length > 0 && !seen.has(dimensionId)) {
+        seen.add(dimensionId);
+        dimensionIds.push(dimensionId);
+      }
+    }
+  }
+
+  return dimensionIds;
 }
 
 function csvCell(value: string) {
