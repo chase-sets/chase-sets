@@ -32,6 +32,10 @@ const environmentDnsVariables = readFileSync(
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const platformTerraformStateSnapshotWorkflow = readFileSync(
+  resolve(".github/workflows/platform-terraform-state-snapshot.yml"),
+  "utf8",
+);
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
@@ -1528,6 +1532,89 @@ describe("DigitalOcean platform configuration", () => {
     expect(diagnosticsStep).toContain(
       'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true',
     );
+  });
+
+  it("captures sensitive Terraform errored state artifacts when platform apply fails", () => {
+    const stagingCaptureStep = workflowStep(platformProductionWorkflow, "Capture staging Terraform errored state");
+    const stagingUploadStep = workflowStep(platformProductionWorkflow, "Upload staging Terraform errored state");
+    const productionCaptureStep = workflowStep(
+      platformProductionWorkflow,
+      "Capture production Terraform errored state",
+    );
+    const productionUploadStep = workflowStep(platformProductionWorkflow, "Upload production Terraform errored state");
+
+    const stagingCaptureIndex = platformProductionWorkflow.indexOf("- name: Capture staging Terraform errored state");
+    const stagingUploadIndex = platformProductionWorkflow.indexOf("- name: Upload staging Terraform errored state");
+    const stagingApplyIndex = platformProductionWorkflow.lastIndexOf("- name: Terraform apply", stagingCaptureIndex);
+    const stagingDiagnosticsIndex = platformProductionWorkflow.indexOf(
+      "- name: Capture App Platform deploy diagnostics",
+      stagingUploadIndex,
+    );
+
+    const productionCaptureIndex = platformProductionWorkflow.indexOf(
+      "- name: Capture production Terraform errored state",
+    );
+    const productionUploadIndex = platformProductionWorkflow.indexOf(
+      "- name: Upload production Terraform errored state",
+    );
+    const productionApplyIndex = platformProductionWorkflow.lastIndexOf(
+      "- name: Terraform apply",
+      productionCaptureIndex,
+    );
+    const productionDiagnosticsIndex = platformProductionWorkflow.indexOf(
+      "- name: Capture production App Platform deploy diagnostics",
+      productionUploadIndex,
+    );
+
+    expect(stagingApplyIndex).toBeGreaterThan(-1);
+    expect(stagingCaptureIndex).toBeGreaterThan(stagingApplyIndex);
+    expect(stagingUploadIndex).toBeGreaterThan(stagingCaptureIndex);
+    expect(stagingDiagnosticsIndex).toBeGreaterThan(stagingUploadIndex);
+    expect(productionApplyIndex).toBeGreaterThan(-1);
+    expect(productionCaptureIndex).toBeGreaterThan(productionApplyIndex);
+    expect(productionUploadIndex).toBeGreaterThan(productionCaptureIndex);
+    expect(productionDiagnosticsIndex).toBeGreaterThan(productionUploadIndex);
+
+    expect(stagingCaptureStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
+    expect(stagingCaptureStep).toContain("id: capture_staging_terraform_errored_state");
+    expect(stagingCaptureStep).toContain('state_path="errored.tfstate"');
+    expect(stagingCaptureStep).toContain('artifact_path="artifacts/terraform-errored-state/staging-errored.tfstate"');
+    expect(stagingCaptureStep).toContain("Do not print or share its contents.");
+    expect(stagingUploadStep).toContain(
+      "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_staging_terraform_errored_state.outputs.captured == 'true'",
+    );
+    expect(stagingUploadStep).toContain("name: sensitive-staging-terraform-errored-state-recovery-only");
+    expect(stagingUploadStep).toContain(
+      "path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/staging-errored.tfstate",
+    );
+    expect(stagingUploadStep).toContain("retention-days: 1");
+
+    expect(productionCaptureStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
+    expect(productionCaptureStep).toContain("id: capture_production_terraform_errored_state");
+    expect(productionCaptureStep).toContain('state_path="errored.tfstate"');
+    expect(productionCaptureStep).toContain(
+      'artifact_path="artifacts/terraform-errored-state/production-errored.tfstate"',
+    );
+    expect(productionCaptureStep).toContain("Do not print or share its contents.");
+    expect(productionUploadStep).toContain(
+      "if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_production_terraform_errored_state.outputs.captured == 'true'",
+    );
+    expect(productionUploadStep).toContain("name: sensitive-production-terraform-errored-state-recovery-only");
+    expect(productionUploadStep).toContain(
+      "path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/production-errored.tfstate",
+    );
+    expect(productionUploadStep).toContain("retention-days: 1");
+  });
+
+  it("fails closed when Terraform state snapshot evidence artifact is missing", () => {
+    const snapshotStep = workflowStep(platformTerraformStateSnapshotWorkflow, "Snapshot Terraform state");
+    const uploadStep = workflowStep(platformTerraformStateSnapshotWorkflow, "Upload Terraform state snapshot artifact");
+
+    expect(snapshotStep).toContain("--out=artifacts/release-health/digitalocean-terraform-state-snapshot.json");
+    expect(snapshotStep).not.toContain("--out artifacts/release-health/digitalocean-terraform-state-snapshot.json");
+    expect(uploadStep).toContain("path: artifacts/release-health/digitalocean-terraform-state-snapshot.json");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).not.toContain("if-no-files-found: ignore");
   });
 
   it("keeps admin-web API dependency inventory aligned with local proxy coverage", () => {

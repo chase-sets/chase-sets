@@ -38,7 +38,7 @@ jobs:
           mkdir -p artifacts/release-health
 
           node ./scripts/digitalocean-terraform-state-snapshot.mjs snapshot \
-            --out artifacts/release-health/digitalocean-terraform-state-snapshot.json
+            --out=artifacts/release-health/digitalocean-terraform-state-snapshot.json
 
       - name: Summarize Terraform state snapshot
         if: ${{ always() }}
@@ -85,7 +85,7 @@ jobs:
         with:
           name: platform-terraform-state-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release-health/digitalocean-terraform-state-snapshot.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30
 
       - name: Report Terraform state snapshot failure

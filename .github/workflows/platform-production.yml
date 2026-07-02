@@ -749,6 +749,36 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve tfplan
 
+      - name: Capture staging Terraform errored state
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        id: capture_staging_terraform_errored_state
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+
+          state_path="errored.tfstate"
+          artifact_path="artifacts/terraform-errored-state/staging-errored.tfstate"
+          if [ -f "$state_path" ]; then
+            mkdir -p "$(dirname "$artifact_path")"
+            cp "$state_path" "$artifact_path"
+            echo "captured=true" >> "$GITHUB_OUTPUT"
+            echo "### Staging Terraform errored state" >> "$GITHUB_STEP_SUMMARY"
+            echo "Captured sensitive recovery artifact \`sensitive-staging-terraform-errored-state-recovery-only\` with 1-day retention. Do not print or share its contents." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+            echo "### Staging Terraform errored state" >> "$GITHUB_STEP_SUMMARY"
+            echo "No \`errored.tfstate\` file was present after Terraform apply failed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload staging Terraform errored state
+        if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_staging_terraform_errored_state.outputs.captured == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sensitive-staging-terraform-errored-state-recovery-only
+          path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/staging-errored.tfstate
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Capture App Platform deploy diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -1908,6 +1938,36 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve tfplan
+
+      - name: Capture production Terraform errored state
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        id: capture_production_terraform_errored_state
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+
+          state_path="errored.tfstate"
+          artifact_path="artifacts/terraform-errored-state/production-errored.tfstate"
+          if [ -f "$state_path" ]; then
+            mkdir -p "$(dirname "$artifact_path")"
+            cp "$state_path" "$artifact_path"
+            echo "captured=true" >> "$GITHUB_OUTPUT"
+            echo "### Production Terraform errored state" >> "$GITHUB_STEP_SUMMARY"
+            echo "Captured sensitive recovery artifact \`sensitive-production-terraform-errored-state-recovery-only\` with 1-day retention. Do not print or share its contents." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+            echo "### Production Terraform errored state" >> "$GITHUB_STEP_SUMMARY"
+            echo "No \`errored.tfstate\` file was present after Terraform apply failed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload production Terraform errored state
+        if: failure() && env.SHOULD_DEPLOY != 'false' && steps.capture_production_terraform_errored_state.outputs.captured == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sensitive-production-terraform-errored-state-recovery-only
+          path: infrastructure/digitalocean/platform/artifacts/terraform-errored-state/production-errored.tfstate
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Capture production App Platform deploy diagnostics
         if: failure() && env.SHOULD_DEPLOY != 'false'
