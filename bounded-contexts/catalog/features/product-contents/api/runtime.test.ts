@@ -343,6 +343,58 @@ describe("product content runtime", () => {
     });
   });
 
+  it("repairs the owned read model from Product Contents commands before projection catch-up", async () => {
+    const { db } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const initialEventStore = createEventStore();
+    const initialServices = createProductContentRuntime({
+      db,
+      eventStore: initialEventStore.eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await initialServices.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+      sortOrder: 10,
+      discoverySearchWeight: null,
+    });
+
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      lines: [
+        {
+          containedCatalogItemId: "cat_card" as never,
+          quantity: 1,
+          contentTypeId: "pct_included_item",
+          provenance: { source: "manual" },
+        },
+      ],
+    };
+    const fact = await initialServices.replaceProductContents(input, context);
+    expect(fact.lines).toHaveLength(1);
+    expect((await initialServices.listProductContentsForContainer("cat_box"))[0]).toMatchObject({
+      containedCatalogItemId: "cat_card",
+      quantity: 1,
+      contentTypeId: "pct_included_item",
+    });
+  });
+
   it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {
     const { db, resolved } = createContentDb([
       {

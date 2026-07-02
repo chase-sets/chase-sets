@@ -248,6 +248,7 @@ async function replaceProductContents(
     .reverse()
     .find((event) => event.eventType === "catalog.product-contents.resolved");
   if (JSON.stringify(lastResolved?.payload ?? null) === JSON.stringify(fact)) {
+    await replaceResolvedProductContents(deps.db, fact);
     return fact;
   }
 
@@ -270,6 +271,8 @@ async function replaceProductContents(
       },
     ],
   });
+
+  await replaceResolvedProductContents(deps.db, fact);
 
   return fact;
 }
