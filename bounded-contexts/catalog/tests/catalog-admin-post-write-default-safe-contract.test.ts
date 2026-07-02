@@ -35,6 +35,12 @@ type CatalogMutationConsistencyEntry = Readonly<{
 
 type CatalogContext = Readonly<{
   mutationConsistencyInventory: readonly CatalogMutationConsistencyEntry[];
+  projectionGroups?: readonly Readonly<{
+    projectionName: string;
+    sourceContextNames?: readonly string[];
+    ownedTables?: readonly string[];
+    resetStrategy?: string;
+  }>[];
   readAfterWriteRouteInventory?: readonly unknown[];
 }>;
 
@@ -63,8 +69,14 @@ describe("catalog admin post-write default-safe contract", () => {
     const context = catalogContext();
     const entries = context.mutationConsistencyInventory;
     const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const projectionGroups = new Map((context.projectionGroups ?? []).map((group) => [group.projectionName, group]));
 
     expect(context.readAfterWriteRouteInventory ?? []).toEqual([]);
+    expect(projectionGroups.get("catalog-product-contents-projection")).toMatchObject({
+      sourceContextNames: ["catalog"],
+      ownedTables: ["catalog_resolved_product_contents"],
+      resetStrategy: "truncate-owned-tables",
+    });
     expect(entries.map((entry) => entry.strategy)).not.toContain("fresh-read");
     expect(entries.every((entry) => entry.owner === "catalog")).toBe(true);
 

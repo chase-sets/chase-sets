@@ -81,6 +81,13 @@
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "catalog-product-contents-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_resolved_product_contents"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "deployableContributions": [
