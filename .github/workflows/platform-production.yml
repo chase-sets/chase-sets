@@ -1295,6 +1295,7 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
+      TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
@@ -1325,16 +1326,16 @@ jobs:
       TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
       TF_VAR_tax_provider_backed_quotes_required: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
-      TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
-      TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-      TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_accounts_api: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.EASYPOST_MODE || 'production') || 'test' }}
+      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
+      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
+      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
+      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
       TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
       TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
@@ -1486,7 +1487,7 @@ jobs:
             fi
           fi
 
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+          if [ "${TF_VAR_production_runtime_profile:-landing}" != "landing" ]; then
             marketplace_missing=()
             for name in \
               TF_VAR_stripe_secret_key \
@@ -1507,22 +1508,22 @@ jobs:
             fi
 
             if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then
-              echo "Production marketplace platform deployment requires Stripe live-mode keys." >&2
+              echo "Production proof/public platform deployment requires Stripe live-mode keys." >&2
               exit 1
             fi
 
             if [ "${TF_VAR_easypost_mode:-}" != "production" ]; then
-              echo "Production marketplace platform deployment requires EASYPOST_MODE=production." >&2
+              echo "Production proof/public platform deployment requires EASYPOST_MODE=production." >&2
               exit 1
             fi
 
             if [ -n "${TF_VAR_stripe_api_base_url:-}" ]; then
-              echo "Production marketplace platform deployment requires STRIPE_API_BASE_URL to be unset." >&2
+              echo "Production proof/public platform deployment requires STRIPE_API_BASE_URL to be unset." >&2
               exit 1
             fi
 
             if [ -n "${TF_VAR_easypost_api_base_url:-}" ]; then
-              echo "Production marketplace platform deployment requires EASYPOST_API_BASE_URL to be unset." >&2
+              echo "Production proof/public platform deployment requires EASYPOST_API_BASE_URL to be unset." >&2
               exit 1
             fi
           fi
@@ -1955,7 +1956,11 @@ jobs:
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           smoke_urls=("https://${public_domain}" "https://${admin_domain}")
-          export SMOKE_REQUIRE_NATIVE_MCP="${TF_VAR_production_marketplace_public_enabled:-false}"
+          if [ "${TF_VAR_production_runtime_profile:-landing}" = "landing" ]; then
+            export SMOKE_REQUIRE_NATIVE_MCP="false"
+          else
+            export SMOKE_REQUIRE_NATIVE_MCP="true"
+          fi
           export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
             export SMOKE_ADMIN_TOPOLOGY="public-marketplace"

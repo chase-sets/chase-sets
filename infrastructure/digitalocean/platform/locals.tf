@@ -17,8 +17,12 @@ locals {
     "record",
     "launch-000",
   ]
+  runtime_profile = local.is_non_production ? "public" : var.production_runtime_profile
+  platform_enabled = (
+    local.runtime_profile != "landing"
+  )
   marketplace_public_enabled = (
-    local.is_non_production || var.production_marketplace_public_enabled
+    local.is_non_production || local.runtime_profile == "public"
   )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
@@ -54,8 +58,7 @@ locals {
     "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
     "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
   } : {}
-  api_component_name            = local.marketplace_public_enabled ? "platform-api" : "admin-support-api"
-  api_private_url               = local.marketplace_public_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
+  api_private_url               = "$${platform-api.PRIVATE_URL}"
   admin_web_internal_api_origin = local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
@@ -221,12 +224,10 @@ locals {
   #   timeout reaps idle backends. The headroom asserted by
   #   check "wake_connection_budget" absorbs bursts above that allowance.
 
-  # Every deployment shape now runs one API family and one worker family:
-  # platform components when marketplace/public contexts are enabled,
-  # admin-support components for landing-only production.
+  # Every deployment shape runs the profiled platform API and worker families.
   api_component_count    = 1
   worker_component_count = 1
-  runtime_profile_name   = local.marketplace_public_enabled ? "public" : "landing"
+  runtime_profile_name   = local.runtime_profile
 
   # Worst-case app-side pool demand (per-process pool max x component count x
   # instances). Direct cluster backends in production; PgBouncer client-side
@@ -461,12 +462,10 @@ locals {
     "settlement",
   ]
 
-  active_runtime_context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names
+  active_runtime_context_names = local.platform_enabled ? local.platform_context_names : local.landing_context_names
   exposed_route_context_names  = local.active_runtime_context_names
 
-  # Compatibility alias while the deployable profile migration lands. Runtime
-  # env maps, pools, and active route composition should move to the explicit
-  # active/exposed locals as each profile-aware slice is cut over.
+  # Compatibility alias for existing runtime env maps and pools.
   context_names = local.active_runtime_context_names
 
   # Provisioning is intentionally wider than runtime exposure in production:
@@ -558,28 +557,13 @@ locals {
     context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}_WAITER"
   }
 
-  admin_support_context_names = [
-    "auth",
-    "catalog",
-    "fulfillment",
-    "identity",
-    "ordering",
-    "platform-operations",
-    "public-presence",
-  ]
-
-  admin_support_context_database_env = {
-    for context_name in local.admin_support_context_names :
-    context_name => "DATABASE_URL_${upper(replace(context_name, "-", "_"))}"
-  }
-
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.marketplace_public_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  ucp_route_domains    = local.platform_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
   native_mcp_route_prefixes = [
     "/mcp",
   ]
-  native_mcp_route_domains = local.marketplace_public_enabled ? distinct(concat(
+  native_mcp_route_domains = local.platform_enabled ? distinct(concat(
     local.public_domains,
     [local.admin_domain],
     local.all_marketplace_domains,
@@ -597,7 +581,7 @@ locals {
     "/api/notifications/provider/email/webhooks",
     "/api/fulfillment/provider/postage/webhooks",
   ]
-  provider_webhook_route_domains = local.marketplace_public_enabled ? distinct(concat(
+  provider_webhook_route_domains = local.platform_enabled ? distinct(concat(
     local.public_domains,
     [local.admin_domain],
     local.all_marketplace_domains,
