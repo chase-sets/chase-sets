@@ -25,6 +25,54 @@ describe("Catalog integration rollout controls", () => {
     expect(policy.decide({ capability: "import", providerKey: "mtgjson" })).toMatchObject({ allowed: true });
   });
 
+  it("rejects typoed rollout mode env values with allowed values", () => {
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dryrun-only",
+      }),
+    ).toThrow(
+      "CATALOG_INTEGRATION_CONTROL_PLANE_MODE must be one of 'open', 'false', 'none', 'read-only', 'dry-run-only', 'rollback-ready'. Received 'dryrun-only'.",
+    );
+
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES: "cacheonly",
+      }),
+    ).toThrow(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES must be one of 'open', 'false', 'none', 'disabled', 'cache-only'. Received 'cacheonly'.",
+    );
+
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_WORKER_MODE: "disabld",
+      }),
+    ).toThrow(
+      "CATALOG_INTEGRATION_WORKER_MODE must be one of 'open', 'false', 'none', 'disabled', 'lane-limited'. Received 'disabld'.",
+    );
+
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profile-only",
+      }),
+    ).toThrow(
+      "CATALOG_INTEGRATION_ACTIVATION_MODE must be one of 'open', 'false', 'none', 'disabled', 'test-profiles-only'. Received 'test-profile-only'.",
+    );
+  });
+
+  it("rejects unknown provider-key rollout scopes", () => {
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP: "alll",
+      }),
+    ).toThrow(/CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP contains unknown provider key 'alll'.*tcgplayer/);
+
+    expect(() =>
+      createCatalogIntegrationRolloutControlPolicyFromEnv({
+        CATALOG_INTEGRATION_IMPORTS_DISABLED: "tcgdex,tcgplayr",
+      }),
+    ).toThrow(/CATALOG_INTEGRATION_IMPORTS_DISABLED contains unknown provider key 'tcgplayr'.*tcgplayer/);
+  });
+
   it("falls back to NODE_ENV production when deployment environment is absent", () => {
     const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
       NODE_ENV: "production",
