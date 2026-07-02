@@ -38,6 +38,7 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Catalog for canonical item, category, blueprint, dimension, and field facts
 - Catalog resolved-alias facts (`catalog.catalog-item.aliases-resolved`) for alias-aware search matching
+- Catalog resolved Product Contents facts (`catalog.product-contents.resolved`) for item-detail containment, reverse lookup, and optional content-aware search weighting
 - Marketplace for future visibility or listing signals when browse behavior needs commercial state
 
 ## Catalog Alias Search
@@ -53,6 +54,10 @@ Discovery search consumes the published Catalog resolved-alias fact (`catalog.ca
 ## Product Alerts
 
 Product Alert matching is documented in [Product Alerts](./docs/product-alerts.md). Discovery owns the subscription and matching behavior; Marketplace remains the source of Listing and Offer facts.
+
+## Product Contents
+
+Discovery consumes the published Catalog Product Contents fact (`catalog.product-contents.resolved`) for detail-page containment, "included in" reverse lookup, and content-aware search. Catalog owns the relationship, review state, Product Content Type configuration, inclusion policy configuration, and provider evidence. Discovery may weight and present the resolved lines, but it must not infer Product Contents from fields, tags, categories, Reference Record relationships, provider text, or external references.
 
 ## Item Detail Rail Analytics
 
@@ -70,6 +75,7 @@ The simplified item-detail rail analytics contract is documented in [Item Detail
 4. Discovery may preserve marketplace-branded public routes while still owning the implementation.
 5. Public marketplace slugs are generated from natural-language display fields plus a stable entity id suffix, so names stay readable while collisions stay deterministic.
 6. When a display name changes, the previous slug redirects to the current slug for that entity.
+7. Product Contents search/detail behavior consumes only the resolved Catalog fact and does not own containment truth.
 
 ## Structure Notes
 

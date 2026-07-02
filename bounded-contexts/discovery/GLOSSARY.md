@@ -105,6 +105,16 @@ Notes:
 - Latin text uses the stock Postgres `english`/`simple` configurations.
 - Native CJK scripts (e.g. Japanese kana) have no word boundaries, so Discovery indexes overlapping character bigrams per CJK run and queries those bigrams, making native-script substring search work under the `simple` config without a database extension.
 
+### Product Contents
+
+**Product Contents** is the Catalog-owned resolved fact that lets Discovery present what a container Product includes and find container Products from contained items.
+
+Notes:
+
+- Catalog owns Product Contents truth, Product Content Type configuration, Inclusion Policy configuration, review state, provider evidence, and cycle validation.
+- Discovery consumes `catalog.product-contents.resolved` only.
+- Discovery may use resolved content lines for item detail, reverse lookup, and content-aware relevance, but it must not infer Product Contents from fields, tags, categories, Reference Record relationships, provider text, or external references.
+
 ### Detail Page
 
 A **Detail Page** is the discovery-owned presentation model used to render a single catalog item for browse and evaluation.

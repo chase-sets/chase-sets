@@ -35,6 +35,10 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Alias Review Status`
 - `Provider Option Query Key Synonym`
 - `Provider Option Value Synonym`
+- `Product Contents`
+- `Product Content Line`
+- `Product Content Type`
+- `Product Content Inclusion Policy`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -71,6 +75,10 @@ The current implementation also uses four supporting authoring concepts:
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
+- `Product Contents` — the Catalog-owned relationship describing what one configured Product contains
+- `Product Content Line` — one contained Catalog Item or Product selection inside Product Contents
+- `Product Content Type` — configured Catalog data that names and orders the meaning of a Product Content Line
+- `Product Content Inclusion Policy` — configured Catalog data that describes exact, variable, random, optional, choice-based, or other inclusion semantics
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
@@ -135,6 +143,8 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Catalog Item Image Fallback` belongs to one Catalog Item and may point at a shared Catalog-owned asset used by many items.
 - A `Product Measure Profile` may apply to many Products through Blueprint, Category, and selected Option rules.
 - A `Resolved Product Measure` belongs to exactly one Product.
+- Product Contents belongs to one container Catalog Item or Product selection and contains zero or more Product Content Lines.
+- A Product Content Line may point at a contained Catalog Item, a contained Product selection, or unresolved provider evidence awaiting Catalog review.
 
 ## Identity and IDs
 
@@ -168,6 +178,10 @@ Notes:
 - Product weight, dimensions, physical flags, and stack behavior are Catalog-owned product facts.
 - Shipping price, letter eligibility, and carrier service selection are not Catalog facts; downstream contexts derive them from Resolved Product Measures and their own policies.
 
+- Product Contents command inputs use `catalog_item_id` plus `selected_options`; `product_id` is derived in validation, projections, or read models.
+- Product-line-specific content meanings belong in Product Content Type and Inclusion Policy configuration, not Catalog domain enums.
+- Product Contents must not create cycles in the accepted resolved graph.
+
 ## API Guidance
 
 Preferred field names:
@@ -185,6 +199,8 @@ Preferred field names:
 - `display_identity_hash`
 - `provider_key`
 - `external_key`
+- `product_content_type_id`
+- `product_content_inclusion_policy_id`
 
 Avoid:
 
@@ -249,6 +265,7 @@ Catalog defines:
 - semantic Catalog Sync Scopes and provider participation previews before Source Observation provider jobs run
 - the normalized product imagery contract published as Product Asset Sets
 - reusable Product Measure Profiles and Resolved Product Measures
+- Product Contents and the resolved product-to-product containment fact
 
 Catalog does not define:
 
@@ -257,6 +274,7 @@ Catalog does not define:
 - faceted search behavior
 - shipping quote policy
 - package execution
+- Discovery ranking, filtering, or presentation of Product Contents
 
 Catalog sync decision vocabulary:
 
@@ -266,4 +284,4 @@ Catalog sync decision vocabulary:
 
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, Product Measure Profiles, and Catalog Sync Scopes support authoring, enriching, organizing, naming, measuring, and syncing that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, Product Measure Profiles, Product Contents, and Catalog Sync Scopes support authoring, enriching, organizing, naming, measuring, relating, and syncing that truth.
