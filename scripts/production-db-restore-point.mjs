@@ -40,6 +40,29 @@ export function buildRestorePointName(input) {
   return `cs-prod-rp-${shortSha}-${input.workflowRunId ?? "run"}-${input.workflowRunAttempt ?? "1"}`;
 }
 
+export async function createDigitalOceanDatabaseFork(options, exec) {
+  const args = [
+    "databases",
+    "fork",
+    options.forkName,
+    "--restore-from-cluster-id",
+    options.sourceClusterId,
+    "--wait",
+    "--output",
+    "json",
+  ];
+  const { stdout } = await exec(options.doctlPath ?? "doctl", args, {
+    maxBuffer: 1024 * 1024 * 4,
+  });
+  const fork = parseDoctlForkOutput(stdout);
+  return {
+    clusterId: readField(fork, "id", "ID") ?? null,
+    name: readField(fork, "name", "Name") ?? options.forkName,
+    status: readField(fork, "status", "Status") ?? null,
+    createdAt: readField(fork, "created_at", "createdAt", "CreatedAt", "Created At") ?? null,
+  };
+}
+
 export async function runProductionDbRestorePoint(options, dependencies = {}) {
   const exec = dependencies.execFile ?? execFile;
   const result = await createProductionDbRestorePoint(options, exec);
@@ -117,21 +140,16 @@ export async function createProductionDbRestorePoint(options, exec) {
   }
 
   const restorePointName = buildRestorePointName(options);
-  const args = [
-    "databases",
-    "fork",
-    restorePointName,
-    "--restore-from-cluster-id",
-    options.sourceClusterId,
-    "--wait",
-    "--output",
-    "json",
-  ];
-  let stdout;
+  let fork;
   try {
-    ({ stdout } = await exec(options.doctlPath ?? "doctl", args, {
-      maxBuffer: 1024 * 1024 * 4,
-    }));
+    fork = await createDigitalOceanDatabaseFork(
+      {
+        doctlPath: options.doctlPath,
+        sourceClusterId: options.sourceClusterId,
+        forkName: restorePointName,
+      },
+      exec,
+    );
   } catch (error) {
     return {
       record: {
@@ -146,15 +164,14 @@ export async function createProductionDbRestorePoint(options, exec) {
       passesRestorePointGate: false,
     };
   }
-  const fork = parseDoctlForkOutput(stdout);
   const record = {
     ...baseRecord,
     restorePoint: {
       type: "digitalocean-database-fork",
-      clusterId: readField(fork, "id", "ID") ?? null,
-      name: readField(fork, "name", "Name") ?? restorePointName,
-      status: readField(fork, "status", "Status") ?? null,
-      createdAt: readField(fork, "created_at", "CreatedAt", "Created At") ?? null,
+      clusterId: fork.clusterId,
+      name: fork.name,
+      status: fork.status,
+      createdAt: fork.createdAt,
     },
     result: "success",
     errors: [],

@@ -258,6 +258,14 @@ node ./scripts/production-db-restore-point-cleanup.mjs \
   --out artifacts/release-health/production-db-restore-point-cleanup.json
 ```
 
+## Staging Database Restore Drill
+
+The `Platform Database Restore Drill` workflow (`.github/workflows/platform-database-restore-drill.yml`) runs monthly at off-peak time and can be dispatched manually only with the exact confirmation phrase `run staging database restore drill`. It is staging-only: it resolves the `chase-sets-staging-postgres` managed Postgres cluster, creates a temporary fork named `cs-stg-drill-<yyyymmdd>-<run-id>-<attempt>`, measures fork-to-available time, validates cheap reads against the expected staging context databases and event-store tables, and destroys the fork in the same script before the job finishes. It must never use `PRODUCTION_DATABASE_CLUSTER_ID` or run with `DEPLOYMENT_ENVIRONMENT=production`.
+
+The evidence artifact is `artifacts/database-restore-drill/staging-database-restore-drill.json` with 30-day retention. Treat the most recent successful artifact's `timings.forkToAvailableMs` as the current measured restore-time/RTO baseline for DigitalOcean managed-Postgres fork recovery. Until the first successful run exists, the RTO baseline remains pending. The artifact records only fork metadata, timings, table names, row-count/max-position aggregates, and cleanup status; it must not contain connection strings, passwords, event payloads, or customer data.
+
+Drift digest recognizes `cs-stg-drill-*` forks as operator-managed restore-drill resources, not unknown databases. Stale drill forks older than the restore-point retention threshold are warning cleanup candidates. If a runner is cancelled after creating a fork, delete it directly with `doctl databases delete <drill-fork-cluster-id> --force`, or run the cleanup helper with `--prefix cs-stg-drill-` after confirming the candidate is not an active drill.
+
 The production readiness gate remains warn-and-proceed by design: it records cold-start projection readiness in release-health and step summary evidence, while the proof canary remains the promotion gate. Keep `fetch-depth: 0` in this workflow until the production marker, release-health drift, and exact release-commit checks are split into a targeted fetch helper. Keep the synthetic staging Stripe seller password deterministic until the smoke registration path can receive a generated secret without losing reproducible rerun support; those accounts are staging/test-mode only and should not be used outside smoke evidence.
 
 ## Automated Production Rollback

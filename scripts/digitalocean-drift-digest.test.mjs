@@ -22,6 +22,7 @@ describe("digitalocean-drift-digest", () => {
       result: "warning",
       policies: {
         restorePointPrefix: "cs-prod-rp-",
+        restoreDrillPrefix: "cs-stg-drill-",
         registryRepository: "chase-sets-platform",
         registryRetentionDays: 7,
         runtimeTopologyModes: ["preview", "staging", "production-landing", "production-proof", "production-public"],
@@ -41,8 +42,8 @@ describe("digitalocean-drift-digest", () => {
       },
       summary: {
         unknownChaseSetsResources: 1,
-        cleanupCandidates: 2,
-        warningFindings: 5,
+        cleanupCandidates: 3,
+        warningFindings: 6,
         databaseBackups: {
           observedClusters: 1,
           staleClusters: 0,
@@ -93,6 +94,12 @@ describe("digitalocean-drift-digest", () => {
           category: "restore-point-retention",
           resourceType: "database",
           resourceName: "cs-prod-rp-abcdef12-285000-1",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          category: "restore-drill-retention",
+          resourceType: "database",
+          resourceName: "cs-stg-drill-20260629-123-1",
           severity: "warning",
         }),
         expect.objectContaining({
@@ -316,6 +323,18 @@ function responseFor(args) {
         name: "cs-prod-rp-abcdef12-285000-1",
         status: "online",
         created_at: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "db-stg-drill-old",
+        name: "cs-stg-drill-20260629-123-1",
+        status: "online",
+        created_at: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "db-stg-drill-fresh",
+        name: "cs-stg-drill-20260701-456-1",
+        status: "online",
+        created_at: "2026-07-01T10:00:00.000Z",
       },
     ];
   }

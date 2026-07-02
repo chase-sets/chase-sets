@@ -1,0 +1,148 @@
+name: Platform Database Restore Drill
+
+on:
+  schedule:
+    - cron: "23 7 3 * *"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "run staging database restore drill" to confirm creating a temporary staging database fork.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-database-restore-drill
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Restore Drill
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'run staging database restore drill'
+    steps:
+      - name: Refuse unconfirmed restore drill
+        run: |
+          echo 'Confirmation text did not match exactly; expected "run staging database restore drill".' >&2
+          exit 1
+
+  restore-drill:
+    name: Staging Database Restore Drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    needs: refuse-unconfirmed
+    if: always() && (github.event_name == 'schedule' || needs.refuse-unconfirmed.result == 'skipped')
+    permissions:
+      contents: read
+      issues: write
+    env:
+      DEPLOYMENT_ENVIRONMENT: staging
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Resolve staging database cluster
+        id: staging-cluster
+        run: |
+          set -euo pipefail
+          cluster_id="$(doctl databases list --output json | node -e '
+          const fs = require("node:fs");
+          const databases = JSON.parse(fs.readFileSync(0, "utf8"));
+          const cluster = databases.find((database) => database.name === "chase-sets-staging-postgres");
+          if (!cluster?.id) {
+            console.error("Could not find DigitalOcean database cluster named chase-sets-staging-postgres.");
+            process.exit(1);
+          }
+          process.stdout.write(cluster.id);
+          '
+          )"
+          echo "cluster_id=${cluster_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Run staging database restore drill
+        env:
+          STAGING_DATABASE_CLUSTER_ID: ${{ steps.staging-cluster.outputs.cluster_id }}
+          DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT: artifacts/database-restore-drill/staging-database-restore-drill.json
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/database-restore-drill
+          node ./scripts/digitalocean-database-restore-drill.mjs
+
+      - name: Summarize restore drill
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/database-restore-drill/staging-database-restore-drill.json"
+          if [ ! -f "$record" ]; then
+            echo "No staging database restore drill record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const checks = record.validation?.checks ?? [];
+          const failedChecks = checks.filter((check) => check.status !== "success");
+          console.log("## Staging Database Restore Drill");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Fork name: ${record.fork?.name ?? "not-created"}`);
+          console.log(`- Fork status: ${record.fork?.status ?? "unknown"}`);
+          console.log(`- Fork-to-available: ${record.timings?.forkToAvailableMs ?? "unknown"} ms`);
+          console.log(`- Expected database checks: ${record.validation?.expectedDatabaseCount ?? 0}`);
+          console.log(`- Completed database checks: ${record.validation?.checkedDatabaseCount ?? 0}`);
+          console.log(`- Failed database checks: ${failedChecks.length}`);
+          console.log(`- Cleanup status: ${record.cleanup?.status ?? "unknown"}`);
+          if (failedChecks.length > 0) {
+            console.log("");
+            console.log("### Failed checks");
+            for (const check of failedChecks) {
+              console.log(`- ${check.contextName}: ${(check.errors ?? []).join("; ")}`);
+            }
+          }
+          if (record.errors?.length) {
+            console.log("");
+            console.log("### Errors");
+            for (const error of record.errors) {
+              console.log(`- ${error}`);
+            }
+          }
+          NODE
+
+      - name: Upload restore drill evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-database-restore-drill-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/database-restore-drill/staging-database-restore-drill.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report restore drill failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Database Restore Drill
+          alert-status: failure
+          alert-summary: Staging database restore drill failed. See the uploaded evidence artifact when present.
+
+      - name: Report restore drill recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Database Restore Drill
+          alert-status: success
+          alert-summary: Staging database restore drill completed and destroyed its temporary fork.

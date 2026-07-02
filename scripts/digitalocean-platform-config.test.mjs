@@ -36,6 +36,10 @@ const platformTerraformStateSnapshotWorkflow = readFileSync(
   resolve(".github/workflows/platform-terraform-state-snapshot.yml"),
   "utf8",
 );
+const platformDatabaseRestoreDrillWorkflow = readFileSync(
+  resolve(".github/workflows/platform-database-restore-drill.yml"),
+  "utf8",
+);
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
@@ -98,6 +102,10 @@ describe("DigitalOcean platform runbook", () => {
     expect(digitaloceanPlatformRunbook).toContain("`production-landing`");
     expect(digitaloceanPlatformRunbook).toContain("`production-proof`");
     expect(digitaloceanPlatformRunbook).toContain("`production-public`");
+    expect(digitaloceanPlatformRunbook).toContain("## Staging Database Restore Drill");
+    expect(digitaloceanPlatformRunbook).toContain("`timings.forkToAvailableMs`");
+    expect(digitaloceanPlatformRunbook).toContain("`cs-stg-drill-*`");
+    expect(digitaloceanPlatformRunbook).toContain("run staging database restore drill");
     for (const componentName of retiredProfileComponentNames) {
       expect(digitaloceanPlatformRunbook).toContain(componentName);
     }
@@ -1988,6 +1996,34 @@ describe("DigitalOcean platform configuration", () => {
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
     );
     expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
+  });
+
+  it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
+    const restoreJob = workflowJob(platformDatabaseRestoreDrillWorkflow, "restore-drill");
+    const restoreStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Run staging database restore drill");
+    const uploadStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Upload restore drill evidence");
+
+    expect(platformDatabaseRestoreDrillWorkflow).toContain('cron: "23 7 3 * *"');
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("workflow_dispatch:");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("run staging database restore drill");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("permissions:\n  contents: read");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("group: platform-database-restore-drill");
+    expect(restoreJob).toContain("environment: staging");
+    expect(restoreJob).toContain("timeout-minutes: 60");
+    expect(restoreJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain(
+      "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    );
+    expect(restoreStep).toContain("STAGING_DATABASE_CLUSTER_ID");
+    expect(restoreStep).toContain("DIGITALOCEAN_DATABASE_RESTORE_DRILL_OUT");
+    expect(restoreStep).toContain("node ./scripts/digitalocean-database-restore-drill.mjs");
+    expect(platformDatabaseRestoreDrillWorkflow).toContain("token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("platform-database-restore-drill-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(uploadStep).toContain("retention-days: 30");
+    expect(platformDatabaseRestoreDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
+    expect(platformDatabaseRestoreDrillWorkflow).not.toContain("DEPLOYMENT_ENVIRONMENT: production");
   });
 
   it("gates production promotion on staging marketplace critical flows", () => {
