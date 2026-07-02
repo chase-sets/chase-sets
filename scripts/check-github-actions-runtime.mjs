@@ -10,6 +10,7 @@ const minimumNode24ActionVersions = new Map([
   ["actions/cache", "v5.0.0"],
   ["actions/checkout", "v6.0.0"],
   ["actions/download-artifact", "v7.0.0"],
+  ["actions/github-script", "v8.0.0"],
   ["actions/setup-node", "v6.0.0"],
   ["actions/upload-artifact", "v7.0.0"],
   ["digitalocean/action-doctl", "v2.5.2"],

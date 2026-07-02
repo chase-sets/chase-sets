@@ -24,8 +24,7 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: platform-production-restore-point-cleanup
@@ -37,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    permissions:
+      contents: read
+      issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       PRODUCTION_DB_RESTORE_POINT_CLEANUP_PREFIX: cs-prod-rp-
@@ -112,3 +114,21 @@ jobs:
           path: artifacts/release-health/production-db-restore-point-cleanup.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Report restore-point cleanup alert
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Production Restore Point Cleanup
+          alert-status: failure
+          alert-summary: Production restore-point cleanup failed. See the cleanup summary and uploaded artifact when present.
+
+      - name: Report restore-point cleanup recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Production Restore Point Cleanup
+          alert-status: success
+          alert-summary: Production restore-point cleanup completed successfully.

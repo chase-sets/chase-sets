@@ -14,8 +14,7 @@ on:
           - "true"
           - "false"
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: platform-registry-cleanup
@@ -27,6 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
+    permissions:
+      contents: read
+      issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -105,3 +107,21 @@ jobs:
           path: artifacts/release-health/digitalocean-registry-cleanup.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Report registry cleanup alert
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Registry Cleanup
+          alert-status: failure
+          alert-summary: Platform registry cleanup failed. See the cleanup summary and uploaded artifact when present.
+
+      - name: Report registry cleanup recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Registry Cleanup
+          alert-status: success
+          alert-summary: Platform registry cleanup completed successfully.
