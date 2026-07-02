@@ -40,6 +40,10 @@ const platformDatabaseRestoreDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-database-restore-drill.yml"),
   "utf8",
 );
+const platformStagingRollbackDrillWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-rollback-drill.yml"),
+  "utf8",
+);
 const digitaloceanPlatformRunbook = readFileSync(resolve("docs/runbooks/digitalocean-platform-deployment.md"), "utf8");
 const productionPgBouncerSessionSafety = readFileSync(
   resolve("docs/architecture/production-pgbouncer-session-safety.md"),
@@ -106,6 +110,9 @@ describe("DigitalOcean platform runbook", () => {
     expect(digitaloceanPlatformRunbook).toContain("`timings.forkToAvailableMs`");
     expect(digitaloceanPlatformRunbook).toContain("`cs-stg-drill-*`");
     expect(digitaloceanPlatformRunbook).toContain("run staging database restore drill");
+    expect(digitaloceanPlatformRunbook).toContain("## Staging Rollback Drill");
+    expect(digitaloceanPlatformRunbook).toContain("run staging rollback drill");
+    expect(digitaloceanPlatformRunbook).toContain("artifacts/staging-rollback-drill/staging-rollback-drill.json");
     for (const componentName of retiredProfileComponentNames) {
       expect(digitaloceanPlatformRunbook).toContain(componentName);
     }
@@ -2024,6 +2031,44 @@ describe("DigitalOcean platform configuration", () => {
     expect(uploadStep).toContain("retention-days: 30");
     expect(platformDatabaseRestoreDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
     expect(platformDatabaseRestoreDrillWorkflow).not.toContain("DEPLOYMENT_ENVIRONMENT: production");
+  });
+
+  it("runs the App Platform rollback drill as a confirmed staging-only workflow", () => {
+    const drillJob = workflowJob(platformStagingRollbackDrillWorkflow, "staging-rollback-drill");
+    const drillStep = workflowStep(platformStagingRollbackDrillWorkflow, "Run staging rollback drill");
+    const uploadStep = workflowStep(platformStagingRollbackDrillWorkflow, "Upload staging rollback drill evidence");
+
+    expect(platformStagingRollbackDrillWorkflow).toContain("workflow_dispatch:");
+    expect(platformStagingRollbackDrillWorkflow).toContain("run staging rollback drill");
+    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_digest");
+    expect(platformStagingRollbackDrillWorkflow).toContain("rollback_reference");
+    expect(platformStagingRollbackDrillWorkflow).toContain("permissions:\n  contents: read");
+    expect(platformStagingRollbackDrillWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformStagingRollbackDrillWorkflow).toContain("cancel-in-progress: false");
+    expect(drillJob).toContain("environment: staging");
+    expect(drillJob).toContain("timeout-minutes: 60");
+    expect(drillJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
+    expect(drillJob).toContain("STAGING_APP_NAME: chase-sets-staging-platform");
+    expect(platformStagingRollbackDrillWorkflow).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
+    expect(platformStagingRollbackDrillWorkflow).toContain(
+      "digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    );
+    expect(platformStagingRollbackDrillWorkflow).toContain(
+      "docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+    );
+    expect(drillStep).toContain("STAGING_ROLLBACK_DRILL_OUT");
+    expect(drillStep).toContain("ROLLBACK_TARGET_DIGEST: ${{ inputs.rollback_digest }}");
+    expect(drillStep).toContain("ROLLBACK_TARGET_REFERENCE: ${{ inputs.rollback_reference }}");
+    expect(drillStep).toContain("node ./scripts/digitalocean-staging-rollback-drill.mjs");
+    expect(drillStep).toContain("doctl registry login --expiry-seconds 3600");
+    expect(uploadStep).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("platform-staging-rollback-drill-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).toContain("retention-days: 30");
+    expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill failure");
+    expect(platformStagingRollbackDrillWorkflow).toContain("Report staging rollback drill recovery");
+    expect(platformStagingRollbackDrillWorkflow).not.toContain("environment: production");
+    expect(platformStagingRollbackDrillWorkflow).not.toContain("PRODUCTION_DATABASE_CLUSTER_ID");
   });
 
   it("gates production promotion on staging marketplace critical flows", () => {
