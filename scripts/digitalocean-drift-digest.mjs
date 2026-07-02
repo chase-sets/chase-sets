@@ -28,6 +28,15 @@ const OBSERVABILITY_POLICIES = {
   },
 };
 
+const DATABASE_BACKUP_POLICIES = {
+  staging: {
+    maximumAgeHours: 48,
+  },
+  production: {
+    maximumAgeHours: 26,
+  },
+};
+
 const TERRAFORM_ROOTS = {
   platform: "infrastructure/digitalocean/platform",
   catalogAssets: "infrastructure/digitalocean/catalog-assets",
@@ -74,6 +83,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
 
   const apps = snapshot.apps.map((app) => summarizeApp(app));
   const databases = snapshot.databases.map((database) => summarizeDatabase(database, restorePointCutoff));
+  const databaseBackups = snapshot.databaseBackups.map((backup) => summarizeDatabaseBackup(backup, checkedAt));
   const registryTags = snapshot.registryTags.map((tag) => summarizeRegistryTag(tag, registryCutoff));
   const droplets = snapshot.droplets.map(summarizeDroplet);
   const volumes = snapshot.volumes.map(summarizeVolume);
@@ -84,6 +94,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
   const findings = [
     ...apps.flatMap(appFindings),
     ...databases.flatMap(databaseFindings),
+    ...databaseBackups.flatMap(databaseBackupFindings),
     ...registryTags.flatMap(registryTagFindings),
     ...droplets.flatMap(dropletFindings),
     ...volumes.flatMap(volumeFindings),
@@ -106,6 +117,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       runtimeTopologyModes: Object.keys(runtimeTopologyBaselines),
       retiredProfileComponentNames,
       observability: OBSERVABILITY_POLICIES,
+      databaseBackups: DATABASE_BACKUP_POLICIES,
     },
     collections: collection.collections,
     expectedResources: {
@@ -124,6 +136,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
     resources: {
       apps,
       databases,
+      databaseBackups,
       registryTags,
       droplets,
       volumes,
@@ -157,6 +170,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
     summary: summarizeDigest({
       apps,
       databases,
+      databaseBackups,
       registryTags,
       droplets,
       volumes,
@@ -230,12 +244,36 @@ async function collectDigitalOceanSnapshot(options, exec) {
     }
   }
 
+  const databases = await collect("databases", ["databases", "list", "--output", "json"]);
+  const databaseBackups = [];
+  for (const database of databases.filter((candidate) =>
+    databaseBackupManagedName(readField(candidate, "name", "Name")),
+  )) {
+    const clusterId = readField(database, "id", "ID");
+    const clusterName = readField(database, "name", "Name") ?? "";
+    if (!clusterId) {
+      continue;
+    }
+    const collectionName = `databaseBackups:${clusterName}`;
+    const backups = await collect(collectionName, ["databases", "backups", "list", clusterId, "--output", "json"]);
+    databaseBackups.push({
+      clusterId,
+      clusterName,
+      environment: classifyEnvironment(clusterName),
+      terraformRoot: databaseTerraformRoot(clusterName),
+      collection: collectionName,
+      collectionStatus: collections[collectionName]?.status ?? "unknown",
+      backups,
+    });
+  }
+
   return {
     collections,
     errors,
     snapshot: {
       apps: mergeAppDetails(apps, appDetails),
-      databases: await collect("databases", ["databases", "list", "--output", "json"]),
+      databases,
+      databaseBackups,
       registryTags: await collect("registryTags", [
         "registry",
         "repository",
@@ -267,6 +305,12 @@ async function commandJson(exec, doctlPath, args) {
   }
   if (Array.isArray(parsed.databases)) {
     return parsed.databases;
+  }
+  if (Array.isArray(parsed.backups)) {
+    return parsed.backups;
+  }
+  if (Array.isArray(parsed.database_backups)) {
+    return parsed.database_backups;
   }
   if (Array.isArray(parsed.uptime_checks)) {
     return parsed.uptime_checks;
@@ -353,6 +397,43 @@ function summarizeDatabase(database, restorePointCutoff) {
       : classifyDatabase(name),
     restorePoint,
     oldRestorePoint,
+  };
+}
+
+function summarizeDatabaseBackup(entry, checkedAt) {
+  const backups = entry.backups
+    .map((backup) => ({
+      id: readField(backup, "id", "ID"),
+      createdAt: readField(backup, "created_at", "createdAt", "CreatedAt"),
+      sizeGib: readNumberField(backup, "size_gigabytes", "sizeGigabytes", "SizeGigabytes"),
+    }))
+    .filter((backup) => backup.createdAt);
+  const newestBackup = backups
+    .filter((backup) => Number.isFinite(Date.parse(backup.createdAt)))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+  const newestBackupAgeHours = newestBackup
+    ? roundHours((checkedAt.getTime() - Date.parse(newestBackup.createdAt)) / (60 * 60 * 1000))
+    : null;
+  const policy = databaseBackupPolicy(entry.environment);
+  const stale =
+    entry.collectionStatus === "success" &&
+    newestBackupAgeHours !== null &&
+    policy?.maximumAgeHours !== undefined &&
+    newestBackupAgeHours > policy.maximumAgeHours;
+  const missing = entry.collectionStatus === "success" && backups.length === 0;
+  return {
+    clusterId: entry.clusterId,
+    clusterName: entry.clusterName,
+    environment: entry.environment,
+    terraformRoot: entry.terraformRoot,
+    collection: entry.collection,
+    collectionStatus: entry.collectionStatus,
+    backupCount: backups.length,
+    newestBackupCreatedAt: newestBackup?.createdAt ?? null,
+    newestBackupAgeHours,
+    expectedMaximumAgeHours: policy?.maximumAgeHours ?? null,
+    stale,
+    missing,
   };
 }
 
@@ -514,6 +595,35 @@ function databaseFindings(database) {
     ];
   }
   return [];
+}
+
+function databaseBackupFindings(backup) {
+  if (backup.collectionStatus !== "success") {
+    return [];
+  }
+  if (!backup.missing && !backup.stale) {
+    return [];
+  }
+  return [
+    {
+      severity: "warning",
+      category: "database-backup-health",
+      resourceType: "database-backup",
+      resourceName: backup.clusterName,
+      owner: "ops",
+      terraformRoot: backup.terraformRoot,
+      action: backup.missing
+        ? "Inspect DigitalOcean managed Postgres backup status before relying on PITR for this cluster."
+        : "Inspect DigitalOcean managed Postgres backup status; the newest observed backup is older than the accepted threshold.",
+      evidence: {
+        clusterId: backup.clusterId,
+        backupCount: backup.backupCount,
+        newestBackupCreatedAt: backup.newestBackupCreatedAt,
+        newestBackupAgeHours: backup.newestBackupAgeHours,
+        expectedMaximumAgeHours: backup.expectedMaximumAgeHours,
+      },
+    },
+  ];
 }
 
 function registryTagFindings(tag) {
@@ -725,6 +835,7 @@ function summarizeDigest(input) {
   const resources = [
     ...input.apps,
     ...input.databases,
+    ...input.databaseBackups,
     ...input.registryTags,
     ...input.droplets,
     ...input.volumes,
@@ -738,6 +849,14 @@ function summarizeDigest(input) {
     cleanupCandidates:
       input.databases.filter((database) => database.oldRestorePoint).length +
       input.registryTags.filter((tag) => tag.cleanupEligible).length,
+    databaseBackups: {
+      observedClusters: input.databaseBackups.length,
+      staleClusters: input.databaseBackups.filter((backup) => backup.stale).length,
+      missingClusters: input.databaseBackups.filter((backup) => backup.missing).length,
+      newestBackupAgeHoursByCluster: Object.fromEntries(
+        input.databaseBackups.map((backup) => [backup.clusterName, backup.newestBackupAgeHours]),
+      ),
+    },
     advisoryFindings: input.findings.filter((finding) => finding.severity === "advisory").length,
     warningFindings: input.findings.filter((finding) => finding.severity === "warning").length,
     collectionErrors: input.collectionErrors.length,
@@ -772,6 +891,10 @@ function databaseTerraformRoot(name) {
   return classifyDatabase(name) === "terraform-managed" ? TERRAFORM_ROOTS.platform : null;
 }
 
+function databaseBackupManagedName(name) {
+  return ["chase-sets-postgres", "chase-sets-staging-postgres"].includes(name);
+}
+
 function classifyEnvironment(name) {
   if (/^chase-sets-pr-\d+/.test(name)) {
     return "preview";
@@ -795,6 +918,10 @@ function observabilityVolumeName(name) {
 
 function observabilityPolicy(environment) {
   return OBSERVABILITY_POLICIES[environment] ?? null;
+}
+
+function databaseBackupPolicy(environment) {
+  return DATABASE_BACKUP_POLICIES[environment] ?? null;
 }
 
 function remoteDevName(name) {
@@ -875,6 +1002,10 @@ function parseNumber(value, name) {
     throw new Error(`${name} must be a number.`);
   }
   return parsed;
+}
+
+function roundHours(value) {
+  return Math.max(0, Math.round(value * 100) / 100);
 }
 
 async function main(argv, env = process.env) {
