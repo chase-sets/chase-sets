@@ -34,6 +34,30 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 - Observability cost posture: `infrastructure/digitalocean/observability` defaults `droplet_backups_enabled=false` because the host is reproducible from Terraform/cloud-init. The attached volume is the durable telemetry surface; staging and production accept no more than 24 hours of telemetry data loss by default and require a manual volume snapshot before destructive maintenance or risky host replacement. The drift digest reports Droplet backup state and observability volume size, warning on unexpected staging spend posture and advising review when production host backups are enabled.
 - Image groups are intentionally deferred. The platform still deploys one shared image across App Platform components because splitting deployables into separate image groups would add Docker, registry, Terraform, promotion, rollback, and smoke-test complexity before there is enough deployment data to justify it.
 
+## Accepted DR Risks
+
+The platform deliberately accepts the following pre-launch disaster-recovery risks. These are decisions, not unowned gaps; revisit them when launch traffic, compliance obligations, customer contracts, incident evidence, or restore-drill results change the cost/risk balance.
+
+### Single Region
+
+Decision: App Platform stays in `nyc`, while managed Postgres and Spaces stay in `nyc3`. Chase Sets does not currently run cross-region database replication, object-storage replication, or DNS failover.
+
+Rationale: a second active region would add Terraform, secrets, data-replication, deploy, smoke-test, rollback, and operator complexity before the marketplace has enough launch traffic to justify it. The current architecture keeps the event-sourced system easier to reason about and recover.
+
+Blast radius and recovery: a DigitalOcean NYC-region incident can take the application, managed Postgres, Spaces-backed assets, Terraform state bucket, and observability host offline together. Recovery is manual: create or restore a managed Postgres cluster from DigitalOcean backups/PITR in an available region, provision or repoint Spaces-backed assets and Terraform/App Platform specs, update DNS, redeploy the platform image, and rebuild derived projections from the recovered event stores. The current RPO is bounded by the managed Postgres backup/PITR posture plus any asset/state artifacts that must be restored from Spaces. The measured RTO remains pending until the milestone restore-verification drill records a restore time.
+
+Revisit trigger: public launch traffic with meaningful revenue exposure, a compliance or customer SLA that requires regional failover, a regional incident, or a restore drill that misses the accepted recovery target.
+
+### Observability Config Drift
+
+Decision: staging and production observability host configuration is source-owned through Terraform, cloud-init, and checked-in stack files. Live edits on the Droplet, including Grafana dashboards, scrape config, alert rules, and Caddy changes, are treated as temporary operator state and are not configuration-of-record. The drift digest inventories observability Droplets and volumes, but it does not diff live application configuration inside the host.
+
+Rationale: the observability stack is intentionally reproducible and cost-aware. Keeping source as the recovery path avoids paying for continuous host-image backup and avoids creating a second configuration system around live dashboard tweaks before production traffic proves the need.
+
+Blast radius and recovery: a lost or rebuilt observability host may lose uncommitted live configuration edits. The durable telemetry surface is the attached volume; the accepted telemetry data-loss window is no more than 24 hours by default, with a manual volume snapshot required before destructive maintenance, risky host replacement, or retention changes. Recovery is to re-run Terraform/cloud-init from source, reattach or restore the volume when available, and reapply only source-controlled dashboards and rules. If a live change is needed after recovery, capture it in source before treating it as durable.
+
+Revisit trigger: production incident response depends on a live-only dashboard or alert, audit/compliance needs longer telemetry or dashboard retention, operators repeatedly need host-local changes, or a drift incident shows the source-owned path is too slow.
+
 ## Preview Hosts
 
 Each pull request receives its own `pr-<number>` preview environment:
