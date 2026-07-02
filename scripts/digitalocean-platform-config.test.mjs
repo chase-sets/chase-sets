@@ -1755,6 +1755,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
       dockerfile.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
+    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
+    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM node:24-bookworm-slim AS runtime"));
+    expect(runtimeStage).toContain("RUN pnpm install --frozen-lockfile --prod");
+    expect(runtimeStage.indexOf("RUN pnpm install --frozen-lockfile --prod")).toBeLessThan(
+      runtimeStage.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
+    );
+    expect(runtimeStage).toContain(
+      "COPY --chown=node:node --from=build /app/deployables/public-web/build ./deployables/public-web/build",
+    );
+    expect(dockerfile).toContain("-name __tests__");
+    expect(dockerfile).toContain('-name "*.test.*"');
   });
 
   it("runs the platform release image as the non-root node user", () => {
@@ -1762,6 +1773,7 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(dockerfile).toContain("ENV HOME=/home/node");
     expect(dockerfile).toContain("COPY --chown=node:node deployables ./deployables");
+    expect(dockerfile).toContain("chown node:node /app");
     expect(dockerfile).toContain("USER node");
     expect(dockerfile.indexOf("USER node")).toBeGreaterThan(dockerfile.indexOf("RUN pnpm run sync:workspace-metadata"));
     expect(dockerfile.indexOf("USER node")).toBeLessThan(

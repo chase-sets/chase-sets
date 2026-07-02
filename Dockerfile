@@ -10,7 +10,7 @@ COPY . .
 RUN mkdir /manifests \
   && find . -mindepth 3 -maxdepth 3 -name package.json | tar -cf - -T - | tar -xf - -C /manifests
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -40,10 +40,39 @@ RUN pnpm run sync:workspace-metadata \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
   && pnpm --filter @chase-sets/app-admin-web run build
 
+FROM node:24-bookworm-slim AS runtime
+
+WORKDIR /app
+
+RUN npm install -g pnpm@11.0.9 \
+  && chown node:node /app
+
 ENV HOME=/home/node
-ENV NODE_ENV=production
-EXPOSE 8080
 
 USER node
+
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --chown=node:node --from=manifests /manifests ./
+RUN pnpm install --frozen-lockfile --prod
+
+COPY --chown=node:node tsconfig.json tsconfig.base.json tsconfig.vitest.json ./
+COPY --chown=node:node contracts ./contracts
+COPY --chown=node:node infrastructure ./infrastructure
+COPY --chown=node:node packages ./packages
+COPY --chown=node:node bounded-contexts ./bounded-contexts
+COPY --chown=node:node deployables ./deployables
+COPY --chown=node:node --from=build /app/deployables/public-web/build ./deployables/public-web/build
+COPY --chown=node:node --from=build /app/deployables/marketplace/build ./deployables/marketplace/build
+COPY --chown=node:node --from=build /app/deployables/admin-web/build ./deployables/admin-web/build
+
+RUN find contracts infrastructure packages bounded-contexts deployables \
+    -type d \( -name __tests__ -o -name tests -o -name e2e -o -name coverage -o -name .turbo \) -prune -exec rm -rf {} + \
+  && find contracts infrastructure packages bounded-contexts deployables \
+    -type f \( -name "*.test.*" -o -name "*.spec.*" -o -name "vitest.config.*" \) -delete \
+  && find deployables packages bounded-contexts contracts infrastructure \
+    -type f \( -name "vite.config.*" -o -name "react-router.config.*" \) -delete
+
+ENV NODE_ENV=production
+EXPOSE 8080
 
 CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]
