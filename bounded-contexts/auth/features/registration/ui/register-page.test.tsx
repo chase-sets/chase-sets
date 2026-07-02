@@ -99,6 +99,7 @@ describe("registration page", () => {
     expect(screen.queryByLabelText("Email")).toBeNull();
     expect(screen.getByRole("button", { name: "Text me a code" })).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="phone-code-request"]')).not.toBeNull();
+    expect(inputNamed("code").getAttribute("autocomplete")).toBe("one-time-code");
   });
 
   it("keeps password registration available as the fallback", () => {

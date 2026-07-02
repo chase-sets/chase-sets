@@ -327,6 +327,7 @@ export function SignInPage(
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
                   name="code"
+                  autoComplete="one-time-code"
                   inputMode="numeric"
                   required
                 />

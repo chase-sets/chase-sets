@@ -117,6 +117,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("Signing in with 3125550100")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Send Phone Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue With Code" })).toBeTruthy();
+    expect(screen.getByLabelText("Phone Code").getAttribute("autocomplete")).toBe("one-time-code");
     expect(screen.queryByRole("radio", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
   });
