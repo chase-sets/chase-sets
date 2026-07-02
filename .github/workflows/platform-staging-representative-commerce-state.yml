@@ -31,12 +31,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Representative Commerce State
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'seed staging commerce' && inputs.confirm != 'verify sandbox providers'
+    steps:
+      - name: Refuse unconfirmed representative commerce state
+        run: |
+          echo 'Confirmation text did not match exactly; expected "seed staging commerce" or "verify sandbox providers".' >&2
+          exit 1
+
   refresh-representative-commerce-state:
     name: Refresh Representative Commerce State
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: inputs.confirm == 'seed staging commerce'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'seed staging commerce'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -150,7 +161,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: staging
-    if: inputs.confirm == 'verify sandbox providers'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'verify sandbox providers'
     env:
       NODE_ENV: production
       PLATFORM_API_BASE_URL: https://marketplace.staging.chasesets.com

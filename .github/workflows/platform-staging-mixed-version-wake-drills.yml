@@ -49,11 +49,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Mixed-Version Wake Evidence
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'evaluate mixed-version wake evidence'
+    steps:
+      - name: Refuse unconfirmed mixed-version wake evidence
+        run: |
+          echo 'Confirmation text did not match exactly; expected "evaluate mixed-version wake evidence".' >&2
+          exit 1
+
   evaluate-mixed-version-wake-evidence:
     name: Evaluate Mixed-Version Wake Evidence
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: inputs.confirm == 'evaluate mixed-version wake evidence'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       GH_TOKEN: ${{ github.token }}
       EVIDENCE_DIR: artifacts/wake-drills/mixed-version

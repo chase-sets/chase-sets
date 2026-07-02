@@ -29,12 +29,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Provider Proof Status
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'run provider proof status'
+    steps:
+      - name: Refuse unconfirmed provider proof status
+        run: |
+          echo 'Confirmation text did not match exactly; expected "run provider proof status".' >&2
+          exit 1
+
   provider-proof-status:
     name: Provider Proof Status
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: ${{ inputs.environment_name }}
-    if: inputs.confirm == 'run provider proof status'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       NODE_ENV: production
       DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment_name }}

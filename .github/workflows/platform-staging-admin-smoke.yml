@@ -25,12 +25,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Admin Smoke Evidence
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'run staging admin smoke evidence'
+    steps:
+      - name: Refuse unconfirmed admin smoke evidence
+        run: |
+          echo 'Confirmation text did not match exactly; expected "run staging admin smoke evidence".' >&2
+          exit 1
+
   staging-admin-smoke-evidence:
     name: Staging Admin Smoke Evidence
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: staging
-    if: inputs.confirm == 'run staging admin smoke evidence'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
