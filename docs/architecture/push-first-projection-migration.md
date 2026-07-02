@@ -123,7 +123,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 67 `push-enabled`, 14 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (66)
+## Read-After-Write Route Inventory (67)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -142,6 +142,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `checkout.session-payment-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.session-start-to-detail` | checkout | critical | exact wait | push-accelerated |
+| `commercial-terms.account-agreement-create-to-list` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `commercial-terms.agreement-create-to-list` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `commercial-terms.agreement-update-to-detail` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `commercial-terms.schedule-create-to-list` | commercial-terms | important | exact wait | deferred until wave 4 |

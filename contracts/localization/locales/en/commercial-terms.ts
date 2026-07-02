@@ -39,6 +39,14 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.agreements.ui.agreementDetailPage.status": "Status",
   "commercialTerms.features.agreements.ui.agreementDetailPage.unknown": "Unknown",
   "commercialTerms.features.agreements.ui.agreementDetailPage.updated.at": "Updated At: ",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.account": "Account: ",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.admin": "Admin",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.back.to.agreements": "Back to agreements",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.create.account.agreement":
+    "Create Commercial Agreement",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.create.account.agreement.description":
+    "Create an account-specific commercial agreement from the account context.",
+  "commercialTerms.features.agreements.ui.agreementAccountCreatePage.create.agreement": "Create Agreement",
   "commercialTerms.features.agreements.ui.agreementListPage.account.id": "Account ID",
   "commercialTerms.features.agreements.ui.agreementListPage.account.id.description":
     "Enter the exact account ID beginning with acc_.",
@@ -159,6 +167,8 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.schedules.ui.scheduleListPage.status.2": "Status",
   "commercialTerms.routes.admin.agreements.commercial.agreements.commercial.terms":
     "Commercial Agreements | Commercial Terms",
+  "commercialTerms.routes.admin.accountAgreementNew.new.commercial.agreement.commercial.terms":
+    "New Commercial Agreement | Commercial Terms",
   "commercialTerms.routes.admin.agreementsDetail.agreement.unavailable": "Commercial agreement unavailable",
   "commercialTerms.routes.admin.agreementsDetail.commercial.agreement.detail.commercial.terms":
     "Commercial Agreement Detail | Commercial Terms",

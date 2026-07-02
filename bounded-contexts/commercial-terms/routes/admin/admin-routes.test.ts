@@ -74,9 +74,11 @@ vi.mock("../../support/request-support/api-client", () => ({
 }));
 
 import { action as agreementsAction, loader as agreementsLoader } from "./agreements";
+import { action as accountAgreementNewAction, loader as accountAgreementNewLoader } from "./account-agreement-new";
 import { action as agreementDetailAction, loader as agreementDetailLoader } from "./agreements-detail";
 import { action as schedulesAction, loader as schedulesLoader } from "./schedules";
 import { action as scheduleDetailAction } from "./schedules-detail";
+import contextManifest from "../../context.json";
 
 function formRequest(path: string, values: Record<string, string>) {
   return new Request(`https://admin.chasesets.com${path}`, {
@@ -131,6 +133,17 @@ describe("commercial terms admin routes", () => {
     vi.clearAllMocks();
   });
 
+  it("contributes the account-scoped agreement creation admin route", () => {
+    expect(contextManifest.deployableContributions[0]?.routes).toContainEqual({
+      routeId: "commercial-terms-account-agreement-new",
+      routePath: "terms/accounts/:accountId/agreements/new",
+      fileExport: "./routes/admin/account-agreement-new",
+      routeType: "route",
+      sourceContext: "commercial-terms",
+      section: "commerce",
+    });
+  });
+
   it("carries schedule create receipts into the list redirect", async () => {
     mockApi.createSchedule.mockResolvedValue(commercialTermsCommit("51"));
 
@@ -183,6 +196,46 @@ describe("commercial terms admin routes", () => {
         accountId: "seller_missing",
       }),
       params: {},
+      context: undefined,
+    } as never);
+
+    expect(response).toEqual({ error: "Account ID must start with acc_." });
+    expect(mockApi.createAgreement).not.toHaveBeenCalled();
+  });
+
+  it("loads account-scoped agreement creation from the route account id", async () => {
+    await expect(
+      accountAgreementNewLoader({
+        request: new Request("https://admin.chasesets.com/commerce/terms/accounts/acc_seller/agreements/new"),
+        params: { accountId: "acc_seller" },
+        context: undefined,
+      } as never),
+    ).resolves.toEqual({ accountId: "acc_seller" });
+  });
+
+  it("creates account-scoped agreements from the route account id", async () => {
+    mockApi.createAgreement.mockResolvedValue(commercialTermsCommit("58"));
+
+    const response = (await accountAgreementNewAction({
+      request: formRequest("/commerce/terms/accounts/acc_route/agreements/new", {
+        ...agreementForm(),
+        accountId: "acc_tampered",
+      }),
+      params: { accountId: "acc_route" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockApi.createAgreement).toHaveBeenCalledWith(expect.objectContaining({ accountId: "acc_route" }));
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/terms/agreements?afterWrite=");
+    expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("58");
+  });
+
+  it("rejects malformed route account ids before account-scoped create requests", async () => {
+    const response = await accountAgreementNewAction({
+      request: formRequest("/commerce/terms/accounts/seller_missing/agreements/new", agreementForm()),
+      params: { accountId: "seller_missing" },
       context: undefined,
     } as never);
 
