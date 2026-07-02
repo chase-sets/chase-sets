@@ -7,16 +7,29 @@ type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
 
 const DEFAULT_BASE_URL = "/api/catalog";
 
+function apiErrorMessage(status: number, body: unknown): string {
+  if (typeof body === "object" && body !== null && "error" in body) {
+    const error = (body as Record<string, unknown>).error;
+    if (typeof error === "string" && error.trim()) {
+      return error;
+    }
+    if (typeof error === "object" && error !== null && "message" in error) {
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+    }
+  }
+
+  return `API error ${status}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(apiErrorMessage(status, body));
   }
 }
 
