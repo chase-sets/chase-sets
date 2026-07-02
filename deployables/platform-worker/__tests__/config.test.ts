@@ -637,6 +637,20 @@ describe("platform worker config", () => {
     );
   });
 
+  it("fails closed for invalid mobile messaging provider and boolean values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twillio";
+
+    expect(() => loadConfig()).toThrow("MOBILE_MESSAGING_PROVIDER must be one of: noop, twilio.");
+
+    process.env.MOBILE_MESSAGING_PROVIDER = "noop";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "enabled";
+
+    expect(() => loadConfig()).toThrow(
+      "GOOGLE_MERCHANT_SYNC_ENABLED must be a boolean value: 1, true, yes, on, 0, false, no, off.",
+    );
+  });
+
   it("fails production config when Stripe provider secrets are missing", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
@@ -751,7 +765,22 @@ describe("platform worker config", () => {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.STRIPE_CONNECT_ACCOUNTS_API = "express";
 
-    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
+    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
+  });
+
+  it("fails closed for invalid EasyPost mode", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.EASYPOST_API_KEY = "EZTK_test";
+    process.env.EASYPOST_MODE = "prod";
+
+    expect(() => loadConfig()).toThrow("EASYPOST_MODE must be one of: test, production.");
+  });
+
+  it("fails closed for invalid notification email provider", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NOTIFICATION_EMAIL_PROVIDER = "ses";
+
+    expect(() => loadConfig()).toThrow("NOTIFICATION_EMAIL_PROVIDER must be one of: noop, amazon-ses, local-capture.");
   });
 
   it("fails when Amazon SES email is selected without complete SES config", () => {

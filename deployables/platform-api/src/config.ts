@@ -22,6 +22,7 @@ import {
   loadStorageConfig,
   loadStripeProviderConfig,
   loadTcgplayerAutomationConfig,
+  resolveEnumEnv,
   resolveMobileMessagingProvider,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
@@ -73,6 +74,8 @@ export type PlatformApiCatalogAssetStorageConfig = PlatformCatalogAssetStorageCo
 export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorageConfig;
 
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
+
+const DEPLOYMENT_ENVIRONMENTS = ["production", "staging", "test", "dev", "local", "remote-dev"] as const;
 
 export type PlatformApiBaseConfig = Readonly<{
   runtimeProfile: PlatformApiRuntimeProfile;
@@ -384,7 +387,7 @@ function isPositiveNumber(value: unknown): value is number {
 function getDeploymentEnvironment() {
   const deploymentEnvironment = getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
   if (deploymentEnvironment) {
-    return deploymentEnvironment;
+    return resolveEnumEnv("DEPLOYMENT_ENVIRONMENT", deploymentEnvironment, DEPLOYMENT_ENVIRONMENTS, "dev");
   }
 
   if (process.env.NODE_ENV === "production") {

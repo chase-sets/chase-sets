@@ -326,6 +326,23 @@ describe("platform api config", () => {
     expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
   });
 
+  it("fails closed on unknown deployment environments and normalizes allowed values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "Production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+
+    expect(loadBootstrapConfig().deploymentEnvironment).toBe("production");
+
+    process.env.DEPLOYMENT_ENVIRONMENT = "prod";
+    expect(() => loadBootstrapConfig()).toThrow(
+      "DEPLOYMENT_ENVIRONMENT must be one of: production, staging, test, dev, local, remote-dev.",
+    );
+  });
+
   it("allows explicit data profile overrides", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap";
@@ -535,6 +552,21 @@ describe("platform api config", () => {
     expect(() => loadConfig()).toThrow("TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.");
   });
 
+  it("fails closed for invalid mobile messaging provider and boolean values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twillio";
+
+    expect(() => loadConfig()).toThrow("MOBILE_MESSAGING_PROVIDER must be one of: noop, twilio.");
+
+    process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
+    process.env.TWILIO_AUTH_TOKEN = "secret";
+    process.env.TWILIO_WEBHOOK_SIGNATURE_REQUIRED = "required";
+
+    expect(() => loadConfig()).toThrow(
+      "TWILIO_WEBHOOK_SIGNATURE_REQUIRED must be a boolean value: 1, true, yes, on, 0, false, no, off.",
+    );
+  });
+
   it("loads Stripe Connect money movement config from Stripe env vars", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.STRIPE_SECRET_KEY = "sk_test";
@@ -576,7 +608,7 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.STRIPE_CONNECT_ACCOUNTS_API = "express";
 
-    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
+    expect(() => loadConfig()).toThrow("STRIPE_CONNECT_ACCOUNTS_API must be one of: v1, v2.");
   });
 
   it("fails production config when Stripe payment or Connect secrets are missing", () => {
@@ -678,6 +710,14 @@ describe("platform api config", () => {
       apiBaseUrl: "https://api.easypost.test/v2",
       mode: "production",
     });
+  });
+
+  it("fails closed for invalid EasyPost mode", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.EASYPOST_API_KEY = "EZAK_test";
+    process.env.EASYPOST_MODE = "prod";
+
+    expect(() => loadConfig()).toThrow("EASYPOST_MODE must be one of: test, production.");
   });
 
   it("forces Stripe adapters and disables fake fallback in production", () => {

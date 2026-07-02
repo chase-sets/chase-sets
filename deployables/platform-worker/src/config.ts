@@ -12,6 +12,7 @@ import {
   loadPostageConfig,
   loadStripeProviderConfig,
   loadTcgplayerAutomationConfig,
+  resolveEnumEnv,
   resolveMobileMessagingProvider,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
@@ -513,11 +514,12 @@ function loadGoogleMerchantConfig(input: {
 }
 
 function resolveNotificationEmailProvider(value: string | null): PlatformWorkerNotificationEmailConfig["provider"] {
-  if (value === "amazon-ses" || value === "local-capture") {
-    return value;
-  }
-
-  return "noop";
+  return resolveEnumEnv<PlatformWorkerNotificationEmailConfig["provider"]>(
+    "NOTIFICATION_EMAIL_PROVIDER",
+    value,
+    ["noop", "amazon-ses", "local-capture"],
+    "noop",
+  );
 }
 
 function getNonNegativeNumberEnv(name: string, defaultValue: number) {

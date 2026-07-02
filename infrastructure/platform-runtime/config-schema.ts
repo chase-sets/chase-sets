@@ -65,6 +65,9 @@ export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolea
 
 export type PlatformMobileMessagingProvider = "noop" | "twilio";
 
+const BOOLEAN_TRUE_VALUES = ["1", "true", "yes", "on"] as const;
+const BOOLEAN_FALSE_VALUES = ["0", "false", "no", "off"] as const;
+
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = ["mpSearchApi", "mpApi", "infiniteApi", "mpGateway"] as const;
 
 export type PlatformTcgplayerAutomationDomainKey = (typeof TCGPLAYER_AUTOMATION_DOMAIN_KEYS)[number];
@@ -139,7 +142,34 @@ export function getBooleanEnv(name: string, defaultValue: boolean) {
     return defaultValue;
   }
 
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+  const normalized = value.toLowerCase();
+  if ((BOOLEAN_TRUE_VALUES as readonly string[]).includes(normalized)) {
+    return true;
+  }
+  if ((BOOLEAN_FALSE_VALUES as readonly string[]).includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`${name} must be a boolean value: ${[...BOOLEAN_TRUE_VALUES, ...BOOLEAN_FALSE_VALUES].join(", ")}.`);
+}
+
+export function resolveEnumEnv<T extends string>(
+  name: string,
+  value: string | null,
+  allowed: readonly T[],
+  defaultValue: T,
+): T {
+  if (!value) {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const resolved = allowed.find((allowedValue) => allowedValue.toLowerCase() === normalized);
+  if (resolved) {
+    return resolved;
+  }
+
+  throw new Error(`${name} must be one of: ${allowed.join(", ")}.`);
 }
 
 export function getOptionalCsvEnv(name: string): readonly string[] {
@@ -363,10 +393,12 @@ export function loadStripeProviderConfig(input: {
   const webhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const connectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const apiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
-  const connectAccountsApi = getOptionalEnv("STRIPE_CONNECT_ACCOUNTS_API") ?? "v2";
-  if (connectAccountsApi !== "v1" && connectAccountsApi !== "v2") {
-    throw new Error("STRIPE_CONNECT_ACCOUNTS_API must be v1 or v2.");
-  }
+  const connectAccountsApi = resolveEnumEnv<PlatformStripeConnectAccountsApi>(
+    "STRIPE_CONNECT_ACCOUNTS_API",
+    getOptionalEnv("STRIPE_CONNECT_ACCOUNTS_API"),
+    ["v1", "v2"],
+    "v2",
+  );
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
 
@@ -416,7 +448,12 @@ export function loadPostageConfig<TIncludeWebhookSecret extends boolean>(input: 
     ? (getOptionalEnv("EASYPOST_WEBHOOK_SECRET") ?? undefined)
     : undefined;
   const apiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
-  const mode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const mode = resolveEnumEnv<"test" | "production">(
+    "EASYPOST_MODE",
+    getOptionalEnv("EASYPOST_MODE"),
+    ["test", "production"],
+    "test",
+  );
 
   if (input.productionLike && !apiKey) {
     throw new Error(input.productionMissingApiKeyError);
@@ -528,7 +565,12 @@ export function describeTcgplayerAutomationConfigForLogs(config: PlatformTcgplay
 }
 
 export function resolveMobileMessagingProvider(value: string | null): PlatformMobileMessagingProvider {
-  return value === "twilio" ? "twilio" : "noop";
+  return resolveEnumEnv<PlatformMobileMessagingProvider>(
+    "MOBILE_MESSAGING_PROVIDER",
+    value,
+    ["noop", "twilio"],
+    "noop",
+  );
 }
 
 function mergeTcgplayerAutomationDomainConfigs(
