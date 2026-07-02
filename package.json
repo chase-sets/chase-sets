@@ -172,6 +172,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@react-router/dev": "^7.14.0",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -190,7 +191,6 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
-    "@react-router/dev": "^7.14.0",
     "@react-router/node": "^7.14.0",
     "@react-router/serve": "^7.14.0",
     "isbot": "^5.1.37",
