@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRestorePointName,
   createProductionDbRestorePoint,
+  parseDoctlDatabaseSummaryOutput,
   parseDoctlForkOutput,
   parseProductionDbRestorePointArgs,
 } from "./production-db-restore-point.mjs";
@@ -20,18 +21,22 @@ const baseOptions = {
 describe("production database restore point", () => {
   it("creates a DigitalOcean database fork restore point", async () => {
     const calls = [];
-    const result = await createProductionDbRestorePoint(baseOptions, async (command, args) => {
-      calls.push({ command, args });
-      return {
-        stdout: JSON.stringify([
-          {
-            id: "db-fork-1",
-            name: "cs-prod-rp-aaaaaaaa-12345-2",
-            status: "online",
-            created_at: "2026-06-28T09:31:00Z",
-          },
-        ]),
-      };
+    const result = await createProductionDbRestorePoint(baseOptions, {
+      now: () => Date.parse("2026-06-28T09:30:00.000Z"),
+      execFile: async (command, args) => {
+        calls.push({ command, args });
+        if (args[1] === "fork") {
+          return {
+            stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
+          };
+        }
+        if (args[1] === "get") {
+          return {
+            stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tonline\t2026-06-28T09:31:00Z\n",
+          };
+        }
+        throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
+      },
     });
 
     expect(result.passesRestorePointGate).toBe(true);
@@ -44,10 +49,14 @@ describe("production database restore point", () => {
           "cs-prod-rp-aaaaaaaa-12345-2",
           "--restore-from-cluster-id",
           "db-prod-1",
-          "--wait",
-          "--output",
-          "json",
+          "--format",
+          "ID,Name,Status,Created",
+          "--no-header",
         ],
+      },
+      {
+        command: "doctl",
+        args: ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
       },
     ]);
     expect(result.record).toMatchObject({
@@ -101,6 +110,192 @@ describe("production database restore point", () => {
       "stderr: Error: database fork quota exceeded",
       'stdout: {"id":""}',
     ]);
+  });
+
+  it("fails with a typed timeout record when the fork stays unavailable", async () => {
+    const calls = [];
+    const sleeps = [];
+    let nowMs = 0;
+
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        forkTimeoutMs: 65_000,
+        forkPollIntervalMs: 30_000,
+      },
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          nowMs += ms;
+        },
+        execFile: async (command, args) => {
+          calls.push({ command, args });
+          if (args[1] === "fork") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
+            };
+          }
+          if (args[1] === "get") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tforking\t2026-06-28T09:30:01Z\n",
+            };
+          }
+          throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
+        },
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(calls.map((call) => call.args)).toEqual([
+      [
+        "databases",
+        "fork",
+        "cs-prod-rp-aaaaaaaa-12345-2",
+        "--restore-from-cluster-id",
+        "db-prod-1",
+        "--format",
+        "ID,Name,Status,Created",
+        "--no-header",
+      ],
+      ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
+    ]);
+    expect(sleeps).toEqual([30_000, 30_000, 5_000]);
+    expect(result.record).toMatchObject({
+      result: "failure",
+      restorePoint: {
+        clusterId: "db-fork-1",
+        name: "cs-prod-rp-aaaaaaaa-12345-2",
+        status: "forking",
+      },
+      failure: {
+        type: "restore-point-fork-timeout",
+        restorePointName: "cs-prod-rp-aaaaaaaa-12345-2",
+        clusterId: "db-fork-1",
+        status: "forking",
+        timeoutMs: 65_000,
+        pollIntervalMs: 30_000,
+        elapsedMs: 65_000,
+      },
+    });
+    expect(result.record.errors).toEqual([
+      "Timed out waiting for restore-point fork 'cs-prod-rp-aaaaaaaa-12345-2' to become online.",
+      "last observed cluster id: db-fork-1",
+      "last observed status: forking",
+    ]);
+  });
+
+  it("extracts the fork id from doctl timeout output and records safe status", async () => {
+    const liveForkId = "7ac42cb3-2815-4203-bed0-09ae7a1732df";
+    const calls = [];
+    const failure = new Error("Command failed: doctl databases fork");
+    failure.code = 1;
+    failure.stdout = `database couldn't enter the online state: timeout waiting for database (${liveForkId}) to enter online state\n`;
+
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        releaseCommit: "c051382bc4e02e8981b540fb97f8e9738c58dba2",
+        workflowRunId: "28617834359",
+        workflowRunAttempt: "1",
+        forkTimeoutMs: 20 * 60 * 1000,
+        forkPollIntervalMs: 30 * 1000,
+      },
+      {
+        execFile: async (command, args) => {
+          calls.push({ command, args });
+          if (args[1] === "fork") {
+            throw failure;
+          }
+          if (args[1] === "get") {
+            return {
+              stdout: `${liveForkId}\tcs-prod-rp-c051382b-28617834359-1\tforking\t2026-07-02 20:08:49 +0000 UTC\n`,
+            };
+          }
+          throw new Error(`Unexpected doctl call: ${args.join(" ")}`);
+        },
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(calls.map((call) => call.args)).toEqual([
+      [
+        "databases",
+        "fork",
+        "cs-prod-rp-c051382b-28617834359-1",
+        "--restore-from-cluster-id",
+        "db-prod-1",
+        "--format",
+        "ID,Name,Status,Created",
+        "--no-header",
+      ],
+      ["databases", "get", liveForkId, "--format", "ID,Name,Status,Created", "--no-header"],
+    ]);
+    expect(result.record).toMatchObject({
+      result: "failure",
+      restorePoint: {
+        clusterId: liveForkId,
+        name: "cs-prod-rp-c051382b-28617834359-1",
+        status: "forking",
+        createdAt: "2026-07-02 20:08:49 +0000 UTC",
+      },
+      failure: {
+        type: "restore-point-fork-timeout",
+        restorePointName: "cs-prod-rp-c051382b-28617834359-1",
+        clusterId: liveForkId,
+        status: "forking",
+        timeoutMs: 20 * 60 * 1000,
+        pollIntervalMs: 30 * 1000,
+        elapsedMs: null,
+      },
+    });
+    expect(result.record.errors).toEqual([
+      "doctl database fork failed before a restore-point cluster id was returned.",
+      "exit code: 1",
+      `stdout: database couldn't enter the online state: timeout waiting for database (${liveForkId}) to enter online state`,
+      `last observed cluster id: ${liveForkId}`,
+      "last observed status: forking",
+    ]);
+  });
+
+  it("records redacted diagnostics when status polling fails", async () => {
+    const failure = new Error("Command failed: doctl databases get");
+    failure.code = 1;
+    failure.stderr = "Error: access_token=super-secret-token expired\n";
+
+    const result = await createProductionDbRestorePoint(
+      {
+        ...baseOptions,
+        forkTimeoutMs: 65_000,
+        forkPollIntervalMs: 30_000,
+      },
+      {
+        now: () => 0,
+        execFile: async (_command, args) => {
+          if (args[1] === "fork") {
+            return {
+              stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
+            };
+          }
+          throw failure;
+        },
+      },
+    );
+
+    expect(result.passesRestorePointGate).toBe(false);
+    expect(result.record.restorePoint).toMatchObject({
+      clusterId: "db-fork-1",
+      name: "cs-prod-rp-aaaaaaaa-12345-2",
+      status: "status-check-failed",
+    });
+    expect(result.record.errors).toEqual([
+      "doctl database fork status check failed before the restore-point cluster became available.",
+      "exit code: 1",
+      "stderr: Error: access_token=[redacted] expired",
+    ]);
+    expect(JSON.stringify(result.record)).not.toContain("super-secret-token");
   });
 
   it("allows restore-point bypass only for audited emergency releases", async () => {
@@ -206,16 +401,34 @@ describe("production database restore point", () => {
     expect(parseDoctlForkOutput('{"databases":[{"id":"db_3"}]}')).toEqual({ id: "db_3" });
   });
 
-  it("parses CLI and environment options", () => {
-    const options = parseProductionDbRestorePointArgs(["--source-cluster-id", "db_cli"], {
-      PRODUCTION_DB_RESTORE_POINT_OUT: "artifacts/release-health/restore.json",
-      GITHUB_OUTPUT: "github-output.txt",
-      RELEASE_COMMIT: "b".repeat(40),
-      GITHUB_RUN_ID: "456",
-      GITHUB_RUN_ATTEMPT: "1",
-      PRODUCTION_DB_RESTORE_POINT_SKIP: "true",
-      PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: "pitr",
+  it("parses allowlisted doctl database summary output", () => {
+    expect(
+      parseDoctlDatabaseSummaryOutput(
+        "7ac42cb3-2815-4203-bed0-09ae7a1732df\tcs-prod-rp-c051382b-28617834359-1\tforking\t2026-07-02 20:08:49 +0000 UTC\n",
+      ),
+    ).toEqual({
+      id: "7ac42cb3-2815-4203-bed0-09ae7a1732df",
+      name: "cs-prod-rp-c051382b-28617834359-1",
+      status: "forking",
+      created_at: "2026-07-02 20:08:49 +0000 UTC",
     });
+  });
+
+  it("parses CLI and environment options", () => {
+    const options = parseProductionDbRestorePointArgs(
+      ["--source-cluster-id", "db_cli", "--fork-timeout-seconds", "90", "--fork-poll-seconds", "5"],
+      {
+        PRODUCTION_DB_RESTORE_POINT_OUT: "artifacts/release-health/restore.json",
+        GITHUB_OUTPUT: "github-output.txt",
+        RELEASE_COMMIT: "b".repeat(40),
+        GITHUB_RUN_ID: "456",
+        GITHUB_RUN_ATTEMPT: "1",
+        PRODUCTION_DB_RESTORE_POINT_SKIP: "true",
+        PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: "pitr",
+        PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_SECONDS: "1200",
+        PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS: "30",
+      },
+    );
 
     expect(options).toMatchObject({
       outPath: "artifacts/release-health/restore.json",
@@ -226,6 +439,8 @@ describe("production database restore point", () => {
       workflowRunAttempt: "1",
       skip: true,
       skipReason: "pitr",
+      forkTimeoutMs: 90_000,
+      forkPollIntervalMs: 5_000,
     });
   });
 
