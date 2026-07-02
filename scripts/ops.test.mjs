@@ -1,14 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { SUBCOMMANDS, parseOpsArgs, renderHelp } from "./ops.mjs";
+import { ROOT_SCRIPT_COMMANDS, SUBCOMMANDS, parseOpsArgs, renderHelp } from "./ops.mjs";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = dirname(scriptsDir);
 const opsPath = join(scriptsDir, "ops.mjs");
+const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 
 function runOps(args) {
   return spawnSync(process.execPath, [opsPath, ...args], { encoding: "utf8" });
@@ -33,6 +36,16 @@ describe("ops CLI subcommand table", () => {
     const help = renderHelp();
     for (const name of Object.keys(SUBCOMMANDS)) {
       expect(help).toContain(name);
+    }
+  });
+
+  it("lists discoverable root scripts that exist in package.json", () => {
+    const help = renderHelp();
+    for (const [name, description] of Object.entries(ROOT_SCRIPT_COMMANDS)) {
+      expect(packageJson.scripts[name], `${name} must exist in package.json`).toBeTruthy();
+      expect(description.trim().length, `${name} description must not be empty`).toBeGreaterThan(0);
+      expect(help).toContain(`pnpm run ${name}`);
+      expect(help).toContain(description);
     }
   });
 });
