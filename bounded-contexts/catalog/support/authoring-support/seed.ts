@@ -29,6 +29,7 @@ import { seedDisplayTemplates } from "../../features/display-templates/api/seed"
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
+import { seedProductContentConfiguration, seedProductContentScenario } from "../../features/product-contents/api/seed";
 import {
   seedLorcanaReferenceData,
   seedMagicReferenceData,
@@ -94,6 +95,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
     await seedOnePieceCategories(services);
     await seedLorcanaCategories(services);
     await seedDisplayTemplates(services);
+    await seedProductContentConfiguration(services);
     return {
       ...staticCatalogIntegrationIds(),
       fields,
@@ -109,6 +111,7 @@ export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalP
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
   await seedDisplayTemplates(services);
+  await seedProductContentConfiguration(services);
 
   return {
     dimensions,
@@ -124,12 +127,14 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_items")) {
-    console.log("Catalog scenario items already exist. Skipping scenario seed.");
+    console.log("Catalog scenario items already exist. Reconciling Product Contents scenario.");
+    await seedProductContentScenario(services);
     return;
   }
 
   console.log("Seeding non-production Catalog scenario items...");
   await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
+  await seedProductContentScenario(services);
 }
 
 type CatalogIntegrationIds = Readonly<{

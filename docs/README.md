@@ -12,6 +12,7 @@ Documentation is organized by lifecycle:
 Bounded-context behavior lives with each context under `bounded-contexts/<context>/`. Start at the [Bounded Context Map](../bounded-contexts/README.md) and each context's `README.md` and `docs/`. Context-owned deep dives are intentionally found through their owning context rather than re-listed here.
 
 Catalog Product Contents is documented with the Catalog context in [Product Contents Contract](../bounded-contexts/catalog/docs/product-contents-contract.md).
+Product Contents rollout QA is tracked in [Product Contents QA/UAT](./runbooks/product-contents-qa-uat.md).
 
 Completed milestone evidence, signoff checklists, and audits live in the closing GitHub issue/PR and git history, not in this folder.
 
@@ -107,6 +108,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage policy administration, label provider configuration, signature enforcement, and label smoke checks.
 - [Playwright E2E](./runbooks/playwright-e2e.md): e2e charter (what the browser layer owns vs vitest), suite coverage, local setup, and sandbox-aware run commands.
+- [Product Contents QA/UAT](./runbooks/product-contents-qa-uat.md): seeded scenario, API, MCP, Admin, and Marketplace rollout evidence checklist.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
