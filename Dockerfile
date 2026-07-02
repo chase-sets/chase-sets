@@ -23,24 +23,27 @@ RUN npm install -g pnpm@11.0.9
 # NODE_PATH preamble that exposes pnpm's hoisted node_modules/.pnpm/node_modules
 # directory, which broke sharp's platform binary resolution at runtime
 # (issue #1417).
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY --from=manifests /manifests ./
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --chown=node:node --from=manifests /manifests ./
 RUN pnpm install --frozen-lockfile
 
-COPY tsconfig.json tsconfig.base.json tsconfig.vitest.json tailwind.config.ts ./
-COPY scripts ./scripts
-COPY contracts ./contracts
-COPY infrastructure ./infrastructure
-COPY packages ./packages
-COPY bounded-contexts ./bounded-contexts
-COPY deployables ./deployables
+COPY --chown=node:node tsconfig.json tsconfig.base.json tsconfig.vitest.json tailwind.config.ts ./
+COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node contracts ./contracts
+COPY --chown=node:node infrastructure ./infrastructure
+COPY --chown=node:node packages ./packages
+COPY --chown=node:node bounded-contexts ./bounded-contexts
+COPY --chown=node:node deployables ./deployables
 
 RUN pnpm run sync:workspace-metadata \
   && pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
   && pnpm --filter @chase-sets/app-admin-web run build
 
+ENV HOME=/home/node
 ENV NODE_ENV=production
 EXPOSE 8080
+
+USER node
 
 CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]

@@ -1632,11 +1632,24 @@ describe("DigitalOcean platform configuration", () => {
     // resolution at runtime (issue #1417). The dependency layer must stay a
     // real install keyed on manifests only, ahead of the source copies.
     expect(dockerfile).not.toContain("RUN pnpm fetch");
-    expect(dockerfile).toContain("COPY --from=manifests /manifests ./");
+    expect(dockerfile).toContain("COPY --chown=node:node --from=manifests /manifests ./");
     expect(dockerfile).toContain("RUN pnpm install --frozen-lockfile");
     expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
-      dockerfile.indexOf("COPY bounded-contexts ./bounded-contexts"),
+      dockerfile.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
+  });
+
+  it("runs the platform release image as the non-root node user", () => {
+    const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+
+    expect(dockerfile).toContain("ENV HOME=/home/node");
+    expect(dockerfile).toContain("COPY --chown=node:node deployables ./deployables");
+    expect(dockerfile).toContain("USER node");
+    expect(dockerfile.indexOf("USER node")).toBeGreaterThan(dockerfile.indexOf("RUN pnpm run sync:workspace-metadata"));
+    expect(dockerfile.indexOf("USER node")).toBeLessThan(
+      dockerfile.indexOf('CMD ["pnpm", "--filter", "@chase-sets/app-public-web", "run", "start"]'),
+    );
+    expect(dockerfile).not.toContain("chmod 777");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
