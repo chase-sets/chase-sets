@@ -63,12 +63,19 @@ export async function createDigitalOceanDatabaseFork(options, exec) {
   const args = ["databases", "fork", options.forkName, "--restore-from-cluster-id", options.sourceClusterId];
   if (options.wait !== false) {
     args.push("--wait", "--output", "json");
-  } else {
-    args.push("--format", SAFE_DATABASE_SUMMARY_FORMAT, "--no-header");
   }
   const { stdout } = await exec(options.doctlPath ?? "doctl", args, {
     maxBuffer: 1024 * 1024 * 4,
   });
+  if (options.wait === false) {
+    return await readDigitalOceanDatabaseClusterByName(
+      {
+        doctlPath: options.doctlPath,
+        forkName: options.forkName,
+      },
+      exec,
+    );
+  }
   const fork = parseDoctlDatabaseSummaryOutput(stdout);
   return summarizeDigitalOceanDatabase(fork, options.forkName);
 }
@@ -83,6 +90,27 @@ export async function readDigitalOceanDatabaseCluster(options, exec) {
   );
   const summary = summarizeDigitalOceanDatabase(parseDoctlDatabaseSummaryOutput(stdout), options.forkName);
   return { ...summary, clusterId: summary.clusterId ?? options.clusterId };
+}
+
+export async function readDigitalOceanDatabaseClusterByName(options, exec) {
+  const { stdout } = await exec(
+    options.doctlPath ?? "doctl",
+    ["databases", "list", "--format", SAFE_DATABASE_SUMMARY_FORMAT, "--no-header"],
+    {
+      maxBuffer: 1024 * 1024 * 4,
+    },
+  );
+  const summaries = parseDoctlDatabaseSummaryListOutput(stdout).map((database) =>
+    summarizeDigitalOceanDatabase(database, options.forkName),
+  );
+  return (
+    summaries.find((database) => database.name === options.forkName) ?? {
+      clusterId: null,
+      name: options.forkName,
+      status: null,
+      createdAt: null,
+    }
+  );
 }
 
 export async function waitForDigitalOceanDatabaseForkAvailability(options, dependencies = {}) {
@@ -436,18 +464,37 @@ export function parseDoctlForkOutput(stdout) {
 }
 
 export function parseDoctlDatabaseSummaryOutput(stdout) {
+  return parseDoctlDatabaseSummaryListOutput(stdout)[0] ?? {};
+}
+
+export function parseDoctlDatabaseSummaryListOutput(stdout) {
   const value = String(stdout ?? "").trim();
   if (!value) {
-    return {};
+    return [];
   }
   if (value.startsWith("{") || value.startsWith("[")) {
-    return parseDoctlForkOutput(value);
+    const parsed = JSON.parse(value || "{}");
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (Array.isArray(parsed.databases)) {
+      return parsed.databases;
+    }
+    if (parsed.database && typeof parsed.database === "object") {
+      return [parsed.database];
+    }
+    return [parsed];
   }
 
-  const line = value
+  return value
     .split(/\r?\n/)
     .map((entry) => entry.trim())
-    .find(Boolean);
+    .filter(Boolean)
+    .map(parseDoctlDatabaseSummaryLine)
+    .filter((entry) => Object.keys(entry).length > 0);
+}
+
+function parseDoctlDatabaseSummaryLine(line) {
   if (!line) {
     return {};
   }
