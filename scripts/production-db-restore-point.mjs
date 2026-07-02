@@ -10,6 +10,13 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 const execFile = promisify(execFileCallback);
 
 export const PRODUCTION_DB_RESTORE_POINT_VERSION = "production-db-restore-point/v1";
+export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS = 20 * 60 * 1000;
+export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS = 30 * 1000;
+
+const DATABASE_AVAILABLE_STATUSES = new Set(["online"]);
+const DATABASE_FAILURE_STATUSES = new Set(["error", "errored", "failed"]);
+const SAFE_DATABASE_SUMMARY_FORMAT = "ID,Name,Status,Created";
+const DIGITALOCEAN_DATABASE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
 export function parseProductionDbRestorePointArgs(argv, env = process.env) {
   return {
@@ -30,6 +37,18 @@ export function parseProductionDbRestorePointArgs(argv, env = process.env) {
       "PRODUCTION_DB_RESTORE_POINT_SKIP",
     ),
     skipReason: readOption(argv, "--skip-reason") ?? readEnv("PRODUCTION_DB_RESTORE_POINT_SKIP_REASON", env),
+    forkTimeoutMs: parsePositiveSecondsAsMs(
+      readOption(argv, "--fork-timeout-seconds") ??
+        readEnv("PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_SECONDS", env) ??
+        String(DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS / 1000),
+      "PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_SECONDS",
+    ),
+    forkPollIntervalMs: parsePositiveSecondsAsMs(
+      readOption(argv, "--fork-poll-seconds") ??
+        readEnv("PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS", env) ??
+        String(DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS / 1000),
+      "PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS",
+    ),
     doctlPath: readOption(argv, "--doctl") ?? readEnv("DOCTL_PATH", env) ?? "doctl",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
@@ -41,31 +60,82 @@ export function buildRestorePointName(input) {
 }
 
 export async function createDigitalOceanDatabaseFork(options, exec) {
-  const args = [
-    "databases",
-    "fork",
-    options.forkName,
-    "--restore-from-cluster-id",
-    options.sourceClusterId,
-    "--wait",
-    "--output",
-    "json",
-  ];
+  const args = ["databases", "fork", options.forkName, "--restore-from-cluster-id", options.sourceClusterId];
+  if (options.wait !== false) {
+    args.push("--wait", "--output", "json");
+  } else {
+    args.push("--format", SAFE_DATABASE_SUMMARY_FORMAT, "--no-header");
+  }
   const { stdout } = await exec(options.doctlPath ?? "doctl", args, {
     maxBuffer: 1024 * 1024 * 4,
   });
-  const fork = parseDoctlForkOutput(stdout);
-  return {
-    clusterId: readField(fork, "id", "ID") ?? null,
-    name: readField(fork, "name", "Name") ?? options.forkName,
-    status: readField(fork, "status", "Status") ?? null,
-    createdAt: readField(fork, "created_at", "createdAt", "CreatedAt", "Created At") ?? null,
+  const fork = parseDoctlDatabaseSummaryOutput(stdout);
+  return summarizeDigitalOceanDatabase(fork, options.forkName);
+}
+
+export async function readDigitalOceanDatabaseCluster(options, exec) {
+  const { stdout } = await exec(
+    options.doctlPath ?? "doctl",
+    ["databases", "get", options.clusterId, "--format", SAFE_DATABASE_SUMMARY_FORMAT, "--no-header"],
+    {
+      maxBuffer: 1024 * 1024 * 4,
+    },
+  );
+  const summary = summarizeDigitalOceanDatabase(parseDoctlDatabaseSummaryOutput(stdout), options.forkName);
+  return { ...summary, clusterId: summary.clusterId ?? options.clusterId };
+}
+
+export async function waitForDigitalOceanDatabaseForkAvailability(options, dependencies = {}) {
+  const exec = dependencies.execFile ?? execFile;
+  const now = dependencies.now ?? (() => Date.now());
+  const delay = dependencies.sleep ?? sleep;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS;
+  const startedAtMs = now();
+  const deadlineMs = startedAtMs + timeoutMs;
+  let latest = options.initialFork ?? {
+    clusterId: options.clusterId,
+    name: options.forkName,
+    status: null,
+    createdAt: null,
   };
+
+  if (isDatabaseAvailable(latest.status)) {
+    return { outcome: "available", fork: latest, elapsedMs: 0 };
+  }
+
+  while (true) {
+    if (now() >= deadlineMs) {
+      return { outcome: "timeout", fork: latest, elapsedMs: now() - startedAtMs };
+    }
+
+    latest = await readDigitalOceanDatabaseCluster(
+      {
+        doctlPath: options.doctlPath,
+        clusterId: options.clusterId,
+        forkName: options.forkName,
+      },
+      exec,
+    );
+
+    if (isDatabaseAvailable(latest.status)) {
+      return { outcome: "available", fork: latest, elapsedMs: now() - startedAtMs };
+    }
+    if (isDatabaseFailure(latest.status)) {
+      return { outcome: "failed", fork: latest, elapsedMs: now() - startedAtMs };
+    }
+
+    const remainingMs = deadlineMs - now();
+    if (remainingMs <= 0) {
+      return { outcome: "timeout", fork: latest, elapsedMs: now() - startedAtMs };
+    }
+
+    await delay(Math.min(pollIntervalMs, remainingMs));
+  }
 }
 
 export async function runProductionDbRestorePoint(options, dependencies = {}) {
-  const exec = dependencies.execFile ?? execFile;
-  const result = await createProductionDbRestorePoint(options, exec);
+  const result = await createProductionDbRestorePoint(options, dependencies);
 
   if (options.outPath) {
     await writeJsonRecord(options.outPath, result.record);
@@ -77,7 +147,9 @@ export async function runProductionDbRestorePoint(options, dependencies = {}) {
   return result;
 }
 
-export async function createProductionDbRestorePoint(options, exec) {
+export async function createProductionDbRestorePoint(options, dependencies = {}) {
+  const normalizedDependencies = normalizeDependencies(dependencies);
+  const exec = normalizedDependencies.execFile;
   const errors = validateOptions(options);
   const baseRecord = {
     schemaVersion: PRODUCTION_DB_RESTORE_POINT_VERSION,
@@ -147,23 +219,161 @@ export async function createProductionDbRestorePoint(options, exec) {
         doctlPath: options.doctlPath,
         sourceClusterId: options.sourceClusterId,
         forkName: restorePointName,
+        wait: false,
       },
       exec,
     );
   } catch (error) {
+    const discoveredFork = await discoverForkFromCreateFailure(error, restorePointName, options.doctlPath, exec);
+    if (isDoctlForkTimeoutFailure(error)) {
+      const failure = restorePointFailure("restore-point-fork-timeout", {
+        restorePointName,
+        fork: discoveredFork,
+        timeoutMs: options.forkTimeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS,
+        pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS,
+        elapsedMs: null,
+      });
+      return {
+        record: {
+          ...baseRecord,
+          restorePoint: {
+            ...baseRecord.restorePoint,
+            clusterId: discoveredFork.clusterId,
+            name: discoveredFork.name ?? restorePointName,
+            status: discoveredFork.status ?? "unknown",
+            createdAt: discoveredFork.createdAt,
+          },
+          failure,
+          errors: [
+            ...describeDoctlFailure(error),
+            `last observed cluster id: ${discoveredFork.clusterId ?? "unknown"}`,
+            `last observed status: ${discoveredFork.status ?? "unknown"}`,
+          ],
+        },
+        passesRestorePointGate: false,
+      };
+    }
     return {
       record: {
         ...baseRecord,
         restorePoint: {
           ...baseRecord.restorePoint,
-          name: restorePointName,
+          clusterId: discoveredFork.clusterId,
+          name: discoveredFork.name ?? restorePointName,
           status: "create-failed",
+          createdAt: discoveredFork.createdAt,
         },
         errors: describeDoctlFailure(error),
       },
       passesRestorePointGate: false,
     };
   }
+
+  if (!fork.clusterId) {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          ...baseRecord.restorePoint,
+          name: fork.name ?? restorePointName,
+          status: fork.status ?? "create-failed",
+        },
+        errors: ["doctl database fork output did not include a forked cluster id."],
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
+  let availability;
+  try {
+    availability = await waitForDigitalOceanDatabaseForkAvailability(
+      {
+        doctlPath: options.doctlPath,
+        clusterId: fork.clusterId,
+        forkName: restorePointName,
+        initialFork: fork,
+        timeoutMs: options.forkTimeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS,
+        pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS,
+      },
+      normalizedDependencies,
+    );
+  } catch (error) {
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          type: "digitalocean-database-fork",
+          clusterId: fork.clusterId,
+          name: fork.name ?? restorePointName,
+          status: "status-check-failed",
+          createdAt: fork.createdAt,
+        },
+        errors: describeDoctlFailure(
+          error,
+          "doctl database fork status check failed before the restore-point cluster became available.",
+        ),
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
+  if (availability.outcome === "timeout") {
+    const latest = availability.fork ?? fork;
+    const failure = restorePointFailure("restore-point-fork-timeout", {
+      restorePointName,
+      fork: latest,
+      timeoutMs: options.forkTimeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS,
+      pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS,
+      elapsedMs: availability.elapsedMs,
+    });
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          type: "digitalocean-database-fork",
+          clusterId: latest.clusterId,
+          name: latest.name ?? restorePointName,
+          status: latest.status,
+          createdAt: latest.createdAt,
+        },
+        failure,
+        errors: [
+          `Timed out waiting for restore-point fork '${restorePointName}' to become online.`,
+          `last observed cluster id: ${latest.clusterId ?? "unknown"}`,
+          `last observed status: ${latest.status ?? "unknown"}`,
+        ],
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
+  if (availability.outcome === "failed") {
+    const latest = availability.fork ?? fork;
+    const failure = restorePointFailure("restore-point-fork-failed-status", {
+      restorePointName,
+      fork: latest,
+      timeoutMs: options.forkTimeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS,
+      pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS,
+      elapsedMs: availability.elapsedMs,
+    });
+    return {
+      record: {
+        ...baseRecord,
+        restorePoint: {
+          type: "digitalocean-database-fork",
+          clusterId: latest.clusterId,
+          name: latest.name ?? restorePointName,
+          status: latest.status,
+          createdAt: latest.createdAt,
+        },
+        failure,
+        errors: [`Restore-point fork '${restorePointName}' entered failed status '${latest.status ?? "unknown"}'.`],
+      },
+      passesRestorePointGate: false,
+    };
+  }
+
+  fork = availability.fork;
   const record = {
     ...baseRecord,
     restorePoint: {
@@ -185,8 +395,11 @@ export async function createProductionDbRestorePoint(options, exec) {
   return { record, passesRestorePointGate: record.errors.length === 0 };
 }
 
-function describeDoctlFailure(error) {
-  const details = ["doctl database fork failed before a restore-point cluster id was returned."];
+function describeDoctlFailure(
+  error,
+  summary = "doctl database fork failed before a restore-point cluster id was returned.",
+) {
+  const details = [summary];
   const code = readErrorField(error, "code");
   const signal = readErrorField(error, "signal");
   const stderr = diagnosticSnippet(readErrorField(error, "stderr"));
@@ -222,6 +435,45 @@ export function parseDoctlForkOutput(stdout) {
   return parsed;
 }
 
+export function parseDoctlDatabaseSummaryOutput(stdout) {
+  const value = String(stdout ?? "").trim();
+  if (!value) {
+    return {};
+  }
+  if (value.startsWith("{") || value.startsWith("[")) {
+    return parseDoctlForkOutput(value);
+  }
+
+  const line = value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  if (!line) {
+    return {};
+  }
+
+  const tabParts = line.split(/\t+/);
+  if (tabParts.length >= 4) {
+    return {
+      id: tabParts[0],
+      name: tabParts[1],
+      status: tabParts[2],
+      created_at: tabParts.slice(3).join(" "),
+    };
+  }
+
+  const match = /^(\S+)\s+(\S+)\s+(\S+)\s+(.+)$/.exec(line);
+  if (!match) {
+    return {};
+  }
+  return {
+    id: match[1],
+    name: match[2],
+    status: match[3],
+    created_at: match[4],
+  };
+}
+
 function validateOptions(options) {
   const errors = [];
   if (!isCommitSha(options.releaseCommit)) {
@@ -247,6 +499,12 @@ function validateOptions(options) {
   }
   if (options.skip && !isNonEmptyString(options.skipReason)) {
     errors.push("PRODUCTION_DB_RESTORE_POINT_SKIP requires PRODUCTION_DB_RESTORE_POINT_SKIP_REASON.");
+  }
+  if (!isPositiveNumber(options.forkTimeoutMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS)) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_SECONDS must be greater than zero.");
+  }
+  if (!isPositiveNumber(options.forkPollIntervalMs ?? DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS)) {
+    errors.push("PRODUCTION_DB_RESTORE_POINT_FORK_POLL_SECONDS must be greater than zero.");
   }
   return errors;
 }
@@ -278,6 +536,15 @@ function readField(record, ...names) {
   return null;
 }
 
+function summarizeDigitalOceanDatabase(database, fallbackName) {
+  return {
+    clusterId: readField(database, "id", "ID") ?? null,
+    name: readField(database, "name", "Name") ?? fallbackName,
+    status: readField(database, "status", "Status") ?? null,
+    createdAt: readField(database, "created_at", "createdAt", "CreatedAt", "Created At") ?? null,
+  };
+}
+
 function readErrorField(error, fieldName) {
   if (typeof error === "object" && error !== null && fieldName in error) {
     const value = error[fieldName];
@@ -293,7 +560,58 @@ function diagnosticSnippet(value) {
     return null;
   }
 
-  return value.replace(/\s+/g, " ").trim().slice(0, 1000);
+  return redactDiagnostic(value).replace(/\s+/g, " ").trim().slice(0, 1000);
+}
+
+async function discoverForkFromCreateFailure(error, forkName, doctlPath, exec) {
+  const text = [
+    readErrorField(error, "stdout"),
+    readErrorField(error, "stderr"),
+    error instanceof Error ? error.message : "",
+  ]
+    .filter(isNonEmptyString)
+    .join("\n");
+  const clusterId = DIGITALOCEAN_DATABASE_ID_PATTERN.exec(text)?.[0] ?? null;
+  const discovered = {
+    clusterId,
+    name: forkName,
+    status: inferDatabaseStatus(text),
+    createdAt: null,
+  };
+  if (!clusterId) {
+    return discovered;
+  }
+
+  try {
+    return await readDigitalOceanDatabaseCluster({ doctlPath, clusterId, forkName }, exec);
+  } catch {
+    return discovered;
+  }
+}
+
+function isDoctlForkTimeoutFailure(error) {
+  const text = [
+    readErrorField(error, "stdout"),
+    readErrorField(error, "stderr"),
+    error instanceof Error ? error.message : "",
+  ]
+    .filter(isNonEmptyString)
+    .join("\n");
+  return /timeout waiting for database/i.test(text) || /couldn'?t enter the online state/i.test(text);
+}
+
+function inferDatabaseStatus(text) {
+  const normalized = String(text ?? "").toLowerCase();
+  if (/\bforking\b/.test(normalized)) {
+    return "forking";
+  }
+  if (/\bcreating\b/.test(normalized)) {
+    return "creating";
+  }
+  if (/\bonline\b/.test(normalized)) {
+    return "online";
+  }
+  return null;
 }
 
 function parseBoolean(value, name) {
@@ -307,6 +625,75 @@ function parseBoolean(value, name) {
     return false;
   }
   throw new Error(`${name} must be true or false.`);
+}
+
+function parsePositiveSecondsAsMs(value, name) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be greater than zero.`);
+  }
+  return parsed * 1000;
+}
+
+function normalizeDependencies(dependencies) {
+  if (typeof dependencies === "function") {
+    return {
+      execFile: dependencies,
+      now: () => Date.now(),
+      sleep,
+    };
+  }
+  return {
+    execFile: dependencies.execFile ?? execFile,
+    now: dependencies.now ?? (() => Date.now()),
+    sleep: dependencies.sleep ?? sleep,
+  };
+}
+
+function restorePointFailure(type, input) {
+  return {
+    type,
+    restorePointName: input.restorePointName,
+    clusterId: input.fork?.clusterId ?? null,
+    status: input.fork?.status ?? null,
+    timeoutMs: input.timeoutMs,
+    pollIntervalMs: input.pollIntervalMs,
+    elapsedMs: input.elapsedMs,
+  };
+}
+
+function isDatabaseAvailable(status) {
+  return DATABASE_AVAILABLE_STATUSES.has(
+    String(status ?? "")
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+function isDatabaseFailure(status) {
+  return DATABASE_FAILURE_STATUSES.has(
+    String(status ?? "")
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+function isPositiveNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function redactDiagnostic(value) {
+  return String(value)
+    .replace(/(postgres(?:ql)?:\/\/[^:\s/@]+:)[^@\s]+(@)/gi, "$1[redacted]$2")
+    .replace(/([?&](?:password|pass|token|access_token|secret|api_key)=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/("(?:password|token|secret|access_token|api_key)"\s*:\s*")[^"]+"/gi, '$1[redacted]"')
+    .replace(/\b(password|token|secret|access[_-]?token|api[_-]?key)\b\s*[:=]\s*[^\s,}]+/gi, "$1=[redacted]");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function emptyToNull(value) {
