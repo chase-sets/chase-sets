@@ -3134,6 +3134,7 @@ export function createSourceObservationRuntime(
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
       .filter((job) => jobMatchesContext(job, input.context))
       .map(toSourceObservationIntegrationJob)
+      .filter((job) => reusableActiveIntegrationJobOperatorStatuses.has(job.operatorStatus))
       .find(
         (job) =>
           JSON.stringify(job.scope) === JSON.stringify(scope) &&
@@ -7749,6 +7750,11 @@ function integrationJobOperatorStatus(
 
   return job.status;
 }
+
+const reusableActiveIntegrationJobOperatorStatuses = new Set<SourceObservationIntegrationJobOperatorStatus>([
+  "queued",
+  "running",
+]);
 
 function integrationJobCompletedOperatorStatus(
   job: SourceObservationIntegrationDurableJobRecord,

@@ -46,6 +46,61 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.activeLookupValues[0]).toEqual(["import"]);
   });
 
+  it("does not reuse a stale active provider integration job for a fresh import command", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:20:00.000Z"));
+    try {
+      const harness = createIntegrationJobDedupeHarness({
+        existingJob: {
+          ...integrationJobRow({
+            jobId: "job_stale_existing",
+            action: "import",
+            scope: { provider: "tcgdex", language: "en" },
+            profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+            eventContext: context,
+            progress: {
+              phase: "processing",
+              completed: 0,
+              total: 1,
+              currentName: "Base Set",
+              status: null,
+            },
+          }),
+          status: "running",
+          claim_owner_id: "worker-stopped",
+          claimed_until: "2026-05-28T00:10:00.000Z",
+        },
+      });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+      );
+
+      const job = await services.enqueueIntegrationJob({
+        action: "import",
+        scope: { provider: "tcgdex", language: "en", seriesId: undefined, setId: undefined },
+        context,
+      });
+
+      expect(job.jobId).not.toBe("job_stale_existing");
+      expect(job.status).toBe("queued");
+      expect(harness.insertedJobs).toHaveLength(1);
+      expect(harness.insertedJobs[0]).toMatchObject({
+        job_kind: "import",
+        payload: expect.objectContaining({
+          action: "import",
+          scope: {
+            provider: "tcgdex",
+            language: "en",
+          },
+        }),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects production import jobs for explicitly selected inactive provider profile versions before enqueue", async () => {
     const harness = createIntegrationJobDedupeHarness();
     const services = createSourceObservationRuntime(
