@@ -73,6 +73,12 @@ export function AgreementListPage({
               <TextInput
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")}
                 name="accountId"
+                description={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.description")}
+                pattern="acc_.*"
+                placeholder={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.placeholder")}
+                title={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.validation")}
+                autoComplete="off"
+                spellCheck={false}
                 required
               />
               <NumberInput

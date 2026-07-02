@@ -40,6 +40,10 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.agreements.ui.agreementDetailPage.unknown": "Unknown",
   "commercialTerms.features.agreements.ui.agreementDetailPage.updated.at": "Updated At: ",
   "commercialTerms.features.agreements.ui.agreementListPage.account.id": "Account ID",
+  "commercialTerms.features.agreements.ui.agreementListPage.account.id.description":
+    "Enter the exact account ID beginning with acc_.",
+  "commercialTerms.features.agreements.ui.agreementListPage.account.id.placeholder": "acc_...",
+  "commercialTerms.features.agreements.ui.agreementListPage.account.id.validation": "Account ID must start with acc_.",
   "commercialTerms.features.agreements.ui.agreementListPage.actions": "Actions",
   "commercialTerms.features.agreements.ui.agreementListPage.active": "Active",
   "commercialTerms.features.agreements.ui.agreementListPage.admin": "Admin",

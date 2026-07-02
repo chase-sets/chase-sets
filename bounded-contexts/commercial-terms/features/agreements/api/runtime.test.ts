@@ -68,6 +68,37 @@ function createCheckpointStore(): ProjectionCheckpointStore {
 }
 
 describe("commercial terms agreement runtime", () => {
+  it("rejects malformed account ids before account existence resolution or writes", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const runtime = createAgreementRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.createAgreement(
+        {
+          label: "Preferred",
+          accountId: "seller_missing",
+          marketplaceSalesFeePercentageBps: 550,
+          marketplaceSalesFeeFixedAmount: "0.00",
+          shippingAllowancePercentageBps: 700,
+          status: "active",
+          effectiveFrom: "2026-05-01T00:00:00.000Z",
+          effectiveUntil: null,
+          createdByUserId: "usr_admin",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Account ID must start with acc_.");
+    expect(db.query).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(0);
+  });
+
   it("rejects agreement creation for accounts that are not available in commercial terms", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {
@@ -95,6 +126,9 @@ describe("commercial terms agreement runtime", () => {
         context,
       ),
     ).rejects.toThrow("Account acc_missing is not available for commercial terms.");
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("FROM commercial_terms_account_pages"), [
+      "acc_missing",
+    ]);
     expect(allEvents).toHaveLength(0);
   });
 
