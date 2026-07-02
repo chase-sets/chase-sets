@@ -7,7 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeEvidenceType,
@@ -62,6 +62,15 @@ export type SupportOrderSource = Readonly<{
   status: string;
   total_amount: string;
 }>;
+
+function normalizeOrderId(value: string): OrderId {
+  const orderId = normalizeRequiredText(value, "Order is required.");
+  try {
+    return parseTypedId(orderId, "ord");
+  } catch {
+    throw new SupportDomainError("Expected an order ID starting with ord_.");
+  }
+}
 
 export type SupportRequestServices = Readonly<{
   commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
@@ -229,7 +238,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     commandHandler,
     listFlowDefinitions: () => supportFlowCatalog,
     openSupportRequest: async (params, context) => {
-      const orderId = normalizeRequiredText(params.orderId, "Order is required.");
+      const orderId = normalizeOrderId(params.orderId);
       const order = await getOrderSource(deps.db, orderId);
       if (!order) {
         throw new SupportDomainError("Order not found for support.");

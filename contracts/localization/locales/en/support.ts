@@ -27,6 +27,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.open.description":
     "Start a structured support request from the order, role, and issue type so deadlines, evidence, and money holds can be tracked.",
   "support.features.supportRequests.ui.supportRequestListPage.open.order": "Order ID",
+  "support.features.supportRequests.ui.supportRequestListPage.open.order.hint": "Enter an order ID starting with ord_.",
   "support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder": "ord_...",
   "support.features.supportRequests.ui.supportRequestListPage.open.role": "Opening as",
   "support.features.supportRequests.ui.supportRequestListPage.open.role.buyer": "Buyer",
