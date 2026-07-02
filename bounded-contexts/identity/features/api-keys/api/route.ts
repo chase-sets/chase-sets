@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ApiKeyId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
@@ -26,7 +26,17 @@ export type ApiKeyRouteServices = ApiKeyServices &
   Readonly<{
     db: PgQueryable;
     auth: IdentitySecretAdapters;
+    getUser: (userId: string) => Promise<unknown | null>;
   }>;
+
+function badRequest(message: string) {
+  return {
+    error: {
+      code: "validation_error",
+      message,
+    },
+  };
+}
 
 export function apiKeyRoutes(services: ApiKeyRouteServices) {
   const app = new Hono<IdentityApiEnv>();
@@ -34,9 +44,21 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
   app.post("/", async (c) => {
     const body = await c.req.json();
     const actor = c.var.actor;
-    const userId = String(body.userId ?? "") as UserId;
+    let userId: UserId;
+    try {
+      userId = parseTypedId(String(body.userId ?? "").trim(), "usr");
+    } catch {
+      return c.json(badRequest(t("identity.features.apiKeys.api.route.user.id.invalid")), 400);
+    }
     if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY && actor.userId !== userId) {
       return c.json(forbidden(), 403);
+    }
+    const user = await services.getUser(userId);
+    if (!user) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.apiKeys.api.route.user.not.found") } },
+        404,
+      );
     }
 
     const apiKeyId = createId("key") as ApiKeyId;

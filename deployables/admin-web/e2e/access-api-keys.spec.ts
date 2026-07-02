@@ -9,10 +9,6 @@ type ApiKeySnapshot = Readonly<{
   status: string;
 }>;
 
-type CurrentActorDisplay = Readonly<{
-  user: Readonly<{ user_id: string }>;
-}>;
-
 test.describe("access admin api keys", () => {
   test("operator creates, rotates, and revokes an API key @admin-access", async ({ page }) => {
     test.setTimeout(120_000);
@@ -25,9 +21,9 @@ test.describe("access admin api keys", () => {
     await expectPageOk(page, "/access/api-keys");
     await expectAdminPageReady(page, { heading: "API Keys" });
 
-    const actor = await getCurrentActorDisplay(page);
     const apiKeyName = `Admin access QA ${Date.now().toString(36)}`;
-    await page.getByRole("textbox", { name: "User" }).fill(actor.user.user_id);
+    await page.getByRole("combobox", { name: "User" }).click();
+    await page.getByRole("option").first().click();
     await page.getByRole("textbox", { name: "Name" }).fill(apiKeyName);
     await page.getByRole("button", { name: "Create" }).click();
     await expect(page).toHaveURL(/\/access\/api-keys\/key_[^/?]+(?:\?|$)/);
@@ -52,13 +48,6 @@ test.describe("access admin api keys", () => {
     await expectAdminPageReady(page, { heading: apiKeyName });
   });
 });
-
-async function getCurrentActorDisplay(page: Page) {
-  const origin = new URL(page.url()).origin;
-  const response = await page.request.get(`${origin}/api/identity/current-actor-display`);
-  expect(response.status(), "current actor display should be readable").toBe(200);
-  return (await response.json()) as CurrentActorDisplay;
-}
 
 async function waitForApiKeySnapshot(page: Page, apiKeyId: string, predicate: (snapshot: ApiKeySnapshot) => boolean) {
   const origin = new URL(page.url()).origin;

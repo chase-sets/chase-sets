@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { navigateAfterWrite, readOffsetPageParams } from "@chase-sets/platform-runtime/http";
-import type { ApiKey } from "../../support/request-support/api-client";
+import type { ApiKey, User } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { ApiKeyListPage } from "../../features/api-keys/ui/api-key-list-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -12,8 +12,11 @@ type ApiKeyMutationResult = Readonly<{ id?: unknown }>;
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const page = readOffsetPageParams(request);
-  const data = await api.listApiKeys<ListResponse<ApiKey>>(page.query);
-  return { ...data, limit: page.limit, offset: page.offset };
+  const [apiKeys, users] = await Promise.all([
+    api.listApiKeys<ListResponse<ApiKey>>(page.query),
+    api.listUsers<ListResponse<User>>("limit=500&offset=0"),
+  ]);
+  return { apiKeys: { ...apiKeys, limit: page.limit, offset: page.offset }, users: users.items };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -40,5 +43,5 @@ export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKe
 
 export default function ApiKeysRoute() {
   const data = useLoaderData<typeof loader>();
-  return <ApiKeyListPage initialData={data} />;
+  return <ApiKeyListPage initialData={data.apiKeys} users={data.users} />;
 }

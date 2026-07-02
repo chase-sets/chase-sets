@@ -28,22 +28,27 @@ describe("Identity admin list pagination routes", () => {
   });
 
   it.each([
-    ["accounts", accountsLoader, "/access/accounts?limit=25&offset=50", "/api/identity/accounts?limit=25&offset=50"],
-    ["users", usersLoader, "/access/users?limit=25&offset=50", "/api/identity/users?limit=25&offset=50"],
+    ["accounts", accountsLoader, "/access/accounts?limit=25&offset=50", ["/api/identity/accounts?limit=25&offset=50"]],
+    ["users", usersLoader, "/access/users?limit=25&offset=50", ["/api/identity/users?limit=25&offset=50"]],
     [
       "memberships",
       membershipsLoader,
       "/access/memberships?limit=25&offset=50",
-      "/api/identity/memberships?limit=25&offset=50",
+      ["/api/identity/memberships?limit=25&offset=50"],
     ],
     [
       "invitations",
       invitationsLoader,
       "/access/invitations?limit=25&offset=50",
-      "/api/identity/invitations?limit=25&offset=50",
+      ["/api/identity/invitations?limit=25&offset=50"],
     ],
-    ["api keys", apiKeysLoader, "/access/api-keys?limit=25&offset=50", "/api/identity/api-keys?limit=25&offset=50"],
-  ])("forwards URL pagination to the %s API list", async (_name, loader, routePath, expectedApiPath) => {
+    [
+      "api keys",
+      apiKeysLoader,
+      "/access/api-keys?limit=25&offset=50",
+      ["/api/identity/api-keys?limit=25&offset=50", "/api/identity/users?limit=500&offset=0"],
+    ],
+  ])("forwards URL pagination to the %s API list", async (_name, loader, routePath, expectedApiPaths) => {
     const observedUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -59,8 +64,9 @@ describe("Identity admin list pagination routes", () => {
       context: undefined,
     } as never);
 
-    expect(observedUrls).toHaveLength(1);
-    expect(new URL(observedUrls[0]!).pathname + new URL(observedUrls[0]!).search).toBe(expectedApiPath);
+    expect(observedUrls.map((url) => new URL(url).pathname + new URL(url).search).sort()).toEqual(
+      [...expectedApiPaths].sort(),
+    );
   });
 
   it("normalizes unsafe list pagination before forwarding it to Identity APIs", async () => {
