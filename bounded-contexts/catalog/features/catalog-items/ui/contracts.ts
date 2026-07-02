@@ -85,6 +85,79 @@ export interface CatalogReferenceRecordRef {
   status: string;
 }
 
+export interface ProductContentSelectedOption {
+  dimensionId: string;
+  optionId: string;
+}
+
+export interface ProductContentTypeRef {
+  content_type_id: string;
+  key: string;
+  display_name: LocalizedTextLike;
+  status: string;
+  sort_order: number;
+  discovery_search_weight: number | null;
+  updated_at: string;
+}
+
+export interface ProductContentInclusionPolicyRef {
+  inclusion_policy_id: string;
+  key: string;
+  display_name: LocalizedTextLike;
+  status: string;
+  sort_order: number;
+  updated_at: string;
+}
+
+export interface ProductContentLineDetail {
+  lineId: string;
+  containerCatalogItemId: string;
+  containerSelectedOptions: ProductContentSelectedOption[] | null;
+  containerProductId: string | null;
+  containedCatalogItemId: string | null;
+  containedSelectedOptions: ProductContentSelectedOption[] | null;
+  containedProductId: string | null;
+  quantity: number | null;
+  contentTypeId: string;
+  inclusionPolicyId: string | null;
+  provenance: Record<string, unknown>;
+  resolutionStatus: "resolved" | "unresolved";
+  targetLifecycleStatus: string | null;
+  resolvedFactHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+  updatedAt: string;
+}
+
+export interface ProductContentsResolvedSnapshot {
+  containerCatalogItemId: string;
+  containerSelectedOptions: ProductContentSelectedOption[] | null;
+  containerProductId: string | null;
+  lines: ProductContentLineDetail[];
+  resolvedFactHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}
+
+export interface ProductContentLineInput {
+  containedCatalogItemId?: string | null;
+  containedSelectedOptions?: ProductContentSelectedOption[];
+  quantity: number | null;
+  contentTypeId: string;
+  inclusionPolicyId?: string | null;
+  provenance?: Record<string, unknown>;
+}
+
+export interface ReplaceProductContentsInput {
+  containerSelectedOptions?: ProductContentSelectedOption[];
+  lines: ProductContentLineInput[];
+}
+
+type LocalizedTextLike = {
+  defaultLocale?: string;
+  values?: Record<string, string>;
+};
+
 export interface BulkPublishCandidate {
   catalog_item_id: string;
   title: string;

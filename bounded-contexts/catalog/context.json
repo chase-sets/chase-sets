@@ -744,6 +744,30 @@
       }
     },
     {
+      "id": "catalog.product-contents-api-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/product-contents/api/route.ts:DELETE /containers/:id",
+        "api-route:bounded-contexts/catalog/features/product-contents/api/route.ts:PUT /containers/:id",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:DELETE Hd5857f664c2d#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PUT H0c44af063b63#1"
+      ],
+      "visibleDestination": {
+        "routeId": "catalog-items-detail",
+        "description": "Product Contents authoring stays on the Catalog Item detail surface and returns the resolved Product Contents fact snapshot from the command runtime without waiting on the forward/reverse read-model projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The Product Contents replace and remove routes return the resolved fact built by the Product Contents runtime in the same request. The Catalog Item detail UI refreshes Product Contents rows after the authoritative command response, while the projection catches up for forward and reverse lookup rows.",
+        "tests": [
+          "bounded-contexts/catalog/features/product-contents/api/route.test.ts",
+          "bounded-contexts/catalog/features/product-contents/api/runtime.test.ts",
+          "bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "catalog.source-observation-api-command-snapshots",
       "owner": "catalog",
       "risk": "important",

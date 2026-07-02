@@ -25,6 +25,11 @@ import { sourceObservationsForProviderHref } from "./catalog-item-provenance-lin
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
 import {
   useCatalogItem,
+  useCatalogItemList,
+  useProductContentInclusionPolicies,
+  useProductContentTypes,
+  useProductContainersForContained,
+  useProductContentsForContainer,
   assignBlueprint,
   setFieldValue as apiSetFieldValue,
   clearFieldValue,
@@ -43,11 +48,19 @@ import {
   linkExternalProductReference,
   unlinkExternalCatalogItemReference,
   unlinkExternalProductReference,
+  replaceProductContents,
 } from "./use-catalog-items";
 import { useFieldList } from "../../fields/ui/use-fields";
 import type { ReferenceRecord } from "../../reference-data/ui/contracts";
 import { useReferenceRecordList } from "../../reference-data/ui/use-reference-data";
-import type { CatalogItemImageFallback, CatalogReferenceRecordRef } from "./contracts";
+import type {
+  CatalogItemImageFallback,
+  CatalogItemListItem,
+  CatalogReferenceRecordRef,
+  ProductContentLineDetail,
+  ProductContentLineInput,
+  ProductContentSelectedOption,
+} from "./contracts";
 import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
 
 function getTransitions(status: string): Transition[] {
@@ -141,6 +154,13 @@ function formatReferenceRecordLabel(record: ReferenceRecord): string {
   });
 }
 
+function formatCatalogItemOption(item: CatalogItemListItem): string {
+  return t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.option", {
+    title: item.title,
+    id: item.catalog_item_id,
+  });
+}
+
 function parseFieldValueInput(value: string): unknown {
   const trimmed = value.trim();
 
@@ -157,6 +177,53 @@ function parseFieldValueInput(value: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function localizedDisplayName(value: unknown): string {
+  if (!isRecord(value)) {
+    return "";
+  }
+  const values = isRecord(value.values) ? value.values : {};
+  const defaultLocale = typeof value.defaultLocale === "string" ? value.defaultLocale : "en";
+  return String(values.en ?? values[defaultLocale] ?? Object.values(values)[0] ?? "");
+}
+
+function formatSelectedOptions(options: readonly ProductContentSelectedOption[] | null | undefined): string {
+  if (!options || options.length === 0) {
+    return t("catalog.features.catalogItems.ui.catalogItemDetailPage.all.product.options");
+  }
+
+  return options
+    .map((option) =>
+      t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.option.reference", {
+        dimensionId: option.dimensionId,
+        optionId: option.optionId,
+      }),
+    )
+    .join(", ");
+}
+
+function parseSelectedOptionsInput(value: string): ProductContentSelectedOption[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [dimensionId = "", optionId = ""] = entry.split(":");
+      return { dimensionId: dimensionId.trim(), optionId: optionId.trim() };
+    })
+    .filter((entry) => entry.dimensionId.length > 0 && entry.optionId.length > 0);
+}
+
+function productContentLineToInput(line: ProductContentLineDetail): ProductContentLineInput {
+  return {
+    containedCatalogItemId: line.containedCatalogItemId,
+    containedSelectedOptions: line.containedSelectedOptions ?? undefined,
+    quantity: line.quantity,
+    contentTypeId: line.contentTypeId,
+    inclusionPolicyId: line.inclusionPolicyId,
+    provenance: line.provenance,
+  };
 }
 
 function formatReferenceAttributes(attributes: unknown): Array<{ key: string; value: string }> {
@@ -320,10 +387,30 @@ export function CatalogItemDetailPage({
   const [externalProviderKey, setExternalProviderKey] = useState("tcgplayer");
   const [externalKey, setExternalKey] = useState("");
   const [externalSelectedOptions, setExternalSelectedOptions] = useState("");
+  const [showAddProductContent, setShowAddProductContent] = useState(false);
+  const [productContentTypeId, setProductContentTypeId] = useState("");
+  const [productContentPolicyId, setProductContentPolicyId] = useState("");
+  const [productContentTargetItemId, setProductContentTargetItemId] = useState("");
+  const [productContentTargetOptions, setProductContentTargetOptions] = useState("");
+  const [productContentQuantity, setProductContentQuantity] = useState("1");
   const { data: fieldsData } = useFieldList("limit=500&status=active");
   const { data: referenceRecordsData } = useReferenceRecordList("limit=500&status=active");
+  const { data: productContentTypesData } = useProductContentTypes();
+  const { data: productContentPoliciesData } = useProductContentInclusionPolicies();
+  const { data: productContentItemsData } = useCatalogItemList("limit=500&status=active");
+  const { data: productContentsData, refresh: refreshProductContents } = useProductContentsForContainer(id);
+  const { data: productContainersData, refresh: refreshProductContainers } = useProductContainersForContained(id);
   const fields = fieldsData?.items ?? [];
   const referenceRecords = referenceRecordsData?.items ?? [];
+  const productContentTypes = (productContentTypesData?.items ?? []).filter((type) => type.status === "active");
+  const productContentPolicies = (productContentPoliciesData?.items ?? []).filter(
+    (policy) => policy.status === "active",
+  );
+  const productContentCatalogItems = productContentItemsData?.items ?? [];
+  const productContents = productContentsData?.items ?? [];
+  const productContainers = productContainersData?.items ?? [];
+  const resolvedProductContents = productContents.filter((line) => line.resolutionStatus === "resolved");
+  const unresolvedProductContentEvidence = productContents.filter((line) => line.resolutionStatus === "unresolved");
   const selectedField = fields.find((field) => field.field_id === fieldId) ?? null;
   const selectedFieldIsReference = selectedField?.value_type === "reference";
   const fieldOptions = fields.map((field) => ({
@@ -336,6 +423,18 @@ export function CatalogItemDetailPage({
   const referenceRecordOptions = referenceRecords.map((record) => ({
     value: record.reference_record_id,
     label: formatReferenceRecordLabel(record),
+  }));
+  const productContentTypeOptions = productContentTypes.map((type) => ({
+    value: type.content_type_id,
+    label: localizedDisplayName(type.display_name) || type.key,
+  }));
+  const productContentPolicyOptions = productContentPolicies.map((policy) => ({
+    value: policy.inclusion_policy_id,
+    label: localizedDisplayName(policy.display_name) || policy.key,
+  }));
+  const productContentItemOptions = productContentCatalogItems.map((item) => ({
+    value: item.catalog_item_id,
+    label: formatCatalogItemOption(item),
   }));
 
   async function handleLifecycleAction(action: string) {
@@ -551,6 +650,45 @@ export function CatalogItemDetailPage({
     refresh();
   }
 
+  async function handleAddProductContentLine() {
+    const nextLine: ProductContentLineInput = {
+      containedCatalogItemId: productContentTargetItemId || null,
+      containedSelectedOptions: parseSelectedOptionsInput(productContentTargetOptions),
+      quantity: productContentQuantity.trim() ? Number(productContentQuantity) : null,
+      contentTypeId: productContentTypeId,
+      inclusionPolicyId: productContentPolicyId || null,
+      provenance: { source: "operator" },
+    };
+
+    await replaceProductContents(id, {
+      lines: [...productContents.map(productContentLineToInput), nextLine],
+    });
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
+    setShowAddProductContent(false);
+    setProductContentTypeId("");
+    setProductContentPolicyId("");
+    setProductContentTargetItemId("");
+    setProductContentTargetOptions("");
+    setProductContentQuantity("1");
+    refreshProductContents();
+    refreshProductContainers();
+  }
+
+  function startAddProductContentLine() {
+    setProductContentTypeId((current) => current || productContentTypeOptions[0]?.value || "");
+    setProductContentPolicyId((current) => current || productContentPolicyOptions[0]?.value || "");
+    setShowAddProductContent(true);
+  }
+
+  async function handleRemoveProductContentLine(line: ProductContentLineDetail) {
+    await replaceProductContents(id, {
+      lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
+    });
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
+    refreshProductContents();
+    refreshProductContainers();
+  }
+
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
   const referenceDetailRows = buildReferenceDetailRows(fieldValues);
   const categories = (data?.categories ?? []) as CategoryRef[];
@@ -590,6 +728,83 @@ export function CatalogItemDetailPage({
           </Button>
         ) : null;
       },
+    },
+  ];
+  const contentTypeLabelById = new Map(
+    productContentTypes.map((type) => [type.content_type_id, localizedDisplayName(type.display_name) || type.key]),
+  );
+  const inclusionPolicyLabelById = new Map(
+    productContentPolicies.map((policy) => [
+      policy.inclusion_policy_id,
+      localizedDisplayName(policy.display_name) || policy.key,
+    ]),
+  );
+  const catalogItemLabelById = new Map(
+    productContentCatalogItems.map((item) => [item.catalog_item_id, item.title || item.catalog_item_id]),
+  );
+  const productContentColumns: DataColumn<ProductContentLineDetail>[] = [
+    {
+      key: "containedCatalogItemId",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.contained.catalog.item"),
+      cell: (row) =>
+        row.containedCatalogItemId
+          ? (catalogItemLabelById.get(row.containedCatalogItemId) ?? row.containedCatalogItemId)
+          : t("catalog.features.catalogItems.ui.catalogItemDetailPage.unresolved.provider.evidence"),
+    },
+    {
+      key: "contentTypeId",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.content.type"),
+      cell: (row) => contentTypeLabelById.get(row.contentTypeId) ?? row.contentTypeId,
+    },
+    {
+      key: "quantity",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.quantity"),
+      cell: (row) => row.quantity ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.unspecified"),
+    },
+    {
+      key: "selectedOptions",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options"),
+      cell: (row) => formatSelectedOptions(row.containedSelectedOptions),
+    },
+    {
+      key: "policy",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.inclusion.policy"),
+      cell: (row) =>
+        row.inclusionPolicyId
+          ? (inclusionPolicyLabelById.get(row.inclusionPolicyId) ?? row.inclusionPolicyId)
+          : t("catalog.features.catalogItems.ui.catalogItemDetailPage.none"),
+    },
+    {
+      key: "actions",
+      header: "",
+      cell: (row) =>
+        data?.status !== "archived" ? (
+          <Button size="sm" tone="danger" onClick={() => handleRemoveProductContentLine(row)}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.remove")}
+          </Button>
+        ) : null,
+    },
+  ];
+  const productContainerColumns: DataColumn<ProductContentLineDetail>[] = [
+    {
+      key: "containerCatalogItemId",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.container.catalog.item"),
+      cell: (row) => catalogItemLabelById.get(row.containerCatalogItemId) ?? row.containerCatalogItemId,
+    },
+    {
+      key: "contentTypeId",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.content.type"),
+      cell: (row) => contentTypeLabelById.get(row.contentTypeId) ?? row.contentTypeId,
+    },
+    {
+      key: "quantity",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.quantity"),
+      cell: (row) => row.quantity ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.unspecified"),
+    },
+    {
+      key: "selectedOptions",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options"),
+      cell: (row) => formatSelectedOptions(row.containerSelectedOptions),
     },
   ];
 
@@ -733,6 +948,81 @@ export function CatalogItemDetailPage({
                     getRowId={(row) => row.categoryId}
                   />
                 )}
+              </Stack>
+            </PageSection>
+
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents")}>
+              <Stack gap={4}>
+                <ProgressiveDisclosure
+                  title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.contents")}
+                  summary={
+                    productContents.length === 0
+                      ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.product.contents")
+                      : t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.summary", {
+                          count: productContents.length,
+                        })
+                  }
+                  tone={productContents.length > 0 ? "info" : "neutral"}
+                >
+                  <Stack gap={3}>
+                    {data.status !== "archived" && (
+                      <Inline>
+                        <Button size="sm" onClick={startAddProductContentLine}>
+                          {t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
+                        </Button>
+                      </Inline>
+                    )}
+                    <DataTable
+                      rows={resolvedProductContents}
+                      columns={productContentColumns}
+                      getRowId={(row) => row.lineId}
+                      emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.resolved.contents")}
+                    />
+                  </Stack>
+                </ProgressiveDisclosure>
+
+                <ProgressiveDisclosure
+                  title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.unresolved.provider.evidence")}
+                  summary={
+                    unresolvedProductContentEvidence.length === 0
+                      ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.unresolved.provider.evidence")
+                      : t(
+                          "catalog.features.catalogItems.ui.catalogItemDetailPage.unresolved.provider.evidence.summary",
+                          {
+                            count: unresolvedProductContentEvidence.length,
+                          },
+                        )
+                  }
+                  tone={unresolvedProductContentEvidence.length > 0 ? "warning" : "neutral"}
+                >
+                  <DataTable
+                    rows={unresolvedProductContentEvidence}
+                    columns={productContentColumns}
+                    getRowId={(row) => row.lineId}
+                    emptyTitle={t(
+                      "catalog.features.catalogItems.ui.catalogItemDetailPage.no.unresolved.provider.evidence",
+                    )}
+                  />
+                </ProgressiveDisclosure>
+
+                <ProgressiveDisclosure
+                  title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.included.in")}
+                  summary={
+                    productContainers.length === 0
+                      ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.product.containers")
+                      : t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.containers.summary", {
+                          count: productContainers.length,
+                        })
+                  }
+                  tone={productContainers.length > 0 ? "info" : "neutral"}
+                >
+                  <DataTable
+                    rows={productContainers}
+                    columns={productContainerColumns}
+                    getRowId={(row) => row.lineId}
+                    emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.product.containers")}
+                  />
+                </ProgressiveDisclosure>
               </Stack>
             </PageSection>
 
@@ -1244,6 +1534,55 @@ export function CatalogItemDetailPage({
             value={externalSelectedOptions}
             onChange={(event) => setExternalSelectedOptions(event.target.value)}
             placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options.placeholder")}
+          />
+        </Stack>
+      </Dialog>
+
+      <Dialog
+        open={showAddProductContent}
+        onOpenChange={setShowAddProductContent}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
+        footer={
+          <Button onClick={handleAddProductContentLine} disabled={!productContentTypeId || !productContentTargetItemId}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
+          </Button>
+        }
+      >
+        <Stack gap={3}>
+          <Combobox
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.content.type")}
+            items={productContentTypeOptions}
+            value={productContentTypeId}
+            onValueChange={setProductContentTypeId}
+            placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.choose.content.type")}
+            noMatchesLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.content.types.match")}
+          />
+          <Combobox
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.inclusion.policy")}
+            items={productContentPolicyOptions}
+            value={productContentPolicyId}
+            onValueChange={setProductContentPolicyId}
+            placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.choose.inclusion.policy")}
+            noMatchesLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.inclusion.policies.match")}
+          />
+          <Combobox
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.contained.catalog.item")}
+            items={productContentItemOptions}
+            value={productContentTargetItemId}
+            onValueChange={setProductContentTargetItemId}
+            placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.choose.catalog.item")}
+            noMatchesLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.catalog.items.match")}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options.2")}
+            value={productContentTargetOptions}
+            onChange={(event) => setProductContentTargetOptions(event.target.value)}
+            placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options.placeholder")}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.quantity")}
+            value={productContentQuantity}
+            onChange={(event) => setProductContentQuantity(event.target.value)}
           />
         </Stack>
       </Dialog>

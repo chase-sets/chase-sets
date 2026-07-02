@@ -78,7 +78,7 @@ export type ProductContentLineSnapshot = Readonly<{
   targetLifecycleStatus: string | null;
 }>;
 
-type ProductContentsResolvedFact = Readonly<{
+export type ProductContentsResolvedFact = Readonly<{
   containerCatalogItemId: string;
   containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
   containerProductId: string | null;
@@ -111,11 +111,14 @@ type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 export type ProductContentServices = Readonly<{
   upsertContentType: (contentType: ProductContentTypeInput) => Promise<void>;
   upsertInclusionPolicy: (policy: ProductContentInclusionPolicyInput) => Promise<void>;
-  replaceProductContents: (input: ReplaceProductContentsInput, context: EventStoreContext) => Promise<void>;
+  replaceProductContents: (
+    input: ReplaceProductContentsInput,
+    context: EventStoreContext,
+  ) => Promise<ProductContentsResolvedFact>;
   removeProductContents: (
     input: Pick<ReplaceProductContentsInput, "containerCatalogItemId" | "containerSelectedOptions">,
     context: EventStoreContext,
-  ) => Promise<void>;
+  ) => Promise<ProductContentsResolvedFact>;
   listProductContentTypes: () => ReturnType<typeof listProductContentTypes>;
   listProductContentInclusionPolicies: () => ReturnType<typeof listProductContentInclusionPolicies>;
   listProductContentsForContainer: (
@@ -232,7 +235,7 @@ async function replaceProductContents(
   input: ReplaceProductContentsInput,
   context: EventStoreContext,
   commandEventType = "catalog.product-contents.replaced",
-): Promise<void> {
+): Promise<ProductContentsResolvedFact> {
   const fact = await buildResolvedFact(deps.db, input);
   const streamId = `catalog.product-contents-${fact.containerCatalogItemId}`;
   const existingEvents = await deps.eventStore.readStream({ streamId });
@@ -241,7 +244,7 @@ async function replaceProductContents(
     .reverse()
     .find((event) => event.eventType === "catalog.product-contents.resolved");
   if (JSON.stringify(lastResolved?.payload ?? null) === JSON.stringify(fact)) {
-    return;
+    return fact;
   }
 
   await deps.eventStore.appendToStream({
@@ -263,6 +266,8 @@ async function replaceProductContents(
       },
     ],
   });
+
+  return fact;
 }
 
 async function buildResolvedFact(

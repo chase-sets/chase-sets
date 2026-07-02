@@ -10,6 +10,11 @@ import type {
   CatalogItemDetail,
   CatalogItemImageFallback,
   CatalogItemListItem,
+  ProductContentInclusionPolicyRef,
+  ProductContentLineDetail,
+  ProductContentsResolvedSnapshot,
+  ProductContentTypeRef,
+  ReplaceProductContentsInput,
 } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
@@ -57,6 +62,30 @@ export function useCatalogItemList(query: string, initialData?: ListResponse<Cat
 
 export function useCatalogItem(id: string, initialData?: CatalogItemDetail | null) {
   return useFetch(() => api.getCatalogItem<CatalogItemDetail>(id), [id], initialData);
+}
+
+export function useProductContentTypes() {
+  return useFetch(() => api.listProductContentTypes<ListResponse<ProductContentTypeRef>>(), []);
+}
+
+export function useProductContentInclusionPolicies() {
+  return useFetch(() => api.listProductContentInclusionPolicies<ListResponse<ProductContentInclusionPolicyRef>>(), []);
+}
+
+export function useProductContentsForContainer(id: string) {
+  return useFetch(() => api.listProductContentsForContainer<ListResponse<ProductContentLineDetail>>(id), [id]);
+}
+
+export function useProductContainersForContained(id: string) {
+  return useFetch(() => api.listProductContainersForContained<ListResponse<ProductContentLineDetail>>(id), [id]);
+}
+
+export function replaceProductContents(id: string, body: ReplaceProductContentsInput) {
+  return api.replaceProductContents<ProductContentsResolvedSnapshot>(id, body);
+}
+
+export function removeProductContents(id: string, body: Pick<ReplaceProductContentsInput, "containerSelectedOptions">) {
+  return api.removeProductContents<ProductContentsResolvedSnapshot>(id, body);
 }
 
 export function createCatalogItem(body: CatalogItemMetadataInput & { itemId: string }) {
