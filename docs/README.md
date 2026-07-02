@@ -11,6 +11,8 @@ Documentation is organized by lifecycle:
 
 Bounded-context behavior lives with each context under `bounded-contexts/<context>/`. Start at the [Bounded Context Map](../bounded-contexts/README.md) and each context's `README.md` and `docs/`. Context-owned deep dives are intentionally found through their owning context rather than re-listed here.
 
+Catalog Product Contents is documented with the Catalog context in [Product Contents Contract](../bounded-contexts/catalog/docs/product-contents-contract.md).
+
 Completed milestone evidence, signoff checklists, and audits live in the closing GitHub issue/PR and git history, not in this folder.
 
 ## Core References

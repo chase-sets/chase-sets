@@ -28,6 +28,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Product | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Valid sellable option combination under a Catalog Item. |
 | Product Measure Profile | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable physical measurement rule for Products that share size, weight, stack behavior, and physical flags. |
 | Resolved Product Measure | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Per-Product measurement snapshot published for shipping quote and fulfillment use. |
+| Product Contents | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Catalog-owned relationship describing what one configured Product contains. |
+| Product Content Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Configured Catalog data that names and orders the meaning of a Product Content Line. |
+| Product Content Inclusion Policy | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Configured Catalog data that describes exact, variable, random, optional, choice-based, or other inclusion semantics. |
 | Reference Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable kind of rich descriptive catalog value, such as Expansion, Series, or Product Line. |
 | Reference Record | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Rich reusable catalog value that can be selected by item fields and carry attributes or relationships. |
 | Inventory Item | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Account-owned stock for one resolved product and storage location. |

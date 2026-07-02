@@ -32,6 +32,7 @@ External product mapping for seller inventory imports is documented in [External
 Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
 Alias and translation equivalence facts are documented in [Catalog Alias Vocabulary And Ownership ADR](./docs/catalog-alias-vocabulary-adr.md).
 Published resolved alias facts for downstream search and display are documented in [Catalog Resolved Aliases](./docs/resolved-aliases.md).
+Product-to-product containment is documented in [Product Contents Contract](./docs/product-contents-contract.md).
 
 ## Owns
 
@@ -49,6 +50,7 @@ Published resolved alias facts for downstream search and display are documented 
 - Resolved Display Identity as the Catalog-owned item-level display copy fact published to downstream contexts
 - Catalog Aliases and Alias Candidates: the reviewable, typed, confidence-scored alias facts and the auto-accept, revocation, and decay policy published to downstream contexts
 - Resolved Aliases: the Catalog-owned per-target, per-language published alias fact derived from accepted aliases, published to downstream search and display
+- Product Contents: the Catalog-owned relationship describing what one configured Product contains, published to downstream contexts as a stable resolved fact
 
 ## Does Not Own
 
@@ -161,6 +163,12 @@ Owns the mapping between a provider-scoped product identifier and one Catalog It
 - TCGplayer SKU IDs are Product references because they can map to selected Options.
 - Inventory and Marketplace consume these references through projections; they do not author provider identity.
 
+### Product Contents
+
+Owns the relationship between one container Product selection and the Catalog Items or Product selections it contains.
+
+Product Contents command inputs use `catalog_item_id` plus `selected_options`; read and projection layers derive `product_id` when a resolved Product ID is needed. Product-line-specific meanings such as pack, deck, accessory, insert, guaranteed inclusion, or random inclusion are configured through Product Content Types and Inclusion Policies, not hardcoded in Catalog core.
+
 ## Product Resolution
 
 `Product` is a derived catalog concept in this implementation. There is no persisted Product aggregate or Product event stream in this pass.
@@ -216,12 +224,15 @@ Initial integration surface:
 - `catalog.catalog-item.display-identity-resolved`
 - `catalog.catalog-item.aliases-resolved`
 - `catalog.reference-record.aliases-resolved`
+- `catalog.product-contents.resolved`
 
 Those events should carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.
 
 Display Template authoring events are Catalog-internal. Downstream contexts should consume the item-level display identity fact when title/subtitle copy changes because of template policy.
 
 Alias review and source-governance events are Catalog-internal. Downstream search (#1911) and display (#1914) consume only the resolved alias facts `catalog.catalog-item.aliases-resolved` and `catalog.reference-record.aliases-resolved`, never `Alias Candidate` records, provider profiles, or the alias review state machine. The resolved alias fact follows the same derived-fact pattern as Resolved Display Identity: Catalog publishes a stable per-target, per-language alias list with hash/version metadata only when the resolved hash changes, and a revoked or rejected alias publishes a resolved fact that drops it (an empty/retracted list) so consumers remove it. See [Catalog Resolved Aliases](./docs/resolved-aliases.md).
+
+Product Contents authoring, review, provider evidence, and configuration events are Catalog-internal. Downstream contexts consume only `catalog.product-contents.resolved`, never unresolved provider evidence or Product Content Type internals outside the resolved published shape. See [Product Contents Contract](./docs/product-contents-contract.md).
 
 ## Invariants
 
@@ -234,3 +245,4 @@ Alias review and source-governance events are Catalog-internal. Downstream searc
 7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.
 9. External catalog item references map provider product identifiers to Catalog Item truth; external product references map provider SKU identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.
+10. Product Contents model containment between Catalog selections; fields, tags, categories, Reference Record relationships, and external references must not become substitute containment models.
