@@ -19,6 +19,8 @@ Cost and recovery posture:
 - Staging keeps Droplet backups off and the observability volume at or below 100 GiB unless an active drill or incident needs more.
 - Production keeps at least a 100 GiB observability volume. Increasing `prometheus_retention` or enabling Droplet backups should reference the operational evidence that needs the longer recovery window.
 
+The accepted config-drift and telemetry recovery trade-offs are documented in the [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md#observability-config-drift).
+
 The key outputs feed the platform deploy pipeline:
 
 - `otlp_endpoint` -> `OBSERVABILITY_OTLP_ENDPOINT` GitHub environment variable when overriding the default.
