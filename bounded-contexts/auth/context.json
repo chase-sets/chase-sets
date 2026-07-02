@@ -624,6 +624,7 @@
         "api-route:bounded-contexts/auth/support/api-support/account-selection-routes.ts:POST /account-selection/resolve",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-context",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-link/request",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-continuation",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-magic-link",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-passkey",
         "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/exit",

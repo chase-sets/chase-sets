@@ -106,6 +106,9 @@ export function createAuthApiClient({
     async claimGuestCheckoutWithMagicLink<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-with-magic-link"), body, headers);
     },
+    async claimGuestCheckoutWithClaimContinuation<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-with-continuation"), body, headers);
+    },
     async requestGuestCheckoutClaimLink<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-link/request"), body, headers);
     },

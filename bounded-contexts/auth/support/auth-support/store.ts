@@ -509,6 +509,17 @@ export async function revokeGuestCheckoutTokenByHash(db: PgQueryable, tokenHash:
   );
 }
 
+export async function revokeGuestCheckoutTokensForAccount(db: PgQueryable, accountId: string) {
+  await db.query(
+    `UPDATE identity_guest_checkout_tokens
+     SET revoked_at = now(),
+         updated_at = now()
+     WHERE account_id = $1
+       AND revoked_at IS NULL`,
+    [accountId],
+  );
+}
+
 export async function insertGuestCheckoutClaimToken(
   db: PgQueryable,
   params: Readonly<{
@@ -516,7 +527,9 @@ export async function insertGuestCheckoutClaimToken(
     accountId: string;
     paymentId: string;
     email: string;
+    displayName: string;
     tokenHash: string;
+    continuationHash: string;
     expiresAt: string;
   }>,
 ) {
@@ -526,12 +539,23 @@ export async function insertGuestCheckoutClaimToken(
        account_id,
        payment_id,
        email,
+       display_name,
        token_hash,
+       continuation_hash,
        expires_at,
        created_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [params.tokenId, params.accountId, params.paymentId, params.email, params.tokenHash, params.expiresAt],
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
+    [
+      params.tokenId,
+      params.accountId,
+      params.paymentId,
+      params.email,
+      params.displayName,
+      params.tokenHash,
+      params.continuationHash,
+      params.expiresAt,
+    ],
   );
 }
 
@@ -549,6 +573,7 @@ export async function consumeGuestCheckoutClaimToken(
     account_id: string;
     payment_id: string;
     email: string;
+    display_name: string | null;
     expires_at: string;
     consumed_at: string | null;
   }>(
@@ -560,8 +585,37 @@ export async function consumeGuestCheckoutClaimToken(
        AND email = $4
        AND consumed_at IS NULL
        AND expires_at > now()
-     RETURNING token_id, account_id, payment_id, email, expires_at, consumed_at`,
+     RETURNING token_id, account_id, payment_id, email, display_name, expires_at, consumed_at`,
     [params.tokenHash, params.accountId, params.paymentId, params.email],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function consumeGuestCheckoutClaimContinuationToken(
+  db: PgQueryable,
+  params: Readonly<{
+    continuationHash: string;
+    paymentId: string;
+  }>,
+) {
+  const result = await db.query<{
+    token_id: string;
+    account_id: string;
+    payment_id: string;
+    email: string;
+    display_name: string | null;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `UPDATE identity_guest_checkout_claim_tokens
+     SET consumed_at = now()
+     WHERE continuation_hash = $1
+       AND payment_id = $2
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING token_id, account_id, payment_id, email, display_name, expires_at, consumed_at`,
+    [params.continuationHash, params.paymentId],
   );
 
   return result.rows[0] ?? null;

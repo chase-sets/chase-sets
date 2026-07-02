@@ -41,6 +41,23 @@ describe("platform email template renderer", () => {
     expect(rendered.textBody).toContain("A Chase Sets account update is available.");
     expect(rendered.textBody).toContain("status: updated");
   });
+
+  it("renders guest checkout claim links as order-save email copy", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Save your Chase Sets order",
+        templateId: "auth_guest_checkout_claim_link",
+        templateData: {
+          claimLink: "https://chasesets.com/checkout/payments/pay_1?claimContinuation=cont_1",
+        },
+      }),
+    );
+
+    expect(rendered.subject).toBe("Save your Chase Sets order");
+    expect(rendered.textBody).toContain("save your guest checkout order");
+    expect(rendered.textBody).toContain("https://chasesets.com/checkout/payments/pay_1?claimContinuation=cont_1");
+    expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
+  });
 });
 
 function message(

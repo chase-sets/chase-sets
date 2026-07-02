@@ -237,6 +237,8 @@ export const paymentsEnglishTranslations = {
     "Stripe has not confirmed a saved method yet.",
   "payments.routes.marketplace.accountPaymentMethods.updated": "Updated {date}",
   "payments.routes.marketplace.accountPayment.claim.token": "Claim token",
+  "payments.routes.marketplace.accountPayment.claim.token.entry.is.not.available":
+    "Claim token entry is not available here. Use the emailed link or request a new one.",
   "payments.routes.marketplace.accountPayment.contact.name": "Contact name",
   "payments.routes.marketplace.accountPayment.continue.shopping": "Continue shopping",
   "payments.routes.marketplace.accountPayment.could.not.retry.payment": "Could not retry payment",

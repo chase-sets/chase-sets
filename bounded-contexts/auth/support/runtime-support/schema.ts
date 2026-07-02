@@ -137,11 +137,23 @@ CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
   account_id text NOT NULL,
   payment_id text NOT NULL,
   email text NOT NULL,
+  display_name text NULL,
   token_hash text NOT NULL UNIQUE,
+  continuation_hash text NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now()
-);`;
+);
+
+ALTER TABLE identity_guest_checkout_claim_tokens
+  ADD COLUMN IF NOT EXISTS display_name text NULL;
+
+ALTER TABLE identity_guest_checkout_claim_tokens
+  ADD COLUMN IF NOT EXISTS continuation_hash text NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS identity_guest_checkout_claim_tokens_continuation_hash_idx
+  ON identity_guest_checkout_claim_tokens (continuation_hash)
+  WHERE continuation_hash IS NOT NULL;`;
 
 export const authSchemaSql = [
   eventCorePostgresSchemaSql,

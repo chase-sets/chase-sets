@@ -2,13 +2,16 @@ import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
+  consumeGuestCheckoutClaimContinuationToken,
   consumeGuestCheckoutClaimToken,
   getGuestCheckoutTokenByHash,
   insertGuestCheckoutClaimToken,
   revokeGuestCheckoutTokenByHash,
+  revokeGuestCheckoutTokensForAccount,
   upsertGuestCheckoutToken,
   upsertPasskeyCredential,
 } from "../auth-support/store";
@@ -17,6 +20,7 @@ import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContex
 
 const AUTH_GUEST_CHECKOUT_TTL_MS = 1000 * 60 * 60 * 24;
 const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
+const GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION = "auth-guest-checkout-claim-link-notification-intent";
 
 function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -42,6 +46,24 @@ function parseCookieHeader(cookieHeader: string | null) {
 function normalizeDisplayName(value: unknown, email: string) {
   const text = String(value ?? "").trim();
   return text || createOwnedUserDisplayName(email);
+}
+
+function buildClaimContinuationLink(origin: unknown, paymentId: string, continuation: string) {
+  const fallbackOrigin = "https://chasesets.com";
+  let baseOrigin = fallbackOrigin;
+  if (typeof origin === "string" && origin.trim()) {
+    try {
+      const parsedOrigin = new URL(origin.trim());
+      if (parsedOrigin.protocol === "https:" || parsedOrigin.protocol === "http:") {
+        baseOrigin = parsedOrigin.origin;
+      }
+    } catch {
+      baseOrigin = fallbackOrigin;
+    }
+  }
+  const url = new URL(`/checkout/payments/${encodeURIComponent(paymentId)}`, baseOrigin);
+  url.searchParams.set("claimContinuation", continuation);
+  return url.toString();
 }
 
 function requireGuestCheckoutActor(actor: ResolvedActor | null) {
@@ -206,18 +228,39 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     }
 
     const email = context.tokenRecord.contact_email;
+    const displayName = context.tokenRecord.contact_name;
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("claim");
+    const continuation = services.auth.issueOpaqueToken("claim-continuation");
     const expiresAt = createExpiryTimestamp(AUTH_MAGIC_LINK_TTL_MS);
     const paymentId = String(body.paymentId ?? "").trim();
+    const claimLink = buildClaimContinuationLink(body.origin, paymentId, continuation);
 
     await insertGuestCheckoutClaimToken(services.db, {
       tokenId,
       accountId: context.actor.accountId,
       paymentId,
       email,
+      displayName,
       tokenHash: services.auth.hashSecret(token),
+      continuationHash: services.auth.hashSecret(continuation),
       expiresAt,
+    });
+
+    await services.notificationOutbox.enqueueNotification({
+      message: mapGuestCheckoutClaimLinkRequestedToNotification({
+        email,
+        claimLink,
+        correlationId: getBootstrapContext(c).trace?.traceId ?? tokenId,
+        idempotencyKey: `auth:guest-checkout-claim-link:${tokenId}`,
+      }),
+      source: {
+        sourceEventId: tokenId,
+        sourceGlobalPosition: "0",
+        projectionName: GUEST_CHECKOUT_CLAIM_LINK_NOTIFICATION_PROJECTION,
+        occurredAt: new Date().toISOString(),
+      },
+      maxAttempts: 3,
     });
 
     return c.json({ tokenId, token, expiresAt });
@@ -254,6 +297,35 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       context: getBootstrapContext(c),
     });
     await revokeGuestCheckoutTokenByHash(services.db, services.auth.hashSecret(context.guestToken));
+
+    return c.json(authResult);
+  });
+
+  app.post("/guest-checkout/claim-with-continuation", async (c) => {
+    const body = await c.req.json();
+    const paymentId = String(body.paymentId ?? "").trim();
+    const continuation = String(body.continuation ?? "").trim();
+    const identityMutations = createIdentityMutations(c);
+    const record = await consumeGuestCheckoutClaimContinuationToken(services.db, {
+      continuationHash: services.auth.hashSecret(continuation),
+      paymentId,
+    });
+    if (!record) {
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.claim.link.is.invalid.or.expired") }, 401);
+    }
+
+    const userId = await resolveClaimUser(services, identityMutations, {
+      email: record.email,
+      displayName: normalizeDisplayName(record.display_name, record.email),
+    });
+
+    const authResult = await claimGuestAccountAndStartSession(services, identityMutations, {
+      accountId: record.account_id,
+      userId,
+      authenticationMethod: "magic-link",
+      context: getBootstrapContext(c),
+    });
+    await revokeGuestCheckoutTokensForAccount(services.db, record.account_id);
 
     return c.json(authResult);
   });
