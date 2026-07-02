@@ -19,6 +19,18 @@ type CatalogCommandResponse = Readonly<{
   status: string;
 }>;
 
+type CatalogItemListApiItem = Readonly<{
+  catalog_item_id: string;
+  status: string;
+  title: string;
+}>;
+
+type CatalogItemListApiResponse = Readonly<{
+  items: readonly CatalogItemListApiItem[];
+  total: number;
+  count: number;
+}>;
+
 async function probeCatalogAuthoringStreamEndpoint(
   page: Page,
   path: string,
@@ -509,46 +521,27 @@ async function openCatalogModelingDetail(
 }
 
 async function removeDraftCatalogItemThroughList(page: Page, catalogItemId: string) {
+  await waitForDraftCatalogItemReadModel(page, catalogItemId);
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
   });
   await waitForCatalogItemRow(page, catalogItemId);
-  await removeDraftCatalogItemFallback(page, catalogItemId);
+  await removeDraftCatalogItemByApi(page, catalogItemId);
+  await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId);
 
-  await expect
-    .poll(
-      async () => {
-        await page
-          .getByRole("textbox", { name: "Search" })
-          .fill(catalogItemId)
-          .catch(() => undefined);
-        const stillVisible = await page
-          .getByRole("row")
-          .filter({ hasText: catalogItemId })
-          .first()
-          .isVisible()
-          .catch(() => false);
-        if (!stillVisible) {
-          return false;
-        }
-
-        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
-        await expectAdminWebHydrated(page).catch(() => undefined);
-        return page
-          .getByRole("row")
-          .filter({ hasText: catalogItemId })
-          .first()
-          .isVisible()
-          .catch(() => false);
-      },
-      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
-    )
-    .toBe(false);
+  await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectAdminPageReady(page, { heading: "Catalog Items" });
+  await expect(page.getByRole("textbox", { name: "Search" })).toHaveValue(catalogItemId);
+  await expect(page.getByRole("row").filter({ hasText: catalogItemId })).toHaveCount(0);
 }
 
 async function removeDraftCatalogItemFallback(page: Page, catalogItemId: string) {
-  const origin = new URL(page.url()).origin;
-  await page.request.delete(`${origin}/api/catalog/items/${catalogItemId}`).catch(() => undefined);
+  const response = await page.request.delete(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`).catch(() => null);
+  if (response?.status() === 200) {
+    await waitForDraftCatalogItemReadModelRemoval(page, catalogItemId).catch(() => undefined);
+  }
 }
 
 async function expectReferenceRecordListAndDetail(page: Page) {
@@ -631,6 +624,7 @@ async function firstVisibleRowForSeed(page: Page, seedLabels: readonly string[])
 }
 
 async function waitForCatalogItemRow(page: Page, catalogItemId: string) {
+  await waitForDraftCatalogItemReadModel(page, catalogItemId);
   await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
     waitUntil: "domcontentloaded",
   });
@@ -655,6 +649,64 @@ async function waitForCatalogItemRow(page: Page, catalogItemId: string) {
     .toBe(true);
 
   return row;
+}
+
+async function removeDraftCatalogItemByApi(page: Page, catalogItemId: string) {
+  const response = await page.request.delete(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`);
+  expect(response.status(), `remove draft catalog item ${catalogItemId} should return 200`).toBe(200);
+
+  const body = (await response.json()) as CatalogCommandResponse;
+  expect(body.id).toBe(catalogItemId);
+  expect(body.status).toBe("removed");
+}
+
+async function waitForDraftCatalogItemReadModel(page: Page, catalogItemId: string) {
+  await expect
+    .poll(
+      async () => {
+        const item = await getDraftCatalogItemListEntry(page, catalogItemId);
+        return item ? `${item.catalog_item_id}:${item.status}` : "missing";
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 60_000 },
+    )
+    .toBe(`${catalogItemId}:draft`);
+}
+
+async function waitForDraftCatalogItemReadModelRemoval(page: Page, catalogItemId: string) {
+  await expect
+    .poll(
+      async () => {
+        const listItem = await getDraftCatalogItemListEntry(page, catalogItemId);
+        const detailStatus = await getCatalogItemDetailStatus(page, catalogItemId);
+        return listItem === null && detailStatus === 404 ? "removed" : "present";
+      },
+      { intervals: [1_000, 2_000, 5_000], timeout: 45_000 },
+    )
+    .toBe("removed");
+}
+
+async function getDraftCatalogItemListEntry(page: Page, catalogItemId: string): Promise<CatalogItemListApiItem | null> {
+  const query = new URLSearchParams({
+    search: catalogItemId,
+    status: "draft",
+    limit: "5",
+    offset: "0",
+  });
+  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items?${query.toString()}`);
+  expect(response.status(), `catalog item list read model query should return 200`).toBe(200);
+
+  const body = (await response.json()) as CatalogItemListApiResponse;
+  return body.items.find((item) => item.catalog_item_id === catalogItemId) ?? null;
+}
+
+async function getCatalogItemDetailStatus(page: Page, catalogItemId: string) {
+  const response = await page.request.get(`${apiOrigin(page)}/api/catalog/items/${catalogItemId}`);
+  expect([200, 404], `catalog item detail read model query should return 200 or 404`).toContain(response.status());
+  return response.status();
+}
+
+function apiOrigin(page: Page) {
+  return new URL(page.url()).origin;
 }
 
 async function waitForDimensionRow(page: Page, dimensionKey: string) {
