@@ -723,7 +723,10 @@ export function buildIdentityApi(services: IdentityServices) {
   app.route("/users", userRoutes(services.users));
   app.route("/memberships", membershipRoutes(services.memberships));
   app.route("/invitations", invitationRoutes(services.invitations));
-  app.route("/api-keys", apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth }));
+  app.route(
+    "/api-keys",
+    apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
+  );
   app.route("/consents", consentRoutes(services.consents));
   app.route("/preferences", userPreferencesRoutes(services.preferences));
 

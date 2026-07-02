@@ -68,6 +68,8 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.ui.currentActorDisplayCue.user": "User",
   "identity.features.apiKeys.api.route.forbidden": "Forbidden.",
   "identity.features.apiKeys.api.route.api.key.not.found": "API key not found.",
+  "identity.features.apiKeys.api.route.user.id.invalid": "Expected a user ID starting with usr_.",
+  "identity.features.apiKeys.api.route.user.not.found": "User not found.",
   "identity.features.apiKeys.readModel.schema.create.table.if.not.exists.identity":
     "\nCREATE TABLE IF NOT EXISTS identity_api_keys (\n  api_key_id text PRIMARY KEY,\n  user_id text NOT NULL,\n  name text NOT NULL,\n  key_prefix text NOT NULL,\n  status text NOT NULL,\n  last_used_at timestamptz NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS identity_api_key_lookup (\n  key_prefix text PRIMARY KEY,\n  api_key_id text NOT NULL,\n  user_id text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.apiKeys.ui.accountSecurityPage.account": "Account",

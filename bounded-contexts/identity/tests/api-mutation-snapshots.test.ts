@@ -42,7 +42,7 @@ function buildApp(services: IdentityServices, requestActor: ResolvedActor = acto
   return app;
 }
 
-function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys">> = {}) {
+function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys" | "users">> = {}) {
   return {
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
@@ -92,7 +92,16 @@ function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys">> = 
       }),
       getUserBySocialLogin: vi.fn(async () => null),
       listUsers: vi.fn(async () => ({ items: [], total: 0 })),
-      getUser: vi.fn(async () => null),
+      getUser: vi.fn(async (userId: string) =>
+        userId.startsWith("usr_")
+          ? {
+              user_id: userId,
+              display_name: "API Key Owner",
+              primary_email: "owner@example.com",
+              status: "active",
+            }
+          : null,
+      ),
       getUserByEmail: vi.fn(async () => null),
       getUserByPhone: vi.fn(async () => null),
       projectors: [],
@@ -530,7 +539,7 @@ describe("Identity API mutation snapshots", () => {
 
   it("rejects unknown role keys before issuing membership or invitation commands", async () => {
     const services = createServices();
-    const app = buildApp(services);
+    const app = buildApp(services, { ...actor, roleKey: "platform-admin" });
     const expectedError = {
       error: {
         code: "validation_failed",
@@ -656,6 +665,52 @@ describe("Identity API mutation snapshots", () => {
     });
     expect(rotateForbidden.response.status).toBe(403);
     expect(rotateForbidden.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+  });
+
+  it("rejects malformed API-key user IDs before issuing secrets or commands", async () => {
+    const services = createServices();
+    const app = buildApp(services, { ...actor, roleKey: "platform-admin" });
+
+    const created = await requestJson(app, "/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ userId: "user_1", name: "Automation" }),
+    });
+
+    expect(created.response.status).toBe(400);
+    expect(created.body).toMatchObject({
+      error: {
+        code: "validation_error",
+        message: "Expected a user ID starting with usr_.",
+      },
+    });
+    expect(services.auth.issueOpaqueToken).not.toHaveBeenCalled();
+    expect(services.apiKeys.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown API-key users before issuing secrets or commands", async () => {
+    const baseServices = createServices();
+    const services = createServices({
+      users: {
+        ...baseServices.users,
+        getUser: vi.fn(async () => null) as unknown as IdentityServices["users"]["getUser"],
+      },
+    });
+    const app = buildApp(services, { ...actor, roleKey: "platform-admin" });
+
+    const created = await requestJson(app, "/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_missing", name: "Automation" }),
+    });
+
+    expect(created.response.status).toBe(404);
+    expect(created.body).toMatchObject({
+      error: {
+        code: "not_found",
+        message: "User not found.",
+      },
+    });
+    expect(services.auth.issueOpaqueToken).not.toHaveBeenCalled();
+    expect(services.apiKeys.commandHandler).not.toHaveBeenCalled();
   });
 
   it("returns not found when rotating a missing API key", async () => {

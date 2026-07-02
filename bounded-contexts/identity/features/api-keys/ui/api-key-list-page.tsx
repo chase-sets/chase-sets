@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Combobox, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
+import type { User } from "../../users/ui/contracts";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -17,7 +18,27 @@ const columns: DataColumn<ApiKey>[] = [
   { key: "status", header: t("identity.features.apiKeys.ui.apiKeyListPage.status"), cell: (row) => row.status },
 ];
 
-export function ApiKeyListPage({ initialData }: { initialData: PaginatedListResponse<ApiKey> }) {
+function pickerUserLabel(user: User) {
+  return user.primary_email ? `${user.display_name} (${user.primary_email})` : user.display_name || user.user_id;
+}
+
+export function buildApiKeyUserPickerItems(users: readonly User[]) {
+  return users.map((user) => ({
+    value: user.user_id,
+    label: pickerUserLabel(user),
+    description: user.user_id,
+  }));
+}
+
+export function ApiKeyListPage({
+  initialData,
+  users,
+}: {
+  initialData: PaginatedListResponse<ApiKey>;
+  users: readonly User[];
+}) {
+  const userItems = buildApiKeyUserPickerItems(users);
+
   return (
     <AdminListPage
       title={t("identity.features.apiKeys.ui.apiKeyListPage.api.keys")}
@@ -27,7 +48,12 @@ export function ApiKeyListPage({ initialData }: { initialData: PaginatedListResp
         <Form spacing="none" method="post">
           <Stack direction="row" align="end" gap={2}>
             <HiddenInput type="hidden" name="intent" value="create" readOnly />
-            <TextInput name="userId" label={t("identity.features.apiKeys.ui.apiKeyListPage.user")} required />
+            <Combobox
+              name="userId"
+              label={t("identity.features.apiKeys.ui.apiKeyListPage.user")}
+              items={userItems}
+              required
+            />
             <TextInput name="name" label={t("identity.features.apiKeys.ui.apiKeyListPage.name")} required />
             <Button type="submit" tone="primary">
               {t("identity.features.apiKeys.ui.apiKeyListPage.create")}
