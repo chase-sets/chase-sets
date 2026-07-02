@@ -10,6 +10,7 @@ import { catalogComponentSchemaSql } from "../../features/components/read-model/
 import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
+import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
 import { catalogSourceObservationSchemaSql } from "../../features/source-observations/read-model/schema";
@@ -24,6 +25,7 @@ export const catalogAuthoringSchemaSql = [
   catalogCategorySchemaSql,
   catalogReferenceDataSchemaSql,
   catalogCatalogItemSchemaSql,
+  catalogProductContentsSchemaSql,
   catalogProductMeasureSchemaSql,
   durableJobSchemaSql({
     jobsTable: "catalog_authoring_bulk_jobs",

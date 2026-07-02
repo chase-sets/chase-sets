@@ -12,6 +12,7 @@ import { createComponentRuntime } from "../../features/components/api/runtime";
 import { createDimensionRuntime } from "../../features/dimensions/api/runtime";
 import { createDisplayTemplateRuntime } from "../../features/display-templates/api/runtime";
 import { createFieldRuntime } from "../../features/fields/api/runtime";
+import { createProductContentRuntime } from "../../features/product-contents/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
@@ -36,6 +37,7 @@ export type CatalogServices = Readonly<{
   blueprints: ReturnType<typeof createBlueprintRuntime>;
   categories: ReturnType<typeof createCategoryRuntime>;
   items: ReturnType<typeof createCatalogItemRuntime>;
+  productContents: ReturnType<typeof createProductContentRuntime>;
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
@@ -75,6 +77,7 @@ export function createCatalogServices(
   const blueprints = createBlueprintRuntime(deps);
   const categories = createCategoryRuntime(deps);
   const items = createCatalogItemRuntime(deps);
+  const productContents = createProductContentRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
   const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
   const catalogAliases = createCatalogAliasRuntime(deps, {
@@ -101,6 +104,7 @@ export function createCatalogServices(
     blueprints,
     categories,
     items,
+    productContents,
     productMeasures,
     providerIntegrationProfiles,
     sourceObservations,
@@ -115,6 +119,7 @@ export function createCatalogServices(
       ...blueprints.projectors,
       ...categories.projectors,
       ...items.projectors,
+      ...productContents.projectors,
       ...productMeasures.projectors,
       ...sourceObservations.projectors,
       ...catalogAliases.projectors,

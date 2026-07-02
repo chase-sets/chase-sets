@@ -100,6 +100,7 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
     blueprints: {} as never,
     categories: {} as never,
     items: {} as never,
+    productContents: {} as never,
     productMeasures: {} as never,
     providerIntegrationProfiles: {} as never,
     sourceObservations: {} as never,
