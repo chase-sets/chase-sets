@@ -184,6 +184,33 @@
       }
     },
     {
+      "id": "commercial-terms.account-agreement-create-to-list",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "commercial-terms-account-agreement-new",
+        "actions": ["Create commercial agreement for account"],
+        "command": "CreateAgreement",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "commercial-terms-agreements",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/agreements",
+        "readModelTables": ["commercial_terms_agreement_pages"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Account-scoped agreement create redirects to the agreement list with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+        }
+      }
+    },
+    {
       "id": "commercial-terms.agreement-update-to-detail",
       "owner": "commercial-terms",
       "risk": "important",
@@ -308,7 +335,9 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-list-page.tsx:H2df726441e2a#1",
-        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements.tsx"
+        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-account-create-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements.tsx",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/account-agreement-new.tsx"
       ],
       "visibleDestination": {
         "routeId": "commercial-terms-agreements",
@@ -405,6 +434,14 @@
           "routeId": "commercial-terms-agreements",
           "routePath": "terms/agreements",
           "fileExport": "./routes/admin/agreements",
+          "routeType": "route",
+          "sourceContext": "commercial-terms",
+          "section": "commerce"
+        },
+        {
+          "routeId": "commercial-terms-account-agreement-new",
+          "routePath": "terms/accounts/:accountId/agreements/new",
+          "fileExport": "./routes/admin/account-agreement-new",
           "routeType": "route",
           "sourceContext": "commercial-terms",
           "section": "commerce"

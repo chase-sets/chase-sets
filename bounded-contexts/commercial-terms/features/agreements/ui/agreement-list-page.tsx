@@ -12,10 +12,8 @@ import {
   PageSection,
   Stack,
   Text,
-  TextInput,
-  NumberInput,
-  NativeSelect,
 } from "@chase-sets/design-system";
+import { AgreementCreateFields } from "./agreement-create-fields";
 import type { CommercialAgreementViewModel } from "./contracts";
 
 function statusTone(status: string) {
@@ -64,69 +62,7 @@ export function AgreementListPage({
       <PageSection title={t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement")}>
         <Card>
           <Form spacing="none" method="post">
-            <Stack gap={3}>
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.label")}
-                name="label"
-                required
-              />
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")}
-                name="accountId"
-                description={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.description")}
-                pattern="acc_.*"
-                placeholder={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.placeholder")}
-                title={t("commercialTerms.features.agreements.ui.agreementListPage.account.id.validation")}
-                autoComplete="off"
-                spellCheck={false}
-                required
-              />
-              <NumberInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fee.bps")}
-                name="marketplaceSalesFeePercentageBps"
-                min="0"
-                defaultValue="700"
-                required
-              />
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fixed.amount")}
-                name="marketplaceSalesFeeFixedAmount"
-                inputMode="decimal"
-                defaultValue="0.05"
-                required
-              />
-              <NumberInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance.bps")}
-                name="shippingAllowancePercentageBps"
-                min="0"
-                defaultValue="500"
-                required
-              />
-              <NativeSelect
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.status")}
-                name="status"
-                required
-                defaultValue="active"
-                items={[
-                  { value: "active", label: t("commercialTerms.features.agreements.ui.agreementListPage.active") },
-                  { value: "inactive", label: t("commercialTerms.features.agreements.ui.agreementListPage.inactive") },
-                ]}
-              />
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.effective.from")}
-                name="effectiveFrom"
-                defaultValue={new Date().toISOString()}
-                required
-              />
-              <TextInput
-                label={t("commercialTerms.features.agreements.ui.agreementListPage.effective.until")}
-                name="effectiveUntil"
-                placeholder={t("commercialTerms.features.agreements.ui.agreementListPage.optional.iso.timestamp")}
-              />
-              <Button type="submit">
-                {t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement.2")}
-              </Button>
-            </Stack>
+            <AgreementCreateFields />
           </Form>
         </Card>
       </PageSection>
