@@ -46,7 +46,7 @@ describe("platform api database pools", () => {
     }
   });
 
-  it("binds landing profile pools to the current admin-support context set", async () => {
+  it("binds landing profile pools to the landing context set", async () => {
     const pools = createPlatformApiPools({
       runtimeProfile: "landing",
       sharedDatabaseUrl: "postgresql://localhost/shared",

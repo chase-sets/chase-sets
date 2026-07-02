@@ -47,22 +47,22 @@
   "hostPorts": [
     {
       "portName": "catalogAssetStorage",
-      "providedBy": "admin-support-api, platform-api",
+      "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
     },
     {
       "portName": "tcgplayerAutomationCatalogClient",
-      "providedBy": "admin-support-api, platform-api, admin-support-worker, platform-worker",
+      "providedBy": "platform-api, platform-worker",
       "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
     },
     {
       "portName": "sourceObservationTelemetry",
-      "providedBy": "admin-support-api, platform-api, admin-support-worker, platform-worker",
+      "providedBy": "platform-api, platform-worker",
       "purpose": "Emits bounded Catalog Integration Control Plane telemetry for provider option queries, integration jobs, and bulk review work units."
     }
   ],
-  "apiDeployables": ["admin-support-api", "platform-api"],
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
+  "apiDeployables": ["platform-api"],
+  "runtimeDeployables": ["platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/catalog",
@@ -914,5 +914,7 @@
         ]
       }
     }
-  ]
+  ],
+  "apiRuntimeProfiles": ["landing", "proof", "public"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"]
 }

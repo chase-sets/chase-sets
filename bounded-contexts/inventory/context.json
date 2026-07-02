@@ -495,5 +495,7 @@
       "purpose": "Expose inventory-owned route modules consumed by generated deployable adapters.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
-  }
+  },
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
 }

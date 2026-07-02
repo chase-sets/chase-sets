@@ -631,6 +631,11 @@ async function firstVisibleRowForSeed(page: Page, seedLabels: readonly string[])
 }
 
 async function waitForCatalogItemRow(page: Page, catalogItemId: string) {
+  await page.goto(`/catalog/catalog-items?search=${encodeURIComponent(catalogItemId)}&status=draft`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectAdminPageReady(page, { heading: "Catalog Items" });
+
   const search = page.getByRole("textbox", { name: "Search" });
   const row = page.getByRole("row").filter({ hasText: catalogItemId }).first();
   await expect

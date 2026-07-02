@@ -21,7 +21,8 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 
-export type ApiHostName = "platform-api" | "admin-support-api";
+export type ApiHostName = "platform-api";
+export type ApiHostRuntimeProfile = "landing" | "proof" | "public";
 
 export const productionLikeDataProfiles: readonly EnvironmentDataProfile[] = [
   "critical-bootstrap",
@@ -43,7 +44,9 @@ export const representativeCommerceStateDataProfiles: readonly EnvironmentDataPr
 export type ApiContextManifest = Readonly<{
   contextName: string;
   apiDeployables?: readonly string[];
+  apiRuntimeProfiles?: readonly string[];
   sourceRuntimeDeployables?: readonly string[];
+  sourceRuntimeProfiles?: readonly string[];
   hostPorts?: readonly BcHostPort[];
   seedRequirements?: readonly string[];
 }>;
@@ -84,18 +87,24 @@ type ApiHostPools = Readonly<
 export function getApiHostEntries<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
 ): readonly ApiContextRegistryEntry[] {
   return registry.filter((entry) => {
     const manifest = entry.manifest as ApiContextManifest;
-    return manifest.apiDeployables?.includes(hostName) || manifest.sourceRuntimeDeployables?.includes(hostName);
+    return (
+      isApiHostActive(manifest, hostName, runtimeProfile) || isApiHostSourceOnly(manifest, hostName, runtimeProfile)
+    );
   });
 }
 
 export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
 ): readonly ApiHostContextName<TRegistry>[] {
-  return getApiHostEntries(registry, hostName).map((entry) => entry.contextName as ApiHostContextName<TRegistry>);
+  return getApiHostEntries(registry, hostName, runtimeProfile).map(
+    (entry) => entry.contextName as ApiHostContextName<TRegistry>,
+  );
 }
 
 function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
@@ -112,8 +121,41 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
   return resolvedPorts;
 }
 
-function getApiHostMountRole(manifest: ApiContextManifest, hostName: ApiHostName): "active" | "source-only" {
-  return manifest.apiDeployables?.includes(hostName) ? "active" : "source-only";
+function getApiHostMountRole(
+  manifest: ApiContextManifest,
+  hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
+): "active" | "source-only" {
+  return isApiHostActive(manifest, hostName, runtimeProfile) ? "active" : "source-only";
+}
+
+function isApiHostActive(
+  manifest: ApiContextManifest,
+  hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
+): boolean {
+  return Boolean(
+    manifest.apiDeployables?.includes(hostName) && runtimeProfileMatches(manifest.apiRuntimeProfiles, runtimeProfile),
+  );
+}
+
+function isApiHostSourceOnly(
+  manifest: ApiContextManifest,
+  hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
+): boolean {
+  return Boolean(
+    (manifest.sourceRuntimeDeployables?.includes(hostName) &&
+      runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)) ||
+    Boolean(manifest.sourceRuntimeProfiles && runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)),
+  );
+}
+
+function runtimeProfileMatches(
+  profiles: readonly string[] | undefined,
+  runtimeProfile: ApiHostRuntimeProfile | undefined,
+): boolean {
+  return !runtimeProfile || Boolean(profiles?.includes(runtimeProfile));
 }
 
 export function createApiHost(
@@ -122,9 +164,10 @@ export function createApiHost(
   options: Readonly<{
     pools: ApiHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
+    runtimeProfile?: ApiHostRuntimeProfile;
   }>,
 ): ApiHostRuntime {
-  const entries = getApiHostEntries(registry, hostName);
+  const entries = getApiHostEntries(registry, hostName, options.runtimeProfile);
   const services = Object.fromEntries(
     entries.map((entry) => {
       const pool = getContextPool(options.pools, hostName, entry.contextName);
@@ -145,7 +188,7 @@ export function createApiHost(
     const pool = getContextPool(options.pools, hostName, entry.contextName);
     const notificationWaiterPool = options.pools.contextWaiters?.[entry.contextName] ?? pool;
     const contextServices = services[entry.contextName];
-    const mountRole = getApiHostMountRole(entry.manifest as ApiContextManifest, hostName);
+    const mountRole = getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, options.runtimeProfile);
 
     return {
       contextName: entry.contextName,
@@ -209,10 +252,14 @@ function getSeedDependencyNames(
   );
 }
 
-export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiHostName): readonly string[] {
-  const entries = getApiHostEntries(registry, hostName);
+export function getApiHostSeedOrder(
+  registry: ApiContextRegistry,
+  hostName: ApiHostName,
+  runtimeProfile?: ApiHostRuntimeProfile,
+): readonly string[] {
+  const entries = getApiHostEntries(registry, hostName, runtimeProfile);
   const activeEntries = entries.filter(
-    (entry) => getApiHostMountRole(entry.manifest as ApiContextManifest, hostName) === "active",
+    (entry) => getApiHostMountRole(entry.manifest as ApiContextManifest, hostName, runtimeProfile) === "active",
   );
   const activeNames = activeEntries.map((entry) => entry.contextName);
   const byName = new Map(entries.map((entry) => [entry.contextName, entry]));
@@ -258,11 +305,13 @@ function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module"
   return Boolean(context.module.seed && seedProfilesOverlap(context.module.seedProfiles, options));
 }
 
+export type ApiHostSeedOptions = BcSeedOptions & Readonly<{ runtimeProfile?: ApiHostRuntimeProfile }>;
+
 export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
-  options: BcSeedOptions = {
+  options: ApiHostSeedOptions = {
     enabledDataProfiles: nonProductionDataProfiles,
     environmentName: null,
   },
@@ -274,7 +323,7 @@ export async function seedApiHostIfEmpty(
     await bootstrapContextDatabase(context.module, context.pool);
   }
 
-  for (const contextName of getApiHostSeedOrder(registry, hostName)) {
+  for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
     const context = mountedContextsByName.get(contextName);
     if (!context) {
       throw new Error(`API host '${hostName}' is missing mounted context '${contextName}' during seed.`);
@@ -307,7 +356,7 @@ export async function seedApiHostIfEmpty(
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
     // shipments) complete once every context has seeded and drained.
-    for (const contextName of getApiHostSeedOrder(registry, hostName)) {
+    for (const contextName of getApiHostSeedOrder(registry, hostName, options.runtimeProfile)) {
       const context = mountedContextsByName.get(contextName);
       if (!context || !shouldRunContextSeed(context, options)) {
         continue;

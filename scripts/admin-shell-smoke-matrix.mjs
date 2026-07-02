@@ -69,8 +69,8 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     smokeCoverageId: "SMOKE-API-AUTH-ACCESS-SESSIONS",
     topologyExpectations: {
       staging: "internal-origin or authenticated API data",
-      "public-marketplace": "admin-support API route or internal-origin",
-      "production-platform-disabled": "admin-support API route or internal-origin",
+      "public-marketplace": "platform-api landing route or internal-origin",
+      "production-platform-disabled": "platform-api landing route or internal-origin",
     },
   },
   {
@@ -86,8 +86,8 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     smokeCoverageId: "SMOKE-API-IDENTITY-ACCESS-ADMIN",
     topologyExpectations: {
       staging: "internal-origin or authenticated API data",
-      "public-marketplace": "admin-support API route or internal-origin",
-      "production-platform-disabled": "admin-support API route or internal-origin",
+      "public-marketplace": "platform-api landing route or internal-origin",
+      "production-platform-disabled": "platform-api landing route or internal-origin",
     },
   },
   {
@@ -172,7 +172,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "internal-origin or authenticated API data",
       "public-marketplace": "internal-origin",
-      "production-platform-disabled": "admin-support API route or internal-origin",
+      "production-platform-disabled": "platform-api landing route or internal-origin",
     },
   },
   {
@@ -206,7 +206,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     topologyExpectations: {
       staging: "internal-origin or authenticated API data",
       "public-marketplace": "internal-origin",
-      "production-platform-disabled": "admin-support API route or internal-origin",
+      "production-platform-disabled": "platform-api landing route or internal-origin",
     },
   },
   {
@@ -609,7 +609,7 @@ function supportsDeployedApiProbeForTopology(probe, topologyMode) {
 
   return probe.coverageIds.some((coverageId) => {
     const expectation = apiDependencyForCoverageId(coverageId)?.topologyExpectations?.[topologyMode] ?? "";
-    return expectation.includes("admin-support API route") || expectation.includes("admin public ingress");
+    return expectation.includes("platform-api landing route") || expectation.includes("admin public ingress");
   });
 }
 

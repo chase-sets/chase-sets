@@ -121,7 +121,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{service_name=~\"platform-api|admin-support-api\"} | json | type=\"read-after-write.freshness\""
+          "expr": "{service_name=\"platform-api\"} | json | type=\"read-after-write.freshness\""
         }
       ]
     }

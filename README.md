@@ -70,8 +70,6 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 
 Deployables are thin composition roots. Business behavior should not live in deployables. Every package-backed directory under `deployables/` is listed, including operational services and test harnesses; omissions are intentional only for directories without `package.json`.
 
-- `deployables/admin-support-api` (`@chase-sets/app-admin-support-api`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `start`, `start:production`, `test`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
-- `deployables/admin-support-worker` (`@chase-sets/app-admin-support-worker`): package scripts `bootstrap`, `dev`, `start`, `start:production`, `test`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/admin-web` (`@chase-sets/app-admin-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace` (`@chase-sets/app-marketplace-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`.

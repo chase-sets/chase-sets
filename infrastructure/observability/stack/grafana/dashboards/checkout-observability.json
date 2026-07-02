@@ -105,7 +105,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{service_name=~\"platform-api|platform-worker|admin-support-api\"} | json | eventName =~ \"checkout\\\\..*\""
+          "expr": "{service_name=~\"platform-api|platform-worker\"} | json | eventName =~ \"checkout\\\\..*\""
         }
       ]
     }

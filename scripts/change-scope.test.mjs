@@ -235,19 +235,12 @@ describe("change-scope", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
-      changedFiles: ["deployables/admin-support-api/__tests__/config.test.ts"],
+      changedFiles: ["deployables/platform-api/__tests__/config.test.ts"],
       workspaces: [
         {
-          ...workspace(
-            baseDir,
-            "deployables",
-            "admin-support-api",
-            "@test/admin-support-api",
-            {},
-            { testProfile: "db" },
-          ),
+          ...workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
           packageJson: {
-            name: "@test/admin-support-api",
+            name: "@test/platform-api",
             dependencies: {},
             chaseSets: { testProfile: "db" },
             scripts: { test: "test", "test:unit": "test:unit" },

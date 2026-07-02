@@ -254,9 +254,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "commercialTermsResolver",
-      "providedBy": "commercial-terms",
-      "purpose": "Resolve seller-side Sell List offer terms inside Checkout-owned composite read models without request-time Marketplace reads."
+      "portName": "checkoutObservabilityTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -1141,12 +1141,7 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "hostPorts": [
-    {
-      "portName": "checkoutObservabilityTelemetry",
-      "providedBy": "platform-api",
-      "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."
-    }
-  ],
-  "runtimeDeployables": ["platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
 }

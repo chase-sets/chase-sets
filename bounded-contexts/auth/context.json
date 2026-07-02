@@ -136,7 +136,7 @@
       "purpose": "Configured Google Workspace hosted-domain policy used by Auth-owned admin SSO journeys."
     }
   ],
-  "apiDeployables": ["admin-support-api", "platform-api"],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/auth",
@@ -426,7 +426,7 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
+  "runtimeDeployables": ["platform-worker"],
   "readAfterWriteRouteInventory": [
     {
       "id": "auth.current-session-fresh-read",
@@ -544,14 +544,14 @@
       "risk": "important",
       "strategy": "read-model-neutral",
       "surfaces": [
-        "api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register",
+        "api-route:deployables/platform-api/src/app.ts:POST /api/auth/register",
         "api-route:deployables/platform-api/src/app.ts:POST /api/auth/register"
       ],
       "exception": {
         "owner": "auth",
         "reviewBy": "2026-09-30",
         "issue": "#1819",
-        "reason": "The admin-support-api and landing-profile platform-api composition roots reject admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/admin-support-api/__tests__/app.test.ts and deployables/platform-api/src/__tests__/app.test.ts prove the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
+        "reason": "The landing-profile platform-api composition root rejects admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/platform-api/__tests__/app.test.ts proves the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
       }
     },
     {
@@ -694,5 +694,7 @@
         "tests": ["bounded-contexts/auth/support/ucp-support/oauth.test.ts"]
       }
     }
-  ]
+  ],
+  "apiRuntimeProfiles": ["landing", "proof", "public"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"]
 }

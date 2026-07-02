@@ -41,7 +41,7 @@ describe("createCommercialTermsRequestApiClient", () => {
   });
 
   it("reports non-json API topology failures with sanitized diagnostics", async () => {
-    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://admin-support-api.internal");
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("not found", {
         status: 404,
@@ -62,7 +62,7 @@ describe("createCommercialTermsRequestApiClient", () => {
       status: 404,
       request: {
         method: "GET",
-        origin: "https://admin-support-api.internal",
+        origin: "https://platform-api.internal",
         pathname: "/api/commercial-terms/schedules",
         contentType: "text/plain",
       },
@@ -70,7 +70,7 @@ describe("createCommercialTermsRequestApiClient", () => {
     expect(warnMock).toHaveBeenCalledWith("[commercial-terms-admin-api] request failed", {
       status: 404,
       method: "GET",
-      origin: "https://admin-support-api.internal",
+      origin: "https://platform-api.internal",
       pathname: "/api/commercial-terms/schedules",
       contentType: "text/plain",
     });

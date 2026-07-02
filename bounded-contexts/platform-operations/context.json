@@ -137,7 +137,7 @@
       "purpose": "Durable outbound notification outbox consumed only by support request event projectors."
     }
   ],
-  "apiDeployables": ["admin-support-api", "platform-api"],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/platform",
@@ -465,5 +465,7 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["landing", "proof", "public"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"]
 }

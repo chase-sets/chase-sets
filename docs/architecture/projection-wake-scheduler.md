@@ -111,4 +111,4 @@ Read-after-write freshness waits integrate with the work-signal store through a 
 
 - The scheduler does not listen to source databases and does not parse wake notifications; that is the relay's job.
 - The scheduler does not decide rollout; source enablement stays in the source-context wake registry, and no intents exist for disabled sources.
-- The admin-support worker currently relies on fallback polling; its wake consumption lands with the projection-group migration inventory work. The admin-support API likewise runs without the wake-before-wait gateway until its contexts enter the rollout inventory.
+- The platform-worker landing profile currently relies on fallback polling for admin support workloads; its wake consumption lands with the projection-group migration inventory work. The platform-api landing profile likewise runs without the wake-before-wait gateway until its contexts enter the rollout inventory.

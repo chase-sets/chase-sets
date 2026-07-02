@@ -478,7 +478,7 @@ The platform smoke script checks:
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one
-- Commercial Terms schedules and agreements admin pages load under authenticated admin smoke, exercising the admin server-side loader path to the platform API. Production landing uses the `platform-api` landing profile for admin-support routes; proof/public use the same component with broader mounted contexts.
+- Commercial Terms schedules and agreements admin pages load under authenticated admin smoke, exercising the admin server-side loader path to the platform API. Production landing uses the `platform-api` landing profile for landing admin routes; proof/public use the same component with broader mounted contexts.
 
 Catalog asset CDN smoke verifies that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies and during staging/production platform smoke. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
 

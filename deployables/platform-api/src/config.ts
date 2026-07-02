@@ -298,13 +298,10 @@ export type StripeGoLiveCheckReport = Readonly<{
   liveSecretKeyLikely: boolean;
 }>;
 
-const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
-const landingApiContexts = getApiHostContextNames(apiContextRegistry, "admin-support-api");
-
 export function getPlatformApiContextsForRuntimeProfile(
   runtimeProfile: PlatformApiRuntimeProfile,
 ): readonly PlatformApiContextName[] {
-  return runtimeProfile === "landing" ? landingApiContexts : platformApiContexts;
+  return getApiHostContextNames(apiContextRegistry, "platform-api", runtimeProfile);
 }
 
 function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {

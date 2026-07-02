@@ -106,7 +106,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{service_name=~\"platform-api|admin-support-api|platform-worker\"} | json | context=\"catalog\""
+          "expr": "{service_name=~\"platform-api|platform-worker\"} | json | context=\"catalog\""
         }
       ]
     }

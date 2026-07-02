@@ -189,6 +189,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     await bootstrapPlatformControlPlane(pools.control);
     const runtime = createPlatformApiHost({
       pools,
+      runtimeProfile: config.runtimeProfile,
       hostPorts: {
         processorGateway:
           config.paymentProcessor.kind === "stripe"
@@ -230,6 +231,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
         enabledDataProfiles: representativeCommerceStateDataProfiles,
         environmentName: config.deploymentEnvironment ?? null,
+        runtimeProfile: config.runtimeProfile,
       }),
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");

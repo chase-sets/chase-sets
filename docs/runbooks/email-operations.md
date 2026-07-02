@@ -101,7 +101,7 @@ Before enabling SES in a shared environment:
 5. Deploy and verify `platform-worker` health is `ACTIVE`.
 6. Send a controlled transactional message from the environment and confirm the outbox row is marked sent with provider `amazon-ses`.
 
-Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production must pass the same SES checks. Marketplace launch depends on transactional email for sign-in, account security, order, payment, fulfillment, refund, support, and payout notices; a `noop` production provider is acceptable only while production remains landing/admin-support.
+Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production must pass the same SES checks. Marketplace launch depends on transactional email for sign-in, account security, order, payment, fulfillment, refund, support, and payout notices; a `noop` production provider is acceptable only while production remains on the landing profile.
 
 Provider bounces, complaints, and delivery notifications should flow through SES/SNS into the Notifications provider webhook path before tightening DMARC policy or broadening email volume. Register the SES/SNS HTTPS destination against:
 
@@ -109,7 +109,7 @@ Provider bounces, complaints, and delivery notifications should flow through SES
 https://<public-host>/api/notifications/provider/email/webhooks
 ```
 
-For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes this provider callback path to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support. Use `https://chasesets.com/api/notifications/provider/email/webhooks` for the production SES/SNS destination in that posture.
+For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes this provider callback path to `platform-api` while normal public/admin `/api/*` traffic remains on the platform-api landing profile. Use `https://chasesets.com/api/notifications/provider/email/webhooks` for the production SES/SNS destination in that posture.
 
 The platform API requires a signed SNS notification envelope by default. It confirms signed `SubscriptionConfirmation` messages only when the `SubscribeURL` points back to an AWS SNS host, then parses SES `Delivery`, `Bounce`, and `Complaint` notifications through the SES infrastructure adapter and records them idempotently in the Notifications-owned `notification_email_provider_events` table. Attach the SES event destination ARN, confirmed subscription status, delivery status, and redacted query output from that table to the launch evidence record.
 
@@ -117,7 +117,7 @@ Use the production callback URL above as the SES/SNS HTTPS subscription endpoint
 
 ## Production SES Proof
 
-Before production marketplace promotion, Notifications must approve transactional email readiness with `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true` and a non-empty `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE` in the production GitHub Environment. The reference must point to the Notifications-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production Amazon SES proof below is complete.
+Before production marketplace promotion, Notifications must approve transactional email readiness with `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true` and a non-empty `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE` in the production GitHub Environment. The reference must point to the Notifications-owned rehearsal record. Keep approval unset while production remains landing-profile only or until every production Amazon SES proof below is complete.
 
 The rehearsal record must include:
 

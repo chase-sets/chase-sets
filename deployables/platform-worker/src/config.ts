@@ -24,7 +24,6 @@ import {
   isPlatformWorkerRuntimeProfile,
   type PlatformWorkerRuntimeProfile,
 } from "@chase-sets/platform-runtime/runtime-profiles";
-import type { WorkerHostName } from "@chase-sets/platform-runtime/worker";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
@@ -168,19 +167,10 @@ export type PlatformWorkerNotificationEmailConfig = Readonly<{
   }>;
 }>;
 
-const platformWorkerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
-const landingWorkerContexts = getWorkerHostContextNames(workerContextRegistry, "admin-support-worker");
-
-export function getPlatformWorkerHostNameForRuntimeProfile(
-  runtimeProfile: PlatformWorkerRuntimeProfile,
-): WorkerHostName {
-  return runtimeProfile === "landing" ? "admin-support-worker" : "platform-worker";
-}
-
 export function getPlatformWorkerContextsForRuntimeProfile(
   runtimeProfile: PlatformWorkerRuntimeProfile,
 ): readonly PlatformWorkerContextName[] {
-  return runtimeProfile === "landing" ? landingWorkerContexts : platformWorkerContexts;
+  return getWorkerHostContextNames(workerContextRegistry, "platform-worker", runtimeProfile);
 }
 
 export function getContextDatabaseEnvName(contextName: PlatformWorkerContextName) {

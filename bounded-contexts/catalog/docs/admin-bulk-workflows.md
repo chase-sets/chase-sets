@@ -51,7 +51,7 @@ Operators should expect mixed results when selections include multiple statuses 
 
 ## Server-Side Jobs And Status Streams
 
-Long-running Catalog admin bulk work is persisted as a Catalog-owned admin job before execution starts. Progress-capable client calls enqueue a job, then subscribe to a status stream for that job. The job is claimed and processed by the admin-support worker through the normal leased worker runner loop, so the operation is not tied to the browser tab or HTTP response that started it.
+Long-running Catalog admin bulk work is persisted as a Catalog-owned admin job before execution starts. Progress-capable client calls enqueue a job, then subscribe to a status stream for that job. The job is claimed and processed by the platform-worker landing profile through the normal leased worker runner loop, so the operation is not tied to the browser tab or HTTP response that started it.
 
 The persisted job record owns:
 

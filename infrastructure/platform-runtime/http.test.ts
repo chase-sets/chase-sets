@@ -98,10 +98,10 @@ describe("resolveRequestApiBaseUrl", () => {
   });
 
   it("uses the configured internal API origin for server-side component calls", () => {
-    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://admin-support-api:8080");
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://platform-api:8080");
     const request = new Request("https://admin.chasesets.test/catalog");
 
-    expect(resolveRequestApiBaseUrl(request, "/api/catalog")).toBe("http://admin-support-api:8080/api/catalog");
+    expect(resolveRequestApiBaseUrl(request, "/api/catalog")).toBe("http://platform-api:8080/api/catalog");
   });
 });
 

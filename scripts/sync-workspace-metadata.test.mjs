@@ -19,13 +19,7 @@ async function createMetadataFixture() {
   await mkdir(path.join(rootDir, "deployables", "platform-api", "src", "generated"), {
     recursive: true,
   });
-  await mkdir(path.join(rootDir, "deployables", "admin-support-api", "src", "generated"), {
-    recursive: true,
-  });
   await mkdir(path.join(rootDir, "deployables", "platform-worker", "src", "generated"), {
-    recursive: true,
-  });
-  await mkdir(path.join(rootDir, "deployables", "admin-support-worker", "src", "generated"), {
     recursive: true,
   });
   await mkdir(path.join(rootDir, "deployables", "admin-web", "app", "generated"), {

@@ -12,7 +12,7 @@ The historical staging incident cannot be attributed to a specific worker outage
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | Preview | `platform-api` and `platform-worker` when marketplace platform is enabled | 1 | 1 | 7 | 7 | Smallest non-production posture; preview bootstrap may drain scenario projections. |
 | Staging | Full `platform-api` and `platform-worker` | 2 | 2 | 11 | 11 | Provides four concurrent projection runner slots across two workers. |
-| Production landing/admin-only | `admin-support-api` and admin-support worker; no public marketplace flow | 1 admin-support worker | 1 | 7 | 7 | Guest Buy Now public marketplace is not exposed in this posture. |
+| Production landing/admin-only | Profiled `platform-api` and `platform-worker`; no public marketplace flow | 1 platform worker | 1 | 7 | 7 | Guest Buy Now public marketplace is not exposed in this posture. |
 | Production proof/public marketplace | `platform-api`, `platform-worker`, marketplace web, and commerce databases | 1 by default, overrideable | 1 | 7 | 7 | Required before production marketplace proof or public launch can exercise guest Buy Now. |
 
 Terraform enforces that per-worker projection, job, dispatch, and scheduled runner concurrency does not exceed `worker_database_pool_max`. The relevant settings are:

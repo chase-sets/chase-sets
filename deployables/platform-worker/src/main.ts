@@ -78,7 +78,6 @@ import {
   type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
 import {
-  getPlatformWorkerHostNameForRuntimeProfile,
   loadConfig,
   type PlatformWorkerCatalogAssetStorageConfig,
   type PlatformWorkerGoogleMerchantConfig,
@@ -98,7 +97,7 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
-const workerKind = getPlatformWorkerHostNameForRuntimeProfile(config.runtimeProfile);
+const workerKind = "platform-worker";
 const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
@@ -197,8 +196,9 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
-runtime = createWorkerHost(workerContextRegistry, workerKind, {
+runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
+  runtimeProfile: config.runtimeProfile,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
     moneyMovementGateway,

@@ -50,11 +50,11 @@ Local development uses filesystem-backed storage by default:
 
 ```bash
 CATALOG_ASSET_STORAGE_KIND=filesystem
-CATALOG_ASSET_LOCAL_ROOT=../../artifacts/catalog-assets/admin-support-api
+CATALOG_ASSET_LOCAL_ROOT=../../artifacts/catalog-assets/platform-api
 CATALOG_ASSET_PUBLIC_BASE_URL=http://localhost:6192/catalog-assets
 ```
 
-`CATALOG_ASSET_PUBLIC_BASE_URL` may point at either `admin-support-api` or `platform-api` as long as that deployable is serving the same local storage root. If it is omitted, the API uses its configured `PORT` and `/catalog-assets`.
+`CATALOG_ASSET_PUBLIC_BASE_URL` should point at the profiled `platform-api` serving the same local storage root. If it is omitted, the API uses its configured `PORT` and `/catalog-assets`.
 
 ## Shared Environments
 

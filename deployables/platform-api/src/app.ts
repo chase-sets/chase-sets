@@ -30,12 +30,7 @@ import {
   type HealthProjectionReplaySummary,
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
-import {
-  createApiHost,
-  resolveApiHostMounts,
-  type ApiHostName,
-  type ApiHostRuntime,
-} from "@chase-sets/platform-runtime/api";
+import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
 import {
@@ -111,7 +106,7 @@ export function createPlatformApiHost(
     }>,
 ): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
-  const hostName = apiHostNameForRuntimeProfile(options.runtimeProfile ?? "public");
+  const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const commercialTermsResolver = commercialTermsPool
@@ -139,8 +134,9 @@ export function createPlatformApiHost(
     return createDraft(params, context);
   };
 
-  runtime = createApiHost(apiContextRegistry, hostName, {
+  runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
+    runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
@@ -153,10 +149,6 @@ export function createPlatformApiHost(
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
-}
-
-function apiHostNameForRuntimeProfile(profile: PlatformApiRuntimeProfile): ApiHostName {
-  return profile === "landing" ? "admin-support-api" : "platform-api";
 }
 
 function createIdentityCommercialTermsAccountSource(
