@@ -1,5 +1,6 @@
 import type { CatalogProviderProfileLifecycle } from "./provider-integration-mapping-contract";
 import { CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV } from "./catalog-integration-data-governance";
+import { listCatalogProviderIntegrationProfiles } from "./provider-integration-profiles";
 
 export type CatalogIntegrationRolloutControlId =
   | "control-plane-read-only"
@@ -156,35 +157,80 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): CatalogIntegrationRolloutControlPolicy {
   const productionLike = isProductionLikeCatalogIntegrationEnvironment(env);
-  const controlPlaneMode = parseControlPlaneMode(env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE);
-  const disabledImports = parseProviderScope(env.CATALOG_INTEGRATION_IMPORTS_DISABLED);
-  const disabledPromotion = parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_DISABLED);
-  const disabledReapply = parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED);
-  const activationMode = parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE);
+  const controlPlaneMode = parseControlPlaneMode(
+    "CATALOG_INTEGRATION_CONTROL_PLANE_MODE",
+    env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE,
+  );
+  const disabledImports = parseProviderKeyScope(
+    "CATALOG_INTEGRATION_IMPORTS_DISABLED",
+    env.CATALOG_INTEGRATION_IMPORTS_DISABLED,
+  );
+  const disabledPromotion = parseProviderKeyScope(
+    "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+    env.CATALOG_INTEGRATION_PROMOTION_DISABLED,
+  );
+  const disabledReapply = parseProviderKeyScope(
+    "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+    env.CATALOG_INTEGRATION_REAPPLY_DISABLED,
+  );
+  const activationMode = parseActivationMode(
+    "CATALOG_INTEGRATION_ACTIVATION_MODE",
+    env.CATALOG_INTEGRATION_ACTIVATION_MODE,
+  );
 
   return createCatalogIntegrationRolloutControlPolicy({
     controlPlaneMode: defaultWhenEnvUnset(controlPlaneMode, productionLike ? "dry-run-only" : null),
-    disabledProviderAdapters: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS),
-    disabledProviderAdapterUnits: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS),
-    providerApiEmergencyStop: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP),
-    providerApiEmergencyStopUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS),
-    providerOptionQueries: parseOptionQueryMode(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES),
-    disabledProviderOptionQueryProviders: parseProviderScope(
+    disabledProviderAdapters: parseProviderKeyScope(
+      "CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS",
+      env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS,
+    ),
+    disabledProviderAdapterUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS",
+      env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTER_UNITS,
+    ),
+    providerApiEmergencyStop: parseProviderKeyScope(
+      "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+      env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP,
+    ),
+    providerApiEmergencyStopUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS",
+      env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS,
+    ),
+    providerOptionQueries: parseOptionQueryMode(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES",
+      env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES,
+    ),
+    disabledProviderOptionQueryProviders: parseProviderKeyScope(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_DISABLED",
       env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_DISABLED,
     ),
-    disabledProviderOptionQueryUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED),
-    cacheOnlyProviderOptionQueryProviders: parseProviderScope(
+    disabledProviderOptionQueryUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED",
+      env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_DISABLED,
+    ),
+    cacheOnlyProviderOptionQueryProviders: parseProviderKeyScope(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_CACHE_ONLY",
       env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_PROVIDERS_CACHE_ONLY,
     ),
     cacheOnlyProviderOptionQueryUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY",
       env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY,
     ),
     disabledImports: defaultWhenEnvUnset(disabledImports, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
-    disabledImportUnits: parseProviderScope(env.CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED),
+    disabledImportUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+      env.CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED,
+    ),
     disabledPromotion: defaultWhenEnvUnset(disabledPromotion, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
-    disabledPromotionUnits: parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED),
+    disabledPromotionUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
+      env.CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED,
+    ),
     disabledReapply: defaultWhenEnvUnset(disabledReapply, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
-    disabledReapplyUnits: parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED),
+    disabledReapplyUnits: parseProviderScope(
+      "CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED",
+      env.CATALOG_INTEGRATION_REAPPLY_UNITS_DISABLED,
+    ),
     activationMode: defaultWhenEnvUnset(activationMode, productionLike ? "test-profiles-only" : null),
     ...(productionLike
       ? {
@@ -196,7 +242,7 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
           ),
         }
       : {}),
-    workerMode: parseWorkerMode(env.CATALOG_INTEGRATION_WORKER_MODE),
+    workerMode: parseWorkerMode("CATALOG_INTEGRATION_WORKER_MODE", env.CATALOG_INTEGRATION_WORKER_MODE),
   });
 }
 
@@ -620,73 +666,124 @@ function normalizeScope(value: readonly string[] | "all" | null | undefined): re
   return Array.from(new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }
 
-function parseProviderScope(value: string | undefined): readonly string[] | "all" | null | undefined {
+const OPEN_MODE_ALIASES = ["open", "false", "none"] as const;
+const PROVIDER_SCOPE_OPEN_ALIASES = ["false", "open", "none"] as const;
+const PROVIDER_SCOPE_ALL_ALIASES = ["true", "all", "*"] as const;
+
+function parseProviderKeyScope(
+  envName: string,
+  value: string | undefined,
+): readonly string[] | "all" | null | undefined {
+  const scope = parseProviderScope(envName, value);
+  if (!Array.isArray(scope)) {
+    return scope;
+  }
+
+  const validProviderKeys = catalogIntegrationProviderKeySet();
+  const unknownProviderKey = scope.find((providerKey) => !validProviderKeys.has(providerKey));
+  if (unknownProviderKey) {
+    throw new Error(
+      `${envName} contains unknown provider key '${unknownProviderKey}'. Allowed provider keys: ${[
+        ...validProviderKeys,
+      ].join(
+        ", ",
+      )}. Use one of ${formatAllowedValues(PROVIDER_SCOPE_OPEN_ALIASES)} to leave open, or one of ${formatAllowedValues(
+        PROVIDER_SCOPE_ALL_ALIASES,
+      )} to target every provider.`,
+    );
+  }
+
+  return scope;
+}
+
+function parseProviderScope(envName: string, value: string | undefined): readonly string[] | "all" | null | undefined {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
     return undefined;
   }
-  if (normalized === "false" || normalized === "open" || normalized === "none") {
+  if (includesValue(PROVIDER_SCOPE_OPEN_ALIASES, normalized)) {
     return null;
   }
-  if (normalized === "true" || normalized === "all" || normalized === "*") {
+  if (includesValue(PROVIDER_SCOPE_ALL_ALIASES, normalized)) {
     return "all";
   }
-  return normalized
+  const scope = normalized
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+  if (scope.length === 0) {
+    throw new Error(
+      `${envName} must be a comma-separated scope list, one of ${formatAllowedValues(
+        PROVIDER_SCOPE_OPEN_ALIASES,
+      )} to leave open, or one of ${formatAllowedValues(PROVIDER_SCOPE_ALL_ALIASES)} to target every provider.`,
+    );
+  }
+  return scope;
 }
 
 function parseControlPlaneMode(
+  envName: string,
   value: string | undefined,
 ): CatalogIntegrationRolloutControlConfig["controlPlaneMode"] | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) {
-    return undefined;
-  }
-  if (normalized === "open" || normalized === "false" || normalized === "none") {
-    return "open";
-  }
-  return normalized === "read-only" || normalized === "dry-run-only" || normalized === "rollback-ready"
-    ? normalized
-    : undefined;
+  return parseRolloutMode(envName, value, ["read-only", "dry-run-only", "rollback-ready"] as const);
 }
 
 function parseOptionQueryMode(
+  envName: string,
   value: string | undefined,
 ): CatalogIntegrationRolloutControlConfig["providerOptionQueries"] | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) {
-    return undefined;
-  }
-  if (normalized === "open" || normalized === "false" || normalized === "none") {
-    return "open";
-  }
-  return normalized === "disabled" || normalized === "cache-only" ? normalized : null;
+  return parseRolloutMode(envName, value, ["disabled", "cache-only"] as const);
 }
 
 function parseActivationMode(
+  envName: string,
   value: string | undefined,
 ): CatalogIntegrationRolloutControlConfig["activationMode"] | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) {
-    return undefined;
-  }
-  if (normalized === "open" || normalized === "false" || normalized === "none") {
-    return "open";
-  }
-  return normalized === "disabled" || normalized === "test-profiles-only" ? normalized : undefined;
+  return parseRolloutMode(envName, value, ["disabled", "test-profiles-only"] as const);
 }
 
-function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["workerMode"] | undefined {
+function parseWorkerMode(
+  envName: string,
+  value: string | undefined,
+): CatalogIntegrationRolloutControlConfig["workerMode"] | undefined {
+  return parseRolloutMode(envName, value, ["disabled", "lane-limited"] as const);
+}
+
+function parseRolloutMode<TAllowed extends string>(
+  envName: string,
+  value: string | undefined,
+  allowedModes: readonly TAllowed[],
+): "open" | TAllowed | undefined {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
     return undefined;
   }
-  if (normalized === "open" || normalized === "false" || normalized === "none") {
+  if (includesValue(OPEN_MODE_ALIASES, normalized)) {
     return "open";
   }
-  return normalized === "disabled" || normalized === "lane-limited" ? normalized : null;
+  if (includesValue(allowedModes, normalized)) {
+    return normalized;
+  }
+
+  throw new Error(
+    `${envName} must be one of ${formatAllowedValues([...OPEN_MODE_ALIASES, ...allowedModes])}. Received '${normalized}'.`,
+  );
+}
+
+function catalogIntegrationProviderKeySet(): ReadonlySet<string> {
+  return new Set(
+    [
+      ...new Set(listCatalogProviderIntegrationProfiles().map((profile) => profile.providerKey.trim().toLowerCase())),
+    ].sort(),
+  );
+}
+
+function includesValue<TValue extends string>(values: readonly TValue[], value: string): value is TValue {
+  return values.includes(value as TValue);
+}
+
+function formatAllowedValues(values: readonly string[]): string {
+  return values.map((value) => `'${value}'`).join(", ");
 }
 
 function isProductionLikeCatalogIntegrationEnvironment(env: NodeJS.ProcessEnv): boolean {
