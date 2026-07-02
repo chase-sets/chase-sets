@@ -1,9 +1,13 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { InvitationId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, InvitationId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { formatValidRoleKeys, parseRoleKey, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { InvitationServices } from "./runtime";
+
+type InvitationAccountReader = Readonly<{
+  getAccountForRead: (accountId: string) => Promise<unknown | null>;
+}>;
 
 function canManageInvitation(
   actor: IdentityApiEnv["Variables"]["actor"],
@@ -32,25 +36,51 @@ function invalidRoleKey() {
   };
 }
 
-export function invitationRoutes(services: InvitationServices) {
+function invalidAccountId() {
+  return {
+    error: {
+      code: "validation_failed",
+      message: t("identity.features.invitations.api.route.account.id.invalid"),
+    },
+  };
+}
+
+function accountNotFound() {
+  return {
+    error: {
+      code: "not_found",
+      message: t("identity.features.invitations.api.route.account.not.found"),
+    },
+  };
+}
+
+export function invitationRoutes(services: InvitationServices, accounts: InvitationAccountReader) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
     const body = await c.req.json();
     const invitationId = body.invitationId as InvitationId;
-    if (!canManageInvitation(c.var.actor, { account_id: String(body.accountId ?? "") })) {
+    const accountId = String(body.accountId ?? "").trim();
+    if (!accountId.startsWith("acc_")) {
+      return c.json(invalidAccountId(), 400);
+    }
+    if (!canManageInvitation(c.var.actor, { account_id: accountId })) {
       return c.json(forbidden(), 403);
     }
     const roleKey = parseRoleKey(body.roleKey);
     if (!roleKey) {
       return c.json(invalidRoleKey(), 400);
     }
+    const account = await accounts.getAccountForRead(accountId);
+    if (!account) {
+      return c.json(accountNotFound(), 404);
+    }
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: {
         type: "CreateInvitation",
         invitationId,
-        accountId: body.accountId,
+        accountId: accountId as AccountId,
         email: body.email,
         roleKey,
         expiresAt: body.expiresAt,

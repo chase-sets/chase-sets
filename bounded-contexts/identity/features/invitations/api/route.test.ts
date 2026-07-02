@@ -16,28 +16,45 @@ const actor: ResolvedActor = {
   permissions: ["memberships.manage", "memberships.view"],
 };
 
-function buildApp(services: InvitationServices) {
+type InvitationAccountReader = Parameters<typeof invitationRoutes>[1];
+
+function buildAccounts(overrides: Partial<InvitationAccountReader> = {}): InvitationAccountReader {
+  return {
+    getAccountForRead: vi.fn(async () => ({
+      account_id: actor.accountId,
+      name: "Card Vault LLC",
+      display_name: "Card Vault",
+      account_type: "business",
+      status: "active",
+      badges: [],
+      updated_at: "2026-07-01T00:00:00.000Z",
+    })),
+    ...overrides,
+  };
+}
+
+function buildApp(services: InvitationServices, accounts = buildAccounts(), requestActor = actor) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
-    c.set("actor", actor);
+    c.set("actor", requestActor);
     c.set("context", {
       tenantId: "tnt_identity" as never,
       audit: {
-        performedByUserId: actor.userId as never,
-        forAccountId: actor.accountId as never,
+        performedByUserId: requestActor.userId as never,
+        forAccountId: requestActor.accountId as never,
       },
       trace: {},
     } as EventStoreContext);
     await next();
   });
-  app.route("/invitations", invitationRoutes(services));
+  app.route("/invitations", invitationRoutes(services, accounts));
   return app;
 }
 
 function buildServices(overrides: Partial<InvitationServices> = {}) {
   return {
-    commandHandler: vi.fn(async () => ({
-      state: { status: "cancelled" },
+    commandHandler: vi.fn(async (input: { command: { type: string } }) => ({
+      state: { status: input.command.type === "CreateInvitation" ? "pending" : "cancelled" },
       version: 3,
     })),
     listInvitations: vi.fn(async () => ({ items: [], total: 0 })),
@@ -64,6 +81,94 @@ function buildServices(overrides: Partial<InvitationServices> = {}) {
 }
 
 describe("invitation API route", () => {
+  it("rejects malformed account IDs before issuing create commands", async () => {
+    const services = buildServices();
+    const accounts = buildAccounts();
+
+    const response = await buildApp(services, accounts).request("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        accountId: "acct_1",
+        email: "invitee@example.com",
+        roleKey: "viewer",
+        expiresAt: "2026-07-08T00:00:00.000Z",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: expect.stringContaining("Account must be selected"),
+      },
+    });
+    expect(accounts.getAccountForRead).not.toHaveBeenCalled();
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown accounts before issuing create commands", async () => {
+    const services = buildServices();
+    const accounts = buildAccounts({ getAccountForRead: vi.fn(async () => null) });
+
+    const response = await buildApp(services, accounts).request("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "viewer",
+        expiresAt: "2026-07-08T00:00:00.000Z",
+      }),
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "not_found",
+        message: expect.stringContaining("Select an existing account"),
+      },
+    });
+    expect(accounts.getAccountForRead).toHaveBeenCalledWith("acc_1");
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("creates invitations for known accounts", async () => {
+    const services = buildServices();
+    const accounts = buildAccounts();
+
+    const response = await buildApp(services, accounts).request("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invitationId: "ivt_1",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "viewer",
+        expiresAt: "2026-07-08T00:00:00.000Z",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "ivt_1",
+      version: 3,
+      status: "pending",
+    });
+    expect(accounts.getAccountForRead).toHaveBeenCalledWith("acc_1");
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: "identity.invitation-ivt_1",
+        command: expect.objectContaining({
+          type: "CreateInvitation",
+          accountId: "acc_1",
+        }),
+      }),
+    );
+  });
+
   it("returns command-side invitation state for detail reads", async () => {
     const services = buildServices();
 

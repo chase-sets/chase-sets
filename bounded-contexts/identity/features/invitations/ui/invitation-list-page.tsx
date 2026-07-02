@@ -3,12 +3,18 @@ import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput, type DataCol
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
+import type { Account } from "../../accounts/ui/contracts";
 import type { Invitation } from "./contracts";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
 function accountLabel(invitation: Invitation) {
   return invitation.account_display_name ?? invitation.account_name ?? invitation.account_id;
+}
+
+function accountPickerLabel(account: Account) {
+  const label = account.display_name || account.name || account.account_id;
+  return label === account.account_id ? label : `${label} (${account.account_id})`;
 }
 
 const columns: DataColumn<Invitation>[] = [
@@ -26,7 +32,19 @@ const columns: DataColumn<Invitation>[] = [
   { key: "status", header: t("identity.features.invitations.ui.invitationListPage.status"), cell: (row) => row.status },
 ];
 
-export function InvitationListPage({ initialData }: { initialData: PaginatedListResponse<Invitation> }) {
+export function InvitationListPage({
+  accounts,
+  initialData,
+}: {
+  accounts: readonly Account[];
+  initialData: PaginatedListResponse<Invitation>;
+}) {
+  const accountSelectItems = accounts.map((account) => ({
+    value: account.account_id,
+    label: accountPickerLabel(account),
+  }));
+  const hasAccounts = accountSelectItems.length > 0;
+
   return (
     <AdminListPage
       title={t("identity.features.invitations.ui.invitationListPage.invitations")}
@@ -36,10 +54,13 @@ export function InvitationListPage({ initialData }: { initialData: PaginatedList
         <Form spacing="none" method="post">
           <Stack direction="row" align="end" gap={2}>
             <HiddenInput type="hidden" name="intent" value="create" readOnly />
-            <TextInput
+            <NativeSelect
               name="accountId"
               label={t("identity.features.invitations.ui.invitationListPage.account")}
+              placeholder={t("identity.features.invitations.ui.invitationListPage.select.account")}
+              items={accountSelectItems}
               required
+              disabled={!hasAccounts}
             />
             <TextInput
               name="email"
@@ -53,7 +74,7 @@ export function InvitationListPage({ initialData }: { initialData: PaginatedList
               defaultValue="viewer"
               items={grantableRoleSelectItems}
             />
-            <Button type="submit" tone="primary">
+            <Button type="submit" tone="primary" disabled={!hasAccounts}>
               {t("identity.features.invitations.ui.invitationListPage.create")}
             </Button>
           </Stack>
