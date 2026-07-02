@@ -173,8 +173,10 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
           <TextInput
             label={t("support.features.supportRequests.ui.supportRequestListPage.open.order")}
             name="orderId"
+            pattern="ord_.+"
             placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
             required
+            title={t("support.features.supportRequests.ui.supportRequestListPage.open.order.hint")}
           />
           <Select
             label={t("support.features.supportRequests.ui.supportRequestListPage.open.role")}

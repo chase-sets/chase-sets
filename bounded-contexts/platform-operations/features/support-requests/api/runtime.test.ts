@@ -128,6 +128,62 @@ describe("support request runtime", () => {
     });
   });
 
+  it("rejects malformed order ids before looking up support order sources", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.openSupportRequest(
+        {
+          orderId: "order_1",
+          accountId: "acc_buyer",
+          flowType: "product-not-received",
+          openedByRole: "buyer",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Expected an order ID starting with ord_.");
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown order ids through the support order source lookup", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM support_order_sources")) {
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+
+    await expect(
+      runtime.openSupportRequest(
+        {
+          orderId: "ord_missing",
+          accountId: "acc_buyer",
+          flowType: "product-not-received",
+          openedByRole: "buyer",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Order not found for support.");
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
   it("prevents a sale-side account from opening a purchase-side issue", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
