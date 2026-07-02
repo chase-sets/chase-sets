@@ -72,22 +72,23 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
-  it("documents the expected production admin-support component baseline and topology drift check", () => {
+  it("documents the expected production profiled component baseline and topology drift check", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Expected production App Platform component baseline before public marketplace promotion",
     );
     expect(digitaloceanPlatformRunbook).toContain("`public-web` service size `apps-s-1vcpu-1gb` with one instance");
     expect(digitaloceanPlatformRunbook).toContain(
-      "`admin-support-api` service size `apps-s-1vcpu-1gb` with two instances",
+      "profiled `platform-api` service size `apps-s-1vcpu-1gb` with two instances",
     );
+    expect(digitaloceanPlatformRunbook).toContain("`platform-bootstrap` job size `apps-s-1vcpu-1gb`");
     expect(digitaloceanPlatformRunbook).toContain(
       "Full App Platform static-site hosting is deferred while the home route still owns the no-JavaScript waitlist form action",
     );
     expect(digitaloceanPlatformRunbook).toContain(
-      "`marketplace`, `platform-api`, and `platform-worker` must not coexist with `admin-support-api` in production",
+      "retired `admin-support-api`, `admin-support-worker`, and `admin-support-bootstrap` component names must not appear",
     );
     expect(digitaloceanPlatformRunbook).toContain(
-      "warns if admin-support and marketplace/platform component families coexist in one App Platform app",
+      "warns if retired admin-support component names reappear in one App Platform app",
     );
     expect(digitaloceanPlatformRunbook).toContain("Runtime topology and component-count baseline");
     expect(digitaloceanPlatformRunbook).toContain("`production-landing`");
@@ -304,15 +305,15 @@ describe("DigitalOcean platform configuration", () => {
       "CATALOG_ASSET_S3_ACCESS_KEY_ID",
       "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
     ]) {
-      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(6);
+      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(3);
     }
 
     expect(platformMain).toContain('name               = "platform-api"');
     expect(platformMain).toContain('name               = "platform-worker"');
     expect(platformMain).toContain('name               = "platform-bootstrap"');
-    expect(platformMain).toContain('name               = "admin-support-api"');
-    expect(platformMain).toContain('name               = "admin-support-worker"');
-    expect(platformMain).toContain('name               = "admin-support-bootstrap"');
+    expect(platformMain).not.toContain('name               = "admin-support-api"');
+    expect(platformMain).not.toContain('name               = "admin-support-worker"');
+    expect(platformMain).not.toContain('name               = "admin-support-bootstrap"');
     expect(platformMain).toContain("value = var.spaces_access_id");
     expect(platformMain).toContain("value = var.spaces_secret_key");
     expect(platformLocals).toContain("catalog_asset_s3_endpoint");
@@ -366,7 +367,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
     expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
     expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
-    expect(occurrenceCount(platformMain, "for_each = local.catalog_provider_runtime_env")).toBe(5);
+    expect(occurrenceCount(platformMain, "for_each = local.catalog_provider_runtime_env")).toBe(3);
     expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
       "for_each = local.catalog_provider_runtime_env",
     );
@@ -390,35 +391,22 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
     const platformApiService = terraformServiceBlock(platformMain, "platform-api");
-    const adminSupportApiService = terraformServiceBlock(platformMain, "admin-support-api");
     const platformWorkerService = terraformWorkerBlock(platformMain, "platform-worker");
-    const adminSupportWorkerService = terraformWorkerBlock(platformMain, "admin-support-worker");
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
-    const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");
 
-    expect(platformMain).toContain(
-      'dynamic "job" {\n      for_each = local.marketplace_public_enabled ? [] : [1]\n      content {\n        name               = "admin-support-bootstrap"',
-    );
-    expect(platformMain).toContain("admin-support-bootstrap remains only for landing-only production");
     for (const key of ["PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD", "PLATFORM_ADMIN_DISPLAY_NAME"]) {
       expect(platformBootstrapJob).toContain(`key   = "${key}"`);
-      expect(adminSupportBootstrapJob).toContain(`key   = "${key}"`);
     }
 
-    expect(platformBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
-    expect(adminSupportBootstrapJob).not.toContain("local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).not.toContain("admin-support-bootstrap remains only for landing-only production");
+    expect(platformMain).not.toContain("local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).not.toContain("app-admin-support-api");
+    expect(platformMain).not.toContain("app-admin-support-worker");
     expect(platformLocals).toContain("for context_name in local.context_database_names :");
-    expect(platformLocals).toContain("admin_support_context_database_env");
-    for (const contextName of ["fulfillment", "ordering"]) {
-      expect(platformLocals).toContain(`"${contextName}",`);
-    }
+    expect(platformLocals).not.toContain("admin_support_context_database_env");
     for (const block of [platformApiService, platformWorkerService, platformBootstrapJob]) {
       expect(block).toContain("for_each = local.context_database_env");
       expect(block).not.toContain("for_each = local.admin_support_context_database_env");
-    }
-    for (const block of [adminSupportApiService, adminSupportWorkerService, adminSupportBootstrapJob]) {
-      expect(block).toContain("for_each = local.admin_support_context_database_env");
-      expect(block).not.toContain("for_each = local.context_database_env");
     }
   });
 
@@ -457,11 +445,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('name                 = "platform-api"');
   });
 
-  it("wires Google Workspace SSO into production admin-support API", () => {
-    expect(platformMain).toContain('name               = "admin-support-api"');
-    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"')).toBe(3);
-    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"')).toBe(3);
-    expect(occurrenceCount(platformMain, 'key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"')).toBe(3);
+  it("wires Google Workspace SSO into profiled platform runtime components", () => {
+    expect(platformMain).not.toContain('name               = "admin-support-api"');
+    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"')).toBe(2);
+    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"')).toBe(2);
+    expect(occurrenceCount(platformMain, 'key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"')).toBe(2);
   });
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
@@ -525,11 +513,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("catalog         = 6");
     expect(platformLocals).toContain("control         = 4");
     expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
-    expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(2);
-    expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
-    expect(occurrenceCount(platformMain, "instance_size_slug = local.worker_instance_size_slug")).toBe(2);
-    expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(2);
-    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
+    expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(1);
+    expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(1);
+    expect(occurrenceCount(platformMain, "instance_size_slug = local.worker_instance_size_slug")).toBe(1);
+    expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"')).toBe(1);
@@ -606,23 +594,19 @@ describe("DigitalOcean platform configuration", () => {
       'local.is_staging ? "true" : "false"',
     );
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
-    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(6);
+    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(3);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_inventory_import_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
-    expect(platformMain).toContain('dynamic "worker" {\n      for_each = local.marketplace_public_enabled ? [1] : []');
+    expect(platformMain).toContain('worker {\n      name               = "platform-worker"');
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
   });
 
   it("models the push-wake connection budget and listener topology parity as plan-time checks", () => {
     expectTerraformAssignment(platformLocals, "api_component_count", "1");
     expectTerraformAssignment(platformLocals, "worker_component_count", "1");
-    expectTerraformAssignment(
-      platformLocals,
-      "runtime_profile_name",
-      'local.marketplace_public_enabled ? "public" : "landing"',
-    );
+    expectTerraformAssignment(platformLocals, "runtime_profile_name", "local.runtime_profile");
     expectTerraformAssignment(
       platformLocals,
       "api_total_pool_demand",
@@ -863,7 +847,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(landingContexts).not.toContain("payments");
     expect(platformContexts).toEqual(expect.arrayContaining(["checkout", "payments", "settlement"]));
     expect(platformLocals).toContain(
-      "active_runtime_context_names = local.marketplace_public_enabled ? local.platform_context_names : local.landing_context_names",
+      "active_runtime_context_names = local.platform_enabled ? local.platform_context_names : local.landing_context_names",
     );
     expect(platformLocals).toContain("exposed_route_context_names  = local.active_runtime_context_names");
     expect(platformLocals).toContain("context_names = local.active_runtime_context_names");
@@ -945,6 +929,8 @@ describe("DigitalOcean platform configuration", () => {
   it("keeps production marketplace promotion explicitly gated", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
+    expect(platformVariables).toContain('variable "production_runtime_profile"');
+    expect(platformVariables).toContain("production_runtime_profile must be landing, proof, or public.");
     expect(platformVariables).not.toContain('variable "production_marketplace_launch_evidence_reference"');
     expect(platformVariables).not.toContain('variable "production_marketplace_proof_enabled"');
     expect(platformVariables).not.toContain('variable "production_marketplace_proof_reference"');
@@ -1010,11 +996,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_tax_readiness_reference is required when production_tax_readiness_approved is true.",
     );
+    expect(platformVariables).toContain('var.production_runtime_profile == "landing"');
     expect(platformVariables).toContain('startswith(var.stripe_secret_key, "sk_live")');
     expect(platformVariables).toContain('startswith(var.stripe_publishable_key, "pk_live")');
     expect(platformVariables).toContain('variable "stripe_connect_webhook_secret"');
     expect(platformVariables).toContain(
-      "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace promotion.",
+      "stripe_connect_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime.",
     );
     expect(platformVariables).toContain('variable "stripe_connect_accounts_api"');
     expect(platformVariables).toContain("stripe_connect_accounts_api must be v1 or v2.");
@@ -1028,15 +1015,21 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_REFRESH_URL"');
     expect(platformVariables).toContain('variable "easypost_webhook_secret"');
     expect(platformVariables).toContain(
-      "easypost_webhook_secret is required when production marketplace promotion is enabled.",
+      "easypost_webhook_secret is required when production platform runtime is proof or public.",
     );
     expect(platformVariables).toContain('var.easypost_mode == "production"');
-    expect(platformLocals).not.toContain("marketplace_platform_enabled");
+    expect(platformLocals).toContain("platform_enabled = (");
+    expect(platformLocals).toContain('local.runtime_profile != "landing"');
     expect(platformLocals).toContain("placeholder_evidence_references = [");
     expect(platformLocals).toContain('"launch-000"');
     expect(platformLocals).not.toContain("var.production_marketplace_proof_enabled");
+    expect(platformLocals).toContain(
+      'runtime_profile = local.is_non_production ? "public" : var.production_runtime_profile',
+    );
     expect(platformLocals).toContain("marketplace_public_enabled = (");
-    expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
+    expect(platformLocals).toContain('local.is_non_production || local.runtime_profile == "public"');
+    expect(platformLocals).not.toContain("api_component_name");
+    expect(platformLocals).toContain('api_private_url               = "$${platform-api.PRIVATE_URL}"');
     expect(platformLocals).toContain("admin_web_internal_api_origin = local.api_private_url");
     expect(platformLocals).not.toContain("production_proof_web_enabled");
     expect(platformLocals).not.toContain("marketplace_web_enabled");
@@ -1061,11 +1054,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
     expect(adminWebService).toContain('key   = "CHASE_SETS_MARKETPLACE_ORIGIN"');
     expect(adminWebService).toContain("value = local.marketplace_origin");
-    expect(platformLocals).toContain("context_names = local.marketplace_public_enabled");
+    expect(platformLocals).toContain("context_names = local.active_runtime_context_names");
     expect(platformMain).not.toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain('check "production_marketplace_promotion"');
     expect(platformMain).toContain(
-      'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
+      'error_message = "Production marketplace promotion requires production public runtime profile and complete Amazon SES transactional email configuration."',
+    );
+    expect(platformMain).toContain('check "production_runtime_profile_public_gate"');
+    expect(platformMain).toContain(
+      '(var.production_runtime_profile == "public") == var.production_marketplace_public_enabled',
     );
     expect(platformMain).toContain('check "production_marketplace_launch_approval"');
     expect(platformMain).not.toContain("var.production_marketplace_launch_evidence_reference");
@@ -1123,8 +1120,8 @@ describe("DigitalOcean platform configuration", () => {
       'error_message = "Production marketplace promotion requires approved Tax readiness evidence before live order creation."',
     );
     expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [1] : []");
-    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
-    expect(platformMain).not.toContain("for_each = local.marketplace_platform_enabled");
+    expect(platformMain).not.toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).not.toContain("for_each = local.platform_enabled ? [1] : []");
     expect(platformMain).not.toContain("for_each = local.marketplace_web_enabled");
     expect(platformMain).toContain("for_each = local.provider_webhook_ingress_routes");
     expect(platformMain).not.toContain("for_each = local.proof_api_ingress_routes");
@@ -1135,6 +1132,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}",
     );
     expect(platformProductionWorkflow).toContain("pull-requests: read");
     expect(platformProductionWorkflow).toContain("emergency_release:");
@@ -1373,10 +1373,10 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_stripe_connect_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
@@ -1391,7 +1391,7 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_fulfillment_postage_reference: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
@@ -1424,17 +1424,17 @@ describe("DigitalOcean platform configuration", () => {
       "PRODUCTION_TAX_PROVIDER_BACKED_QUOTES_REQUIRED_RAW: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace platform deployment requires Stripe live-mode keys.",
+      "Production proof/public platform deployment requires Stripe live-mode keys.",
     );
     expect(platformProductionWorkflow).toContain("Missing required production marketplace platform configuration");
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace platform deployment requires EASYPOST_MODE=production.",
+      "Production proof/public platform deployment requires EASYPOST_MODE=production.",
     );
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace platform deployment requires STRIPE_API_BASE_URL to be unset.",
+      "Production proof/public platform deployment requires STRIPE_API_BASE_URL to be unset.",
     );
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace platform deployment requires EASYPOST_API_BASE_URL to be unset.",
+      "Production proof/public platform deployment requires EASYPOST_API_BASE_URL to be unset.",
     );
     expect(platformProductionWorkflow).toContain("Missing required production Google Workspace SSO configuration");
     expect(platformProductionWorkflow).not.toContain(
@@ -1475,8 +1475,10 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
     expect(platformProductionWorkflow).toContain(
-      'export SMOKE_REQUIRE_NATIVE_MCP="${TF_VAR_production_marketplace_public_enabled:-false}"',
+      'if [ "${TF_VAR_production_runtime_profile:-landing}" = "landing" ]; then',
     );
+    expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_NATIVE_MCP="false"');
+    expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_NATIVE_MCP="true"');
     expect(platformProductionWorkflow).toContain(
       'export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"',
     );
@@ -1600,13 +1602,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('regex("^sha256:[a-f0-9]{64}$", var.platform_image_digest)');
     expect(
       occurrenceCount(platformMain, 'tag           = var.platform_image_digest == "" ? var.platform_image_tag : null'),
-    ).toBe(9);
+    ).toBe(6);
     expect(
       occurrenceCount(
         platformMain,
         'digest        = var.platform_image_digest != "" ? var.platform_image_digest : null',
       ),
-    ).toBe(9);
+    ).toBe(6);
 
     expect(platformProductionWorkflow).toContain("platform_image_digest: ${{ steps.image.outputs.digest }}");
     expect(stagingImageStep).toContain('digest="$(docker buildx imagetools inspect "$image" --format');
@@ -1690,7 +1692,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_ENDPOINT = {");
     expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_HEADERS = {");
     expect(platformMain).toContain('check "staging_production_observability_export"');
-    expect(occurrenceCount(platformMain, "for_each = local.observability_runtime_env")).toBe(6);
+    expect(occurrenceCount(platformMain, "for_each = local.observability_runtime_env")).toBe(4);
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
     );
@@ -1764,13 +1766,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingJob).toContain("TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
     expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
-      "TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}",
+      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
 

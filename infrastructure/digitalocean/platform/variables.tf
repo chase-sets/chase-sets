@@ -26,11 +26,27 @@ variable "environment" {
 variable "production_marketplace_public_enabled" {
   type        = bool
   default     = false
-  description = "Explicit gate for deploying public marketplace web/domain routing in production. Keep false until marketplace production promotion is approved."
+  description = "Compatibility launch-approval gate for public marketplace web/domain routing in production. Public exposure also requires production_runtime_profile = public."
 
   validation {
     condition     = var.environment == "production" || var.production_marketplace_public_enabled == false
     error_message = "production_marketplace_public_enabled may only be true for production."
+  }
+}
+
+variable "production_runtime_profile" {
+  type        = string
+  default     = "landing"
+  description = "Production runtime topology profile. Non-production always runs the public profile."
+
+  validation {
+    condition     = contains(["landing", "proof", "public"], var.production_runtime_profile)
+    error_message = "production_runtime_profile must be landing, proof, or public."
+  }
+
+  validation {
+    condition     = var.environment == "production" || var.production_runtime_profile == "landing"
+    error_message = "production_runtime_profile may only change for production."
   }
 }
 
@@ -428,10 +444,10 @@ variable "stripe_secret_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled ||
+      var.production_runtime_profile == "landing" ||
       startswith(var.stripe_secret_key, "sk_live")
     ) : startswith(var.stripe_secret_key, "sk_test")
-    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
+    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production platform runtime is proof or public."
   }
 }
 
@@ -442,10 +458,10 @@ variable "stripe_publishable_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled ||
+      var.production_runtime_profile == "landing" ||
       startswith(var.stripe_publishable_key, "pk_live")
     ) : startswith(var.stripe_publishable_key, "pk_test")
-    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
+    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production platform runtime is proof or public."
   }
 }
 
@@ -456,10 +472,10 @@ variable "stripe_webhook_secret" {
 
   validation {
     condition = (
-      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
+      (var.environment == "production" && var.production_runtime_profile == "landing") ||
       trimspace(var.stripe_webhook_secret) != ""
     )
-    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production marketplace promotion."
+    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime."
   }
 }
 
@@ -470,10 +486,10 @@ variable "stripe_connect_webhook_secret" {
 
   validation {
     condition = (
-      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
+      (var.environment == "production" && var.production_runtime_profile == "landing") ||
       trimspace(var.stripe_connect_webhook_secret) != ""
     )
-    error_message = "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace promotion."
+    error_message = "stripe_connect_webhook_secret is required outside gated landing-only production and during production proof/public platform runtime."
   }
 }
 
@@ -500,10 +516,10 @@ variable "easypost_api_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled ||
+      var.production_runtime_profile == "landing" ||
       trimspace(var.easypost_api_key) != ""
     ) : startswith(var.easypost_api_key, "EZTK")
-    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production marketplace promotion is enabled."
+    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production platform runtime is proof or public."
   }
 }
 
@@ -519,10 +535,10 @@ variable "easypost_webhook_secret" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled ||
+      var.production_runtime_profile == "landing" ||
       trimspace(var.easypost_webhook_secret) != ""
     ) : true
-    error_message = "easypost_webhook_secret is required when production marketplace promotion is enabled."
+    error_message = "easypost_webhook_secret is required when production platform runtime is proof or public."
   }
 }
 
@@ -543,10 +559,10 @@ variable "easypost_mode" {
   validation {
     condition = (
       var.environment != "production" ||
-      !var.production_marketplace_public_enabled ||
+      var.production_runtime_profile == "landing" ||
       var.easypost_mode == "production"
     )
-    error_message = "easypost_mode must be production when production marketplace promotion is enabled."
+    error_message = "easypost_mode must be production when production platform runtime is proof or public."
   }
 }
 
