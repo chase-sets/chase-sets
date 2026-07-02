@@ -32,7 +32,7 @@ import {
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
 import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
-import type { ImportCsvRow } from "../domain/csv";
+import { buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
 import {
   getInventoryImportSourceAdapter,
   type InventoryImportExternalReference,
@@ -85,6 +85,7 @@ export type InventoryImportBatchServices = Readonly<{
   ) => Promise<InventoryImportBatchDetail>;
   getBatch: (batchId: string, accountId: string) => ReturnType<typeof getImportBatch>;
   listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
+  getNativeCsvTemplate: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -1382,6 +1383,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     createBatch: (params) => createBatchRows(params),
     getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
     listBatches: (params) => listImportBatches(deps.db, params),
+    getNativeCsvTemplate: async (params) => {
+      const locations = await listStorageLocations(deps.db, {
+        accountId: params.accountId,
+      });
+      return buildNativeInventoryImportCsvTemplate(locations);
+    },
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {
       const quantityMode = params.quantityMode ?? "add";

@@ -3,6 +3,43 @@ export type ImportCsvRow = Readonly<{
   values: Readonly<Record<string, string>>;
 }>;
 
+export type NativeInventoryImportTemplateStorageLocation = Readonly<{
+  storage_location_id: string;
+  name: string;
+}>;
+
+export const nativeInventoryImportCsvTemplateHeaders = [
+  "catalogItemId",
+  "storageLocationId",
+  "totalQuantity",
+  "option:form",
+  "option:condition",
+  "acquisitionCostAmount",
+  "sellerSku",
+  "listingPriceAmount",
+  "listingQuantityCap",
+  "rowNote",
+] as const;
+
+export function buildNativeInventoryImportCsvTemplate(
+  storageLocations: readonly NativeInventoryImportTemplateStorageLocation[],
+) {
+  const rows = storageLocations.map((location) => [
+    "cat_example",
+    location.storage_location_id,
+    "1",
+    "Raw",
+    "Near Mint",
+    "",
+    "",
+    "",
+    "",
+    `Example for ${location.name}`,
+  ]);
+
+  return [nativeInventoryImportCsvTemplateHeaders, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
 export function parseImportCsv(text: string): ImportCsvRow[] {
   const records = parseRecords(text);
   if (records.length === 0) {
@@ -24,6 +61,14 @@ export function parseImportCsv(text: string): ImportCsvRow[] {
 
     return [{ rowNumber: index + 2, values }];
   });
+}
+
+function csvCell(value: string) {
+  if (!/[",\r\n]/.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 function parseRecords(text: string): string[][] {

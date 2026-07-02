@@ -4,11 +4,11 @@ Inventory imports use a review-first batch. Rows are validated before they creat
 
 ## Chase Sets CSV
 
-Use this when the file already contains Chase Sets catalog identifiers and storage location names.
+Use this when the file already contains Chase Sets catalog identifiers and storage location names. Sellers can download a native template from the Inventory import page. The template includes the required native headers and one example row for each active storage location on that account. Archived storage locations are not included.
 
 ```csv
-catalogItemId,storageLocation,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap,rowNote
-cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,125.00,1,Base Set restock
+catalogItemId,storageLocation,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote
+cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,75.00,box-a-001,125.00,1,Base Set restock
 ```
 
 Use `storageLocation` for the visible active storage location name. `storageLocationId` is still accepted when an exported file already contains internal Chase Sets storage identifiers.

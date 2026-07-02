@@ -149,6 +149,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.csv.rows": "CSV rows",
   "inventory.features.importBatches.ui.importBatchPage.csv.rows.input": "CSV rows",
   "inventory.features.importBatches.ui.importBatchPage.draft.listing.created": "Draft listing {id} created.",
+  "inventory.features.importBatches.ui.importBatchPage.download.native.template": "Download native template",
   "inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes": "Errors and outcomes",
   "inventory.features.importBatches.ui.importBatchPage.external.reference": "{provider}:{key}",
   "inventory.features.importBatches.ui.importBatchPage.ebay": "eBay",

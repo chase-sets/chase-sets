@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseImportCsv } from "./csv";
+import { buildNativeInventoryImportCsvTemplate, parseImportCsv } from "./csv";
 
 describe("parseImportCsv", () => {
   it("parses a valid stock intake row with dynamic option columns", () => {
@@ -34,5 +34,26 @@ describe("parseImportCsv", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]?.values.rowNote).toBe("front clean, back whitening");
+  });
+});
+
+describe("buildNativeInventoryImportCsvTemplate", () => {
+  it("renders native headers and active storage location examples", () => {
+    const csv = buildNativeInventoryImportCsvTemplate([
+      { storage_location_id: "loc_main", name: "Main shelf" },
+      { storage_location_id: "loc_case", name: 'Case "A", top' },
+    ]);
+
+    expect(csv.split("\n")[0]).toBe(
+      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+    );
+    expect(csv).toContain("cat_example,loc_main,1,Raw,Near Mint,,,,,Example for Main shelf");
+    expect(csv).toContain('cat_example,loc_case,1,Raw,Near Mint,,,,,"Example for Case ""A"", top"');
+  });
+
+  it("renders a header-only template when the account has no active storage locations", () => {
+    expect(buildNativeInventoryImportCsvTemplate([])).toBe(
+      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+    );
   });
 });

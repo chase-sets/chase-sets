@@ -267,6 +267,9 @@ export function InventoryImportBatchPage({
                     {t("inventory.features.importBatches.ui.importBatchPage.latest.batch")}
                   </LinkButton>
                 ) : null}
+                <LinkButton href="/api/inventory/import-batches/templates/native-csv" tone="ghost" download>
+                  {t("inventory.features.importBatches.ui.importBatchPage.download.native.template")}
+                </LinkButton>
               </Inline>
             </Stack>
           </Form>
