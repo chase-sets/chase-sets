@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS,
   buildRestorePointName,
   createProductionDbRestorePoint,
   parseDoctlDatabaseSummaryOutput,
@@ -429,6 +430,11 @@ describe("production database restore point", () => {
       forkTimeoutMs: 90_000,
       forkPollIntervalMs: 5_000,
     });
+  });
+
+  it("defaults to a 45-minute fork availability budget", () => {
+    expect(parseProductionDbRestorePointArgs([], {}).forkTimeoutMs).toBe(45 * 60 * 1000);
+    expect(DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS).toBe(45 * 60 * 1000);
   });
 
   it("keeps fork names bounded and traceable", () => {
