@@ -18,11 +18,7 @@ resource "digitalocean_droplet" "observability" {
   tags       = local.tags
   volume_ids = [digitalocean_volume.observability_data.id]
 
-  user_data = templatefile("${path.module}/templates/cloud-init.yml.tftpl", {
-    environment      = var.environment
-    volume_name      = local.volume_name
-    write_files_yaml = local.cloud_init_write_files_yaml
-  })
+  user_data = local.cloud_init_user_data
 }
 
 resource "digitalocean_firewall" "observability" {
@@ -97,5 +93,12 @@ check "observability_retention_posture" {
   assert {
     condition     = contains(["24h", "48h", "72h", "7d", "14d", "30d"], var.prometheus_retention)
     error_message = "prometheus_retention must be one of the documented cost-aware retention windows: 24h, 48h, 72h, 7d, 14d, or 30d."
+  }
+}
+
+check "observability_cloud_init_size" {
+  assert {
+    condition     = length(local.cloud_init_user_data) < 64000
+    error_message = "Rendered observability cloud-init user_data must stay below DigitalOcean's 64 KB Droplet API limit."
   }
 }
