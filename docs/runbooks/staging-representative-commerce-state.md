@@ -6,6 +6,8 @@ Representative commerce state makes staging useful for product and operational r
 
 Run representative state after staging has been reset or after Catalog integrations import/promote new items that need marketplace activity for product and workflow review.
 
+Use the `Catalog Staging Provider UAT` workflow with `journey_scope=staging-representative-catalog` as the standard catalog-refresh mechanism before layering representative commerce state over freshly imported Catalog Items.
+
 Do not run it as part of production deployment. The platform API command rejects `DEPLOYMENT_ENVIRONMENT=production`.
 
 ## Command
