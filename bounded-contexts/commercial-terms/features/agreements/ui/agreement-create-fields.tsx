@@ -1,12 +1,12 @@
 import { t } from "@chase-sets/localization";
-import { Button, NativeSelect, NumberInput, Stack, TextInput } from "@chase-sets/design-system";
+import { Button, HiddenInput, NativeSelect, NumberInput, Stack, TextInput } from "@chase-sets/design-system";
 
 export function AgreementCreateFields({ accountId }: { accountId?: string }) {
   return (
     <Stack gap={3}>
       <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.label")} name="label" required />
       {accountId ? (
-        <input type="hidden" name="accountId" value={accountId} />
+        <HiddenInput name="accountId" value={accountId} />
       ) : (
         <TextInput
           label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")}

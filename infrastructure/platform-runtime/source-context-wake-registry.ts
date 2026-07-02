@@ -225,6 +225,7 @@ export const sourceContextWakeRegistry = [
       "commercial-terms:commercial-terms-schedule-projection",
     ],
     routeDependencyIds: [
+      "commercial-terms.account-agreement-create-to-list",
       "commercial-terms.agreement-create-to-list",
       "commercial-terms.agreement-update-to-detail",
       "commercial-terms.schedule-create-to-list",
