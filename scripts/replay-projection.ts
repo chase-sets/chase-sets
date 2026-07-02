@@ -1,4 +1,5 @@
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import {
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
@@ -7,6 +8,7 @@ import {
   type ContextProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import { type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { rebuildProjectionSelection } from "./replay-projection-selection.ts";
 
 type RuntimeShape = Readonly<{
   projectionGroups: readonly ContextProjectionGroup[];
@@ -109,11 +111,10 @@ async function main(): Promise<void> {
         return;
       }
 
-      if (projectionName === "--all") {
-        await rebuildAllContextProjectionGroups(runtime, contextName);
-      } else {
-        await rebuildContextProjectionGroup(runtime, contextName, projectionName);
-      }
+      await rebuildProjectionSelection(runtime, contextName, projectionName, {
+        rebuildAllContextProjectionGroups,
+        rebuildContextProjectionGroup,
+      });
 
       await printStatuses(deployableName, runtime, contextName);
       return;
@@ -126,7 +127,9 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error) => {
-  console.error("Projection replay command failed.", error);
-  process.exit(1);
-});
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  void main().catch((error) => {
+    console.error("Projection replay command failed.", error);
+    process.exit(1);
+  });
+}
