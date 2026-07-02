@@ -72,6 +72,20 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
 CREATE INDEX IF NOT EXISTS inventory_import_batch_job_inputs_account_idx
   ON inventory_import_batch_job_inputs (account_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS inventory_import_account_sku_mappings (
+  mapping_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  seller_sku text NOT NULL,
+  normalized_seller_sku text NOT NULL,
+  catalog_item_id text NOT NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_import_account_sku_mappings_lookup_idx
+  ON inventory_import_account_sku_mappings (account_id, normalized_seller_sku, updated_at DESC);
+
 ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
   ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,

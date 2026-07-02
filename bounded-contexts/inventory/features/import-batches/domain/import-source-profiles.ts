@@ -69,8 +69,15 @@ export const inventoryImportSourceProfiles = [
     adapterVersion: 1,
     nativePassthrough: true,
     displayNameValueKeys: [],
-    values: [defaultStorage],
-    externalReferenceCandidates: [],
+    values: [defaultStorage, { targetKey: "sellerSku", headers: ["sellerSku", "Seller SKU"] }],
+    externalReferenceCandidates: [
+      {
+        providerKey: "account",
+        externalKeyPrefix: "sku:",
+        valueKey: "sellerSku",
+        targetIntent: "account-sku",
+      },
+    ],
     selectedOptionInference: [],
   },
   {

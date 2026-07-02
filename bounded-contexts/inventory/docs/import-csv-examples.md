@@ -17,6 +17,13 @@ Use `storageLocation` for the visible active storage location name. `storageLoca
 
 Option columns may use Catalog dimension ids or visible dimension labels. Option values may use option ids, codes, or visible labels.
 
+If an account SKU mapping already exists, native rows may use `sellerSku` or `Seller SKU` without a `catalogItemId`. Seller SKU mappings are owned by Inventory and scoped to the importing account, so the same SKU text can safely map to different Products for different sellers. Unknown or duplicate mappings stay in import review.
+
+```csv
+Seller SKU,storageLocation,totalQuantity,acquisitionCostAmount,listingPriceAmount,listingQuantityCap,rowNote
+box-a-001,Main shelf,2,75.00,125.00,1,Restock by account SKU
+```
+
 ## TCGplayer CSV
 
 Use this when importing a TCGplayer inventory export. The importer resolves `TCGplayer SKU` first, then falls back to `Product ID`.

@@ -30,6 +30,24 @@ describe("inventory import source adapters", () => {
     expect(rows[0]?.rowFingerprint).toContain("condition:nearmint");
   });
 
+  it("emits native seller SKU rows as account SKU reference candidates", () => {
+    const rows = nativeCsvImportAdapter.normalize({
+      csvText: "Seller SKU,storageLocationId,totalQuantity\nBox-A-001,loc_1,2",
+      quantityMode: "add",
+    });
+
+    expect(rows[0]).toMatchObject({
+      externalReference: {
+        providerKey: "account",
+        externalKey: "sku:box-a-001",
+        targetIntent: "account-sku",
+      },
+      values: {
+        sellerSku: "Box-A-001",
+      },
+    });
+  });
+
   it("normalizes TCGplayer seller portal rows to external references", () => {
     const rows = tcgplayerCsvImportAdapter.normalize({
       csvText: [
