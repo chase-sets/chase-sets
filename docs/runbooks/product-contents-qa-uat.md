@@ -14,6 +14,40 @@ Catalog bootstrap reconciles Product Content Type and Product Content Inclusion 
 
 This scenario proves the configured-label path without repurposing seeded sealed-product identity fields such as `pack-count` or `sealed-product-form`.
 
+Use the seeded scenario only in environments that run `scenario-seed`, such as local development and PR previews. Long-lived staging deploys run only `critical-bootstrap` and `catalog-integration-bootstrap`, and the `Platform Staging Representative Commerce State` workflow runs `critical-bootstrap`, `catalog-integration-bootstrap`, and `representative-commerce-state`. Those staging paths intentionally do not create seeded Catalog Items, so public staging Marketplace should not be expected to show the Prismatic Evolutions seed scenario unless an operator deliberately ran `scenario-seed` against staging.
+
+When `scenario-seed` is enabled, host seed reconciliation drains projections and reruns the seed after Catalog Item projections settle. If the first pass logs that the Product Contents scenario was skipped until Catalog Item projections are available, that is not terminal by itself; the later reconciliation pass should write the relationship after `catalog.catalog-item-projection` catches up.
+
+## Staging Scenario Selection
+
+For long-lived staging Marketplace UAT, use a support-safe provider/imported or admin-authored Catalog Item pair that is already visible in public staging search and item detail. Do not use private account IDs, provider payloads, tokens, raw Source Observation JSON, or unpublished provider IDs in public evidence.
+
+1. Confirm the release containing Product Contents detail/search support is deployed to staging.
+2. Confirm the container and contained Catalog Items are visible on public staging Marketplace before authoring Product Contents. Public evidence may name titles and public item slugs only.
+3. In staging Admin Catalog, open the container Catalog Item detail and add the contained Catalog Item through the Product Contents panel using configured Product Content Type and Inclusion Policy values.
+4. Confirm the Catalog API read model returns the relationship:
+
+```http
+GET /api/catalog/product-contents/containers/:containerCatalogItemId
+GET /api/catalog/product-contents/contained/:containedCatalogItemId
+```
+
+5. Wait for projection catch-up or use Platform Operations to refresh these projection groups:
+
+```text
+catalog.catalog-product-contents-projection
+discovery.discovery-item-detail-projection
+discovery.discovery-search-item-projection
+```
+
+6. Recheck public staging Marketplace:
+
+- container detail shows `Contents`
+- contained detail shows `Included in`
+- search for the contained item returns the container as a lower-ranked related result
+
+If public staging search returns zero results for both the chosen container and contained item while a control search succeeds, the blocker is missing Catalog/Discovery/Marketplace scenario visibility, not Product Contents projection alone. Choose a different visible staging Catalog Item pair or import/promote visible provider data before collecting Product Contents Marketplace evidence.
+
 ## Required Evidence
 
 Record the target environment, deployed commit, data profile, and each command or UI route used. Public issue comments and PR bodies must not include account IDs, bearer tokens, provider payloads, private URLs, or raw Source Observation JSON.
