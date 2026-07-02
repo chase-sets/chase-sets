@@ -48,6 +48,10 @@ import {
   type InventoryImportResolutionStatus,
   type InventoryImportRowStatus,
 } from "../read-model/queries";
+import {
+  normalizeInventoryImportSellerSku,
+  resolveInventoryImportAccountSkuMapping,
+} from "../read-model/account-sku-mappings";
 
 export type InventoryDraftListingCreator = (
   params: Readonly<{
@@ -351,6 +355,23 @@ function normalizeExternalReferences(row: NormalizedInventoryImportRow): readonl
     seen.add(key);
     return true;
   });
+}
+
+function sellerSkuFromAccountSkuReference(
+  reference: InventoryImportExternalReference,
+  row: NormalizedInventoryImportRow,
+): string | null {
+  if (!reference.externalKey.startsWith("sku:")) {
+    return null;
+  }
+
+  const normalizedReferenceSku = reference.externalKey.slice("sku:".length).trim();
+  const rowSellerSku = clean(row.values.sellerSku);
+  if (rowSellerSku && normalizeInventoryImportSellerSku(rowSellerSku) === normalizedReferenceSku) {
+    return rowSellerSku;
+  }
+
+  return normalizedReferenceSku || null;
 }
 
 function normalizeChoiceText(value: string): string {
@@ -707,10 +728,39 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     let selectedOptions: readonly InventorySelectedOptionEntry[] = optionEntries(values);
     let productId: string | null = null;
     let resolutionStatus: InventoryImportResolutionStatus = catalogItemId ? "native" : "unresolved";
+    let resolutionError: string | null = null;
 
     if (!catalogItemId && externalReferences.length > 0) {
       for (const candidate of externalReferences) {
-        if (candidate.targetIntent !== "catalog-item-reference" && candidate.targetIntent !== "account-sku") {
+        if (candidate.targetIntent === "account-sku") {
+          externalReference = candidate;
+          const sellerSku = sellerSkuFromAccountSkuReference(candidate, row);
+          if (!sellerSku) {
+            continue;
+          }
+
+          const accountSkuResolution = await resolveInventoryImportAccountSkuMapping(deps.db, {
+            accountId,
+            sellerSku,
+          });
+          if (accountSkuResolution.status === "mapped") {
+            catalogItemId = accountSkuResolution.mapping.catalog_item_id;
+            selectedOptions = accountSkuResolution.mapping.selected_options;
+            resolutionStatus = "resolved";
+            break;
+          }
+
+          resolutionError =
+            accountSkuResolution.status === "ambiguous"
+              ? `Seller SKU '${sellerSku}' has multiple mappings for this account.`
+              : `Seller SKU '${sellerSku}' is not mapped for this account.`;
+          if (accountSkuResolution.status === "ambiguous") {
+            break;
+          }
+          continue;
+        }
+
+        if (candidate.targetIntent !== "catalog-item-reference") {
           const mapping = await deps.catalogItems.getExternalProductReference(
             candidate.providerKey,
             candidate.externalKey,
@@ -724,7 +774,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           }
         }
 
-        if (candidate.targetIntent !== "product-reference" && candidate.targetIntent !== "account-sku") {
+        if (candidate.targetIntent !== "product-reference") {
           const catalogItemMapping = await deps.catalogItems.getExternalCatalogItemReference(
             candidate.providerKey,
             candidate.externalKey,
@@ -743,9 +793,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           .map((candidate) => `${candidate.providerKey}:${candidate.externalKey}`)
           .join(", ");
         errors.push(
-          externalReferences.length === 1
-            ? "External product reference is not mapped to a Chase Sets catalog item."
-            : `External product references are not mapped to Chase Sets catalog items: ${candidateList}.`,
+          resolutionError ??
+            (externalReferences.length === 1
+              ? "External product reference is not mapped to a Chase Sets catalog item."
+              : `External product references are not mapped to Chase Sets catalog items: ${candidateList}.`),
         );
       }
     } else if (!catalogItemId && externalReferences.length === 0) {
