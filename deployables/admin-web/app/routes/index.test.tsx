@@ -6,6 +6,7 @@ const {
   mockIdentityApi,
   mockRequestWithoutFreshWrite,
   mockRequireSignedInAdminActor,
+  mockResolveAdminWebSectionNavItems,
   mockResolveIdentityShellViewer,
 } = vi.hoisted(() => ({
   mockCreateIdentityRequestApiClient: vi.fn(),
@@ -13,6 +14,7 @@ const {
   mockIdentityApi: { getUserPreferences: vi.fn() },
   mockRequestWithoutFreshWrite: vi.fn((request: Request) => request),
   mockRequireSignedInAdminActor: vi.fn(),
+  mockResolveAdminWebSectionNavItems: vi.fn(),
   mockResolveIdentityShellViewer: vi.fn(),
 }));
 
@@ -25,6 +27,10 @@ vi.mock("@chase-sets/identity/server", () => ({
 
 vi.mock("../auth.server", () => ({
   requireSignedInAdminActor: mockRequireSignedInAdminActor,
+}));
+
+vi.mock("../host", () => ({
+  resolveAdminWebSectionNavItems: mockResolveAdminWebSectionNavItems,
 }));
 
 import { loader } from "./index";
@@ -65,10 +71,12 @@ describe("admin root loader", () => {
     mockCreateIdentityRequestApiClient.mockReturnValue(mockIdentityApi);
     mockCreateUserPreferencesColorModeCookieSeedHeaders.mockReturnValue(null);
     mockResolveIdentityShellViewer.mockResolvedValue({ actor: null, preferences: null });
+    mockResolveAdminWebSectionNavItems.mockReturnValue([]);
   });
 
   it("redirects one-section actors to their only visible section", async () => {
-    mockRequireSignedInAdminActor.mockResolvedValue({ permissions: ["projection-operations.view"] });
+    mockRequireSignedInAdminActor.mockResolvedValue({ permissions: ["support.manage"] });
+    mockResolveAdminWebSectionNavItems.mockReturnValue([{ key: "support", label: "Support", href: "/support" }]);
     const request = new Request("https://admin.test/");
 
     try {
@@ -77,7 +85,7 @@ describe("admin root loader", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(Response);
       expect((error as Response).status).toBe(302);
-      expect((error as Response).headers.get("Location")).toBe("/platform");
+      expect((error as Response).headers.get("Location")).toBe("/support");
     }
 
     expect(mockResolveIdentityShellViewer).not.toHaveBeenCalled();
@@ -86,24 +94,26 @@ describe("admin root loader", () => {
   it("returns every actor-visible section for multi-section actors", async () => {
     const actor = { permissions: ["security.manage", "public-presence.view"] };
     const viewer = { actor, preferences: { colorMode: "dark" } };
+    const sections = [
+      { key: "access", label: "Access", href: "/access" },
+      { key: "growth", label: "Growth", href: "/growth" },
+    ];
     mockRequireSignedInAdminActor.mockResolvedValue(actor);
     mockResolveIdentityShellViewer.mockResolvedValue(viewer);
+    mockResolveAdminWebSectionNavItems.mockReturnValue(sections);
     const request = new Request("https://admin.test/");
 
     const result = await loader(createLoaderArgs(request));
 
     expect(unwrapLoaderData(result)).toEqual({
       actor,
-      sections: [
-        expect.objectContaining({ key: "access", href: "/access" }),
-        expect.objectContaining({ key: "growth", href: "/growth" }),
-      ],
+      sections,
       viewer,
     });
   });
 
   it("keeps signed-in no-access actors on the explicit no-access hub", async () => {
-    const actor = { permissions: [] };
+    const actor = { permissions: ["unknown.permission"] };
     const viewer = { actor, preferences: null };
     mockRequireSignedInAdminActor.mockResolvedValue(actor);
     mockResolveIdentityShellViewer.mockResolvedValue(viewer);
