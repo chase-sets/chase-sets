@@ -3,11 +3,14 @@ import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchBlockerCategory,
+  CatalogPrimaryWorkbenchProductContentsEvidenceLine,
+  CatalogPrimaryWorkbenchProductContentsEvidenceReview,
   CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
+import type { SourceObservationProductContentsPromotionLine } from "../domain/domain";
 import type { SourceObservationIntegrationScope, SourceObservationListItem } from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import { actionStateForBlockers, setQueryParam } from "./primary-workbench-read-model-support";
@@ -210,7 +213,10 @@ export function sourceObservationReviewFor(
 // what the row used to carry inline so evidence parity is preserved (#1971).
 export function sourceObservationEvidenceDetailFor(
   observation: SourceObservationListItem,
-  input: { canManage: boolean },
+  input: {
+    canManage: boolean;
+    productContentsConfig?: ProductContentsEvidenceConfig;
+  },
 ): CatalogPrimaryWorkbenchSourceObservationEvidenceDetail {
   const promotionReadiness = promotionReadinessFor(observation, input.canManage);
 
@@ -230,6 +236,7 @@ export function sourceObservationEvidenceDetailFor(
     payloadSummary: payloadSummaryFor(observation),
     redactionSummary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary"),
     normalizedFactSummaries: normalizedFactSummariesFor(observation),
+    productContentsEvidence: productContentsEvidenceReviewFor(observation, input.productContentsConfig),
     duplicateEvidence: duplicateEvidenceFor(observation),
     conflictEvidence: conflictEvidenceFor(observation),
     auditTrail: auditTrailFor(observation),
@@ -240,6 +247,176 @@ export function sourceObservationEvidenceDetailFor(
       confirmationRequired: promotionReadiness.state === "eligible",
     },
   };
+}
+
+export type ProductContentsEvidenceConfig = Readonly<{
+  contentTypeLabelsById?: ReadonlyMap<string, string>;
+  inclusionPolicyLabelsById?: ReadonlyMap<string, string>;
+}>;
+
+function productContentsEvidenceReviewFor(
+  observation: SourceObservationListItem,
+  config: ProductContentsEvidenceConfig | undefined,
+): CatalogPrimaryWorkbenchProductContentsEvidenceReview {
+  const promotion = observation.normalized.productContentsPromotion ?? null;
+  const hasRetainedEvidence = Boolean(observation.normalized.productContentsEvidence);
+  if (!promotion || promotion.lines.length === 0) {
+    return hasRetainedEvidence
+      ? {
+          state: "unresolved",
+          summary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.unresolved"),
+          lineCount: 0,
+          rows: [],
+        }
+      : {
+          state: "none",
+          summary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.none"),
+          lineCount: 0,
+          rows: [],
+        };
+  }
+
+  const terminalState =
+    observation.status === "promoted" ? "promoted" : observation.status === "rejected" ? "rejected" : null;
+  const rows = promotion.lines.map((line, index) =>
+    productContentsEvidenceLineFor({
+      line,
+      lineNumber: index + 1,
+      terminalState,
+      config,
+    }),
+  );
+  const unresolvedCount = rows.filter((row) => row.state === "unresolved").length;
+  const state = terminalState ?? (unresolvedCount > 0 ? ("unresolved" as const) : ("reviewable" as const));
+
+  return {
+    state,
+    summary: productContentsEvidenceSummaryFor({ lineCount: rows.length, state, unresolvedCount }),
+    lineCount: rows.length,
+    rows,
+  };
+}
+
+function productContentsEvidenceLineFor(input: {
+  line: SourceObservationProductContentsPromotionLine;
+  lineNumber: number;
+  terminalState: "promoted" | "rejected" | null;
+  config: ProductContentsEvidenceConfig | undefined;
+}): CatalogPrimaryWorkbenchProductContentsEvidenceLine {
+  const contentTypeId = resolvedProductContentsContentTypeId(input.line);
+  const containedCatalogItemId = resolvedProductContentsContainedCatalogItemId(input.line);
+  const unresolved = !contentTypeId || !containedCatalogItemId;
+  const state = input.terminalState ?? (unresolved ? "unresolved" : "reviewable");
+
+  return {
+    lineNumber: input.lineNumber,
+    state,
+    contentTypeLabel: contentTypeId
+      ? (input.config?.contentTypeLabelsById?.get(contentTypeId) ?? contentTypeId)
+      : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.unresolvedContentType"),
+    contentTypeId,
+    inclusionPolicyLabel: input.line.inclusionPolicyId
+      ? (input.config?.inclusionPolicyLabelsById?.get(input.line.inclusionPolicyId) ?? input.line.inclusionPolicyId)
+      : null,
+    inclusionPolicyId: input.line.inclusionPolicyId ?? null,
+    quantity: typeof input.line.quantity === "number" ? input.line.quantity : null,
+    containedCatalogItemId,
+    containedSelectedOptionLabels: selectedOptionLabelsFor(input.line.containedSelectedOptions ?? []),
+    targetSummary: productContentsTargetSummaryFor(input.line, containedCatalogItemId),
+    provenanceSummary: provenanceSummaryFor(input.line.provenance),
+  };
+}
+
+function resolvedProductContentsContentTypeId(line: SourceObservationProductContentsPromotionLine): string | null {
+  const direct = nonEmptyString(line.contentTypeId) ? line.contentTypeId.trim() : null;
+  if (direct) {
+    return direct;
+  }
+  const candidates = uniqueStrings(line.candidateContentTypeIds ?? []);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function resolvedProductContentsContainedCatalogItemId(
+  line: SourceObservationProductContentsPromotionLine,
+): string | null {
+  const direct = nonEmptyString(line.containedCatalogItemId) ? line.containedCatalogItemId.trim() : null;
+  if (direct) {
+    return direct;
+  }
+  const candidates = uniqueStrings(line.candidateCatalogItemIds ?? []);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function selectedOptionLabelsFor(
+  selectedOptions: NonNullable<SourceObservationProductContentsPromotionLine["containedSelectedOptions"]>,
+): readonly string[] {
+  return selectedOptions.map((option) =>
+    t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.selectedOption", {
+      dimensionId: option.dimensionId,
+      optionId: option.optionId,
+    }),
+  );
+}
+
+function productContentsTargetSummaryFor(
+  line: SourceObservationProductContentsPromotionLine,
+  containedCatalogItemId: string | null,
+): string {
+  if (containedCatalogItemId) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.resolved", {
+      catalogItemId: containedCatalogItemId,
+    });
+  }
+  const candidates = uniqueStrings(line.candidateCatalogItemIds ?? []);
+  if (candidates.length > 1) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.ambiguous", {
+      count: candidates.length,
+    });
+  }
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.target.unresolved");
+}
+
+function provenanceSummaryFor(provenance: unknown): readonly string[] {
+  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
+    return [];
+  }
+  return Object.keys(provenance)
+    .filter((key) => key.trim().length > 0)
+    .filter(isSafeProvenanceKey)
+    .sort()
+    .map((key) =>
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.provenance.key", { key }),
+    );
+}
+
+function isSafeProvenanceKey(key: string): boolean {
+  return !/(secret|token|credential|password|private|url|payload|raw)/i.test(key);
+}
+
+function productContentsEvidenceSummaryFor(input: {
+  lineCount: number;
+  state: CatalogPrimaryWorkbenchProductContentsEvidenceReview["state"];
+  unresolvedCount: number;
+}): string {
+  if (input.state === "promoted") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.promoted", {
+      count: input.lineCount,
+    });
+  }
+  if (input.state === "rejected") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.rejected", {
+      count: input.lineCount,
+    });
+  }
+  if (input.state === "unresolved") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.lines.unresolved", {
+      count: input.lineCount,
+      unresolved: input.unresolvedCount,
+    });
+  }
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.reviewable", {
+    count: input.lineCount,
+  });
 }
 
 export function promotionPreviewFor(input: {
@@ -817,6 +994,14 @@ function hasOriginalSourceProfileEvidence(observation: SourceObservationListItem
   const sourceProfileKey = observation.source_profile_key.trim();
   const sourceProfileVersion = observation.source_profile_version.trim();
   return sourceProfileKey.length > 0 && sourceProfileVersion.length > 0;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))].sort();
 }
 
 function auditTrailFor(observation: SourceObservationListItem): readonly string[] {

@@ -1635,6 +1635,7 @@ export type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
   payloadSummary: string;
   redactionSummary: string;
   normalizedFactSummaries: readonly string[];
+  productContentsEvidence: CatalogPrimaryWorkbenchProductContentsEvidenceReview;
   duplicateEvidence: readonly string[];
   conflictEvidence: readonly string[];
   auditTrail: readonly string[];
@@ -1647,6 +1648,34 @@ export type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
     disposition: CatalogPrimaryWorkbenchPromotionDisposition;
     confirmationRequired: boolean;
   }>;
+}>;
+
+export type CatalogPrimaryWorkbenchProductContentsEvidenceState =
+  | "none"
+  | "reviewable"
+  | "unresolved"
+  | "promoted"
+  | "rejected";
+
+export type CatalogPrimaryWorkbenchProductContentsEvidenceReview = Readonly<{
+  state: CatalogPrimaryWorkbenchProductContentsEvidenceState;
+  summary: string;
+  lineCount: number;
+  rows: readonly CatalogPrimaryWorkbenchProductContentsEvidenceLine[];
+}>;
+
+export type CatalogPrimaryWorkbenchProductContentsEvidenceLine = Readonly<{
+  lineNumber: number;
+  state: "reviewable" | "unresolved" | "promoted" | "rejected";
+  contentTypeLabel: string;
+  contentTypeId: string | null;
+  inclusionPolicyLabel: string | null;
+  inclusionPolicyId: string | null;
+  quantity: number | null;
+  containedCatalogItemId: string | null;
+  containedSelectedOptionLabels: readonly string[];
+  targetSummary: string;
+  provenanceSummary: readonly string[];
 }>;
 
 // Response contract for the lazy evidence endpoint the review SideSheet fetches

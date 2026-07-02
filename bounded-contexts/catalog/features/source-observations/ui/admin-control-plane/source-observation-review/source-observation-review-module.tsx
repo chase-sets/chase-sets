@@ -681,6 +681,10 @@ function SourceObservationEvidenceSheetBody({
               detail.commandPreview.promotionPlanHash ??
               t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
           },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.productContents"),
+            value: detail.productContentsEvidence.summary,
+          },
         ]}
       />
 
@@ -688,6 +692,11 @@ function SourceObservationEvidenceSheetBody({
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized")}
         items={detail.normalizedFactSummaries}
         emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+      />
+      <EvidenceStringList
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.productContents")}
+        items={productContentsEvidenceItems(detail)}
+        emptyLabel={detail.productContentsEvidence.summary}
       />
       <EvidenceStringList
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates")}
@@ -706,6 +715,33 @@ function SourceObservationEvidenceSheetBody({
       />
       <BlockerList blockers={row.promotionReadiness.blockers} />
     </WorkbenchStack>
+  );
+}
+
+function productContentsEvidenceItems(
+  detail: CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
+): readonly string[] {
+  return detail.productContentsEvidence.rows.map((row) =>
+    t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.line", {
+      lineNumber: row.lineNumber,
+      state: stateLabel(row.state),
+      contentType: row.contentTypeLabel,
+      policy:
+        row.inclusionPolicyLabel ??
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.policy.none"),
+      quantity:
+        row.quantity ??
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.quantity.variable"),
+      target: row.targetSummary,
+      options:
+        row.containedSelectedOptionLabels.length > 0
+          ? row.containedSelectedOptionLabels.join(", ")
+          : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.selectedOptions.none"),
+      provenance:
+        row.provenanceSummary.length > 0
+          ? row.provenanceSummary.join(", ")
+          : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.productContents.provenance.none"),
+    }),
   );
 }
 

@@ -593,4 +593,146 @@ describe("Catalog primary workbench review payload split (#1971)", () => {
     });
     expect(detail.redactionSummary).toContain("Provider payload withheld");
   });
+
+  it("surfaces resolved Product Contents provider evidence as reviewable promotion evidence with configured labels", () => {
+    const detail = sourceObservationEvidenceDetailFor(
+      sourceObservationListItem({
+        normalized: {
+          ...sourceObservationListItem().normalized,
+          productContentsPromotion: {
+            lines: [
+              {
+                contentTypeId: "pct_booster_content",
+                inclusionPolicyId: "pcp_guaranteed",
+                quantity: 15,
+                containedCatalogItemId: null,
+                candidateCatalogItemIds: ["cat_fury_sliver"],
+                containedSelectedOptions: [{ dimensionId: "dim_language", optionId: "opt_en" }],
+                provenance: {
+                  sourceObservationEvidence: "reviewed-provider-contents",
+                  providerPrivateUrl: "https://provider.example/private/raw",
+                },
+              },
+            ],
+          },
+        },
+      }),
+      {
+        canManage: true,
+        productContentsConfig: {
+          contentTypeLabelsById: new Map([["pct_booster_content", "Booster contents"]]),
+          inclusionPolicyLabelsById: new Map([["pcp_guaranteed", "Guaranteed inclusion"]]),
+        },
+      },
+    );
+
+    expect(detail.productContentsEvidence).toMatchObject({
+      state: "reviewable",
+      lineCount: 1,
+      summary: "1 Product Contents line(s) are resolved and reviewable for promotion.",
+      rows: [
+        expect.objectContaining({
+          state: "reviewable",
+          contentTypeLabel: "Booster contents",
+          inclusionPolicyLabel: "Guaranteed inclusion",
+          quantity: 15,
+          containedCatalogItemId: "cat_fury_sliver",
+          containedSelectedOptionLabels: ["dim_language:opt_en"],
+          targetSummary: "Catalog Item cat_fury_sliver",
+        }),
+      ],
+    });
+    expect(detail.productContentsEvidence.rows[0]?.provenanceSummary).toEqual([
+      "Provenance key: sourceObservationEvidence",
+    ]);
+    expect(JSON.stringify(detail.productContentsEvidence)).not.toContain("providerPrivateUrl");
+    expect(JSON.stringify(detail.productContentsEvidence)).not.toContain("https://provider.example/private/raw");
+  });
+
+  it("shows rejected Product Contents evidence with existing Source Observation review semantics", () => {
+    const detail = sourceObservationEvidenceDetailFor(
+      sourceObservationListItem({
+        status: "rejected",
+        status_reason: "Provider contents are out of scope.",
+        normalized: {
+          ...sourceObservationListItem().normalized,
+          productContentsPromotion: {
+            lines: [
+              {
+                contentTypeId: "pct_booster_content",
+                quantity: 1,
+                containedCatalogItemId: "cat_fury_sliver",
+                provenance: { sourceObservationEvidence: "reviewed-provider-contents" },
+              },
+            ],
+          },
+        },
+      }),
+      { canManage: true },
+    );
+
+    expect(detail.productContentsEvidence).toMatchObject({
+      state: "rejected",
+      summary: "1 Product Contents line(s) were rejected with this Source Observation.",
+      rows: [expect.objectContaining({ state: "rejected" })],
+    });
+    expect(detail.promotionReadiness).toMatchObject({ state: "rejected" });
+    expect(detail.conflictEvidence).toContain("Provider contents are out of scope.");
+  });
+
+  it("keeps retained-only Product Contents evidence unresolved without dumping provider payloads", () => {
+    const detail = sourceObservationEvidenceDetailFor(
+      sourceObservationListItem({
+        normalized: {
+          ...sourceObservationListItem().normalized,
+          productContentsEvidence: {
+            rawProviderContents: [{ name: "Fury Sliver", privateUrl: "https://provider.example/private/raw" }],
+          },
+          productContentsPromotion: null,
+        },
+      }),
+      { canManage: true },
+    );
+
+    expect(detail.productContentsEvidence).toEqual({
+      state: "unresolved",
+      summary:
+        "Provider Product Contents evidence is retained, but no reviewed Product Contents promotion is resolved yet.",
+      lineCount: 0,
+      rows: [],
+    });
+    expect(JSON.stringify(detail.productContentsEvidence)).not.toContain("rawProviderContents");
+    expect(JSON.stringify(detail.productContentsEvidence)).not.toContain("https://provider.example/private/raw");
+  });
+
+  it("marks promoted Product Contents evidence after Catalog-owned promotion completes", () => {
+    const detail = sourceObservationEvidenceDetailFor(
+      sourceObservationListItem({
+        status: "promoted",
+        promoted_catalog_item_id: "cat_magic_sealed_001",
+        promoted_at: "2026-06-09T02:00:00.000Z",
+        normalized: {
+          ...sourceObservationListItem().normalized,
+          productContentsPromotion: {
+            lines: [
+              {
+                contentTypeId: "pct_booster_content",
+                quantity: null,
+                containedCatalogItemId: "cat_fury_sliver",
+                provenance: { sourceObservationEvidence: "reviewed-provider-contents" },
+              },
+            ],
+          },
+        },
+      }),
+      { canManage: true },
+    );
+
+    expect(detail.productContentsEvidence).toMatchObject({
+      state: "promoted",
+      summary: "1 Product Contents line(s) were promoted through Catalog commands.",
+      rows: [expect.objectContaining({ state: "promoted" })],
+    });
+    expect(detail.promotionReadiness).toMatchObject({ state: "already-promoted" });
+  });
 });
