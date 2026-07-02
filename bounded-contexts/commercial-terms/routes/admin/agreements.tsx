@@ -7,6 +7,7 @@ import {
   CommercialTermsApiError,
   createCommercialTermsRequestApiClient,
 } from "../../support/request-support/api-client";
+import { normalizeAgreementAccountIdText } from "../../features/agreements/api/account-id";
 import {
   commercialTermsApiErrorBody,
   commercialTermsApiErrorCode,
@@ -44,9 +45,10 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
 
   try {
+    const accountId = normalizeAgreementAccountIdText(formData.get("accountId"));
     const result = await api.createAgreement({
       label: formData.get("label"),
-      accountId: formData.get("accountId"),
+      accountId,
       marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
       marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
       shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),

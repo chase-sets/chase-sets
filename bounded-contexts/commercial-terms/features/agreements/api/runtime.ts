@@ -23,6 +23,7 @@ import {
   type CommercialAgreementState,
 } from "../domain/domain";
 import { CommercialTermsDomainError } from "../../../support/runtime-support/common";
+import { normalizeAgreementAccountIdText } from "./account-id";
 
 type AgreementRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -87,9 +88,10 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
     commandHandler,
     async createAgreement(params, context) {
       const agreementId = createId("cag");
-      await assertAccountExists(params.accountId);
+      const accountId = normalizeAgreementAccountIdText(params.accountId);
+      await assertAccountExists(accountId);
       await assertNoActiveOverlap({
-        accountId: params.accountId,
+        accountId,
         status: params.status,
         effectiveFrom: params.effectiveFrom,
         effectiveUntil: params.effectiveUntil,
@@ -100,6 +102,7 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
           type: "CreateAgreement",
           agreementId,
           ...params,
+          accountId,
         },
         context,
       });

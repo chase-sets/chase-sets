@@ -176,6 +176,20 @@ describe("commercial terms admin routes", () => {
     expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("53");
   });
 
+  it("rejects malformed agreement account ids before create requests", async () => {
+    const response = await agreementsAction({
+      request: formRequest("/commerce/terms/agreements", {
+        ...agreementForm(),
+        accountId: "seller_missing",
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response).toEqual({ error: "Account ID must start with acc_." });
+    expect(mockApi.createAgreement).not.toHaveBeenCalled();
+  });
+
   it("carries agreement update receipts into the detail redirect", async () => {
     mockApi.updateAgreement.mockResolvedValue(commercialTermsCommit("54"));
 
