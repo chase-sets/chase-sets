@@ -436,6 +436,19 @@ describe("inventory import batch runtime", () => {
     ).rejects.toThrow("Import CSV must include at least one row.");
   });
 
+  it("builds native CSV templates from account active storage locations only", async () => {
+    const services = runtime(dbWithLocations());
+
+    const template = await services.getNativeCsvTemplate({ accountId: "acc_1" as AccountId });
+
+    expect(template).toContain(
+      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+    );
+    expect(template).toContain("loc_active");
+    expect(template).toContain("Example for Active shelf");
+    expect(template).not.toContain("loc_archived");
+  });
+
   it("accepts valid dynamic option rows and rejects row-level validation failures", async () => {
     const services = runtime(dbWithLocations());
     const batch = await services.createBatch(

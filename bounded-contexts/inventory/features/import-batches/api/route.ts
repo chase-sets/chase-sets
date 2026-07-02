@@ -130,6 +130,18 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     });
   });
 
+  app.get("/templates/native-csv", async (c) => {
+    const actor = c.get("actor");
+    const csv = await services.getNativeCsvTemplate({
+      accountId: actor.accountId as AccountId,
+    });
+
+    return c.body(csv, 200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="chase-sets-native-inventory-template.csv"',
+    });
+  });
+
   app.get("/:id", async (c) => {
     const actor = c.get("actor");
     const detail = await services.getBatch(c.req.param("id"), actor.accountId);
