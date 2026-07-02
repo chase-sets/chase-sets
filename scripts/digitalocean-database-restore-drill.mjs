@@ -16,7 +16,7 @@ const { Client } = pg;
 
 export const DIGITALOCEAN_DATABASE_RESTORE_DRILL_VERSION = "digitalocean-database-restore-drill/v1";
 export const STAGING_RESTORE_DRILL_PREFIX = "cs-stg-drill-";
-export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 20 * 60 * 1000;
+export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 45 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([

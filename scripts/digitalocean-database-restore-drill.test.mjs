@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_STAGING_DATABASE_CHECKS,
+  DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS,
   STAGING_RESTORE_DRILL_PREFIX,
   buildStagingRestoreDrillName,
   databaseUrlForDatabase,
@@ -261,6 +262,11 @@ describe("digitalocean database restore drill", () => {
         { contextName: "control", databaseName: "chase_sets_staging_control", eventStoreTables: false },
       ],
     });
+  });
+
+  it("defaults to a 45-minute fork availability budget", () => {
+    expect(parseDigitalOceanDatabaseRestoreDrillArgs([], {}).forkTimeoutMs).toBe(45 * 60 * 1000);
+    expect(DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS).toBe(45 * 60 * 1000);
   });
 
   it("keeps default staging database checks aligned with Terraform names", () => {
