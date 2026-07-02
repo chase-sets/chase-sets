@@ -165,12 +165,13 @@ function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
 
 export function createCatalogApiClient({
   baseUrl = DEFAULT_BASE_URL,
-  fetch = globalThis.fetch,
+  fetch: providedFetch,
   headers: initialHeaders,
   credentials = "include",
 }: CatalogApiClientOptions = {}) {
+  const fetchImpl: typeof globalThis.fetch = (input, init) => (providedFetch ?? globalThis.fetch)(input, init);
   const configuredFetch: typeof globalThis.fetch = (input, init = {}) =>
-    fetch(input, {
+    fetchImpl(input, {
       ...init,
       credentials: init.credentials ?? credentials,
     });
@@ -883,6 +884,68 @@ export function createCatalogApiClient({
         param: { id },
         header: headers,
       });
+      return parseJsonResponse<T>(response);
+    },
+    async listProductContentTypes<T>(): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/product-contents/content-types`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async listProductContentInclusionPolicies<T>(): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/product-contents/inclusion-policies`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async listProductContentsForContainer<T>(id: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/product-contents/containers/${encodeURIComponent(id)}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listProductContainersForContained<T>(id: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/product-contents/contained/${encodeURIComponent(id)}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async replaceProductContents<T>(id: string, body: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/product-contents/containers/${encodeURIComponent(id)}`,
+        {
+          method: "PUT",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async removeProductContents<T>(id: string, body: unknown): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/product-contents/containers/${encodeURIComponent(id)}`,
+        {
+          method: "DELETE",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+        },
+      );
       return parseJsonResponse<T>(response);
     },
     async createCatalogItem<T>(body: unknown): Promise<T> {

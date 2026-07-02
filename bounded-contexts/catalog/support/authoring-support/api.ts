@@ -11,6 +11,7 @@ import { componentRoutes } from "../../features/components/api/route";
 import { dimensionRoutes } from "../../features/dimensions/api/route";
 import { displayTemplateRoutes } from "../../features/display-templates/api/route";
 import { fieldRoutes } from "../../features/fields/api/route";
+import { productContentRoutes } from "../../features/product-contents/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 
@@ -86,6 +87,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/blueprints", blueprintRoutes(services.blueprints, services.authoringBulkJobs));
   app.route("/categories", categoryRoutes(services.categories, services.authoringBulkJobs));
   app.route("/items", catalogItemRoutes(services.items, services.authoringBulkJobs));
+  app.route("/product-contents", productContentRoutes(services.productContents));
   app.route(
     "/source-observations",
     sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles),
