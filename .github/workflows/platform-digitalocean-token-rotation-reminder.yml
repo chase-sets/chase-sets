@@ -1,0 +1,85 @@
+name: Platform DigitalOcean Token Rotation Reminder
+
+on:
+  schedule:
+    - cron: "17 14 6 1,4,7,10 *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: platform-digitalocean-token-rotation-reminder
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    name: Remind DigitalOcean token rotation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update rotation issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROTATION_ISSUE_TITLE: "[ops] Rotate DigitalOcean tokens"
+        run: |
+          set -euo pipefail
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          rotation_window="$(date -u +%Y-%m-%d)"
+
+          body="$(cat <<EOF
+          <!-- digitalocean-token-rotation-reminder -->
+          ## DigitalOcean token rotation
+
+          Quarterly reminder generated on ${rotation_window} UTC.
+
+          Rotate these GitHub secrets without printing or pasting values into issues, PRs, logs, screenshots, or artifacts:
+
+          - \`DIGITALOCEAN_ACCESS_TOKEN\`: full deploy/preview/staging reset/rollback/restore token.
+          - \`DIGITALOCEAN_READONLY_TOKEN\`: drift digest read-only token.
+          - \`DIGITALOCEAN_REGISTRY_TOKEN\`: registry cleanup token.
+
+          Guidance:
+
+          - Create replacement DigitalOcean personal access tokens with 90-day expiration.
+          - Add the replacement values to the GitHub environments and repository secrets named above.
+          - Run manual workflow dispatches for Platform DigitalOcean Drift Digest, Platform Registry Cleanup with dry run first, and this reminder.
+          - After scoped dispatch proof is green, delete the superseded DigitalOcean tokens.
+          - Keep issue #3339 open until drift digest, registry cleanup, and this reminder have manual proof against the scoped secrets.
+
+          DigitalOcean click-path:
+
+          1. DigitalOcean Control Panel -> Account -> API -> Tokens.
+          2. Personal access tokens -> Generate New Token.
+          3. Set a clear name, choose a 90-day expiration, choose the scope set from the runbook, then generate.
+          4. Save the displayed token only into GitHub secrets. The value is shown once.
+          5. Delete the previous token only after the replacement secret passes its manual workflow proof.
+
+          Reminder run: ${run_url}
+          EOF
+          )"
+
+          existing_issue="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --search "\"${ROTATION_ISSUE_TITLE}\" in:title" \
+              --json number,title \
+              --jq '.[] | select(.title == "[ops] Rotate DigitalOcean tokens") | .number' \
+              | head -n 1
+          )"
+
+          if [ -n "${existing_issue}" ]; then
+            gh issue edit "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+            echo "Updated DigitalOcean token rotation issue #${existing_issue}."
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${ROTATION_ISSUE_TITLE}" \
+              --body "${body}" \
+              --label "kind:ops" \
+              --label "area:infrastructure"
+          fi

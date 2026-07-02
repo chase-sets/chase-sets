@@ -28,10 +28,10 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 - Public landing is static-first in operation: `public-web` owns only public page rendering and the browser analytics bridge, while `/api/public-presence/analytics/waitlist` is handled by `platform-api`. Full App Platform static-site hosting is deferred while the home route still owns the no-JavaScript waitlist form action and runtime robots/sitemap/canonical metadata.
 - Database connections: App Platform components use component-specific per-context Postgres client pool budgets. API components keep enough clients for concurrent route loaders, workers keep enough clients for their configured runner groups plus control-plane work, and bootstrap jobs keep a smaller bounded pool. Preview and staging route runtime traffic through managed PgBouncer transaction pools. Preview stays on the smallest database tier with size-1 context pools; staging runs the full shared platform on `db-s-2vcpu-4gb` so hot contexts such as Catalog, Control, Auth, Identity, Public Presence, Discovery, and Marketplace can use larger managed pools without exhausting server connections. Production also uses `db-s-2vcpu-4gb` as the baseline for its component pool budgets. Managed pool `size` consumes database server connection capacity; scale the database tier before increasing managed PgBouncer pool sizes further.
 - Production branch: `production` is a smoke-verified deployed release marker. The production workflow fast-forwards it only after App Platform deployment and production smoke pass. It also creates an annotated `release-<yyyymmddHHMMSS>-<sha>` Git tag and a matching DOCR image tag for audit and rollback.
-- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit, PR, and release tags. `.github/workflows/platform-registry-cleanup.yml` preserves App Platform-referenced tags, release-prefixed image tags, and images updated in the last 7 days; scheduled runs delete older unreferenced tags and then start DigitalOcean registry garbage collection. Manual dispatch defaults to dry-run for operator inspection and uploads `artifacts/release-health/digitalocean-registry-cleanup.json`.
+- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit, PR, and release tags. `.github/workflows/platform-registry-cleanup.yml` uses `DIGITALOCEAN_REGISTRY_TOKEN`, preserves App Platform-referenced tags, release-prefixed image tags, and images updated in the last 7 days; scheduled runs delete older unreferenced tags and then start DigitalOcean registry garbage collection. Manual dispatch defaults to dry-run for operator inspection and uploads `artifacts/release-health/digitalocean-registry-cleanup.json`.
 - Terraform state snapshots: DigitalOcean Spaces does not support object versioning, so `.github/workflows/platform-terraform-state-snapshot.yml` copies durable state objects into `state-archive/YYYY-MM-DD/<original-key>` daily and prunes archive objects older than 30 days. The workflow excludes disposable PR preview state under `platform/previews/`, uploads metadata-only evidence, and alerts through the scheduled workflow reporter.
 - Availability checks: Terraform creates DigitalOcean uptime checks for public, admin, and canonical marketplace endpoints. Uptime alert emails are created only when `PLATFORM_ALERT_EMAILS` is configured for the GitHub environment.
-- Drift visibility: `.github/workflows/platform-digitalocean-drift-digest.yml` runs a read-only advisory digest of DigitalOcean apps, managed databases, registry tags, observability droplets/volumes, uptime checks, and CDN endpoints. The digest uploads `artifacts/release-health/digitalocean-drift-digest.json`, maps known Chase Sets resources to Terraform roots, and flags unknown or cost-impacting resources for operator review. It also warns if retired admin-support component names reappear in one App Platform app. It cannot delete resources.
+- Drift visibility: `.github/workflows/platform-digitalocean-drift-digest.yml` uses `DIGITALOCEAN_READONLY_TOKEN` to run a read-only advisory digest of DigitalOcean apps, managed databases, registry tags, observability droplets/volumes, uptime checks, and CDN endpoints. The digest uploads `artifacts/release-health/digitalocean-drift-digest.json`, maps known Chase Sets resources to Terraform roots, and flags unknown or cost-impacting resources for operator review. It also warns if retired admin-support component names reappear in one App Platform app. It cannot delete resources.
 - Observability cost posture: `infrastructure/digitalocean/observability` defaults `droplet_backups_enabled=false` because the host is reproducible from Terraform/cloud-init. The attached volume is the durable telemetry surface; staging and production accept no more than 24 hours of telemetry data loss by default and require a manual volume snapshot before destructive maintenance or risky host replacement. The drift digest reports Droplet backup state and observability volume size, warning on unexpected staging spend posture and advising review when production host backups are enabled.
 - Image groups are intentionally deferred. The platform still deploys one shared image across App Platform components because splitting deployables into separate image groups would add Docker, registry, Terraform, promotion, rollback, and smoke-test complexity before there is enough deployment data to justify it.
 
@@ -119,6 +119,11 @@ Configure these in `preview`, `staging`, and `production` GitHub Environments:
 - `SES_AWS_SECRET_ACCESS_KEY`
 - `SES_SOURCE_ARN`
 
+Additional DigitalOcean operational secrets:
+
+- `DIGITALOCEAN_READONLY_TOKEN`: configure where Platform DigitalOcean Drift Digest can read it; the workflow currently runs in the `production` GitHub Environment.
+- `DIGITALOCEAN_REGISTRY_TOKEN`: configure where Platform Registry Cleanup can read it; the workflow currently runs in the `staging` GitHub Environment.
+
 Additional `preview` and `staging` secrets for the full platform:
 
 - `STRIPE_SECRET_KEY`
@@ -132,6 +137,34 @@ Additional `preview` and `staging` secrets for the full platform:
 Optional provider-access secrets for `preview`, `staging`, and `production`:
 
 - `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
+
+## DigitalOcean API Token Scope Inventory
+
+DigitalOcean tokens are split by capability. Never print token values; workflow files and runbooks should refer only to `${{ secrets.* }}` names.
+
+| GitHub secret | DigitalOcean token posture | Workflows | Required capability |
+| --- | --- | --- | --- |
+| `DIGITALOCEAN_ACCESS_TOKEN` | Full Access (`api:write`) because these paths create, update, or delete apps, databases, DNS records, registry resources, Terraform-managed infrastructure, restore-point forks, preview resources, and rollback/restore resources. | Platform PR preview deployment, Platform Production, Platform Staging Reset, Platform Database Restore Drill, Platform Production Restore Point Cleanup, rollback/restore/emergency workflows. | Full deploy operator capability. Keep this out of advisory or cleanup-only workflows. |
+| `DIGITALOCEAN_READONLY_TOKEN` | Prefer Custom Scopes with `app:read`, `database:read`, `registry:read`, `droplet:read`, `block_storage:read`, `uptime:read`, `monitoring:read`, and `cdn:read`. Use Read Only (`api:read`) if the custom picker or `doctl` endpoint coverage leaves a collection with a 403. | Platform DigitalOcean Drift Digest. | Read-only inventory of App Platform, managed databases/backups, registry tags, observability Droplets/volumes, uptime checks/alerts, and CDN endpoints. |
+| `DIGITALOCEAN_REGISTRY_TOKEN` | Prefer Custom Scopes with `app:read`, `registry:read`, `registry:delete`, and `registry:update`. Add the narrow missing registry action scope if DigitalOcean returns a 403 for tag deletion or garbage collection. | Platform Registry Cleanup. | Read App Platform image tags, delete unreferenced DOCR tags, and start registry garbage collection. |
+
+The quarterly reminder workflow `.github/workflows/platform-digitalocean-token-rotation-reminder.yml` runs at a non-`:00` minute on the first month of each quarter and can be manually dispatched. It opens or updates `[ops] Rotate DigitalOcean tokens` with the three secret names, a 90-day rotation target, and the operator proof checklist.
+
+Operator creation steps:
+
+1. In DigitalOcean, go to Control Panel -> Account -> API -> Tokens -> Personal access tokens -> Generate New Token.
+2. Name the token after the GitHub secret and capability, for example `chase-sets-production-readonly-digest`.
+3. Set the expiration to 90 days or the closest shorter option the UI allows.
+4. Choose the scope set from the inventory above. DigitalOcean documents Read Only as the `api:read` alias and Full Access as the `api:write` alias; Custom Scopes preserve only the exact selected scopes.
+5. Generate the token, copy it once, and store it only in the matching GitHub Environment or repository secret. Do not paste it into a terminal, issue, PR, comment, artifact, or chat.
+6. Dispatch Platform DigitalOcean Drift Digest and Platform Registry Cleanup after adding `DIGITALOCEAN_READONLY_TOKEN` and `DIGITALOCEAN_REGISTRY_TOKEN`. Use registry cleanup `dry_run=true` first, then dispatch an apply run only after the dry-run summary looks correct.
+7. Delete the superseded DigitalOcean tokens only after the scoped workflow proof is green.
+
+Fallback for DigitalOcean scope gaps:
+
+- If `DIGITALOCEAN_READONLY_TOKEN` fails a collection with 403, recreate it as a Read Only token (`api:read`) and rerun the digest. Keep the digest advisory; do not swap it back to `DIGITALOCEAN_ACCESS_TOKEN`.
+- If `DIGITALOCEAN_REGISTRY_TOKEN` fails tag deletion or garbage collection with 403, first add the narrow registry scope named by the failed endpoint. If DigitalOcean does not expose a granular scope for that operation, pause scheduled apply cleanup and use manual `dry_run=true` until a short-lived exception token is approved and rotated immediately after cleanup.
+- Spaces and Terraform-state least privilege remain separate follow-up work. `SPACES_ACCESS_ID` and `SPACES_SECRET_KEY` cover S3-compatible state and catalog asset operations; the Bitwarden notes on issue #3339 intentionally keep Spaces/Terraform-state key rotation outside this DigitalOcean API token split.
 
 Optional `preview` and `staging` variables:
 
