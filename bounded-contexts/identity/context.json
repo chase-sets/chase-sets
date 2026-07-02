@@ -719,6 +719,7 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#2",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#3",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:Hb573b8e06471#1",
         "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/identity/routes/admin/accounts-detail.tsx",
@@ -731,7 +732,7 @@
         "readModelTables": ["identity_accounts"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account profile and lifecycle forms redirect with Identity command receipts and reload account pages through the account projection freshness route."
+          "behavior": "Account profile, lifecycle, and context-anchored invitation forms redirect with Identity command receipts and reload account or invitation pages through Identity projection freshness routes."
         }
       },
       "proof": {
@@ -752,6 +753,7 @@
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#7",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#8",
         "route-action:bounded-contexts/identity/routes/admin/users-detail.tsx",
         "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
       ],
@@ -762,7 +764,7 @@
         "readModelTables": ["identity_users"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "User profile, contact-method, auth-method, and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
+          "behavior": "User profile, contact-method, auth-method, lifecycle, and context-anchored API-key forms redirect with Identity command receipts and reload user, security, or API-key pages through Identity projection freshness routes."
         }
       },
       "proof": {

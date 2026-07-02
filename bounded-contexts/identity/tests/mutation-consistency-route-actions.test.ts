@@ -133,6 +133,17 @@ describe("Identity mutation consistency route actions", () => {
       {
         action: accountDetailAction,
         request: formRequest("/access/accounts/acc_1", {
+          intent: "create-invitation",
+          accountId: "acc_wrong",
+          email: "invitee@example.com",
+          roleKey: "viewer",
+        }),
+        params: { id: "acc_1" },
+        expectedPath: /^\/access\/invitations\/ivt_[^?]+\?afterWrite=/,
+      },
+      {
+        action: accountDetailAction,
+        request: formRequest("/access/accounts/acc_1", {
           intent: "assign-account-badge",
           badgeKey: "founding-account",
         }),
@@ -271,6 +282,16 @@ describe("Identity mutation consistency route actions", () => {
         request: formRequest("/access/users/usr_identity", { intent: "reactivate" }),
         params: { id: "usr_identity" },
         expectedPath: "/access/users/usr_identity",
+      },
+      {
+        action: userDetailAction,
+        request: formRequest("/access/users/usr_identity", {
+          intent: "create-api-key",
+          userId: "usr_wrong",
+          apiKeyName: "Ops",
+        }),
+        params: { id: "usr_identity" },
+        expectedPath: "/access/api-keys/identity_written",
       },
       {
         action: userDetailAction,

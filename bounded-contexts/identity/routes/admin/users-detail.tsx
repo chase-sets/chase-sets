@@ -7,6 +7,8 @@ import type { User } from "../../support/request-support/api-client";
 import { UserDetailPage } from "../../features/users/ui/user-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
+type ApiKeyMutationResult = Readonly<{ id?: unknown }>;
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   return {
@@ -36,6 +38,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   if (intent === "reactivate") {
     result = await api.reactivateUser(userId);
+  }
+
+  if (intent === "create-api-key") {
+    const created = await api.createApiKey<ApiKeyMutationResult>({
+      userId,
+      name: String(formData.get("apiKeyName") ?? ""),
+    });
+    if (typeof created.id !== "string" || !created.id.trim()) {
+      throw new Response("API key create did not return an id.", { status: 502 });
+    }
+
+    return redirect(navigateAfterWrite(created, `/access/api-keys/${created.id}`));
   }
 
   if (intent === "add-contact-method") {

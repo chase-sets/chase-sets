@@ -100,6 +100,20 @@ export function UserDetailPage({ data }: { data: User }) {
                 </Button>
               </Stack>
             </Form>
+            <Form spacing="none" method="post">
+              <Stack direction="row" align="end" gap={2}>
+                <HiddenInput type="hidden" name="intent" value="create-api-key" readOnly />
+                <HiddenInput type="hidden" name="userId" value={data.user_id} readOnly />
+                <TextInput
+                  name="apiKeyName"
+                  label={t("identity.features.users.ui.userDetailPage.api.key.name")}
+                  required
+                />
+                <Button type="submit" tone="primary">
+                  {t("identity.features.users.ui.userDetailPage.create.api.key")}
+                </Button>
+              </Stack>
+            </Form>
           </Inline>
         </Stack>
       }
