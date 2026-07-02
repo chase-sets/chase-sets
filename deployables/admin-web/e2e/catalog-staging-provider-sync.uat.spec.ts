@@ -1857,7 +1857,7 @@ async function expectCommandQueuedOrActiveImport(
       await expectCommandQueued(page);
       return;
     }
-    if (await hasActiveImportJobForSelectedUnit(page, unitKey, selectedScope, 500)) {
+    if (await hasVisibleImportJobForSelectedUnit(page, unitKey, selectedScope, 500)) {
       return;
     }
     if (Date.now() >= nextExpandAt) {
@@ -1868,8 +1868,26 @@ async function expectCommandQueuedOrActiveImport(
   }
 
   throw new Error(
-    `Expected a queued command banner or visible queued/running import job for ${unitKey} and ${selectedScope.displayLabel} before the timeout.`,
+    `Expected a queued command banner or visible import job row for ${unitKey} and ${selectedScope.displayLabel} before the timeout.`,
   );
+}
+
+async function hasVisibleImportJobForSelectedUnit(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  timeout: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const rows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
+    if (rows.length > 0) {
+      return true;
+    }
+    await page.waitForTimeout(250);
+  }
+
+  return false;
 }
 
 async function hasActiveImportJobForSelectedUnit(

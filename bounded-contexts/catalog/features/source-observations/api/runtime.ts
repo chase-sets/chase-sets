@@ -7725,14 +7725,43 @@ function integrationJobOperatorStatus(
   if (isOperatorCancelledIntegrationJob(job)) {
     return "cancelled";
   }
+  if (job.status === "completed") {
+    return integrationJobCompletedOperatorStatus(job);
+  }
+  if (job.status === "failed") {
+    return "failed";
+  }
+  if (job.progress.phase === "completed") {
+    return integrationJobCompletedOperatorStatus(job);
+  }
+  if (job.progress.phase === "failed") {
+    return "failed";
+  }
+  if (integrationJobHasActiveProgress(job)) {
+    if (isDurableJobClaimExpired(job)) {
+      return "stale";
+    }
+    return "running";
+  }
   if (job.status === "running" && isDurableJobClaimExpired(job)) {
     return "stale";
   }
-  if (job.status === "completed" && job.result && job.result.failed > 0) {
+
+  return job.status;
+}
+
+function integrationJobCompletedOperatorStatus(
+  job: SourceObservationIntegrationDurableJobRecord,
+): SourceObservationIntegrationJobOperatorStatus {
+  if (job.result && job.result.failed > 0) {
     return "partial";
   }
 
-  return job.status;
+  return "completed";
+}
+
+function integrationJobHasActiveProgress(job: SourceObservationIntegrationDurableJobRecord): boolean {
+  return job.status === "running" || (job.status === "queued" && job.progress.phase !== "queued");
 }
 
 function isOperatorCancelledIntegrationJob(job: Readonly<{ status: DurableJobStatus; errorMessage: string | null }>) {

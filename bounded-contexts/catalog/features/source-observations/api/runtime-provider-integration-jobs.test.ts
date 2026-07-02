@@ -1923,6 +1923,95 @@ describe("source observation runtime: provider integration jobs", () => {
     ]);
   });
 
+  it("reports queued durable rows with active or terminal progress by their effective operator state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:20:00.000Z"));
+    try {
+      const runningProgress = {
+        phase: "processing",
+        completed: 1,
+        total: 2,
+        currentName: "Fifth Dawn",
+        status: "imported",
+      };
+      const completedProgress = {
+        phase: "completed",
+        completed: 1,
+        total: 1,
+        currentName: null,
+        status: "imported",
+      };
+      const base = {
+        action: "import",
+        scope: { provider: "mtgjson", language: "en", setName: "Fifth Dawn" },
+        profileSnapshot: {
+          providerKey: "mtgjson",
+          profileKey: "mtg-set-reference-data",
+          profileVersion: "2026.06.23",
+          ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+          lifecycle: "active",
+          connectorKind: "mtgjson-json",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "sha256:mtgjson",
+        },
+        eventContext: context,
+      };
+      const harness = createIntegrationJobDedupeHarness({
+        recentJobs: [
+          {
+            ...integrationJobRow({
+              ...base,
+              jobId: "job_stale_progress",
+              progress: runningProgress,
+            }),
+            status: "queued",
+            claimed_until: "2026-05-28T00:10:00.000Z",
+          },
+          {
+            ...integrationJobRow({
+              ...base,
+              jobId: "job_running_progress",
+              progress: runningProgress,
+            }),
+            status: "queued",
+            claimed_until: "2026-05-28T00:30:00.000Z",
+          },
+          {
+            ...integrationJobRow({
+              ...base,
+              jobId: "job_completed_progress",
+              progress: completedProgress,
+            }),
+            status: "queued",
+            result: {
+              requested: 1,
+              imported: 1,
+              observed: 1,
+              reapplied: 0,
+              skipped: 0,
+              failed: 0,
+              outcomes: [],
+            },
+          },
+        ],
+      });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+      );
+
+      const jobs = await services.listRecentIntegrationJobs({ context });
+      const statusByJobId = new Map(jobs.map((job) => [job.jobId, job.operatorStatus]));
+
+      expect(statusByJobId.get("job_stale_progress")).toBe("stale");
+      expect(statusByJobId.get("job_running_progress")).toBe("running");
+      expect(statusByJobId.get("job_completed_progress")).toBe("completed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns an empty recent integration job list when request context is missing", async () => {
     const harness = createIntegrationJobDedupeHarness({
       recentJobs: [
