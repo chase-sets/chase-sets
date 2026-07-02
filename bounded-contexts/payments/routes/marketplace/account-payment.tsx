@@ -108,6 +108,17 @@ function needsProcessorBuyerEmail(payment: Readonly<{ status: string; processor_
   return payment.status === "pending-confirmation" && payment.processor_payment_kind === "checkout-session";
 }
 
+const GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV = "GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED";
+const truthyEnvValues = new Set(["1", "true", "yes", "on"]);
+
+function canExposeGuestPaymentClaimLocalRecoveryToken() {
+  if (process.env.NODE_ENV === "production" || process.env.DEPLOYMENT_ENVIRONMENT === "production") {
+    return false;
+  }
+
+  return truthyEnvValues.has((process.env[GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV] ?? "").trim().toLowerCase());
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(request);
   const pathname = new URL(resolvedRequest.url).pathname;
@@ -235,7 +246,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
 
       return {
         status: "claim-link-sent",
-        token: result.token,
+        token: canExposeGuestPaymentClaimLocalRecoveryToken() ? result.token : null,
         expiresAt: result.expiresAt,
         displayName,
       };
@@ -417,7 +428,7 @@ function GuestClaimPrompt({
               </Button>
             </Stack>
           </RouterForm>
-          {actionData && "status" in actionData ? (
+          {actionData && "status" in actionData && actionData.token ? (
             <Inset>
               <RouterForm method="post" spacing="none">
                 <Stack gap={2}>

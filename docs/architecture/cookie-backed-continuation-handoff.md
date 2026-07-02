@@ -72,4 +72,12 @@ Social login callbacks create or continue session state after provider verificat
 
 Guest payment claim flows use guest checkout state before showing `/checkout/payments/:paymentId`. Expired or revoked guest claim access should show payment-owned recovery that states whether a payment was charged or not charged.
 
+### Guest Payment Claim Link Transport
+
+Emailed guest payment claim links must use a server-side continuation and an HttpOnly browser handoff, not an Auth claim token in the URL or route action data.
+
+The email link may identify a short-lived, single-use continuation record, but that URL value must not be the Auth `claim` token accepted by `/guest-checkout/claim-with-magic-link` and must not be reusable by browser JavaScript or by Payments route actions. The continuation endpoint consumes the server-side record, creates or rotates the HttpOnly claim/guest handoff cookie, and returns a document-level redirect to the payment route so the destination loader sees the committed cookie state.
+
+Manual claim-token entry is a local recovery surface only. It must be off by default, config-gated when needed for non-production testing, and forcibly disabled for production.
+
 Magic-link and passkey claim continuations consume short-lived challenges before issuing session state. They must preserve single-use token semantics and use safe return paths.

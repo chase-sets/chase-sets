@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendFreshWriteToken, readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 
@@ -78,6 +78,8 @@ vi.mock("../support/request-support/api-client", () => ({
 
 import { action, loader } from "../routes/marketplace/account-payment";
 
+const originalEnv = { ...process.env };
+
 async function readResolvedFreshWriteToken(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
   return readFreshWriteToken(resolvedRequest.url);
@@ -141,6 +143,10 @@ describe("guest payment claim action", () => {
       listAccountOrderInputs: mockListAccountOrderInputs,
       recoverCheckoutPayment: mockRecoverCheckoutPayment,
     });
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
   it("loads a captured guest checkout payment without requiring a signed-in account", async () => {
@@ -376,7 +382,7 @@ describe("guest payment claim action", () => {
     expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
   });
 
-  it("requests a local email claim token for guest payment recovery", async () => {
+  it("requests an email claim link without exposing the claim token by default", async () => {
     mockRequestGuestCheckoutClaimLink.mockResolvedValue({
       token: "magic_token",
       expiresAt: "2026-05-04T16:00:00.000Z",
@@ -406,7 +412,72 @@ describe("guest payment claim action", () => {
     });
     expect(result).toEqual({
       status: "claim-link-sent",
+      token: null,
+      expiresAt: "2026-05-04T16:00:00.000Z",
+      displayName: "Jane Smith",
+    });
+  });
+
+  it("exposes the guest claim token only for explicitly enabled local recovery outside production", async () => {
+    process.env.GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED = "true";
+    mockRequestGuestCheckoutClaimLink.mockResolvedValue({
       token: "magic_token",
+      expiresAt: "2026-05-04T16:00:00.000Z",
+    });
+    mockCreateInternalAuthRequestApiClient.mockReturnValue({
+      requestGuestCheckoutClaimLink: mockRequestGuestCheckoutClaimLink,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "claim-link-request");
+    form.set("displayName", "Jane Smith");
+
+    const result = await action({
+      request: new Request("http://localhost/checkout/payments/pay_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { paymentId: "pay_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      status: "claim-link-sent",
+      token: "magic_token",
+      expiresAt: "2026-05-04T16:00:00.000Z",
+      displayName: "Jane Smith",
+    });
+  });
+
+  it("does not expose the guest claim token in production even when local recovery is configured", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED = "true";
+    mockRequestGuestCheckoutClaimLink.mockResolvedValue({
+      token: "magic_token",
+      expiresAt: "2026-05-04T16:00:00.000Z",
+    });
+    mockCreateInternalAuthRequestApiClient.mockReturnValue({
+      requestGuestCheckoutClaimLink: mockRequestGuestCheckoutClaimLink,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "claim-link-request");
+    form.set("displayName", "Jane Smith");
+
+    const result = await action({
+      request: new Request("http://localhost/checkout/payments/pay_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { paymentId: "pay_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      status: "claim-link-sent",
+      token: null,
       expiresAt: "2026-05-04T16:00:00.000Z",
       displayName: "Jane Smith",
     });

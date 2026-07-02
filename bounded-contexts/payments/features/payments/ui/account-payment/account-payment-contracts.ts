@@ -18,7 +18,7 @@ export type GuestCheckoutClaimContext = Readonly<{
 export type GuestClaimActionData =
   | Readonly<{
       status: "claim-link-sent";
-      token: string;
+      token: string | null;
       expiresAt: string;
       displayName: string;
     }>
