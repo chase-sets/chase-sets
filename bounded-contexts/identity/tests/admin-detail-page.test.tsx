@@ -91,6 +91,10 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain("Card Vault");
     expect(html).toContain("Founding Account");
     expect(html).toContain("Update Profile");
+    expect(html).toContain("Invite Member");
+    expect(html).toContain('type="hidden"');
+    expect(html).toContain('name="accountId"');
+    expect(html).toContain('value="acc_card_vault"');
     expect(html).toContain("Remove Founding Account badge");
     expect(html).toContain("Assign Manual Payout Review badge");
     expect(html).toContain("Assign Trusted Seller badge");
@@ -110,6 +114,10 @@ describe("Access Admin detail pages", () => {
   it("surfaces user contact-method and auth-method management controls", () => {
     const html = renderToString(<UserDetailPage data={user} />);
 
+    expect(html).toContain("Create API Key");
+    expect(html).toContain("API Key Name");
+    expect(html).toContain('name="userId"');
+    expect(html).toContain('value="usr_alex"');
     expect(html).toContain("Add Contact Method");
     expect(html).toContain("Verify");
     expect(html).toContain("Enable Auth Method");

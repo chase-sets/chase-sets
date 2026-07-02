@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
+import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import { AccountBadgeList, accountBadgeLabel, accountBadgeKeys, accountBadgeLabels } from "./account-badges";
 import type { Account } from "./contracts";
 
@@ -80,6 +81,27 @@ export function AccountDetailPage({ data }: { data: Account }) {
               </Button>
             </Form>
           ) : null}
+          <Form spacing="none" method="post">
+            <Stack direction="row" align="end" gap={2}>
+              <HiddenInput type="hidden" name="intent" value="create-invitation" readOnly />
+              <HiddenInput type="hidden" name="accountId" value={data.account_id} readOnly />
+              <TextInput
+                name="email"
+                label={t("identity.features.accounts.ui.accountDetailPage.invite.email")}
+                type="email"
+                required
+              />
+              <NativeSelect
+                name="roleKey"
+                label={t("identity.features.accounts.ui.accountDetailPage.invite.role")}
+                defaultValue="viewer"
+                items={grantableRoleSelectItems}
+              />
+              <Button type="submit" tone="primary">
+                {t("identity.features.accounts.ui.accountDetailPage.invite.member")}
+              </Button>
+            </Stack>
+          </Form>
         </Inline>
       }
       sections={[

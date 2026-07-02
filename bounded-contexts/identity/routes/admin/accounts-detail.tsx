@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { loadAfterWrite, navigateAfterWrite } from "@chase-sets/platform-runtime/http";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { IdentityApiError, type Account } from "../../support/request-support/api-client";
 import { isAccountBadgeKey, type AccountBadgeKey } from "../../features/accounts/ui/account-badges";
 import { AccountDetailPage } from "../../features/accounts/ui/account-detail-page";
@@ -76,6 +77,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
       name: String(formData.get("name") ?? ""),
       displayName: String(formData.get("displayName") ?? ""),
     });
+  }
+
+  if (intent === "create-invitation") {
+    const invitationId = createId("ivt");
+    result = await api.createInvitation({
+      invitationId,
+      accountId,
+      email: String(formData.get("email") ?? ""),
+      roleKey: String(formData.get("roleKey") ?? "viewer"),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    return redirect(navigateAfterWrite(result, `/access/invitations/${invitationId}`));
   }
 
   if (intent === "suspend") {
