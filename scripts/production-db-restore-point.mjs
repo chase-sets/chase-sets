@@ -10,7 +10,7 @@ import { writeJsonRecord } from "./lib/output-file.mjs";
 const execFile = promisify(execFileCallback);
 
 export const PRODUCTION_DB_RESTORE_POINT_VERSION = "production-db-restore-point/v1";
-export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS = 45 * 60 * 1000;
+export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_PRODUCTION_DB_RESTORE_POINT_FORK_POLL_INTERVAL_MS = 30 * 1000;
 
 const DATABASE_AVAILABLE_STATUSES = new Set(["online"]);

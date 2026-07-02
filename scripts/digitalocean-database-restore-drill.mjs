@@ -16,7 +16,7 @@ const { Client } = pg;
 
 export const DIGITALOCEAN_DATABASE_RESTORE_DRILL_VERSION = "digitalocean-database-restore-drill/v1";
 export const STAGING_RESTORE_DRILL_PREFIX = "cs-stg-drill-";
-export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 45 * 60 * 1000;
+export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 75 * 60 * 1000;
 export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
@@ -121,6 +121,7 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
       : { outcome: "missing-cluster-id", fork, elapsedMs: 0 };
     const latestFork = availability.fork ?? fork;
     const forkFinishedMs = now();
+    const forkReachedAvailable = availability.outcome === "available";
     record = {
       ...record,
       fork: {
@@ -132,8 +133,10 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
       },
       timings: {
         forkStartedAt: isoFromMs(forkStartedMs),
-        forkAvailableAt: isoFromMs(forkFinishedMs),
-        forkToAvailableMs: forkFinishedMs - forkStartedMs,
+        forkWaitFinishedAt: isoFromMs(forkFinishedMs),
+        forkWaitMs: forkFinishedMs - forkStartedMs,
+        forkAvailableAt: forkReachedAvailable ? isoFromMs(forkFinishedMs) : null,
+        forkToAvailableMs: forkReachedAvailable ? forkFinishedMs - forkStartedMs : null,
       },
     };
 
@@ -341,6 +344,8 @@ function createBaseRecord(options, errors) {
     },
     timings: {
       forkStartedAt: null,
+      forkWaitFinishedAt: null,
+      forkWaitMs: null,
       forkAvailableAt: null,
       forkToAvailableMs: null,
       cleanupStartedAt: null,
