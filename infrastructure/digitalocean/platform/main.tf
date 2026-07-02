@@ -331,6 +331,21 @@ check "wake_connection_budget" {
   }
 }
 
+# Early tier-upgrade trigger (#3342): production and staging must keep
+# rolling-deploy overlap demand within 80% of the selected tier's reserved
+# backend budget. This catches scale changes while there is still operational
+# room to upgrade the tier or land query-safe production transaction pools.
+check "wake_connection_budget_tier_upgrade_trigger" {
+  assert {
+    condition = (
+      !(local.is_production || local.is_staging) ||
+      local.cluster_backend_demand_deploy_overlap * 100 <=
+      local.cluster_connection_limit * local.connection_budget_upgrade_trigger_percent
+    )
+    error_message = "Rolling-deploy overlap backend demand exceeds 80% of the selected DigitalOcean database tier. Upgrade database_size to db-s-4vcpu-8gb or land production transaction pools before increasing platform-api/platform-worker scale."
+  }
+}
+
 # Listener topology parity gate (#1243/#1236): staging and production must
 # expose exactly one direct/session-compatible listener URL per wave source
 # context and previews must expose none, so relay topology never differs by

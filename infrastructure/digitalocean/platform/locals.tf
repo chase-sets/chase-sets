@@ -277,26 +277,40 @@ locals {
     "db-s-2vcpu-4gb" = 94
     "db-s-4vcpu-8gb" = 194
   }
-  cluster_connection_limit = lookup(local.cluster_connection_limits, local.database_size, 0)
+  cluster_connection_limit                  = lookup(local.cluster_connection_limits, local.database_size, 0)
+  connection_budget_upgrade_trigger_percent = 80
+  connection_budget_upgrade_trigger = floor(
+    local.cluster_connection_limit * local.connection_budget_upgrade_trigger_percent / 100
+  )
 
   active_profile_connection_budget = {
-    profile                    = local.runtime_profile_name
-    active_context_count       = length(local.active_runtime_context_names)
-    exposed_context_count      = length(local.exposed_route_context_names)
-    provisioned_context_count  = length(local.provisioned_context_names)
-    api_pool_max               = tonumber(local.api_database_pool_max)
-    api_instances              = local.api_instances
-    worker_pool_max            = tonumber(local.worker_database_pool_max)
-    worker_instances           = local.worker_instances
-    bootstrap_demand           = local.bootstrap_demand
-    relay_listener_demand      = local.relay_listener_demand
-    api_waiter_listener_demand = local.api_waiter_listener_demand
-    pgbouncer_backend_demand   = local.pgbouncer_server_backend_allocation
-    steady_state_demand        = local.cluster_backend_demand
-    rolling_deploy_demand      = local.cluster_backend_demand_deploy_overlap
-    cluster_connection_limit   = local.cluster_connection_limit
-    steady_state_headroom      = local.cluster_connection_limit - local.cluster_backend_demand
-    rolling_deploy_headroom    = local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap
+    profile                                = local.runtime_profile_name
+    active_context_count                   = length(local.active_runtime_context_names)
+    exposed_context_count                  = length(local.exposed_route_context_names)
+    provisioned_context_count              = length(local.provisioned_context_names)
+    api_pool_max                           = tonumber(local.api_database_pool_max)
+    api_instances                          = local.api_instances
+    worker_pool_max                        = tonumber(local.worker_database_pool_max)
+    worker_instances                       = local.worker_instances
+    bootstrap_demand                       = local.bootstrap_demand
+    relay_listener_demand                  = local.relay_listener_demand
+    api_waiter_listener_demand             = local.api_waiter_listener_demand
+    pgbouncer_backend_demand               = local.pgbouncer_server_backend_allocation
+    steady_state_demand                    = local.cluster_backend_demand
+    rolling_deploy_demand                  = local.cluster_backend_demand_deploy_overlap
+    cluster_connection_limit               = local.cluster_connection_limit
+    steady_state_headroom                  = local.cluster_connection_limit - local.cluster_backend_demand
+    rolling_deploy_headroom                = local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap
+    rolling_deploy_upgrade_trigger_percent = local.connection_budget_upgrade_trigger_percent
+    rolling_deploy_upgrade_trigger         = local.connection_budget_upgrade_trigger
+    rolling_deploy_upgrade_required = (
+      local.cluster_backend_demand_deploy_overlap * 100 >
+      local.cluster_connection_limit * local.connection_budget_upgrade_trigger_percent
+    )
+    # Refreshed by #3342: production query traffic stays on direct App
+    # Platform bindings at current scale. A dedicated follow-up with staging
+    # and production plan evidence must add query-safe production transaction
+    # pools before this can flip true.
     production_pgbouncer_ready = false
   }
 
@@ -306,13 +320,13 @@ locals {
       active_context_count      = length(local.landing_context_names)
       exposed_context_count     = length(local.landing_context_names)
       provisioned_context_count = local.is_production ? length(local.provisioned_context_names) : length(local.landing_context_names)
-      note                      = "Current pool-max envelope is per process; landing lowers active/exposed context surface now and lowers backend demand after issue #3213/#3214 profile the API and worker runner groups."
+      note                      = "Landing lowers active/exposed context surface while the profiled API and worker families keep one production API group and one production worker group in the budget."
     })
     proof = merge(local.active_profile_connection_budget, {
       profile               = "proof"
       active_context_count  = length(local.platform_context_names)
       exposed_context_count = length(local.platform_context_names)
-      note                  = "Proof mode still shares the current public runtime shape until issue #3213/#3214 split route and worker profile selection."
+      note                  = "Proof mode shares the public bounded-context surface; production query traffic remains direct until #3342 is followed by a dedicated production transaction-pool rollout."
     })
     public = merge(local.active_profile_connection_budget, {
       profile               = "public"

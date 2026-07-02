@@ -10,7 +10,7 @@ This is the per-environment DigitalOcean managed Postgres connection ledger for 
 
 The budget locals live in `infrastructure/digitalocean/platform/locals.tf` and the checks in `infrastructure/digitalocean/platform/main.tf`. Both environments are computed from the same locals; only scale knobs (`api_instances`, `worker_instances`, pool maxima, `database_size`) and the staging-first ramp flags differ. Generate a CI-safe evidence record from the checked-in locals with `pnpm run ops push-wake:capacity-evidence -- --out artifacts/release-health/push-wake-capacity-evidence.json`; the script reads no secrets and contacts no live environment.
 
-Terraform also exposes `connection_budget_profiles` so release operators can inspect the resolved profile, active/exposed/provisioned context counts, steady-state demand, rolling-deploy demand, and headroom. The current pool-max envelope is per process, not per mounted context, so landing mode lowers active route/context surface before it lowers backend demand. The backend-demand reduction arrives with the profiled API/worker runner work in #3213 and #3214.
+Terraform also exposes `connection_budget_profiles` so release operators can inspect the resolved profile, active/exposed/provisioned context counts, steady-state demand, rolling-deploy demand, headroom, and the 80% rolling-deploy tier-upgrade trigger. The current pool-max envelope is per process, not per mounted context, so landing mode lowers active route/context surface while the profiled API and worker families keep the production backend-demand model small and explicit.
 
 ## PgBouncer Vs Direct Connection Semantics
 
@@ -70,17 +70,17 @@ Everything is direct. The budget assumes the consolidated topology that now runs
 | **Steady-state total** | 12 + 7 + 6 + 8 + 4 | **37 ≤ 94** (headroom 57) |
 | **Deploy overlap** | 2 × (12 + 7) + 2 × 6 + 2 × 8 + 4 (App Platform starts replacement containers before stopping old ones) | **70 ≤ 94** (headroom 24) |
 
-The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect.
+The rolling-deploy overlap envelope is the binding production constraint. It is deliberately pessimistic (every process pinned at pool max while both deployment generations run), but it is the number scale decisions must respect. The tier-upgrade trigger is 80% of the reserved tier budget: on the current `db-s-2vcpu-4gb` production tier, the trigger is `75` backends (`floor(94 × 0.80)`). Current production overlap demand is `70`, so **before adding a 3rd `platform-api` instance or a 2nd `platform-worker` instance in production, either upgrade to `db-s-4vcpu-8gb` or land production transaction pools for query-safe traffic**. A third API instance would raise overlap demand by 12 backends (`82/94`), and a second worker would raise it by 14 backends (`84/94`), crossing the trigger while still below the absolute limit.
 
 ### Profile Summary Output
 
 `connection_budget_profiles` records the resolved active profile plus named `landing`, `proof`, and `public` entries. The named entries intentionally separate context profile visibility from backend demand:
 
 - `landing` uses the landing/support context surface and shows production provisioned contexts separately so a landing rollback does not imply database deletion.
-- `proof` currently shares the public runtime shape until #3213/#3214 split route exposure and worker runner groups for proof mode.
+- `proof` shares the public bounded-context surface while production query traffic stays direct until a dedicated production transaction-pool rollout changes that posture.
 - `public` preserves the full marketplace context surface.
 
-Each entry includes `active_context_count`, `exposed_context_count`, `provisioned_context_count`, `steady_state_demand`, `rolling_deploy_demand`, `cluster_connection_limit`, `steady_state_headroom`, `rolling_deploy_headroom`, and `production_pgbouncer_ready`. `production_pgbouncer_ready` remains `false` until a dedicated production transaction-pool rollout adds query-safe production PgBouncer pools and proves the direct waiter/listener topology.
+Each entry includes `active_context_count`, `exposed_context_count`, `provisioned_context_count`, `steady_state_demand`, `rolling_deploy_demand`, `cluster_connection_limit`, `steady_state_headroom`, `rolling_deploy_headroom`, `rolling_deploy_upgrade_trigger_percent`, `rolling_deploy_upgrade_trigger`, `rolling_deploy_upgrade_required`, and `production_pgbouncer_ready`. `production_pgbouncer_ready` remains `false` by the refreshed #3342 decision: direct production bindings are still correct at current scale, and query-safe production PgBouncer pools need a dedicated rollout with staging and production plan evidence while waiter/listener/bootstrap/maintenance traffic stays direct.
 
 ### Preview (`non_production_database_size` = `db-s-1vcpu-1gb`, budgeted limit 19)
 
@@ -99,13 +99,14 @@ Previews compute to 21 (PgBouncer allocation, all pools size 1) + 0 listeners + 
 Each additional direct LISTEN source context costs 1 steady-state backend and 2 overlap backends in production. Against the current worst-case envelopes:
 
 - Staging can absorb all remaining direct listener waves on the current tier (steady-state headroom 44, overlap headroom 34).
-- Production has twelve remaining direct listener slots on the current tier after the consolidated one-API/one-worker topology and API waiter split. The remaining wave-2 relay listener expansion (`catalog`, `fulfillment`) adds 4 overlap backends and fits at 74/94, but it still requires route/worker rollout evidence before enablement.
+- Production has twelve remaining direct listener slots before the absolute current-tier limit after the consolidated one-API/one-worker topology and API waiter split, but only two additional direct listener contexts before the 80% upgrade trigger. The remaining wave-2 relay listener expansion (`catalog`, `fulfillment`) adds 4 overlap backends and fits at 74/94, below the trigger, but it still requires route/worker rollout evidence before enablement.
 - The runtime registry currently has eight staging-enabled relay contexts (`catalog`, wave 1, `identity`, `inventory`, `settlement`), while Terraform provisions direct listener URLs for wave 1 plus `identity` and `inventory`. Missing direct listener URLs are an intentional catch-up-only posture, not notification-latency proof for those contexts. Moving both active catch-up-only registry sources (`catalog`, `settlement`) to direct LISTEN in production would add 4 overlap backends and fits the current tier after deployable consolidation; enablement still needs issue-specific latency and convergence evidence.
 - Composite wake origins add query/notify load, and API-owned durable/realtime waiters now add the `api_waiter_listener_demand` direct-connection envelope above. Their throughput and latency budgets are still owned by durable wake-store capacity evidence (#1246) and composite phase evidence (#1248/#1249); their connection budget is owned here.
 
 ## Budget Violation And Rollback Behavior
 
 - **Violation is a plan-time failure.** `check "wake_connection_budget"` fails during `terraform plan`/`apply` in the deployment workflows before any app spec changes ship, naming the over-budget environment. The fix is to reduce pool maxima, instance counts, or listener contexts, or to scale `database_size` and add the new tier to `cluster_connection_limits` — and to update this ledger in the same change.
+- **Tier-upgrade trigger is earlier than the hard limit.** `check "wake_connection_budget_tier_upgrade_trigger"` asserts rolling-deploy overlap demand stays at or below 80% of the selected tier's reserved backend budget for staging and production. Crossing it means the scale change must first upgrade `database_size` to the next budgeted tier or land query-safe production transaction pools with direct waiter/listener/bootstrap/maintenance paths preserved.
 - **Rollback of push wakes does not change the budget.** Disabling the relay or emission (`WORKER_PROJECTION_WAKE_RELAY_ENABLED`, `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED`, or registry state) only releases listener connections; the budget already assumed them, so rollback always moves demand further under the limit. Durable correctness (checkpoints, fallback polling) is unaffected per the registry rollback contract.
 - **Production promotion evidence reuses this ledger.** The same numbers proven in staging are the connection-budget input to the production proof gates referenced by the [source-context wake registry](./source-context-wake-registry.md) and the [push-driven projection runtime phase map](./push-driven-projection-runtime-phase-map.md).
 - **Cost posture.** Capacity questions are answered first with the existing managed Postgres cluster and control database (tier scale-up within this map). Introducing a paid broker or queue requires a new ADR with cost/performance proof before it can replace any budgeted path here (#1244).
