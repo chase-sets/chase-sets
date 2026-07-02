@@ -6,6 +6,7 @@ import { closePlatformApiPools, createPlatformApiPools } from "../src/database-p
 describe("platform api database pools", () => {
   it("binds the shared pool factory to the platform API host registry", async () => {
     const pools = createPlatformApiPools({
+      runtimeProfile: "public",
       sharedDatabaseUrl: "postgresql://localhost/shared",
       workSignalDatabaseUrl: "postgresql://localhost/control-direct",
       contextDatabaseUrls: {
@@ -21,6 +22,7 @@ describe("platform api database pools", () => {
 
     try {
       const runtime = createPlatformApiHost({
+        runtimeProfile: "public",
         pools,
         hostPorts: {
           processorGateway: createFakePaymentProcessorGateway(),
@@ -39,6 +41,39 @@ describe("platform api database pools", () => {
         pools.contextWaiters.catalog,
       );
       expect(runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool).toBe(pools.payments);
+    } finally {
+      await closePlatformApiPools(pools);
+    }
+  });
+
+  it("binds landing profile pools to the current admin-support context set", async () => {
+    const pools = createPlatformApiPools({
+      runtimeProfile: "landing",
+      sharedDatabaseUrl: "postgresql://localhost/shared",
+      contextDatabaseUrls: {},
+      port: 6182,
+    });
+
+    try {
+      const runtime = createPlatformApiHost({
+        runtimeProfile: "landing",
+        pools,
+        hostPorts: {},
+      });
+      const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName);
+
+      expect(mountedContextNames).toEqual([
+        "auth",
+        "catalog",
+        "fulfillment",
+        "identity",
+        "ordering",
+        "platform-operations",
+        "public-presence",
+      ]);
+      expect(mountedContextNames).not.toContain("checkout");
+      expect(mountedContextNames).not.toContain("payments");
+      expect(mountedContextNames).not.toContain("settlement");
     } finally {
       await closePlatformApiPools(pools);
     }

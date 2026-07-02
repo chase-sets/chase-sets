@@ -30,7 +30,12 @@ import {
   type HealthProjectionReplaySummary,
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
-import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import {
+  createApiHost,
+  resolveApiHostMounts,
+  type ApiHostName,
+  type ApiHostRuntime,
+} from "@chase-sets/platform-runtime/api";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
 import {
@@ -59,6 +64,7 @@ import {
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
+import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { apiContextRegistry } from "./generated/api-context-registry";
@@ -69,6 +75,7 @@ export type PlatformIdentityServices = Readonly<{
 }>;
 
 export type BuildPlatformApiOptions = Readonly<{
+  runtimeProfile?: PlatformApiRuntimeProfile;
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
@@ -85,6 +92,7 @@ export type BuildPlatformApiOptions = Readonly<{
   ucp?: CreateUcpRoutesOptions;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
+  adminRegistrationEnabled?: boolean;
   controlPlane?: PlatformControlPlane;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
@@ -96,8 +104,14 @@ export type BuildPlatformApiOptions = Readonly<{
   >;
 }>;
 
-export function createPlatformApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
+export function createPlatformApiHost(
+  options: Parameters<typeof createApiHost>[2] &
+    Readonly<{
+      runtimeProfile?: PlatformApiRuntimeProfile;
+    }>,
+): ApiHostRuntime {
   let runtime: ApiHostRuntime | null = null;
+  const hostName = apiHostNameForRuntimeProfile(options.runtimeProfile ?? "public");
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const commercialTermsResolver = commercialTermsPool
@@ -125,7 +139,7 @@ export function createPlatformApiHost(options: Parameters<typeof createApiHost>[
     return createDraft(params, context);
   };
 
-  runtime = createApiHost(apiContextRegistry, "platform-api", {
+  runtime = createApiHost(apiContextRegistry, hostName, {
     ...options,
     hostPorts: {
       ...options.hostPorts,
@@ -139,6 +153,10 @@ export function createPlatformApiHost(options: Parameters<typeof createApiHost>[
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
+}
+
+function apiHostNameForRuntimeProfile(profile: PlatformApiRuntimeProfile): ApiHostName {
+  return profile === "landing" ? "admin-support-api" : "platform-api";
 }
 
 function createIdentityCommercialTermsAccountSource(
@@ -162,6 +180,8 @@ function createIdentityCommercialTermsAccountSource(
 
 export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatformApiOptions = {}) {
   const app = new Hono<TenantContextEnv>();
+  const runtimeProfile = options.runtimeProfile ?? "public";
+  const marketplacePlatformRoutesEnabled = runtimeProfile !== "landing";
   const apiMounts = resolveApiHostMounts(runtime);
   const realtimeStores = runtime.mountedContexts
     .filter(
@@ -267,17 +287,19 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       isDraining: options.isDraining,
     }),
   );
-  app.get("/internal/realtime/status", async (c) =>
-    c.json(
-      await createRealtimeStatusSnapshot({
-        stores: realtimeStores,
-        activeConnectionCount: options.realtimeActiveConnectionCount?.() ?? 0,
-        wakeSignalConfigured: Boolean(options.realtimeWakeSignal),
-        routeTuning: options.realtimeRouteTuning,
-        resourceLimits: options.realtimeResourceLimits,
-      }),
-    ),
-  );
+  if (marketplacePlatformRoutesEnabled) {
+    app.get("/internal/realtime/status", async (c) =>
+      c.json(
+        await createRealtimeStatusSnapshot({
+          stores: realtimeStores,
+          activeConnectionCount: options.realtimeActiveConnectionCount?.() ?? 0,
+          wakeSignalConfigured: Boolean(options.realtimeWakeSignal),
+          routeTuning: options.realtimeRouteTuning,
+          resourceLimits: options.realtimeResourceLimits,
+        }),
+      ),
+    );
+  }
 
   const platformActorMiddleware = createPlatformActorMiddleware(options.resolveActor ?? (async () => null));
   app.use("/api/platform/projections", platformActorMiddleware);
@@ -289,44 +311,60 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       workSignalStore: options.workSignalStore,
     }),
   );
-  app.use("/mcp", platformActorMiddleware);
-  app.use("/mcp/*", platformActorMiddleware);
-  app.route("/mcp", createMcpRoutes(mcpOptions));
-  app.route("/.well-known", createUcpProfileRoutes(options.ucp));
-  app.route("/.well-known", createUcpOAuthMetadataRoutes());
-  app.use("/ucp/oauth/*", platformActorMiddleware);
-  app.route(
-    "/ucp/oauth",
-    createUcpOAuthRoutes({
-      auth: identityServices.auth,
-      linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
-      resolveActor: options.resolveActor ?? (async () => null),
-    }),
-  );
-  app.use("/ucp/v1/*", platformActorMiddleware);
-  app.use("/ucp/mcp", platformActorMiddleware);
-  app.use("/ucp/mcp/*", platformActorMiddleware);
-  app.route("/ucp/v1", createUcpRestRoutes(ucpOptions));
-  app.route("/ucp/mcp", createUcpMcpRoutes(ucpOptions));
-  app.route(
-    "/api/realtime",
-    createRealtimeRoutes({
-      stores: realtimeStores,
-      resolveActor: options.resolveActor ?? (async () => null),
-      observer: options.realtimeObserver,
-      wakeSignal: options.realtimeWakeSignal,
-      streamLimiter: options.realtimeStreamLimiter,
-      cursorSigningKeys: options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
-      topicPolicyManifest: realtimeTopicPolicyManifest,
-      isDraining: options.isDraining,
-      ...options.realtimeRouteTuning,
-      resourceLimits: options.realtimeResourceLimits ?? {
-        maxTopicsPerStream: 16,
-        maxActiveStreams: 1_000,
-        maxActiveStreamsPerConnectionKey: 6,
-      },
-    }),
-  );
+  if (marketplacePlatformRoutesEnabled) {
+    app.use("/mcp", platformActorMiddleware);
+    app.use("/mcp/*", platformActorMiddleware);
+    app.route("/mcp", createMcpRoutes(mcpOptions));
+    app.route("/.well-known", createUcpProfileRoutes(options.ucp));
+    app.route("/.well-known", createUcpOAuthMetadataRoutes());
+    app.use("/ucp/oauth/*", platformActorMiddleware);
+    app.route(
+      "/ucp/oauth",
+      createUcpOAuthRoutes({
+        auth: identityServices.auth,
+        linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
+        resolveActor: options.resolveActor ?? (async () => null),
+      }),
+    );
+    app.use("/ucp/v1/*", platformActorMiddleware);
+    app.use("/ucp/mcp", platformActorMiddleware);
+    app.use("/ucp/mcp/*", platformActorMiddleware);
+    app.route("/ucp/v1", createUcpRestRoutes(ucpOptions));
+    app.route("/ucp/mcp", createUcpMcpRoutes(ucpOptions));
+    app.route(
+      "/api/realtime",
+      createRealtimeRoutes({
+        stores: realtimeStores,
+        resolveActor: options.resolveActor ?? (async () => null),
+        observer: options.realtimeObserver,
+        wakeSignal: options.realtimeWakeSignal,
+        streamLimiter: options.realtimeStreamLimiter,
+        cursorSigningKeys: options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
+        topicPolicyManifest: realtimeTopicPolicyManifest,
+        isDraining: options.isDraining,
+        ...options.realtimeRouteTuning,
+        resourceLimits: options.realtimeResourceLimits ?? {
+          maxTopicsPerStream: 16,
+          maxActiveStreams: 1_000,
+          maxActiveStreamsPerConnectionKey: 6,
+        },
+      }),
+    );
+  }
+
+  if (runtimeProfile === "landing" && !options.adminRegistrationEnabled) {
+    app.post("/api/auth/register", (c) =>
+      c.json(
+        {
+          error: {
+            code: "registration_disabled",
+            message: "Admin registration is disabled.",
+          },
+        },
+        403,
+      ),
+    );
+  }
 
   attachApiMountMiddleware(
     app,
