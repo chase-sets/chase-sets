@@ -2001,7 +2001,7 @@ describe("DigitalOcean platform configuration", () => {
       "name: Platform DigitalOcean Token Rotation Reminder",
     );
     expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain('cron: "17 14 6 1,4,7,10 *"');
-    expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("workflow_dispatch: {}");
+    expect(platformDigitalOceanTokenRotationReminderWorkflow).toMatch(/\n  workflow_dispatch:\n/);
     expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain("issues: write");
     expect(platformDigitalOceanTokenRotationReminderWorkflow).toContain(
       'ROTATION_ISSUE_TITLE: "[ops] Rotate DigitalOcean tokens"',

@@ -3,7 +3,7 @@ name: Platform DigitalOcean Token Rotation Reminder
 on:
   schedule:
     - cron: "17 14 6 1,4,7,10 *"
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions: {}
 
