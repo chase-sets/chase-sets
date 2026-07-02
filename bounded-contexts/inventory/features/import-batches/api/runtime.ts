@@ -30,7 +30,7 @@ import {
   type InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
-import { getStorageLocation } from "../../storage-locations/read-model/queries";
+import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import type { ImportCsvRow } from "../domain/csv";
 import {
@@ -422,6 +422,40 @@ function optionCandidateValue(dimension: InventoryProductDimension, row: Normali
   return rowValueForKey(row.values, keys) ?? rowValueForKey(row.rawRow, keys);
 }
 
+function storageLocationLabelForRow(row: NormalizedInventoryImportRow): string | null {
+  const keys = ["storageLocation", "Storage Location", "Storage Location Name", "Location", "Location Name"];
+
+  return rowValueForKey(row.values, keys) ?? rowValueForKey(row.rawRow, keys);
+}
+
+async function resolveStorageLocationIdByLabel(
+  db: PgQueryable,
+  accountId: AccountId,
+  label: string,
+  errors: string[],
+): Promise<string | null> {
+  const locations = await listStorageLocations(db, { accountId, includeArchived: false });
+  const normalizedLabel = normalizeChoiceText(label);
+  const matches = locations.filter((location) => normalizeChoiceText(location.name) === normalizedLabel);
+  const validLocationNames = locations.map((location) => location.name).join(", ");
+
+  if (matches.length === 1) {
+    return matches[0].storage_location_id;
+  }
+
+  if (matches.length > 1) {
+    errors.push(`Storage location '${label}' is ambiguous. Use storageLocationId instead.`);
+    return null;
+  }
+
+  errors.push(
+    validLocationNames
+      ? `Storage location '${label}' was not found. Valid active storage locations: ${validLocationNames}.`
+      : `Storage location '${label}' was not found. There are no active storage locations.`,
+  );
+  return null;
+}
+
 function canonicalizeSelectedOptionEntry(
   schema: InventoryProductSchema,
   entry: InventorySelectedOptionEntry,
@@ -665,7 +699,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     const externalReferences = normalizeExternalReferences(row);
     let externalReference = externalReferences[0] ?? null;
     let catalogItemId = clean(values.catalogItemId);
-    const storageLocationId = clean(values.storageLocationId);
+    let storageLocationId = clean(values.storageLocationId);
     const imported = importedQuantity(clean(values.totalQuantity), quantityMode, errors);
     let selectedOptions: readonly InventorySelectedOptionEntry[] = optionEntries(values);
     let productId: string | null = null;
@@ -738,9 +772,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
     }
 
-    if (!storageLocationId) {
+    const storageLocationLabel = storageLocationLabelForRow(row);
+    if (!storageLocationId && storageLocationLabel) {
+      storageLocationId = await resolveStorageLocationIdByLabel(deps.db, accountId, storageLocationLabel, errors);
+    }
+
+    if (!storageLocationId && !storageLocationLabel) {
       errors.push("storageLocationId or defaultStorageLocationId is required.");
-    } else {
+    } else if (storageLocationId) {
       const location = await getStorageLocation(deps.db, storageLocationId, accountId);
       if (!location) {
         errors.push("Storage location was not found.");

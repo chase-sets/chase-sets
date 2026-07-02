@@ -122,9 +122,20 @@ class ImportBatchDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
-    if (sql.includes("FROM inventory_storage_locations")) {
+    if (sql.includes("FROM inventory_storage_locations") && sql.includes("storage_location_id = $1")) {
       const location = this.locations.get(String(values[0]));
       const rows = location && (!values[1] || location.account_id === values[1]) ? [location] : [];
+      return this.result(rows as Row[]);
+    }
+
+    if (sql.includes("FROM inventory_storage_locations") && sql.includes("account_id = $1")) {
+      const accountId = String(values[0]);
+      const rows = [...this.locations.values()]
+        .filter((location) => location.account_id === accountId)
+        .filter((location) => !sql.includes("is_archived = false") || !location.is_archived)
+        .sort(
+          (left, right) => Number(left.is_archived) - Number(right.is_archived) || left.name.localeCompare(right.name),
+        );
       return this.result(rows as Row[]);
     }
 
@@ -381,6 +392,15 @@ function dbWithLocations() {
     is_archived: true,
     updated_at: now,
   });
+  db.locations.set("loc_back_room", {
+    storage_location_id: "loc_back_room",
+    account_id: "acc_1",
+    name: "Back Room",
+    description: null,
+    ship_from_code: "CHI",
+    is_archived: false,
+    updated_at: now,
+  });
   return db;
 }
 
@@ -504,6 +524,122 @@ describe("inventory import batch runtime", () => {
       status: "rejected",
       validation_errors: ["Catalog item was not found."],
     });
+  });
+
+  it("accepts storage location labels when storageLocationId is omitted", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,storageLocation,totalQuantity,option:condition",
+          "cat_active,Active shelf,2,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      accepted_count: 1,
+      rejected_count: 0,
+    });
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      storage_location_id: "loc_active",
+    });
+  });
+
+  it("matches friendly storage location headers with normalized label text", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,Storage Location Name,totalQuantity,option:condition",
+          "cat_active,back-room,2,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      storage_location_id: "loc_back_room",
+    });
+  });
+
+  it("rejects unknown storage location labels with valid active choices", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: ["catalogItemId,Location,totalQuantity,option:condition", "cat_active,Missing shelf,2,near_mint"].join(
+          "\n",
+        ),
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "rejected",
+      storage_location_id: null,
+      validation_errors: [
+        "Storage location 'Missing shelf' was not found. Valid active storage locations: Active shelf, Back Room.",
+      ],
+    });
+  });
+
+  it("rejects ambiguous duplicate storage location labels", async () => {
+    const db = dbWithLocations();
+    db.locations.set("loc_active_duplicate", {
+      storage_location_id: "loc_active_duplicate",
+      account_id: "acc_1",
+      name: "Active Shelf",
+      description: null,
+      ship_from_code: "CHI",
+      is_archived: false,
+      updated_at: now,
+    });
+    const services = runtime(db);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,Location Name,totalQuantity,option:condition",
+          "cat_active,active-shelf,2,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "rejected",
+      storage_location_id: null,
+      validation_errors: ["Storage location 'active-shelf' is ambiguous. Use storageLocationId instead."],
+    });
+  });
+
+  it("keeps explicit and default storage location ids ahead of row labels", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        defaultStorageLocationId: "loc_back_room",
+        csvText: [
+          "catalogItemId,storageLocationId,storageLocation,totalQuantity,option:condition",
+          "cat_active,loc_active,Missing shelf,2,near_mint",
+          "cat_active,,Missing shelf,2,near_mint",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      accepted_count: 2,
+      rejected_count: 0,
+    });
+    expect(batch.rows[0]).toMatchObject({ storage_location_id: "loc_active" });
+    expect(batch.rows[1]).toMatchObject({ storage_location_id: "loc_back_room" });
   });
 
   it("keeps rejected-only validation batches reviewable", async () => {
