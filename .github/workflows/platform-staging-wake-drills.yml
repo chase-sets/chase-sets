@@ -74,12 +74,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Wake Drill
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'run staging wake drills'
+    steps:
+      - name: Refuse unconfirmed wake drill
+        run: |
+          echo 'Confirmation text did not match exactly; expected "run staging wake drills".' >&2
+          exit 1
+
   staging-wake-drill:
     name: Staging Wake Drill
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: staging
-    if: inputs.confirm == 'run staging wake drills'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"

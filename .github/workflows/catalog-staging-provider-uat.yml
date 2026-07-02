@@ -32,10 +32,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Provider UAT
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'run catalog staging provider uat'
+    steps:
+      - name: Refuse unconfirmed provider UAT
+        run: |
+          echo 'Confirmation text did not match exactly; expected "run catalog staging provider uat".' >&2
+          exit 1
+
   resolve-provider-uat-plan:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
-    if: inputs.confirm == 'run catalog staging provider uat'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -63,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: inputs.confirm == 'run catalog staging provider uat'
+    if: always() && needs.resolve-provider-uat-plan.result == 'success'
     strategy:
       fail-fast: false
       max-parallel: 1

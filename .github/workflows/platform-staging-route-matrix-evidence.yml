@@ -35,12 +35,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Route Matrix Evidence
+    runs-on: ubuntu-latest
+    if: inputs.confirm != 'generate staging route matrix evidence'
+    steps:
+      - name: Refuse unconfirmed route-matrix evidence
+        run: |
+          echo 'Confirmation text did not match exactly; expected "generate staging route matrix evidence".' >&2
+          exit 1
+
   staging-route-matrix-evidence:
     name: Staging Route Matrix Evidence
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
-    if: inputs.confirm == 'generate staging route matrix evidence'
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
     env:
       PROMETHEUS_URL: ${{ inputs.prometheus_url }}
       PROMETHEUS_QUERY_TOKEN: ${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}
