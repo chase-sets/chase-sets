@@ -2,13 +2,14 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { InvitationId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import { formatValidRoleKeys, parseRoleKey, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { InvitationServices } from "./runtime";
 
 function canManageInvitation(
   actor: IdentityApiEnv["Variables"]["actor"],
   invitation: Readonly<{ account_id: string }>,
 ) {
-  return !actor || actor.roleKey === "platform-admin" || actor.accountId === invitation.account_id;
+  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === invitation.account_id;
 }
 
 function forbidden() {
@@ -16,6 +17,17 @@ function forbidden() {
     error: {
       code: "authorization_forbidden",
       message: t("identity.features.invitations.api.route.forbidden"),
+    },
+  };
+}
+
+function invalidRoleKey() {
+  return {
+    error: {
+      code: "validation_failed",
+      message: t("identity.features.invitations.api.route.role.key.invalid", {
+        validRoleKeys: formatValidRoleKeys(),
+      }),
     },
   };
 }
@@ -29,6 +41,10 @@ export function invitationRoutes(services: InvitationServices) {
     if (!canManageInvitation(c.var.actor, { account_id: String(body.accountId ?? "") })) {
       return c.json(forbidden(), 403);
     }
+    const roleKey = parseRoleKey(body.roleKey);
+    if (!roleKey) {
+      return c.json(invalidRoleKey(), 400);
+    }
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: {
@@ -36,7 +52,7 @@ export function invitationRoutes(services: InvitationServices) {
         invitationId,
         accountId: body.accountId,
         email: body.email,
-        roleKey: body.roleKey,
+        roleKey,
         expiresAt: body.expiresAt,
       },
       context: c.get("context"),
@@ -109,7 +125,7 @@ export function invitationRoutes(services: InvitationServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listInvitations({
-      search: actor && actor.roleKey !== "platform-admin" ? actor.accountId : search,
+      search: actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY ? actor.accountId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,

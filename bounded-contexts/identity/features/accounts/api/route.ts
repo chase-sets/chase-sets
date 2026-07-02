@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 import type { AccountServices } from "./runtime";
 
@@ -12,7 +13,7 @@ function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
 }
 
 function canManageAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string) {
-  return !actor || actor.roleKey === "platform-admin" || actor.accountId === accountId;
+  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === accountId;
 }
 
 function forbidden() {
@@ -175,7 +176,7 @@ export function accountRoutes(services: AccountServices) {
   app.get("/", async (c) => {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
-    if (actor && actor.roleKey !== "platform-admin") {
+    if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY) {
       const account = await services.getAccountForRead(actor.accountId);
       const items = account ? [account] : [];
       return c.json({ items, total: items.length, count: items.length });

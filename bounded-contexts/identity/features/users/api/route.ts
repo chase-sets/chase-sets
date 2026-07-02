@@ -3,10 +3,10 @@ import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
-import type { AuthMethodKey } from "../../../support/runtime-support/common";
+import { PLATFORM_ADMIN_ROLE_KEY, type AuthMethodKey } from "../../../support/runtime-support/common";
 
 function canManageUser(actor: IdentityApiEnv["Variables"]["actor"], userId: string) {
-  return !actor || actor.roleKey === "platform-admin" || actor.userId === userId;
+  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.userId === userId;
 }
 
 function forbidden() {
@@ -173,7 +173,7 @@ export function userRoutes(services: UserServices) {
   app.get("/", async (c) => {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
-    if (actor && actor.roleKey !== "platform-admin") {
+    if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY) {
       const user = await services.getUser(actor.userId);
       const items = user ? [user] : [];
       return c.json({ items, total: items.length, count: items.length });

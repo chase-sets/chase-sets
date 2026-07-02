@@ -2,13 +2,14 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MembershipId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
+import { formatValidRoleKeys, parseRoleKey, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { MembershipServices } from "./runtime";
 
 function canManageMembership(
   actor: IdentityApiEnv["Variables"]["actor"],
   membership: Readonly<{ user_id: string; account_id: string }>,
 ) {
-  return !actor || actor.roleKey === "platform-admin" || actor.accountId === membership.account_id;
+  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.accountId === membership.account_id;
 }
 
 function forbidden() {
@@ -16,6 +17,17 @@ function forbidden() {
     error: {
       code: "authorization_forbidden",
       message: t("identity.features.memberships.api.route.forbidden"),
+    },
+  };
+}
+
+function invalidRoleKey() {
+  return {
+    error: {
+      code: "validation_failed",
+      message: t("identity.features.memberships.api.route.role.key.invalid", {
+        validRoleKeys: formatValidRoleKeys(),
+      }),
     },
   };
 }
@@ -34,6 +46,10 @@ export function membershipRoutes(services: MembershipServices) {
     ) {
       return c.json(forbidden(), 403);
     }
+    const roleKey = parseRoleKey(body.roleKey);
+    if (!roleKey) {
+      return c.json(invalidRoleKey(), 400);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: {
@@ -41,7 +57,7 @@ export function membershipRoutes(services: MembershipServices) {
         membershipId,
         userId: body.userId,
         accountId: body.accountId,
-        roleKey: body.roleKey,
+        roleKey,
       },
       context: c.get("context"),
     });
@@ -61,9 +77,13 @@ export function membershipRoutes(services: MembershipServices) {
       return c.json(forbidden(), 403);
     }
     const body = await c.req.json();
+    const roleKey = parseRoleKey(body.roleKey);
+    if (!roleKey) {
+      return c.json(invalidRoleKey(), 400);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
-      command: { type: "ChangeMembershipRole", roleKey: body.roleKey },
+      command: { type: "ChangeMembershipRole", roleKey },
       context: c.get("context"),
     });
     return c.json({ id: membershipId, version: result.version, status: result.state.status });
@@ -113,7 +133,7 @@ export function membershipRoutes(services: MembershipServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listMemberships({
-      search: actor && actor.roleKey !== "platform-admin" ? actor.accountId : search,
+      search: actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY ? actor.accountId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,

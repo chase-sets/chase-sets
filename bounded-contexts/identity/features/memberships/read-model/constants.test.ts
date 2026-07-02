@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ROLE_PERMISSIONS } from "./constants";
+import { ROLE_KEYS } from "../../../support/runtime-support/common";
 
 describe("identity role permissions", () => {
+  it("has permissions for every runtime role key", () => {
+    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual([...ROLE_KEYS].sort());
+  });
+
   it("grants platform admins the explicit admin-web surface permissions", () => {
     expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
       expect.arrayContaining([

@@ -6,7 +6,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
-import type { PermissionKey, RoleKey } from "./support/runtime-support/common";
+import { formatValidRoleKeys, parseRoleKey, type PermissionKey, type RoleKey } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
 import { userRoutes } from "./features/users/api/route";
@@ -280,7 +280,7 @@ async function grantGuestAccountForAuth(
   params: Readonly<{
     accountId: string;
     userId: string;
-    roleKey: string;
+    roleKey: RoleKey;
     context: EventStoreContext;
   }>,
 ) {
@@ -292,7 +292,7 @@ async function grantGuestAccountForAuth(
       membershipId,
       userId: params.userId as UserId,
       accountId: params.accountId as AccountId,
-      roleKey: params.roleKey as RoleKey,
+      roleKey: params.roleKey,
     },
     context: params.context,
   });
@@ -369,6 +369,15 @@ class SocialLoginLinkConflictError extends Error {
   }
 }
 
+function roleKeyValidationError() {
+  return {
+    error: {
+      code: "validation_failed",
+      message: `Role key is invalid. Valid role keys: ${formatValidRoleKeys()}.`,
+    },
+  };
+}
+
 async function linkSocialLoginForAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -414,7 +423,7 @@ async function acceptInvitationForUserFromAuth(
     invitationId: string;
     userId: string;
     accountId: string;
-    roleKey: string;
+    roleKey: RoleKey;
     context: EventStoreContext;
   }>,
 ) {
@@ -426,7 +435,7 @@ async function acceptInvitationForUserFromAuth(
       membershipId,
       userId: params.userId as UserId,
       accountId: params.accountId as AccountId,
-      roleKey: params.roleKey as RoleKey,
+      roleKey: params.roleKey,
     },
     context: params.context,
   });
@@ -530,10 +539,14 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/internal/auth/guest-accounts/:id/claim", async (c) => {
     const body = await c.req.json();
+    const roleKey = parseRoleKey(body.roleKey ?? "owner");
+    if (!roleKey) {
+      return c.json(roleKeyValidationError(), 400);
+    }
     const membership = await grantGuestAccountForAuth(services, {
       accountId: c.req.param("id"),
       userId: String(body.userId ?? ""),
-      roleKey: String(body.roleKey ?? "owner"),
+      roleKey,
       context: getBootstrapContext(c),
     });
 
@@ -643,11 +656,15 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
+    const roleKey = parseRoleKey(body.roleKey);
+    if (!roleKey) {
+      return c.json(roleKeyValidationError(), 400);
+    }
     const membership = await acceptInvitationForUserFromAuth(services, {
       invitationId: c.req.param("id"),
       userId: String(body.userId ?? ""),
       accountId: String(body.accountId ?? ""),
-      roleKey: String(body.roleKey ?? ""),
+      roleKey,
       context: getBootstrapContext(c),
     });
     return c.json(membership);
