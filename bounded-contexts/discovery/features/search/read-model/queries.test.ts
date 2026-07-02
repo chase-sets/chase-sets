@@ -2,13 +2,14 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { searchDiscoveryItems } from "./queries";
 
-function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number }) {
+function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number; baseMatch?: boolean }) {
   return Buffer.from(
     JSON.stringify({
       id: input.id,
       title: input.title,
       updatedAt: input.updatedAt,
       rank: input.rank ?? 0,
+      baseMatch: input.baseMatch ?? false,
     }),
     "utf8",
   ).toString("base64url");
@@ -95,6 +96,7 @@ describe("searchDiscoveryItems cursor paging", () => {
       title: "Bulbasaur",
       updatedAt: "2026-05-16T00:00:00.000Z",
       rank: 0.75,
+      baseMatch: true,
     });
 
     await searchDiscoveryItems(db, {
@@ -106,11 +108,35 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
     expect(listCall?.sql).toContain("(ts_rank(search_text");
+    expect(listCall?.sql).toContain("discovery_search_product_contents AS content");
+    expect(listCall?.sql).toContain("* 0.20");
+    expect(listCall?.sql).toContain("search_base_match");
     expect(listCall?.sql).toContain(", title, catalog_item_id) <");
-    expect(listCall?.sql).toContain("ORDER BY (ts_rank(search_text");
+    expect(listCall?.sql).toContain("ORDER BY (search_text @@");
     expect(listCall?.sql).toContain("DESC, title ASC, catalog_item_id ASC");
     expect(listCall?.sql).not.toContain("OFFSET");
-    expect(listCall?.values.slice(-4)).toEqual([0.75, "Bulbasaur", "cat_002", 25]);
+    expect(listCall?.values.slice(-5)).toEqual([1, 0.75, "Bulbasaur", "cat_002", 25]);
+  });
+
+  it("orders exact item matches ahead of content-only container matches", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      search: "Charizard",
+      sort: "relevance",
+      limit: 24,
+    });
+
+    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    expect(listCall?.sql).toContain("OR EXISTS");
+    expect(listCall?.sql).toContain("FROM discovery_search_product_contents AS content");
+    expect(listCall?.sql).toContain("content.container_catalog_item_id = catalog_item_id");
+    expect(listCall?.sql).toContain("content.content_type_search_weight::real");
+    expect(listCall?.sql).toContain("* 0.20");
+    expect(listCall?.sql).toContain(
+      "ORDER BY (search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) DESC",
+    );
+    expect(listCall?.values).toEqual(["active", "Charizard", "Charizard", 25]);
   });
 
   it("applies first-class reference filters by Reference Type", async () => {

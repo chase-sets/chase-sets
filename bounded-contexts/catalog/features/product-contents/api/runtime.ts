@@ -74,6 +74,7 @@ export type ProductContentLineSnapshot = Readonly<{
   quantity: number | null;
   contentTypeId: string;
   contentTypeDisplayName: LocalizedTextMap;
+  contentTypeDiscoverySearchWeight: number | null;
   inclusionPolicyId: string | null;
   inclusionPolicyDisplayName: LocalizedTextMap | null;
   provenance: ProductContentProvenance;
@@ -343,7 +344,7 @@ async function buildLineSnapshot(
     containerCatalogItemId: string;
     containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
     containerProductId: string | null;
-    contentTypesById: ReadonlyMap<string, { display_name: LocalizedTextMap }>;
+    contentTypesById: ReadonlyMap<string, { display_name: LocalizedTextMap; discovery_search_weight: number | null }>;
     inclusionPoliciesById: ReadonlyMap<string, { display_name: LocalizedTextMap }>;
   }>,
 ): Promise<ProductContentLineSnapshot> {
@@ -392,6 +393,7 @@ async function buildLineSnapshot(
     quantity,
     contentTypeId,
     contentTypeDisplayName: contentType.display_name,
+    contentTypeDiscoverySearchWeight: contentType.discovery_search_weight,
     inclusionPolicyId,
     inclusionPolicyDisplayName: inclusionPolicy?.display_name ?? null,
     provenance,
@@ -516,6 +518,7 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          quantity,
          content_type_id,
          content_type_display_name,
+         content_type_discovery_search_weight,
          inclusion_policy_id,
          inclusion_policy_display_name,
          provenance,
@@ -525,7 +528,7 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          resolver_version,
          resolved_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now())
        ON CONFLICT (line_id) DO UPDATE SET
          container_catalog_item_id = EXCLUDED.container_catalog_item_id,
          container_selected_options = EXCLUDED.container_selected_options,
@@ -536,6 +539,7 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          quantity = EXCLUDED.quantity,
          content_type_id = EXCLUDED.content_type_id,
          content_type_display_name = EXCLUDED.content_type_display_name,
+         content_type_discovery_search_weight = EXCLUDED.content_type_discovery_search_weight,
          inclusion_policy_id = EXCLUDED.inclusion_policy_id,
          inclusion_policy_display_name = EXCLUDED.inclusion_policy_display_name,
          provenance = EXCLUDED.provenance,
@@ -556,6 +560,7 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
         line.quantity,
         line.contentTypeId,
         JSON.stringify(line.contentTypeDisplayName ?? localizedTextMapFromEnglish(line.contentTypeId)),
+        line.contentTypeDiscoverySearchWeight,
         line.inclusionPolicyId,
         line.inclusionPolicyDisplayName ? JSON.stringify(line.inclusionPolicyDisplayName) : null,
         JSON.stringify(line.provenance),

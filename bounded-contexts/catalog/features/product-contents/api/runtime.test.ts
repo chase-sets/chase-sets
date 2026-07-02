@@ -45,6 +45,7 @@ type ProductContentRow = Readonly<{
   quantity: number | null;
   content_type_id: string;
   content_type_display_name: unknown;
+  content_type_discovery_search_weight: number | null;
   inclusion_policy_id: string | null;
   inclusion_policy_display_name: unknown;
   provenance: unknown;
@@ -155,14 +156,16 @@ function createContentDb(items: readonly CatalogItemRow[]) {
           quantity: typeof params?.[7] === "number" ? Number(params[7]) : null,
           content_type_id: String(params?.[8] ?? ""),
           content_type_display_name: parseJson(params?.[9]),
-          inclusion_policy_id: typeof params?.[10] === "string" ? String(params[10]) : null,
-          inclusion_policy_display_name: parseJson(params?.[11]),
-          provenance: parseJson(params?.[12]),
-          resolution_status: params?.[13] === "unresolved" ? "unresolved" : "resolved",
-          target_lifecycle_status: typeof params?.[14] === "string" ? String(params[14]) : null,
-          resolved_fact_hash: String(params?.[15] ?? ""),
-          resolver_version: Number(params?.[16] ?? 1),
-          resolved_at: String(params?.[17] ?? ""),
+          content_type_discovery_search_weight:
+            params?.[10] === null || params?.[10] === undefined ? null : Number(params[10]),
+          inclusion_policy_id: typeof params?.[11] === "string" ? String(params[11]) : null,
+          inclusion_policy_display_name: parseJson(params?.[12]),
+          provenance: parseJson(params?.[13]),
+          resolution_status: params?.[14] === "unresolved" ? "unresolved" : "resolved",
+          target_lifecycle_status: typeof params?.[15] === "string" ? String(params[15]) : null,
+          resolved_fact_hash: String(params?.[16] ?? ""),
+          resolver_version: Number(params?.[17] ?? 1),
+          resolved_at: String(params?.[18] ?? ""),
           updated_at: "2026-07-01T00:00:00.000Z",
         };
         resolved.set(row.line_id, row);
@@ -283,6 +286,7 @@ describe("product content runtime", () => {
     );
     expect(fact.lines[0]).toMatchObject({
       contentTypeDisplayName: localizedTextMapFromEnglish("Included item"),
+      contentTypeDiscoverySearchWeight: 0.5,
       inclusionPolicyDisplayName: localizedTextMapFromEnglish("Guaranteed"),
     });
 
@@ -301,6 +305,7 @@ describe("product content runtime", () => {
           quantity: 1,
           contentTypeId: "pct_included_item",
           contentTypeDisplayName: localizedTextMapFromEnglish("Included item"),
+          contentTypeDiscoverySearchWeight: 0.5,
           inclusionPolicyId: "pcp_guaranteed",
           inclusionPolicyDisplayName: localizedTextMapFromEnglish("Guaranteed"),
           resolutionStatus: "resolved",
@@ -384,6 +389,7 @@ describe("product content runtime", () => {
       quantity: 1,
       content_type_id: "pct_included_item",
       content_type_display_name: localizedTextMapFromEnglish("Included item"),
+      content_type_discovery_search_weight: null,
       inclusion_policy_id: null,
       inclusion_policy_display_name: null,
       provenance: {},

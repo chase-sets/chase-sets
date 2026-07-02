@@ -112,6 +112,7 @@ export type DiscoverySearchItemRow = Readonly<{
   }> | null;
   updated_at: string;
   search_rank?: string | number | null;
+  search_base_match?: boolean | null;
 }>;
 
 type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
@@ -196,7 +197,15 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
     conditions.push(
-      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
+      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}) OR EXISTS (
+         SELECT 1
+         FROM discovery_search_product_contents AS content
+         WHERE content.container_catalog_item_id = ${itemColumn("catalog_item_id")}
+           AND (
+             content.search_text @@ plainto_tsquery('english', $${englishSearchParamIndex})
+             OR content.search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex})
+           )
+       ))`,
     );
     values.push(buildSimpleSearchQuery(params.search));
     paramIndex++;
@@ -483,6 +492,7 @@ export async function searchDiscoveryItems(
   const simpleSearchParamIndex = baseFilter.simpleSearchParamIndex;
 
   let rankExpression: string | null = null;
+  let baseMatchExpression: string | null = null;
   let orderBy: string;
   let cursorCondition: string | null = null;
   const cursor = decodeSearchCursor(params.cursor);
@@ -514,12 +524,19 @@ export async function searchDiscoveryItems(
     case "relevance":
     default:
       if (hasSearch) {
-        rankExpression = `(ts_rank(search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex})))`;
-        orderBy = `${rankExpression} DESC, title ASC, catalog_item_id ASC`;
+        baseMatchExpression = `(search_text @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`;
+        const baseRankExpression = `(ts_rank(search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex})))`;
+        const contentRankExpression = `COALESCE((
+          SELECT MAX((ts_rank(content.search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(content.search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex}))) * content.content_type_search_weight::real)
+          FROM discovery_search_product_contents AS content
+          WHERE content.container_catalog_item_id = catalog_item_id
+        ), 0)`;
+        rankExpression = `(${baseRankExpression} + (${contentRankExpression} * 0.20))`;
+        orderBy = `${baseMatchExpression} DESC, ${rankExpression} DESC, title ASC, catalog_item_id ASC`;
         if (cursor) {
-          cursorCondition = `(${rankExpression}, title, catalog_item_id) < ($${paramIndex}::real, $${paramIndex + 1}, $${paramIndex + 2})`;
-          values.push(cursor.rank, cursor.title, cursor.id);
-          paramIndex += 3;
+          cursorCondition = `(${baseMatchExpression}::integer, ${rankExpression}, title, catalog_item_id) < ($${paramIndex}::integer, $${paramIndex + 1}::real, $${paramIndex + 2}, $${paramIndex + 3})`;
+          values.push(cursor.baseMatch ? 1 : 0, cursor.rank, cursor.title, cursor.id);
+          paramIndex += 4;
         }
       } else {
         orderBy = "title ASC, catalog_item_id ASC";
@@ -545,6 +562,7 @@ export async function searchDiscoveryItems(
     ? `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`
     : `LIMIT $${values.length + 1}`;
   const selectRank = rankExpression ? `, ${rankExpression} AS search_rank` : "";
+  const selectBaseMatch = baseMatchExpression ? `, ${baseMatchExpression} AS search_base_match` : "";
 
   const countPromise =
     params.includeTotal || useLegacyOffset
@@ -553,7 +571,7 @@ export async function searchDiscoveryItems(
           values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)),
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}${selectBaseMatch}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
@@ -1279,7 +1297,7 @@ function clampOffset(offset: number | undefined): number {
 }
 
 function cursorValueCount(sort: string | undefined, hasSearch: boolean): number {
-  return (sort === "relevance" || sort === undefined) && hasSearch ? 3 : 2;
+  return (sort === "relevance" || sort === undefined) && hasSearch ? 4 : 2;
 }
 
 function encodeSearchCursor(row: BaseDiscoverySearchItemRow & { search_rank?: string | number | null }): string {
@@ -1289,6 +1307,7 @@ function encodeSearchCursor(row: BaseDiscoverySearchItemRow & { search_rank?: st
       title: row.title,
       updatedAt: row.updated_at,
       rank: Number(row.search_rank ?? 0),
+      baseMatch: Boolean(row.search_base_match),
     }),
     "utf8",
   ).toString("base64url");
@@ -1311,6 +1330,7 @@ function decodeSearchCursor(cursor: string | undefined) {
       title: String(value.title ?? ""),
       updatedAt: String(value.updatedAt ?? ""),
       rank: Number(value.rank ?? 0),
+      baseMatch: Boolean(value.baseMatch),
     };
   } catch {
     return null;
