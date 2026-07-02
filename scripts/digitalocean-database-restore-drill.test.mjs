@@ -66,8 +66,8 @@ describe("digitalocean database restore drill", () => {
       },
       timings: {
         forkStartedAt: "1970-01-01T00:00:00.000Z",
-        forkAvailableAt: "1970-01-01T00:03:05.000Z",
-        forkToAvailableMs: 185000,
+        forkAvailableAt: "1970-01-01T00:03:06.000Z",
+        forkToAvailableMs: 186000,
       },
       validation: {
         expectedDatabaseCount: 2,
@@ -112,9 +112,9 @@ describe("digitalocean database restore drill", () => {
           "cs-stg-drill-20260703-987654321-2",
           "--restore-from-cluster-id",
           "db-staging",
-          "--wait",
-          "--output",
-          "json",
+          "--format",
+          "ID,Name,Status,Created",
+          "--no-header",
         ],
       },
       { command: "doctl", args: ["databases", "connection", "db-drill", "--format", "URI", "--no-header"] },
@@ -157,6 +157,80 @@ describe("digitalocean database restore drill", () => {
         expect.stringContaining("catalog: Database validation failed.; Missing expected event-store table(s)"),
       ]),
     );
+  });
+
+  it("bounds fork polling, records safe timeout diagnostics, and attempts cleanup", async () => {
+    const calls = [];
+    const sleeps = [];
+    let currentMs = 0;
+    const result = await performDigitalOceanDatabaseRestoreDrill(
+      { ...baseOptions, forkTimeoutMs: 65_000, forkPollIntervalMs: 30_000 },
+      {
+        now: () => currentMs,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          currentMs += ms;
+        },
+        execFile: async (_command, args) => {
+          calls.push(args);
+          if (args[1] === "fork") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tforking\t2026-07-03T07:23:01Z\n",
+            };
+          }
+          if (args[1] === "get") {
+            return {
+              stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tforking\t2026-07-03T07:23:01Z\n",
+            };
+          }
+          if (args[1] === "delete") {
+            return { stdout: "" };
+          }
+          throw new Error(`Unexpected doctl command: ${args.join(" ")}`);
+        },
+        Client: fakeClientClass(),
+      },
+    );
+
+    expect(result.passesRestoreDrillGate).toBe(false);
+    expect(calls).toEqual([
+      [
+        "databases",
+        "fork",
+        "cs-stg-drill-20260703-987654321-2",
+        "--restore-from-cluster-id",
+        "db-staging",
+        "--format",
+        "ID,Name,Status,Created",
+        "--no-header",
+      ],
+      ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
+      ["databases", "delete", "db-drill", "--force"],
+    ]);
+    expect(sleeps).toEqual([30_000, 30_000, 5_000]);
+    expect(result.record).toMatchObject({
+      result: "failure",
+      fork: {
+        clusterId: "db-drill",
+        name: "cs-stg-drill-20260703-987654321-2",
+        status: "forking",
+      },
+      timings: {
+        forkToAvailableMs: 65_000,
+      },
+      cleanup: {
+        attempted: true,
+        clusterId: "db-drill",
+        status: "deleted",
+      },
+    });
+    expect(result.record.errors).toEqual([
+      "Timed out waiting for staging restore drill fork 'cs-stg-drill-20260703-987654321-2' to become online.",
+      "last observed cluster id: db-drill",
+      "last observed status: forking",
+    ]);
   });
 
   it("fails closed before calling doctl outside staging", async () => {
