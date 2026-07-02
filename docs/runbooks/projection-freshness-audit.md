@@ -103,7 +103,7 @@ sum by (route_path, target_context, projection, source_context, state, last_erro
 Safe audit log query:
 
 ```logql
-{service_name=~"platform-api|admin-support-api"} | json | type="read-after-write.freshness" | routePaths =~ ".*checkout-sessions.*"
+{service_name="platform-api"} | json | type="read-after-write.freshness" | routePaths =~ ".*checkout-sessions.*"
 ```
 
 Do not add labels or log filters for checkout session ids, account ids, event ids, guest email, contact name, cookies, full URLs, or raw `afterWrite` token values.

@@ -110,20 +110,17 @@ const manifestRequiredFields = [
   "seedRequirements",
   "hostPorts",
   "apiDeployables",
+  "apiRuntimeProfiles",
   "apiMounts",
+  "workerRuntimeProfiles",
   "deployableContributions",
   "shellContributions",
   "directoryIntent",
 ];
 const knownDeployables = new Set(["admin-web", "marketplace-web", "public-web"]);
-const knownApiDeployables = new Set(["platform-api", "admin-support-api"]);
-const knownLifecycleDeployables = new Set([
-  "platform-api",
-  "platform-worker",
-  "admin-support-api",
-  "admin-support-worker",
-]);
-const knownRuntimeDeployables = new Set(["platform-worker", "admin-support-worker"]);
+const knownApiDeployables = new Set(["platform-api"]);
+const knownLifecycleDeployables = new Set(["platform-api", "platform-worker"]);
+const knownRuntimeDeployables = new Set(["platform-worker"]);
 const knownShellDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownShellDeployableSlots = new Map([
   ["admin-web", new Set(["primary-nav"])],
@@ -2803,8 +2800,7 @@ export async function runStructureCheck(options = {}) {
       }
 
       if (
-        (normalizedFile === "deployables/platform-worker/src/main.ts" ||
-          normalizedFile === "deployables/admin-support-worker/src/main.ts") &&
+        normalizedFile === "deployables/platform-worker/src/main.ts" &&
         /name:\s*"catalog\.authoring-bulk-jobs",\s*\n\s*kind:\s*"job",\s*\n\s*runOnce:\s*async\s*\(\s*\)\s*=>/.test(
           content,
         )
@@ -2830,15 +2826,9 @@ export async function runStructureCheck(options = {}) {
           normalizedFile === "deployables/platform-api/src/config.ts" ||
           normalizedFile === "deployables/platform-api/__tests__/config.test.ts" ||
           normalizedFile === "deployables/platform-api/__tests__/database-pools.test.ts" ||
-          normalizedFile === "deployables/admin-support-api/src/config.ts" ||
-          normalizedFile === "deployables/admin-support-api/__tests__/config.test.ts" ||
-          normalizedFile === "deployables/admin-support-api/__tests__/database-pools.test.ts" ||
           normalizedFile === "deployables/platform-worker/src/config.ts" ||
           normalizedFile === "deployables/platform-worker/__tests__/config.test.ts" ||
           normalizedFile === "deployables/platform-worker/__tests__/database-pools.test.ts" ||
-          normalizedFile === "deployables/admin-support-worker/src/config.ts" ||
-          normalizedFile === "deployables/admin-support-worker/__tests__/config.test.ts" ||
-          normalizedFile === "deployables/admin-support-worker/__tests__/database-pools.test.ts" ||
           normalizedFile === "scripts/dev-system.mjs";
 
         if (!databaseUrlAllowed) {

@@ -76,8 +76,8 @@ describe("runtime profile contract", () => {
     expect(() =>
       requireValidRuntimeProfileSelection({
         productionMode: "marketplace",
-        apiProfile: "admin-support-api",
-        workerProfile: "admin-support-worker",
+        apiProfile: "support",
+        workerProfile: "support",
       }),
     ).toThrow(
       "Invalid runtime profile selection: Unknown production runtime mode 'marketplace'. Expected one of: landing, proof, public.",

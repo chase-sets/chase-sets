@@ -1142,5 +1142,7 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
 }

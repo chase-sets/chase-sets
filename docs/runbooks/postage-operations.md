@@ -125,13 +125,13 @@ pnpm run ops postage-policy:cleanup-evidence --environment=production --ordering
 
 The report must show `activeSnapshotCoverageComplete: true` before the cleanup gate is closed. Historical immutable snapshots remain retained audit data; the cleanup gate is about active rows, runtime decision paths, and temporary migration artifacts.
 
-For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support.
+For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on the platform-api landing profile.
 
 Use `https://chasesets.com/api/fulfillment/provider/postage/webhooks` as the EasyPost production webhook destination in this posture, store the signing secret as `EASYPOST_WEBHOOK_SECRET`, and back the Fulfillment launch evidence fields with the resulting EasyPost records. Do not hand-enter alternate callback URLs.
 
 ## Production EasyPost Proof
 
-Before production marketplace promotion, Fulfillment must approve production postage readiness with `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED=true` and a non-empty `PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE` in the production GitHub Environment. The reference must point to the Fulfillment-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production-mode EasyPost proof below is complete.
+Before production marketplace promotion, Fulfillment must approve production postage readiness with `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED=true` and a non-empty `PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE` in the production GitHub Environment. The reference must point to the Fulfillment-owned rehearsal record. Keep approval unset while production remains landing-profile only or until every production-mode EasyPost proof below is complete.
 
 The rehearsal record must include:
 

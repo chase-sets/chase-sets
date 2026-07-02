@@ -57,7 +57,7 @@
       "purpose": "Operational landing-page analytics recorder for bounded waitlist event labels."
     }
   ],
-  "apiDeployables": ["admin-support-api", "platform-api"],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/public-presence",
@@ -322,5 +322,7 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "apiRuntimeProfiles": ["landing", "proof", "public"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"]
 }

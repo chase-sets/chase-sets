@@ -153,7 +153,7 @@ sum by (route_path, target_context, projection, source_context, state, last_erro
 The matching Loki log query is:
 
 ```logql
-{service_name=~"platform-api|admin-support-api"} | json | type="read-after-write.freshness"
+{service_name="platform-api"} | json | type="read-after-write.freshness"
 ```
 
 Treat a freshness alert as customer-affecting when the route is a critical handoff and the browser cannot reach either the intended page or route-owned temporary recovery. For guest Buy Now, follow [Projection Freshness Audit](./projection-freshness-audit.md) before changing route tuning.

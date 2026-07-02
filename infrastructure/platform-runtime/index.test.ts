@@ -378,7 +378,8 @@ describe("platform host api registry", () => {
         packageName: "@test/support",
         manifest: {
           contextName: "support",
-          apiDeployables: ["admin-support-api"],
+          apiDeployables: ["platform-api"],
+          apiRuntimeProfiles: ["landing"],
         },
         module: createModule("support", {
           apiMounts: [{ mountPath: "/api/support", kind: "primary", requiresAuth: true }],
@@ -400,7 +401,8 @@ describe("platform host api registry", () => {
         manifest: {
           contextName: "ordering",
           apiDeployables: ["platform-api"],
-          sourceRuntimeDeployables: ["admin-support-api"],
+          apiRuntimeProfiles: ["proof", "public"],
+          sourceRuntimeProfiles: ["landing"],
         },
         module: createModule("ordering", {
           apiMounts: [{ mountPath: "/api/orders", kind: "primary", requiresAuth: true }],
@@ -410,11 +412,12 @@ describe("platform host api registry", () => {
       },
     ] as const satisfies ApiContextRegistry;
 
-    const runtime = createApiHost(registry, "admin-support-api", {
+    const runtime = createApiHost(registry, "platform-api", {
       pools: {
         support: createPool() as never,
         ordering: createPool() as never,
       },
+      runtimeProfile: "landing",
     });
 
     expect(runtime.mountedContexts.map((entry) => [entry.contextName, entry.mountRole])).toEqual([
@@ -587,7 +590,8 @@ describe("platform host worker registry", () => {
         packageName: "@test/support",
         manifest: {
           contextName: "support",
-          runtimeDeployables: ["admin-support-worker"],
+          runtimeDeployables: ["platform-worker"],
+          workerRuntimeProfiles: ["landing"],
         },
         module: createModule("support", {
           subscriptions: [
@@ -609,7 +613,8 @@ describe("platform host worker registry", () => {
         manifest: {
           contextName: "fulfillment",
           runtimeDeployables: ["platform-worker"],
-          sourceRuntimeDeployables: ["admin-support-worker"],
+          workerRuntimeProfiles: ["proof", "public"],
+          sourceRuntimeProfiles: ["landing"],
         },
         module: createModule("fulfillment", {
           subscriptions: [
@@ -619,11 +624,12 @@ describe("platform host worker registry", () => {
       },
     ] as const satisfies WorkerContextRegistry;
 
-    const runtime = createWorkerHost(registry, "admin-support-worker", {
+    const runtime = createWorkerHost(registry, "platform-worker", {
       pools: {
         support: createPool() as never,
         fulfillment: createPool() as never,
       },
+      runtimeProfile: "landing",
     });
 
     expect(runtime.mountedContexts.map((entry) => [entry.contextName, entry.mountRole])).toEqual([

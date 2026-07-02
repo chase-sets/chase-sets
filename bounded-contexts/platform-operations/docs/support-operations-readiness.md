@@ -18,13 +18,13 @@ Before `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, support operations must ver
 - open support requests hold seller proceeds in Settlement;
 - transactional email notices are enabled for support-relevant account events.
 
-Approval is carried by `PRODUCTION_SUPPORT_OPERATIONS_APPROVED=true` and a non-empty `PRODUCTION_SUPPORT_OPERATIONS_REFERENCE` in the production GitHub Environment. The reference points to the Support-owned readiness record or launch review ticket covering the checks above, with Payments and Settlement links when refund-producing resolutions or seller-proceeds holds are part of the proof. Keep approval unset while production remains landing/admin-support only, while the Support API or admin route is not available for the launch posture, or while any required support workflow fails.
+Approval is carried by `PRODUCTION_SUPPORT_OPERATIONS_APPROVED=true` and a non-empty `PRODUCTION_SUPPORT_OPERATIONS_REFERENCE` in the production GitHub Environment. The reference points to the Support-owned readiness record or launch review ticket covering the checks above, with Payments and Settlement links when refund-producing resolutions or seller-proceeds holds are part of the proof. Keep approval unset while production remains landing-profile only, while the Support API or admin route is not available for the launch posture, or while any required support workflow fails.
 
 Checkout-specific support triage lives in the [Checkout Support Operations](../../../docs/runbooks/checkout-support-operations.md) runbook. It maps stuck checkout, payment dispute, missing or failed downstream handoff, and refund request launch scenarios to the support flow catalog without creating fake order support requests for pre-confirmation checkout recovery.
 
 ## Operator Surface
 
-The admin Support operations route is contributed by the Support bounded context, not by the admin deployable. It lists urgent, overdue, and ready-for-support requests from the Support operations queue and can run the overdue escalation command. While production is still landing/admin-support and the Support API is not deployed there, the route reports the unavailable API instead of opening live support operations.
+The admin Support operations route is contributed by the Support bounded context, not by the admin deployable. It lists urgent, overdue, and ready-for-support requests from the Support operations queue and can run the overdue escalation command. While production is still landing-profile only and the Support API is not deployed there, the route reports the unavailable API instead of opening live support operations.
 
 ## Ownership
 

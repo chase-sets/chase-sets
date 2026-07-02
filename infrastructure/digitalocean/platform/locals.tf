@@ -437,7 +437,9 @@ locals {
     "auth",
     "catalog",
     "control",
+    "fulfillment",
     "identity",
+    "ordering",
     "platform-operations",
     "public-presence",
   ]

@@ -259,6 +259,33 @@ describe("platform api config", () => {
     expect(config.contextDatabaseUrls["public-presence"]).toBe("postgresql://localhost/public_presence");
   });
 
+  it("loads production landing bootstrap with only landing context database urls", () => {
+    delete process.env.DATABASE_URL;
+    process.env.NODE_ENV = "production";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+
+    for (const contextName of getPlatformApiContextsForRuntimeProfile("landing")) {
+      process.env[getContextDatabaseEnvName(contextName)] =
+        `postgresql://localhost/${contextName.replaceAll("-", "_")}`;
+    }
+
+    const config = loadBootstrapConfig();
+
+    expect(config.deploymentEnvironment).toBe("production");
+    expect(config.runtimeProfile).toBe("landing");
+    expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
+    expect(config.contextDatabaseUrls.catalog).toBe("postgresql://localhost/catalog");
+    expect(config.contextDatabaseUrls.ordering).toBe("postgresql://localhost/ordering");
+    expect(config.contextDatabaseUrls.checkout).toBeUndefined();
+    expect(config.contextDatabaseUrls.payments).toBeUndefined();
+  });
+
   it("supports mixed shared and per-context database urls", () => {
     process.env.DATABASE_URL = "postgresql://localhost/shared";
     process.env.DATABASE_URL_PAYMENTS = "postgresql://localhost/payments";

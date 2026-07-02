@@ -25,6 +25,7 @@ async function bootstrap() {
       : undefined;
     const runtime = createPlatformApiHost({
       pools,
+      runtimeProfile: config.runtimeProfile,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
         moneyMovementGateway: createFakeMoneyMovementGateway(),
@@ -38,6 +39,7 @@ async function bootstrap() {
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
       enabledDataProfiles: config.dataProfiles ?? [],
       environmentName: config.deploymentEnvironment ?? null,
+      runtimeProfile: config.runtimeProfile,
     });
 
     if (config.platformAdmin) {

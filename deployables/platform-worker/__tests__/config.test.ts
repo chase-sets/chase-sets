@@ -164,7 +164,7 @@ describe("platform worker config", () => {
     });
   });
 
-  it("maps the landing runtime profile to the admin-support worker context set", () => {
+  it("maps the landing runtime profile to the landing worker context set", () => {
     expect(getPlatformWorkerContextsForRuntimeProfile("landing")).toEqual([
       "auth",
       "catalog",

@@ -1881,6 +1881,23 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve tfplan
 
+      - name: Capture production App Platform deploy diagnostics
+        if: failure() && env.SHOULD_DEPLOY != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping production deployment diagnostics."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-worker --component=platform-bootstrap --tail-lines=300 || true
+
       - name: Wait for Terraform App Platform deployment
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform

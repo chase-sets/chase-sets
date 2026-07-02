@@ -21,12 +21,15 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 
-export type WorkerHostName = "platform-worker" | "admin-support-worker";
+export type WorkerHostName = "platform-worker";
+export type WorkerHostRuntimeProfile = "landing" | "proof" | "public";
 
 export type WorkerContextManifest = Readonly<{
   contextName: string;
   runtimeDeployables?: readonly string[];
+  workerRuntimeProfiles?: readonly string[];
   sourceRuntimeDeployables?: readonly string[];
+  sourceRuntimeProfiles?: readonly string[];
   hostPorts?: readonly BcHostPort[];
 }>;
 
@@ -188,19 +191,23 @@ export function createDurableJobLaneRunners(input: {
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
+  runtimeProfile?: WorkerHostRuntimeProfile,
 ): readonly WorkerContextRegistryEntry[] {
   return registry.filter(
     (entry) =>
-      entry.manifest.runtimeDeployables?.includes(hostName) ||
-      entry.manifest.sourceRuntimeDeployables?.includes(hostName),
+      isWorkerHostActive(entry.manifest, hostName, runtimeProfile) ||
+      isWorkerHostSourceOnly(entry.manifest, hostName, runtimeProfile),
   );
 }
 
 export function getWorkerHostContextNames<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
+  runtimeProfile?: WorkerHostRuntimeProfile,
 ): readonly WorkerHostContextName<TRegistry>[] {
-  return getWorkerHostEntries(registry, hostName).map((entry) => entry.contextName as WorkerHostContextName<TRegistry>);
+  return getWorkerHostEntries(registry, hostName, runtimeProfile).map(
+    (entry) => entry.contextName as WorkerHostContextName<TRegistry>,
+  );
 }
 
 export function createWorkerHost(
@@ -209,9 +216,10 @@ export function createWorkerHost(
   options: Readonly<{
     pools: WorkerHostPools;
     hostPorts?: Readonly<Record<string, unknown>>;
+    runtimeProfile?: WorkerHostRuntimeProfile;
   }>,
 ): WorkerHostRuntime {
-  const entries = getWorkerHostEntries(registry, hostName);
+  const entries = getWorkerHostEntries(registry, hostName, options.runtimeProfile);
   const services = Object.fromEntries(
     entries.map((entry) => {
       const pool = getContextPool(options.pools, hostName, entry.contextName);
@@ -229,7 +237,7 @@ export function createWorkerHost(
   const mountedContexts = entries.map((entry) => {
     const pool = getContextPool(options.pools, hostName, entry.contextName);
     const contextServices = services[entry.contextName];
-    const mountRole = getWorkerHostMountRole(entry.manifest, hostName);
+    const mountRole = getWorkerHostMountRole(entry.manifest, hostName, options.runtimeProfile);
 
     return {
       contextName: entry.contextName,
@@ -1407,6 +1415,40 @@ function getHostPortsForContext(manifest: WorkerContextManifest, hostPorts: Read
   return resolvedPorts;
 }
 
-function getWorkerHostMountRole(manifest: WorkerContextManifest, hostName: WorkerHostName): "active" | "source-only" {
-  return manifest.runtimeDeployables?.includes(hostName) ? "active" : "source-only";
+function getWorkerHostMountRole(
+  manifest: WorkerContextManifest,
+  hostName: WorkerHostName,
+  runtimeProfile?: WorkerHostRuntimeProfile,
+): "active" | "source-only" {
+  return isWorkerHostActive(manifest, hostName, runtimeProfile) ? "active" : "source-only";
+}
+
+function isWorkerHostActive(
+  manifest: WorkerContextManifest,
+  hostName: WorkerHostName,
+  runtimeProfile?: WorkerHostRuntimeProfile,
+): boolean {
+  return Boolean(
+    manifest.runtimeDeployables?.includes(hostName) &&
+    runtimeProfileMatches(manifest.workerRuntimeProfiles, runtimeProfile),
+  );
+}
+
+function isWorkerHostSourceOnly(
+  manifest: WorkerContextManifest,
+  hostName: WorkerHostName,
+  runtimeProfile?: WorkerHostRuntimeProfile,
+): boolean {
+  return Boolean(
+    (manifest.sourceRuntimeDeployables?.includes(hostName) &&
+      runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)) ||
+    Boolean(manifest.sourceRuntimeProfiles && runtimeProfileMatches(manifest.sourceRuntimeProfiles, runtimeProfile)),
+  );
+}
+
+function runtimeProfileMatches(
+  profiles: readonly string[] | undefined,
+  runtimeProfile: WorkerHostRuntimeProfile | undefined,
+): boolean {
+  return !runtimeProfile || Boolean(profiles?.includes(runtimeProfile));
 }

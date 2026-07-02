@@ -57,4 +57,4 @@ Tax readiness evidence is carried by `PRODUCTION_TAX_READINESS_APPROVED` and `PR
 
 ## Rollback Posture
 
-If promotion is enabled and production marketplace smoke fails, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy the last known safe commit. That returns production to landing/admin-support while preserving staging as the full commerce verification environment.
+If promotion is enabled and production marketplace smoke fails, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy the last known safe commit. That returns production to the landing profile while preserving staging as the full commerce verification environment.

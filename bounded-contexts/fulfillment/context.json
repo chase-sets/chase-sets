@@ -86,7 +86,6 @@
     }
   ],
   "apiDeployables": ["platform-api"],
-  "sourceRuntimeDeployables": ["admin-support-api", "admin-support-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -409,5 +408,8 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "sourceRuntimeProfiles": ["landing"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "workerRuntimeProfiles": ["proof", "public"]
 }

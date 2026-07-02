@@ -25,29 +25,12 @@ function buildGeneratedRegistryOutputs(rootDir) {
       outputPath: path.join(rootDir, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
     },
     {
-      kind: "api",
-      hostName: "admin-support-api",
-      outputPath: path.join(rootDir, "deployables", "admin-support-api", "src", "generated", "api-context-registry.ts"),
-    },
-    {
       kind: "worker",
       hostName: "platform-worker",
       outputPath: path.join(
         rootDir,
         "deployables",
         "platform-worker",
-        "src",
-        "generated",
-        "worker-context-registry.ts",
-      ),
-    },
-    {
-      kind: "worker",
-      hostName: "admin-support-worker",
-      outputPath: path.join(
-        rootDir,
-        "deployables",
-        "admin-support-worker",
         "src",
         "generated",
         "worker-context-registry.ts",
@@ -148,7 +131,8 @@ function buildApiRegistry(outputPath, hostName, contexts) {
   const activeContexts = contexts.filter(
     (context) =>
       context.manifest.apiDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeDeployables?.includes(hostName),
+      context.manifest.sourceRuntimeDeployables?.includes(hostName) ||
+      context.manifest.sourceRuntimeProfiles?.length > 0,
   );
   const contextImports = activeContexts.map((context) => {
     const identifier = toIdentifier(context.contextName);
@@ -177,7 +161,8 @@ function buildWorkerRegistry(outputPath, hostName, contexts) {
   const activeContexts = contexts.filter(
     (context) =>
       context.manifest.runtimeDeployables?.includes(hostName) ||
-      context.manifest.sourceRuntimeDeployables?.includes(hostName),
+      context.manifest.sourceRuntimeDeployables?.includes(hostName) ||
+      context.manifest.sourceRuntimeProfiles?.length > 0,
   );
   const contextImports = activeContexts.map((context) => {
     const identifier = toIdentifier(context.contextName);

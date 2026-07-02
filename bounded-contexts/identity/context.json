@@ -99,8 +99,8 @@
     }
   ],
   "hostPorts": [],
-  "apiDeployables": ["admin-support-api", "platform-api"],
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
+  "apiDeployables": ["platform-api"],
+  "runtimeDeployables": ["platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/identity",
@@ -1458,5 +1458,7 @@
       "purpose": "Expose identity-owned route modules consumed by generated deployable adapters.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
-  }
+  },
+  "apiRuntimeProfiles": ["landing", "proof", "public"],
+  "workerRuntimeProfiles": ["landing", "proof", "public"]
 }

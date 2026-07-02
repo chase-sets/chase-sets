@@ -80,15 +80,15 @@ These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test --
 
 | ID | Dependency ID | Path | Caller | Required Evidence |
 | --- | --- | --- | --- | --- |
-| SMOKE-API-AUTH-ACCESS-SESSIONS | API-AUTH-ACCESS-SESSIONS | `/api/auth` | server-loader/action | Access session loaders/actions reach Auth through admin-support API route or internal origin; no host-level fallback. |
-| SMOKE-API-IDENTITY-ACCESS-ADMIN | API-IDENTITY-ACCESS-ADMIN | `/api/identity` | server-loader/action | Access identity loaders/actions reach Identity through admin-support API route or internal origin; no host-level fallback. |
+| SMOKE-API-AUTH-ACCESS-SESSIONS | API-AUTH-ACCESS-SESSIONS | `/api/auth` | server-loader/action | Access session loaders/actions reach Auth through platform-api landing route or internal origin; no host-level fallback. |
+| SMOKE-API-IDENTITY-ACCESS-ADMIN | API-IDENTITY-ACCESS-ADMIN | `/api/identity` | server-loader/action | Access identity loaders/actions reach Identity through platform-api landing route or internal origin; no host-level fallback. |
 | SMOKE-API-CATALOG-ADMIN-SERVER | API-CATALOG-ADMIN-SERVER | `/api/catalog` | server-loader/action | Catalog admin loaders/actions return authenticated API data or controlled-unavailable evidence. |
 | SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER | API-COMMERCIAL-TERMS-ADMIN-SERVER | `/api/commercial-terms` | server-loader/action | Commercial Terms schedules/agreements verify through authenticated admin page/loader evidence and internal-origin routing. |
 | SMOKE-API-MARKETPLACE-POSTAGE-POLICIES | API-MARKETPLACE-POSTAGE-POLICIES | `/api/marketplace/admin/postage-policies` | server-loader/action | Commerce Postage Policies loaders/actions reach Ordering through the approved internal-origin topology. |
 | SMOKE-API-MARKETPLACE-GOOGLE-SHOPPING | API-MARKETPLACE-GOOGLE-SHOPPING | `/api/marketplace/google-shopping` | server-loader/action | Growth Google Shopping loaders/actions reach Discovery through the approved internal-origin topology. |
 | SMOKE-API-PUBLIC-PRESENCE-ADMIN-SERVER | API-PUBLIC-PRESENCE-ADMIN-SERVER | `/api/public-presence` | server-loader/action | Growth Waitlist and Promo Bar server loaders/actions return authenticated API data or controlled-unavailable evidence. |
 | SMOKE-API-MARKETPLACE-SUPPORT-REQUESTS | API-MARKETPLACE-SUPPORT-REQUESTS | `/api/marketplace/support-requests/ops` | server-loader/action | Support request operations loaders/actions reach Support through the approved internal-origin topology. |
-| SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK | API-EXPERIENCE-PLATFORM-FEEDBACK | `/api/experience` | server-loader/action | Platform Feedback loaders/actions reach Experience through admin-support API route or internal origin. |
+| SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK | API-EXPERIENCE-PLATFORM-FEEDBACK | `/api/experience` | server-loader/action | Platform Feedback loaders/actions reach Experience through platform-api landing route or internal origin. |
 | SMOKE-API-PLATFORM-PROJECTIONS | API-PLATFORM-PROJECTIONS | `/api/platform/projections` | server-loader/action | Authenticated API/data evidence or controlled-unavailable state; must fail if routed to the wrong deployed component. |
 | SMOKE-API-WAITLIST-EXPORT | API-PUBLIC-PRESENCE-WAITLIST-EXPORT | `/api/public-presence/admin/waitlist/export` | direct-download | Direct navigation/download returns CSV or a controlled authorization response from the intended component. |
 | SMOKE-API-CATALOG-REALTIME | API-CATALOG-REALTIME-ACCOUNT-EVENTS | `/api/realtime/account/events` | EventSource | SSE opens or returns a controlled authorization response; no host-level 404 or HTML fallback. |
@@ -99,7 +99,7 @@ These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test --
 ## Deployed API Probe Rows
 
 These rows are also exercised by `pnpm run smoke:platform` when admin credentials are configured. The probe can pass with an authorized result or a controlled authorization/not-found result, but must not return a host-level HTML/plain-text fallback.
-Production smoke sets `SMOKE_ADMIN_TOPOLOGY`; when production runs with the marketplace platform disabled, probes for rows documented as controlled-unavailable/internal-origin only are skipped while deployed admin-support/public-ingress probes and `SMOKE-PROBE-PLATFORM-PROJECTIONS` still run.
+Production smoke sets `SMOKE_ADMIN_TOPOLOGY`; when production runs with the marketplace platform disabled, probes for rows documented as controlled-unavailable/internal-origin only are skipped while deployed platform-api landing/public-ingress probes and `SMOKE-PROBE-PLATFORM-PROJECTIONS` still run.
 
 | ID | Path | Linked Coverage |
 | --- | --- | --- |
