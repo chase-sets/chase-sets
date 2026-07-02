@@ -62,7 +62,9 @@ type ResolvedProductContentDbRow = Readonly<{
   contained_product_id: string | null;
   quantity: number | null;
   content_type_id: string;
+  content_type_display_name: unknown;
   inclusion_policy_id: string | null;
+  inclusion_policy_display_name: unknown;
   provenance: unknown;
   resolution_status: "resolved" | "unresolved";
   target_lifecycle_status: string | null;
@@ -142,7 +144,11 @@ function resolvedProductContentRowFromDb(row: ResolvedProductContentDbRow): Cata
     containedProductId: row.contained_product_id,
     quantity: row.quantity,
     contentTypeId: row.content_type_id,
+    contentTypeDisplayName: localizedTextMapFromUnknown(row.content_type_display_name),
     inclusionPolicyId: row.inclusion_policy_id,
+    inclusionPolicyDisplayName: row.inclusion_policy_display_name
+      ? localizedTextMapFromUnknown(row.inclusion_policy_display_name)
+      : null,
     provenance: provenanceFromUnknown(row.provenance),
     resolutionStatus: row.resolution_status,
     targetLifecycleStatus: row.target_lifecycle_status,

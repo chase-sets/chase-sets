@@ -166,6 +166,7 @@
         "catalog.reference-record.published",
         "catalog.reference-record.deprecated",
         "catalog.reference-record.archived",
+        "catalog.product-contents.resolved",
         "catalog.dimension.created",
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
@@ -324,6 +325,7 @@
         "discovery_item_detail_catalog_reference_records",
         "discovery_item_detail_catalog_dimensions",
         "discovery_item_detail_catalog_dimension_options",
+        "discovery_item_detail_product_contents",
         "discovery_item_detail_pages"
       ],
       "requiredDuringBootstrap": true,
@@ -388,6 +390,9 @@
           "dependencies": [
             {
               "readModelTable": "discovery_item_detail_pages"
+            },
+            {
+              "readModelTable": "discovery_item_detail_product_contents"
             },
             {
               "readModelTable": "discovery_market_accounts"

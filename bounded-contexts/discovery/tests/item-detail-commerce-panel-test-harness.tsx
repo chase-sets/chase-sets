@@ -192,6 +192,8 @@ export function createItem(overrides: Partial<DiscoveryItemDetail> = {}): Discov
     market_summary: null,
     market_listings: [baseListing],
     offer_demand_matches: [baseOffer],
+    contents: [],
+    included_in: [],
     updated_at: "2026-04-28T00:00:00.000Z",
     ...overrides,
   };

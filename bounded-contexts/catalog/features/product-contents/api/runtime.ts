@@ -12,6 +12,7 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import {
   assert,
   ensureUniqueBy,
+  localizedTextMapFromEnglish,
   normalizeLocalizedTextMap,
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
@@ -72,7 +73,9 @@ export type ProductContentLineSnapshot = Readonly<{
   containedProductId: string | null;
   quantity: number | null;
   contentTypeId: string;
+  contentTypeDisplayName: LocalizedTextMap;
   inclusionPolicyId: string | null;
+  inclusionPolicyDisplayName: LocalizedTextMap | null;
   provenance: ProductContentProvenance;
   resolutionStatus: ProductContentResolutionStatus;
   targetLifecycleStatus: string | null;
@@ -284,13 +287,15 @@ async function buildResolvedFact(
 
   const containerSelectedOptions = normalizeOptionalSelectedOptions(input.containerSelectedOptions);
   const containerProductId = deriveProductId(containerItem, containerSelectedOptions);
-  const contentTypeIds = new Set(
-    (await listProductContentTypes(db)).filter((type) => type.status === "active").map((type) => type.content_type_id),
+  const contentTypesById = new Map(
+    (await listProductContentTypes(db))
+      .filter((type) => type.status === "active")
+      .map((type) => [type.content_type_id, type] as const),
   );
-  const inclusionPolicyIds = new Set(
+  const inclusionPoliciesById = new Map(
     (await listProductContentInclusionPolicies(db))
       .filter((policy) => policy.status === "active")
-      .map((policy) => policy.inclusion_policy_id),
+      .map((policy) => [policy.inclusion_policy_id, policy] as const),
   );
 
   const resolvedAt = new Date().toISOString();
@@ -301,8 +306,8 @@ async function buildResolvedFact(
         containerCatalogItemId,
         containerSelectedOptions,
         containerProductId,
-        contentTypeIds,
-        inclusionPolicyIds,
+        contentTypesById,
+        inclusionPoliciesById,
       }),
     ),
   );
@@ -338,15 +343,17 @@ async function buildLineSnapshot(
     containerCatalogItemId: string;
     containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
     containerProductId: string | null;
-    contentTypeIds: ReadonlySet<string>;
-    inclusionPolicyIds: ReadonlySet<string>;
+    contentTypesById: ReadonlyMap<string, { display_name: LocalizedTextMap }>;
+    inclusionPoliciesById: ReadonlyMap<string, { display_name: LocalizedTextMap }>;
   }>,
 ): Promise<ProductContentLineSnapshot> {
   const contentTypeId = normalizeRequiredId(input.line.contentTypeId, "Product Content Line requires a content type.");
-  assert(input.contentTypeIds.has(contentTypeId), "Product Content Line content type is not active.");
+  const contentType = input.contentTypesById.get(contentTypeId);
+  assert(contentType !== undefined, "Product Content Line content type is not active.");
   const inclusionPolicyId = normalizeNullableId(input.line.inclusionPolicyId);
+  const inclusionPolicy = inclusionPolicyId ? input.inclusionPoliciesById.get(inclusionPolicyId) : null;
   assert(
-    inclusionPolicyId === null || input.inclusionPolicyIds.has(inclusionPolicyId),
+    inclusionPolicyId === null || inclusionPolicy !== undefined,
     "Product Content Line inclusion policy is not active.",
   );
   const quantity = normalizeQuantity(input.line.quantity);
@@ -384,7 +391,9 @@ async function buildLineSnapshot(
     containedProductId,
     quantity,
     contentTypeId,
+    contentTypeDisplayName: contentType.display_name,
     inclusionPolicyId,
+    inclusionPolicyDisplayName: inclusionPolicy?.display_name ?? null,
     provenance,
     resolutionStatus,
     targetLifecycleStatus,
@@ -506,7 +515,9 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          contained_product_id,
          quantity,
          content_type_id,
+         content_type_display_name,
          inclusion_policy_id,
+         inclusion_policy_display_name,
          provenance,
          resolution_status,
          target_lifecycle_status,
@@ -514,7 +525,7 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          resolver_version,
          resolved_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
        ON CONFLICT (line_id) DO UPDATE SET
          container_catalog_item_id = EXCLUDED.container_catalog_item_id,
          container_selected_options = EXCLUDED.container_selected_options,
@@ -524,7 +535,9 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
          contained_product_id = EXCLUDED.contained_product_id,
          quantity = EXCLUDED.quantity,
          content_type_id = EXCLUDED.content_type_id,
+         content_type_display_name = EXCLUDED.content_type_display_name,
          inclusion_policy_id = EXCLUDED.inclusion_policy_id,
+         inclusion_policy_display_name = EXCLUDED.inclusion_policy_display_name,
          provenance = EXCLUDED.provenance,
          resolution_status = EXCLUDED.resolution_status,
          target_lifecycle_status = EXCLUDED.target_lifecycle_status,
@@ -542,7 +555,9 @@ async function replaceResolvedProductContentsRows(db: PgQueryable, fact: Product
         line.containedProductId,
         line.quantity,
         line.contentTypeId,
+        JSON.stringify(line.contentTypeDisplayName ?? localizedTextMapFromEnglish(line.contentTypeId)),
         line.inclusionPolicyId,
+        line.inclusionPolicyDisplayName ? JSON.stringify(line.inclusionPolicyDisplayName) : null,
         JSON.stringify(line.provenance),
         line.resolutionStatus,
         line.targetLifecycleStatus,

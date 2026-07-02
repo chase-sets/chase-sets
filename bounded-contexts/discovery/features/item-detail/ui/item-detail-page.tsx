@@ -17,6 +17,7 @@ import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import type { MarketIntent } from "../domain/item-detail-market";
 import { ReferenceDetailDialog } from "./item-detail-references";
 import { ItemDetailMarketBook } from "./item-detail-market-book";
+import { ItemDetailProductContents } from "./item-detail-product-contents";
 import { useItemDetailPageModel, type LoadedItemDetailPageProps } from "./use-item-detail-page-model";
 import type { ItemDetailCommerceSections, ItemDetailMarketplaceSectionContext } from "./item-detail-page-types";
 
@@ -127,6 +128,7 @@ function LoadedItemDetailPage(props: LoadedItemDetailPageProps) {
           mobileActionBar={model.mobileCommerceActionBar}
         >
           <Stack gap={6}>
+            <ItemDetailProductContents data={model.data} />
             <ItemDetailMarketBook
               marketBookTab={model.marketBookTab}
               onMarketBookTabChange={model.setMarketBookTab}
