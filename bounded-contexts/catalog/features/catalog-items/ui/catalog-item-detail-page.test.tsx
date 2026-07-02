@@ -289,6 +289,51 @@ describe("CatalogItemDetailPage", () => {
     ).toBe(true);
   });
 
+  it("uses the Product Contents command snapshot instead of stale projection reads", async () => {
+    stubCatalogFetches({
+      contentLines: [
+        {
+          lineId: "pcl_pack",
+          containerCatalogItemId: "cat_1",
+          containerSelectedOptions: null,
+          containerProductId: null,
+          containedCatalogItemId: "cat_pack",
+          containedSelectedOptions: null,
+          containedProductId: null,
+          quantity: 1,
+          contentTypeId: "pct_pack",
+          inclusionPolicyId: "pcp_guaranteed",
+          provenance: { source: "operator" },
+          resolutionStatus: "resolved",
+          targetLifecycleStatus: "active",
+          resolvedFactHash: "hash",
+          resolverVersion: 1,
+          resolvedAt: "2026-07-01T00:00:00.000Z",
+          updatedAt: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Contents/ }).textContent).toContain("1 content lines"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Contents/ }));
+    const contentRow = screen
+      .getAllByText("Booster pack")
+      .map((element) => element.closest("tr"))
+      .find((element): element is HTMLTableRowElement => element !== null);
+    if (!contentRow) {
+      throw new Error("Expected Product Contents row to render.");
+    }
+    fireEvent.click(within(contentRow).getByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Contents/ }).textContent).toContain("No Product Contents."),
+    );
+  });
+
   it("omits blank Product Contents selected options", () => {
     expect(parseSelectedOptionsInput("")).toBeUndefined();
     expect(parseSelectedOptionsInput("  ,  ")).toBeUndefined();

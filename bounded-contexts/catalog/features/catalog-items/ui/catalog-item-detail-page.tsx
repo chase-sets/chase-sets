@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import {
   Button,
   Combobox,
@@ -60,6 +60,7 @@ import type {
   ProductContentLineDetail,
   ProductContentLineInput,
   ProductContentSelectedOption,
+  ProductContentsResolvedSnapshot,
 } from "./contracts";
 import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
 
@@ -404,6 +405,8 @@ export function CatalogItemDetailPage({
   const [productContentTargetOptions, setProductContentTargetOptions] = useState("");
   const [productContentQuantity, setProductContentQuantity] = useState("1");
   const [productContentError, setProductContentError] = useState<string | null>(null);
+  const [authoritativeProductContents, setAuthoritativeProductContents] =
+    useState<ProductContentsResolvedSnapshot | null>(null);
   const { data: fieldsData } = useFieldList("limit=500&status=active");
   const { data: referenceRecordsData } = useReferenceRecordList("limit=500&status=active");
   const { data: productContentTypesData } = useProductContentTypes();
@@ -418,7 +421,11 @@ export function CatalogItemDetailPage({
     (policy) => policy.status === "active",
   );
   const productContentCatalogItems = productContentItemsData?.items ?? [];
-  const productContents = productContentsData?.items ?? [];
+  useEffect(() => {
+    setAuthoritativeProductContents(null);
+  }, [id]);
+
+  const productContents = authoritativeProductContents?.lines ?? productContentsData?.items ?? [];
   const productContainers = productContainersData?.items ?? [];
   const resolvedProductContents = productContents.filter((line) => line.resolutionStatus === "resolved");
   const unresolvedProductContentEvidence = productContents.filter((line) => line.resolutionStatus === "unresolved");
@@ -673,9 +680,10 @@ export function CatalogItemDetailPage({
 
     setProductContentError(null);
     try {
-      await replaceProductContents(id, {
+      const result = await replaceProductContents(id, {
         lines: [...productContents.map(productContentLineToInput), nextLine],
       });
+      setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
       setShowAddProductContent(false);
       setProductContentTypeId("");
@@ -706,9 +714,10 @@ export function CatalogItemDetailPage({
   async function handleRemoveProductContentLine(line: ProductContentLineDetail) {
     setProductContentError(null);
     try {
-      await replaceProductContents(id, {
+      const result = await replaceProductContents(id, {
         lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
       });
+      setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
       refreshProductContents();
       refreshProductContainers();
