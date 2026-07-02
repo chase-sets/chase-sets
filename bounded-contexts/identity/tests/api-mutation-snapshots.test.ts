@@ -528,6 +528,61 @@ describe("Identity API mutation snapshots", () => {
     }
   });
 
+  it("rejects unknown role keys before issuing membership or invitation commands", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+    const expectedError = {
+      error: {
+        code: "validation_failed",
+        message: expect.stringContaining("platform-admin, owner, manager, fulfillment, viewer"),
+      },
+    };
+
+    const membershipGrant = await requestJson(app, "/memberships", {
+      method: "POST",
+      body: JSON.stringify({ membershipId: "mbr_bad", userId: "usr_2", accountId: "acc_1", roleKey: "onwer" }),
+    });
+    expect(membershipGrant.response.status).toBe(400);
+    expect(membershipGrant.body).toMatchObject(expectedError);
+
+    const membershipRoleChange = await requestJson(app, "/memberships/mbr_existing/role", {
+      method: "PUT",
+      body: JSON.stringify({ roleKey: "onwer" }),
+    });
+    expect(membershipRoleChange.response.status).toBe(400);
+    expect(membershipRoleChange.body).toMatchObject(expectedError);
+
+    const invitationCreate = await requestJson(app, "/invitations", {
+      method: "POST",
+      body: JSON.stringify({
+        invitationId: "inv_bad",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "onwer",
+        expiresAt: "2026-07-01T00:00:00.000Z",
+      }),
+    });
+    expect(invitationCreate.response.status).toBe(400);
+    expect(invitationCreate.body).toMatchObject(expectedError);
+
+    const guestClaim = await requestJson(app, "/internal/auth/guest-accounts/acc_guest/claim", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", roleKey: "onwer" }),
+    });
+    expect(guestClaim.response.status).toBe(400);
+    expect(guestClaim.body).toMatchObject(expectedError);
+
+    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "onwer" }),
+    });
+    expect(invitationAccept.response.status).toBe(400);
+    expect(invitationAccept.body).toMatchObject(expectedError);
+
+    expect(services.memberships.commandHandler).not.toHaveBeenCalled();
+    expect(services.invitations.commandHandler).not.toHaveBeenCalled();
+  });
+
   it("returns API-key secrets, lookup results, and revocation receipts from the committed command response", async () => {
     const app = buildApp(createServices());
 

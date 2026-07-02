@@ -17,7 +17,13 @@ export type ContactMethod = Readonly<{
   verifiedAt: string | null;
 }>;
 export type ConsentSubjectType = "user" | "account";
-export type RoleKey = "platform-admin" | "owner" | "manager" | "fulfillment" | "viewer";
+export const ROLE_KEYS = ["platform-admin", "owner", "manager", "fulfillment", "viewer"] as const;
+export const PLATFORM_ADMIN_ROLE_KEY = "platform-admin" satisfies RoleKey;
+export type RoleKey = (typeof ROLE_KEYS)[number];
+export type GrantableRoleKey = Exclude<RoleKey, typeof PLATFORM_ADMIN_ROLE_KEY>;
+export const GRANTABLE_ROLE_KEYS = ROLE_KEYS.filter(
+  (roleKey): roleKey is GrantableRoleKey => roleKey !== PLATFORM_ADMIN_ROLE_KEY,
+);
 export type PermissionKey =
   | "accounts.manage"
   | "accounts.view"
@@ -62,6 +68,7 @@ export type EmptyEventData = Readonly<Record<string, never>>;
 export type IdentityValue = JsonValue;
 
 export const EMPTY_EVENT_DATA: EmptyEventData = {};
+const ROLE_KEY_SET = new Set<string>(ROLE_KEYS);
 
 export class IdentityDomainError extends Error {
   public constructor(message: string) {
@@ -78,6 +85,19 @@ export function assert(condition: boolean, message: string): asserts condition {
 
 export function assertNever(value: never): never {
   throw new IdentityDomainError(`Unhandled variant: ${JSON.stringify(value)}`);
+}
+
+export function isRoleKey(value: unknown): value is RoleKey {
+  return typeof value === "string" && ROLE_KEY_SET.has(value);
+}
+
+export function parseRoleKey(value: unknown): RoleKey | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return isRoleKey(trimmed) ? trimmed : null;
+}
+
+export function formatValidRoleKeys(): string {
+  return ROLE_KEYS.join(", ");
 }
 
 export function normalizeEmail(value: string): string {

@@ -3,6 +3,7 @@ import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput } from "@chas
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";
+import { grantableRoleSelectItems } from "./role-select-items";
 
 function userLabel(membership: Membership) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
@@ -30,12 +31,7 @@ export function TeamPage({
             name="roleKey"
             label={t("identity.features.memberships.ui.accountTeamPage.role")}
             defaultValue="viewer"
-            items={[
-              { value: "owner", label: t("identity.features.memberships.ui.role.owner") },
-              { value: "manager", label: t("identity.features.memberships.ui.role.manager") },
-              { value: "fulfillment", label: t("identity.features.memberships.ui.role.fulfillment") },
-              { value: "viewer", label: t("identity.features.memberships.ui.role.viewer") },
-            ]}
+            items={grantableRoleSelectItems}
           />
           <Button type="submit" tone="primary">
             {t("identity.features.memberships.ui.accountTeamPage.invite")}
@@ -61,12 +57,7 @@ export function TeamPage({
                     name="roleKey"
                     label={t("identity.features.memberships.ui.accountTeamPage.role")}
                     defaultValue={membership.role_key}
-                    items={[
-                      { value: "owner", label: t("identity.features.memberships.ui.role.owner") },
-                      { value: "manager", label: t("identity.features.memberships.ui.role.manager") },
-                      { value: "fulfillment", label: t("identity.features.memberships.ui.role.fulfillment") },
-                      { value: "viewer", label: t("identity.features.memberships.ui.role.viewer") },
-                    ]}
+                    items={grantableRoleSelectItems}
                   />
                   <Button type="submit" tone="secondary">
                     {t("identity.features.memberships.ui.accountTeamPage.change.role")}

@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Membership } from "./contracts";
+import { grantableRoleSelectItems } from "./role-select-items";
 
 export function MembershipDetailPage({ data }: { data: Membership }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
@@ -24,12 +25,7 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
                 name="roleKey"
                 label={t("identity.features.memberships.ui.membershipDetailPage.role")}
                 defaultValue={data.role_key}
-                items={[
-                  { value: "owner", label: t("identity.features.memberships.ui.role.owner") },
-                  { value: "manager", label: t("identity.features.memberships.ui.role.manager") },
-                  { value: "fulfillment", label: t("identity.features.memberships.ui.role.fulfillment") },
-                  { value: "viewer", label: t("identity.features.memberships.ui.role.viewer") },
-                ]}
+                items={grantableRoleSelectItems}
               />
               <Button type="submit" tone="secondary">
                 {t("identity.features.memberships.ui.membershipDetailPage.change.role")}

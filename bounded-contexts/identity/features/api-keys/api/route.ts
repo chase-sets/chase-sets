@@ -4,12 +4,13 @@ import type { ApiKeyId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
 import type { IdentityApiEnv } from "../../../api";
+import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { IdentitySecretAdapters } from "./secret-adapters";
 import { upsertApiKeySecret } from "./secret-store";
 import type { ApiKeyServices } from "./runtime";
 
 function canManageApiKey(actor: IdentityApiEnv["Variables"]["actor"], apiKey: Readonly<{ user_id: string }>) {
-  return !actor || actor.roleKey === "platform-admin" || actor.userId === apiKey.user_id;
+  return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.userId === apiKey.user_id;
 }
 
 function forbidden() {
@@ -34,7 +35,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
     const body = await c.req.json();
     const actor = c.var.actor;
     const userId = String(body.userId ?? "") as UserId;
-    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== userId) {
+    if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY && actor.userId !== userId) {
       return c.json(forbidden(), 403);
     }
 
@@ -134,7 +135,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listApiKeys({
-      search: actor && actor.roleKey !== "platform-admin" ? actor.userId : search,
+      search: actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY ? actor.userId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,

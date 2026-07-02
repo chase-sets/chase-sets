@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
+import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import type { Invitation } from "./contracts";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
@@ -50,12 +51,7 @@ export function InvitationListPage({ initialData }: { initialData: PaginatedList
               name="roleKey"
               label={t("identity.features.invitations.ui.invitationListPage.role")}
               defaultValue="viewer"
-              items={[
-                { value: "owner", label: t("identity.features.memberships.ui.role.owner") },
-                { value: "manager", label: t("identity.features.memberships.ui.role.manager") },
-                { value: "fulfillment", label: t("identity.features.memberships.ui.role.fulfillment") },
-                { value: "viewer", label: t("identity.features.memberships.ui.role.viewer") },
-              ]}
+              items={grantableRoleSelectItems}
             />
             <Button type="submit" tone="primary">
               {t("identity.features.invitations.ui.invitationListPage.create")}

@@ -125,6 +125,7 @@ export const identityEnglishTranslations = {
   "identity.features.consents.ui.consentHistoryPage.consent.history": "Consent History",
   "identity.features.invitations.api.route.invitation.not.found": "Invitation not found.",
   "identity.features.invitations.api.route.forbidden": "Forbidden.",
+  "identity.features.invitations.api.route.role.key.invalid": "Role key is invalid. Valid role keys: {validRoleKeys}.",
   "identity.features.invitations.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_invitations (\n  invitation_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  email text NOT NULL,\n  role_key text NOT NULL,\n  status text NOT NULL,\n  expires_at timestamptz NOT NULL,\n  accepted_by_user_id text NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.invitations.ui.invitationDetailPage.accepted.by": "Accepted By",
@@ -146,6 +147,7 @@ export const identityEnglishTranslations = {
   "identity.features.invitations.ui.invitationListPage.status": "Status",
   "identity.features.memberships.api.route.forbidden": "Forbidden.",
   "identity.features.memberships.api.route.membership.not.found": "Membership not found.",
+  "identity.features.memberships.api.route.role.key.invalid": "Role key is invalid. Valid role keys: {validRoleKeys}.",
   "identity.features.memberships.readModel.schema.create.table.if.not.exists.identity":
     "\nCREATE TABLE IF NOT EXISTS identity_memberships (\n  membership_id text PRIMARY KEY,\n  user_id text NOT NULL,\n  account_id text NOT NULL,\n  role_key text NOT NULL,\n  role_permissions jsonb NOT NULL DEFAULT '[]'::jsonb,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE TABLE IF NOT EXISTS identity_user_memberships (\n  membership_id text PRIMARY KEY,\n  user_id text NOT NULL,\n  account_id text NOT NULL,\n  role_key text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.memberships.ui.accountTeamPage.manage.the.people.who.can.act":

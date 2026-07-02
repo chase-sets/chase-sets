@@ -10,7 +10,7 @@ export const PERMISSION_PRESETS = {
   payoutsViewer: ["payouts.view"],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 
-export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
+export const ROLE_PERMISSIONS = {
   "platform-admin": [
     "accounts.manage",
     "accounts.view",
@@ -127,4 +127,4 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "reputation.view",
     "support.view",
   ],
-};
+} satisfies Record<RoleKey, readonly PermissionKey[]>;

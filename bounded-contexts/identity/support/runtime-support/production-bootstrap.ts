@@ -1,4 +1,5 @@
 import type { AccountId, CredentialId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import { PLATFORM_ADMIN_ROLE_KEY } from "./common";
 import type { IdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 
@@ -121,17 +122,17 @@ export async function bootstrapPlatformAdminIdentity(
         membershipId,
         userId,
         accountId,
-        roleKey: "platform-admin",
+        roleKey: PLATFORM_ADMIN_ROLE_KEY,
       },
       context,
     });
     createdMembership = true;
-  } else if (existingMembership.rows[0]?.role_key !== "platform-admin") {
+  } else if (existingMembership.rows[0]?.role_key !== PLATFORM_ADMIN_ROLE_KEY) {
     await services.memberships.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: {
         type: "ChangeMembershipRole",
-        roleKey: "platform-admin",
+        roleKey: PLATFORM_ADMIN_ROLE_KEY,
       },
       context,
     });
