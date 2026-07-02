@@ -1,11 +1,11 @@
-import type { BcApiModule, BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import {
+  ENVIRONMENT_DATA_PROFILES,
+  type BcApiModule,
+  type BcSeedOptions,
+  type EnvironmentDataProfile,
+} from "@chase-sets/bounded-context-module";
 
-export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = [
-  "critical-bootstrap",
-  "catalog-integration-bootstrap",
-  "scenario-seed",
-  "representative-commerce-state",
-];
+export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = ENVIRONMENT_DATA_PROFILES;
 
 export const defaultSeedOptions: BcSeedOptions = {
   enabledDataProfiles: allEnvironmentDataProfiles,

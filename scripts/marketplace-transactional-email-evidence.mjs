@@ -9,11 +9,12 @@ import {
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { NOTIFICATIONS_EMAIL_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const MARKETPLACE_TRANSACTIONAL_EMAIL_EVIDENCE_VERSION = "marketplace-transactional-email-evidence/v1";
 const MAX_TRANSACTIONAL_EMAIL_PROOF_AGE_DAYS = 30;
 const PRODUCTION_EMAIL_WEBHOOK_HOSTS = new Set(["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"]);
-const PRODUCTION_EMAIL_WEBHOOK_PATH = "/api/notifications/provider/email/webhooks";
+const PRODUCTION_EMAIL_WEBHOOK_PATH = NOTIFICATIONS_EMAIL_WEBHOOK_PATH;
 
 export const REQUIRED_TRANSACTIONAL_EMAIL_PROOFS = [
   "sesDnsVerified",

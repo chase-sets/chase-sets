@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const defaultCacheDir = path.join(rootDir, "artifacts", "remote-dev");
@@ -33,7 +34,7 @@ const serviceHosts = {
   api: 6182,
 };
 
-const webhookPathPrefixes = ["/api/payments/provider/webhooks", "/api/settlement/provider/money-movement/webhooks"];
+const webhookPathPrefixes = [PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH];
 
 const persistedEnvKeys = [
   "DIGITALOCEAN_ACCESS_TOKEN",
@@ -278,7 +279,7 @@ export function buildSessionEnv({ domain, slug, providerMode = remoteDevDefaults
     REMOTE_DEV_SESSION_SLUG: slug,
     REMOTE_DEV_DOMAIN: normalizeDomain(domain),
     REMOTE_DEV_PROVIDER_MODE: providerMode,
-    STRIPE_WEBHOOK_FORWARD_URL: "http://host.docker.internal:6182/api/payments/provider/webhooks",
+    STRIPE_WEBHOOK_FORWARD_URL: `http://host.docker.internal:6182${PAYMENTS_PROVIDER_WEBHOOK_PATH}`,
   };
 
   return formatEnvFile({ ...base, ...extraEnv });

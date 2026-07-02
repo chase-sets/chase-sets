@@ -1,4 +1,6 @@
-export type SocialLoginProviderName = "google" | "facebook";
+import type { SocialLoginProviderKey } from "@chase-sets/auth-context";
+
+export type SocialLoginProviderName = SocialLoginProviderKey;
 
 export type SocialLoginProfile = Readonly<{
   providerName: SocialLoginProviderName;

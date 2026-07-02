@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { readEnv } from "./lib/cli-options.mjs";
+import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, "");
@@ -408,7 +409,7 @@ export async function runEdgeCheck(baseUrl, options = {}) {
   const paymentWebhookBody =
     '{"id":"evt_payment_smoke","type":"checkout.session.completed","data":{"object":{"id":"cs_smoke"}}}';
   const paymentWebhook = await requestJson(
-    `${baseUrl}/api/payments/provider/webhooks`,
+    `${baseUrl}${PAYMENTS_PROVIDER_WEBHOOK_PATH}`,
     {
       method: "POST",
       body: paymentWebhookBody,
@@ -426,7 +427,7 @@ export async function runEdgeCheck(baseUrl, options = {}) {
 
   const moneyMovementWebhookBody = '{"id":"evt_smoke","type":"payout.failed","data":{"object":{"id":"po_smoke"}}}';
   const moneyMovementWebhook = await requestJson(
-    `${baseUrl}/api/settlement/provider/money-movement/webhooks`,
+    `${baseUrl}${SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH}`,
     {
       method: "POST",
       body: moneyMovementWebhookBody,
@@ -449,7 +450,7 @@ export async function runEdgeCheck(baseUrl, options = {}) {
 
   if (paymentSecret) {
     const signedPaymentWebhook = await requestJson(
-      `${baseUrl}/api/payments/provider/webhooks`,
+      `${baseUrl}${PAYMENTS_PROVIDER_WEBHOOK_PATH}`,
       {
         method: "POST",
         body: paymentWebhookBody,
@@ -469,7 +470,7 @@ export async function runEdgeCheck(baseUrl, options = {}) {
 
   if (connectSecret) {
     const signedMoneyMovementWebhook = await requestJson(
-      `${baseUrl}/api/settlement/provider/money-movement/webhooks`,
+      `${baseUrl}${SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH}`,
       {
         method: "POST",
         body: moneyMovementWebhookBody,

@@ -9,6 +9,7 @@ import {
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
 
 export const MARKETPLACE_STRIPE_MONEY_OPERATIONS_EVIDENCE_VERSION = "marketplace-stripe-money-operations-evidence/v1";
 const MAX_STRIPE_MONEY_PROOF_AGE_DAYS = 30;
@@ -83,8 +84,8 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_EVENT_ID_GROUPS = [
 
 const PRODUCTION_STRIPE_WEBHOOK_HOSTS = new Set(["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"]);
 
-const PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH = "/api/payments/provider/webhooks";
-const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = "/api/settlement/provider/money-movement/webhooks";
+const PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH = PAYMENTS_PROVIDER_WEBHOOK_PATH;
+const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH;
 
 const PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH = "/account/payouts/setup";
 const CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS = new Set(["screenshot", "redacted-run-output"]);

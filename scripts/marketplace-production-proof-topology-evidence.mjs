@@ -3,6 +3,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validateEvidenceReference } from "./marketplace-evidence-references.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
+import {
+  FULFILLMENT_POSTAGE_WEBHOOK_PATH,
+  NOTIFICATIONS_EMAIL_WEBHOOK_PATH,
+  PAYMENTS_PROVIDER_WEBHOOK_PATH,
+  SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH,
+} from "./provider-webhook-paths.mjs";
 
 export const PRODUCTION_PROOF_TOPOLOGY_EVIDENCE_VERSION = "marketplace-production-proof-topology-evidence/v1";
 
@@ -13,10 +19,10 @@ export const PRODUCTION_PROOF_TOPOLOGY_ALLOWED_ORIGINS = [
 ];
 
 export const PROVIDER_CALLBACK_PATHS = [
-  "/api/payments/provider/webhooks",
-  "/api/settlement/provider/money-movement/webhooks",
-  "/api/notifications/provider/email/webhooks",
-  "/api/fulfillment/provider/postage/webhooks",
+  PAYMENTS_PROVIDER_WEBHOOK_PATH,
+  SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH,
+  NOTIFICATIONS_EMAIL_WEBHOOK_PATH,
+  FULFILLMENT_POSTAGE_WEBHOOK_PATH,
 ];
 
 export const PROVIDER_CALLBACK_EXPECTED_STATUSES = [200, 400];
