@@ -83,7 +83,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 4,
+      "subscriptionVersion": 5,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -123,7 +123,8 @@
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
         "catalog.dimension.option-revised",
-        "catalog.dimension.options-reordered"
+        "catalog.dimension.options-reordered",
+        "catalog.product-contents.resolved"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["discovery-search-item-projection"]
@@ -309,6 +310,7 @@
         "discovery_search_catalog_blueprints",
         "discovery_search_catalog_categories",
         "discovery_search_catalog_reference_records",
+        "discovery_search_product_contents",
         "discovery_search_items"
       ],
       "requiredDuringBootstrap": true,

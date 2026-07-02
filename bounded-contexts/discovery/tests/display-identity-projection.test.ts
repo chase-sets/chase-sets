@@ -117,6 +117,10 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("UPDATE discovery_search_product_contents")) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (sql.includes("INSERT INTO discovery_item_detail_pages")) {
       this.derivedWrites.push("detail");
       return { rows: [], rowCount: 1 };

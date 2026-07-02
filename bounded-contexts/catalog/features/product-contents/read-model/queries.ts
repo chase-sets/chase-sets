@@ -63,6 +63,7 @@ type ResolvedProductContentDbRow = Readonly<{
   quantity: number | null;
   content_type_id: string;
   content_type_display_name: unknown;
+  content_type_discovery_search_weight: string | number | null;
   inclusion_policy_id: string | null;
   inclusion_policy_display_name: unknown;
   provenance: unknown;
@@ -145,6 +146,8 @@ function resolvedProductContentRowFromDb(row: ResolvedProductContentDbRow): Cata
     quantity: row.quantity,
     contentTypeId: row.content_type_id,
     contentTypeDisplayName: localizedTextMapFromUnknown(row.content_type_display_name),
+    contentTypeDiscoverySearchWeight:
+      row.content_type_discovery_search_weight === null ? null : Number(row.content_type_discovery_search_weight),
     inclusionPolicyId: row.inclusion_policy_id,
     inclusionPolicyDisplayName: row.inclusion_policy_display_name
       ? localizedTextMapFromUnknown(row.inclusion_policy_display_name)

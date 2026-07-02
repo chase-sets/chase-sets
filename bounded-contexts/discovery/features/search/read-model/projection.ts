@@ -38,6 +38,7 @@ const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
 const SEARCH_REFERENCE_RECORDS_TABLE = "discovery_search_catalog_reference_records";
 const SEARCH_CATALOG_ITEMS_TABLE = "discovery_search_catalog_items";
+const SEARCH_PRODUCT_CONTENTS_TABLE = "discovery_search_product_contents";
 const SEARCH_CATALOG_ITEM_CREATED_COLUMNS = [
   "catalog_item_id",
   "slug",
@@ -172,6 +173,23 @@ type CatalogItemAliasesResolvedEventData = Readonly<{
   resolvedAliasHash?: string;
   resolverVersion?: number;
   resolvedAt?: string;
+}>;
+
+type ProductContentLineResolvedEventData = Readonly<{
+  lineId: string;
+  containerCatalogItemId: string;
+  containerProductId: string | null;
+  containedCatalogItemId: string | null;
+  containedProductId: string | null;
+  contentTypeId: string;
+  contentTypeDiscoverySearchWeight?: number | null;
+  resolutionStatus: "resolved" | "unresolved";
+}>;
+
+type ProductContentsResolvedEventData = Readonly<{
+  containerCatalogItemId: string;
+  containerProductId: string | null;
+  lines: readonly ProductContentLineResolvedEventData[];
 }>;
 
 async function upsertSearchCatalogBlueprint(
@@ -419,7 +437,140 @@ async function loadDimensionFilterValues(
   }));
 }
 
-async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Promise<void> {
+async function buildContentSearchText(db: PgQueryable, containedCatalogItemId: string): Promise<string> {
+  const result = await db.query<SearchCatalogItemRow>(
+    `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
+    [containedCatalogItemId],
+  );
+  const item = result.rows[0];
+  if (!item) {
+    return "";
+  }
+
+  return uniqueStrings([
+    item.title,
+    item.subtitle ?? "",
+    ...localizedMapValues(item.title_i18n),
+    ...localizedMapValues(item.subtitle_i18n),
+  ])
+    .filter((entry) => entry.trim().length > 0)
+    .join(" ");
+}
+
+function contentSearchWeight(value: number | null | undefined): number {
+  if (!Number.isFinite(value ?? Number.NaN)) {
+    return 0.2;
+  }
+
+  return Math.max(0, Math.min(1, Number(value)));
+}
+
+async function upsertSearchProductContent(
+  db: PgQueryable,
+  line: ProductContentLineResolvedEventData & { containedCatalogItemId: string },
+  updatedAt: string,
+): Promise<void> {
+  const contentSearchText = await buildContentSearchText(db, line.containedCatalogItemId);
+  const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
+
+  await db.query(
+    `INSERT INTO ${SEARCH_PRODUCT_CONTENTS_TABLE} (
+       line_id,
+       container_catalog_item_id,
+       container_product_id,
+       contained_catalog_item_id,
+       contained_product_id,
+       content_type_id,
+       content_type_search_weight,
+       content_search_text,
+       content_search_text_simple,
+       search_text,
+       search_text_simple,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_tsvector('english', $8), to_tsvector('simple', $9), $10)
+     ON CONFLICT (line_id) DO UPDATE SET
+       container_catalog_item_id = EXCLUDED.container_catalog_item_id,
+       container_product_id = EXCLUDED.container_product_id,
+       contained_catalog_item_id = EXCLUDED.contained_catalog_item_id,
+       contained_product_id = EXCLUDED.contained_product_id,
+       content_type_id = EXCLUDED.content_type_id,
+       content_type_search_weight = EXCLUDED.content_type_search_weight,
+       content_search_text = EXCLUDED.content_search_text,
+       content_search_text_simple = EXCLUDED.content_search_text_simple,
+       search_text = EXCLUDED.search_text,
+       search_text_simple = EXCLUDED.search_text_simple,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      line.lineId,
+      line.containerCatalogItemId,
+      line.containerProductId,
+      line.containedCatalogItemId,
+      line.containedProductId,
+      line.contentTypeId,
+      contentSearchWeight(line.contentTypeDiscoverySearchWeight),
+      contentSearchText,
+      contentSearchTextSimple,
+      updatedAt,
+    ],
+  );
+}
+
+async function applyProductContentsResolved(
+  db: PgQueryable,
+  input: ProductContentsResolvedEventData,
+  updatedAt: string,
+): Promise<void> {
+  await db.query(
+    `DELETE FROM ${SEARCH_PRODUCT_CONTENTS_TABLE}
+     WHERE container_catalog_item_id = $1
+       AND (
+         (container_product_id IS NULL AND $2::text IS NULL)
+         OR container_product_id = $2
+       )`,
+    [input.containerCatalogItemId, input.containerProductId],
+  );
+
+  for (const line of input.lines) {
+    if (line.resolutionStatus !== "resolved" || !line.containedCatalogItemId) {
+      continue;
+    }
+
+    await upsertSearchProductContent(
+      db,
+      {
+        ...line,
+        containedCatalogItemId: line.containedCatalogItemId,
+      },
+      updatedAt,
+    );
+  }
+}
+
+async function refreshSearchProductContentsForContainedItem(
+  db: PgQueryable,
+  containedCatalogItemId: string,
+  updatedAt: string,
+): Promise<void> {
+  const contentSearchText = await buildContentSearchText(db, containedCatalogItemId);
+  const contentSearchTextSimple = buildSimpleSearchText(contentSearchText);
+
+  await db.query(
+    `UPDATE ${SEARCH_PRODUCT_CONTENTS_TABLE}
+     SET content_search_text = $2,
+         content_search_text_simple = $3,
+         search_text = to_tsvector('english', $2),
+         search_text_simple = to_tsvector('simple', $3),
+         updated_at = $4
+     WHERE contained_catalog_item_id = $1`,
+    [containedCatalogItemId, contentSearchText, contentSearchTextSimple, updatedAt],
+  );
+}
+
+async function refreshDiscoverySearchItem(
+  db: PgQueryable,
+  itemId: string,
+  options: Readonly<{ refreshProductContentText?: boolean }> = {},
+): Promise<void> {
   const result = await db.query<SearchCatalogItemRow>(
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
     [itemId],
@@ -429,6 +580,9 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
 
   if (!item) {
     await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
+    if (options.refreshProductContentText) {
+      await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString());
+    }
     return;
   }
 
@@ -643,6 +797,10 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       item.updated_at,
     ],
   );
+
+  if (options.refreshProductContentText) {
+    await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item.updated_at);
+  }
 }
 
 const EMPTY_ALIAS_WEIGHTS: Readonly<Record<SearchTextWeight, string>> = { A: "", B: "", C: "", D: "" };
@@ -811,7 +969,7 @@ export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void
     select: { column: "catalog_item_id" },
     from: { table: SEARCH_CATALOG_ITEMS_TABLE },
     orderBy: [{ column: "catalog_item_id" }],
-    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true }),
   });
 }
 
@@ -904,7 +1062,7 @@ async function applyCatalogItemDisplayIdentity(
     updatedAt,
   });
 
-  await refreshDiscoverySearchItem(db, input.catalogItemId);
+  await refreshDiscoverySearchItem(db, input.catalogItemId, { refreshProductContentText: true });
 }
 
 /**
@@ -982,7 +1140,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         casts: { title_i18n: "jsonb", description_i18n: "jsonb" },
       });
 
-      await refreshDiscoverySearchItem(db, itemId);
+      await refreshDiscoverySearchItem(db, itemId, { refreshProductContentText: true });
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
@@ -1081,6 +1239,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         event.data as CatalogItemAliasesResolvedEventData,
         event.timing.recordedAt,
       );
+    },
+    "catalog.product-contents.resolved": async (event) => {
+      await applyProductContentsResolved(db, event.data as ProductContentsResolvedEventData, event.timing.recordedAt);
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
@@ -1199,6 +1360,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       });
 
       await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
+      await refreshSearchProductContentsForContainedItem(db, itemId, event.timing.recordedAt);
     },
 
     "catalog.blueprint.created": async (event) => {

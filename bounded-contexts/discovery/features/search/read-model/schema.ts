@@ -184,4 +184,38 @@ CREATE INDEX IF NOT EXISTS discovery_search_items_category_slugs_idx ON discover
 CREATE INDEX IF NOT EXISTS discovery_search_items_category_names_idx ON discovery_search_items USING gin (category_names);
 CREATE INDEX IF NOT EXISTS discovery_search_items_field_filter_values_idx ON discovery_search_items USING gin (field_filter_values);
 CREATE INDEX IF NOT EXISTS discovery_search_items_reference_filter_values_idx ON discovery_search_items USING gin (reference_filter_values);
-CREATE INDEX IF NOT EXISTS discovery_search_items_dimension_filter_values_idx ON discovery_search_items USING gin (dimension_filter_values);`;
+CREATE INDEX IF NOT EXISTS discovery_search_items_dimension_filter_values_idx ON discovery_search_items USING gin (dimension_filter_values);
+
+CREATE TABLE IF NOT EXISTS discovery_search_product_contents (
+  line_id text PRIMARY KEY,
+  container_catalog_item_id text NOT NULL,
+  container_product_id text NULL,
+  contained_catalog_item_id text NOT NULL,
+  contained_product_id text NULL,
+  content_type_id text NOT NULL,
+  content_type_search_weight numeric NOT NULL DEFAULT 0.2,
+  content_search_text text NOT NULL DEFAULT '',
+  content_search_text_simple text NOT NULL DEFAULT '',
+  search_text tsvector,
+  search_text_simple tsvector,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE discovery_search_product_contents
+  ADD COLUMN IF NOT EXISTS content_type_search_weight numeric NOT NULL DEFAULT 0.2,
+  ADD COLUMN IF NOT EXISTS content_search_text text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS content_search_text_simple text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS search_text tsvector,
+  ADD COLUMN IF NOT EXISTS search_text_simple tsvector;
+
+CREATE INDEX IF NOT EXISTS discovery_search_product_contents_container_idx
+  ON discovery_search_product_contents (container_catalog_item_id, container_product_id);
+
+CREATE INDEX IF NOT EXISTS discovery_search_product_contents_contained_idx
+  ON discovery_search_product_contents (contained_catalog_item_id, contained_product_id);
+
+CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_idx
+  ON discovery_search_product_contents USING gin (search_text);
+
+CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_simple_idx
+  ON discovery_search_product_contents USING gin (search_text_simple);`;
