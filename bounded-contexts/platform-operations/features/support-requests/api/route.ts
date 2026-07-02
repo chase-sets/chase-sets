@@ -116,6 +116,24 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
+  app.get("/orders/:orderId", async (c) => {
+    const access = requireSupportAccess(c, "support.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const result = await services.getSupportOrderContext({
+        orderId: c.req.param("orderId"),
+        accountId: access.actor.accountId,
+        openedByRole: c.req.query("role") ?? null,
+      });
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "not_found", message: errorMessage(error) } }, 404);
+    }
+  });
+
   app.get("/ops", async (c) => {
     const access = requireSupportAccess(c, "support.manage");
     if (access.response) {

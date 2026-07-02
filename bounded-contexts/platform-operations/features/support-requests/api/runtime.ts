@@ -63,6 +63,13 @@ export type SupportOrderSource = Readonly<{
   total_amount: string;
 }>;
 
+export type SupportOrderContext = Readonly<{
+  orderId: string;
+  openedByRole: "buyer" | "seller";
+  status: string;
+  totalAmount: string;
+}>;
+
 function normalizeOrderId(value: string): OrderId {
   const orderId = normalizeRequiredText(value, "Order is required.");
   try {
@@ -84,6 +91,9 @@ export type SupportRequestServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ supportRequestId: string; version: number }>;
+  getSupportOrderContext: (
+    params: Readonly<{ orderId: string; accountId: string; openedByRole?: string | null }>,
+  ) => Promise<SupportOrderContext>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -197,6 +207,14 @@ function assertParticipantRole(order: SupportOrderSource, accountId: string, rol
   }
 }
 
+function normalizeParticipantLookupRole(value: string): SupportOrderContext["openedByRole"] {
+  const role = normalizeRequesterRole(value);
+  if (role === "support") {
+    throw new SupportDomainError("Support order lookup must be opened as buyer or seller.");
+  }
+  return role;
+}
+
 async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: string, accountId: string) {
   const supportRequest = await getAccountSupportRequest(db, supportRequestId, accountId);
   if (!supportRequest) {
@@ -237,6 +255,28 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   return {
     commandHandler,
     listFlowDefinitions: () => supportFlowCatalog,
+    getSupportOrderContext: async (params) => {
+      const orderId = normalizeOrderId(params.orderId);
+      const order = await getOrderSource(deps.db, orderId);
+      if (!order) {
+        throw new SupportDomainError("Order not found for support.");
+      }
+
+      const openedByRole =
+        typeof params.openedByRole === "string" && params.openedByRole.trim()
+          ? normalizeParticipantLookupRole(params.openedByRole)
+          : order.buyer_account_id === params.accountId
+            ? "buyer"
+            : "seller";
+      assertParticipantRole(order, params.accountId, openedByRole);
+
+      return {
+        orderId: order.order_id,
+        openedByRole,
+        status: order.status,
+        totalAmount: order.total_amount,
+      };
+    },
     openSupportRequest: async (params, context) => {
       const orderId = normalizeOrderId(params.orderId);
       const order = await getOrderSource(deps.db, orderId);
