@@ -43,7 +43,32 @@ describe("digitalocean-drift-digest", () => {
         unknownChaseSetsResources: 1,
         cleanupCandidates: 2,
         warningFindings: 5,
+        databaseBackups: {
+          observedClusters: 1,
+          staleClusters: 0,
+          missingClusters: 0,
+          newestBackupAgeHoursByCluster: {
+            "chase-sets-postgres": 12,
+          },
+        },
       },
+    });
+    expect(result.record.resources.databaseBackups).toEqual([
+      expect.objectContaining({
+        clusterId: "db-prod",
+        clusterName: "chase-sets-postgres",
+        backupCount: 1,
+        newestBackupCreatedAt: "2026-07-01T00:00:00.000Z",
+        newestBackupAgeHours: 12,
+        expectedMaximumAgeHours: 26,
+        stale: false,
+        missing: false,
+      }),
+    ]);
+    expect(result.record.collections["databaseBackups:chase-sets-postgres"]).toMatchObject({
+      status: "success",
+      command: ["doctl", "databases", "backups", "list", "db-prod", "--output", "json"],
+      count: 1,
     });
     expect(result.record.resources.apps).toEqual([
       expect.objectContaining({
@@ -108,6 +133,118 @@ describe("digitalocean-drift-digest", () => {
         }),
       ]),
     );
+  });
+
+  it("warns when the newest production database backup is stale", async () => {
+    const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
+      execFile: async (_command, args) => {
+        if (args.join(" ") === "databases backups list db-prod --output json") {
+          return { stdout: JSON.stringify([{ id: "backup-old", created_at: "2026-06-30T00:00:00.000Z" }]) };
+        }
+        return { stdout: JSON.stringify(responseFor(args)) };
+      },
+    });
+
+    expect(result.record.summary.databaseBackups).toMatchObject({
+      observedClusters: 1,
+      staleClusters: 1,
+      missingClusters: 0,
+      newestBackupAgeHoursByCluster: {
+        "chase-sets-postgres": 36,
+      },
+    });
+    expect(result.record.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "database-backup-health",
+          resourceType: "database-backup",
+          resourceName: "chase-sets-postgres",
+          severity: "warning",
+          evidence: expect.objectContaining({
+            backupCount: 1,
+            newestBackupAgeHours: 36,
+            expectedMaximumAgeHours: 26,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("warns when a managed database backup list is empty", async () => {
+    const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
+      execFile: async (_command, args) => {
+        if (args.join(" ") === "databases backups list db-prod --output json") {
+          return { stdout: JSON.stringify([]) };
+        }
+        return { stdout: JSON.stringify(responseFor(args)) };
+      },
+    });
+
+    expect(result.record.summary.databaseBackups).toMatchObject({
+      observedClusters: 1,
+      staleClusters: 0,
+      missingClusters: 1,
+      newestBackupAgeHoursByCluster: {
+        "chase-sets-postgres": null,
+      },
+    });
+    expect(result.record.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "database-backup-health",
+          resourceType: "database-backup",
+          resourceName: "chase-sets-postgres",
+          severity: "warning",
+          evidence: expect.objectContaining({
+            backupCount: 0,
+            newestBackupCreatedAt: null,
+            newestBackupAgeHours: null,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("records database backup collection failures without adding stale or missing findings", async () => {
+    const result = await runDigitalOceanDriftDigest(BASE_OPTIONS, {
+      execFile: async (_command, args) => {
+        if (args.join(" ") === "databases backups list db-prod --output json") {
+          const error = new Error("backup collection failed");
+          error.stderr = "backup permission denied";
+          throw error;
+        }
+        return { stdout: JSON.stringify(responseFor(args)) };
+      },
+    });
+
+    expect(result.record.collections["databaseBackups:chase-sets-postgres"]).toMatchObject({
+      status: "failed",
+      count: 0,
+      error: expect.arrayContaining(["stderr: backup permission denied"]),
+    });
+    expect(result.record.resources.databaseBackups).toEqual([
+      expect.objectContaining({
+        clusterName: "chase-sets-postgres",
+        collectionStatus: "failed",
+        missing: false,
+        stale: false,
+      }),
+    ]);
+    expect(result.record.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "collection",
+          resourceType: "doctl",
+          resourceName: "databaseBackups:chase-sets-postgres",
+          severity: "warning",
+        }),
+      ]),
+    );
+    expect(
+      result.record.findings.some(
+        (finding) => finding.category === "database-backup-health" && finding.resourceName === "chase-sets-postgres",
+      ),
+    ).toBe(false);
   });
 
   it("records doctl collection failures as advisory digest warnings without failing the gate", async () => {
@@ -181,6 +318,9 @@ function responseFor(args) {
         created_at: "2026-06-29T00:00:00.000Z",
       },
     ];
+  }
+  if (command === "databases backups list db-prod --output json") {
+    return [{ id: "backup-recent", created_at: "2026-07-01T00:00:00.000Z", size_gigabytes: 12 }];
   }
   if (command === "registry repository list-tags chase-sets-platform --output json") {
     return [
