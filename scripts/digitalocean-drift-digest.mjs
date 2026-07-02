@@ -11,6 +11,7 @@ const execFile = promisify(execFileCallback);
 
 export const DIGITALOCEAN_DRIFT_DIGEST_VERSION = "digitalocean-drift-digest/v1";
 const RESTORE_POINT_PREFIX = "cs-prod-rp-";
+const RESTORE_DRILL_PREFIX = "cs-stg-drill-";
 const DEFAULT_REPOSITORY = "chase-sets-platform";
 
 const OBSERVABILITY_POLICIES = {
@@ -110,6 +111,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
     terraformRoots: TERRAFORM_ROOTS,
     policies: {
       restorePointPrefix: RESTORE_POINT_PREFIX,
+      restoreDrillPrefix: RESTORE_DRILL_PREFIX,
       restorePointMinAgeHours: options.restorePointMinAgeHours,
       registryRepository: options.repository,
       registryRetentionDays: options.registryRetentionDays,
@@ -124,6 +126,7 @@ export async function buildDigitalOceanDriftDigest(options, dependencies = {}) {
       apps: ["chase-sets-platform", "chase-sets-staging-platform", "chase-sets-pr-<number>-platform"],
       databases: ["chase-sets-postgres", "chase-sets-staging-postgres", "chase-sets-pr-<number>-postgres"],
       restorePoints: [`${RESTORE_POINT_PREFIX}<release-timestamp>-<sha>`],
+      restoreDrills: [`${RESTORE_DRILL_PREFIX}<yyyymmdd>-<run-id>-<attempt>`],
       registryRepositories: [options.repository],
       catalogAssetBuckets: [
         "chase-sets-preview-catalog-assets",
@@ -377,8 +380,13 @@ function summarizeDatabase(database, restorePointCutoff) {
   const name = readField(database, "name", "Name") ?? "";
   const createdAt = readField(database, "created_at", "createdAt", "CreatedAt");
   const restorePoint = name.startsWith(RESTORE_POINT_PREFIX);
+  const restoreDrill = name.startsWith(RESTORE_DRILL_PREFIX);
   const oldRestorePoint =
     restorePoint &&
+    Number.isFinite(Date.parse(createdAt ?? "")) &&
+    Date.parse(createdAt) <= restorePointCutoff.getTime();
+  const oldRestoreDrill =
+    restoreDrill &&
     Number.isFinite(Date.parse(createdAt ?? "")) &&
     Date.parse(createdAt) <= restorePointCutoff.getTime();
   return {
@@ -390,13 +398,16 @@ function summarizeDatabase(database, restorePointCutoff) {
     region: readField(database, "region", "Region"),
     environment: classifyEnvironment(name),
     terraformRoot: databaseTerraformRoot(name),
-    classification: restorePoint
-      ? oldRestorePoint
-        ? "cleanup-candidate"
-        : "operator-managed"
-      : classifyDatabase(name),
+    classification:
+      restorePoint || restoreDrill
+        ? oldRestorePoint || oldRestoreDrill
+          ? "cleanup-candidate"
+          : "operator-managed"
+        : classifyDatabase(name),
     restorePoint,
+    restoreDrill,
     oldRestorePoint,
+    oldRestoreDrill,
   };
 }
 
@@ -571,16 +582,19 @@ function appFindings(app) {
 }
 
 function databaseFindings(database) {
-  if (database.oldRestorePoint) {
+  if (database.oldRestorePoint || database.oldRestoreDrill) {
+    const drill = database.oldRestoreDrill;
     return [
       {
         severity: "warning",
-        category: "restore-point-retention",
+        category: drill ? "restore-drill-retention" : "restore-point-retention",
         resourceType: "database",
         resourceName: database.name,
         owner: "ops",
         terraformRoot: null,
-        action: "Run or inspect Platform Production Restore Point Cleanup before the fork accrues unnecessary cost.",
+        action: drill
+          ? "Delete the stale staging restore-drill fork or run restore-point cleanup with the cs-stg-drill- prefix before it accrues unnecessary cost."
+          : "Run or inspect Platform Production Restore Point Cleanup before the fork accrues unnecessary cost.",
         evidence: { id: database.id, createdAt: database.createdAt },
       },
     ];
@@ -847,7 +861,7 @@ function summarizeDigest(input) {
     terraformManagedResources: resources.filter((resource) => resource.classification === "terraform-managed").length,
     unknownChaseSetsResources: resources.filter((resource) => resource.classification === "unknown-chase-sets").length,
     cleanupCandidates:
-      input.databases.filter((database) => database.oldRestorePoint).length +
+      input.databases.filter((database) => database.oldRestorePoint || database.oldRestoreDrill).length +
       input.registryTags.filter((tag) => tag.cleanupEligible).length,
     databaseBackups: {
       observedClusters: input.databaseBackups.length,
@@ -874,6 +888,9 @@ function classifyApp(name) {
 }
 
 function classifyDatabase(name) {
+  if (name.startsWith(RESTORE_DRILL_PREFIX)) {
+    return "operator-managed";
+  }
   if (
     ["chase-sets-postgres", "chase-sets-staging-postgres"].includes(name) ||
     /^chase-sets-pr-\d+-postgres$/.test(name)
@@ -896,6 +913,9 @@ function databaseBackupManagedName(name) {
 }
 
 function classifyEnvironment(name) {
+  if (name.startsWith(RESTORE_DRILL_PREFIX)) {
+    return "staging";
+  }
   if (/^chase-sets-pr-\d+/.test(name)) {
     return "preview";
   }

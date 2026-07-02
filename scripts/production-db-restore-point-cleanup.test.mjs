@@ -55,6 +55,33 @@ describe("production restore-point cleanup", () => {
     expect(candidates.map((candidate) => candidate.id)).toEqual(["db-old-restore"]);
   });
 
+  it("can select stale staging restore-drill forks as an explicit cleanup backstop", () => {
+    const candidates = selectRestorePointCleanupCandidates(
+      [
+        ...clusters,
+        {
+          id: "db-staging-drill-old",
+          name: "cs-stg-drill-20260628-123-1",
+          status: "online",
+          createdAt: "2026-06-28T09:00:00Z",
+        },
+        {
+          id: "db-staging-drill-new",
+          name: "cs-stg-drill-20260629-456-1",
+          status: "online",
+          createdAt: "2026-06-29T11:00:00Z",
+        },
+      ],
+      {
+        prefix: "cs-stg-drill-",
+        cutoff: new Date("2026-06-28T12:00:00.000Z"),
+        holdNames: [],
+      },
+    );
+
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["db-staging-drill-old"]);
+  });
+
   it("excludes held restore-point forks from cleanup candidates", () => {
     expect(selectHeldRestorePoints(clusters, ["cs-prod-rp-abcdef12-28349079203-1"])).toEqual([clusters[0]]);
 
