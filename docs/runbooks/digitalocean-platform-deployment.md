@@ -29,6 +29,7 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 - Database connections: App Platform components use component-specific per-context Postgres client pool budgets. API components keep enough clients for concurrent route loaders, workers keep enough clients for their configured runner groups plus control-plane work, and bootstrap jobs keep a smaller bounded pool. Preview and staging route runtime traffic through managed PgBouncer transaction pools. Preview stays on the smallest database tier with size-1 context pools; staging runs the full shared platform on `db-s-2vcpu-4gb` so hot contexts such as Catalog, Control, Auth, Identity, Public Presence, Discovery, and Marketplace can use larger managed pools without exhausting server connections. Production also uses `db-s-2vcpu-4gb` as the baseline for its component pool budgets. Managed pool `size` consumes database server connection capacity; scale the database tier before increasing managed PgBouncer pool sizes further.
 - Production branch: `production` is a smoke-verified deployed release marker. The production workflow fast-forwards it only after App Platform deployment and production smoke pass. It also creates an annotated `release-<yyyymmddHHMMSS>-<sha>` Git tag and a matching DOCR image tag for audit and rollback.
 - Image retention: the `chase-sets-platform` DOCR repository uses immutable commit, PR, and release tags. `.github/workflows/platform-registry-cleanup.yml` preserves App Platform-referenced tags, release-prefixed image tags, and images updated in the last 7 days; scheduled runs delete older unreferenced tags and then start DigitalOcean registry garbage collection. Manual dispatch defaults to dry-run for operator inspection and uploads `artifacts/release-health/digitalocean-registry-cleanup.json`.
+- Terraform state snapshots: DigitalOcean Spaces does not support object versioning, so `.github/workflows/platform-terraform-state-snapshot.yml` copies durable state objects into `state-archive/YYYY-MM-DD/<original-key>` daily and prunes archive objects older than 30 days. The workflow excludes disposable PR preview state under `platform/previews/`, uploads metadata-only evidence, and alerts through the scheduled workflow reporter.
 - Availability checks: Terraform creates DigitalOcean uptime checks for public, admin, and canonical marketplace endpoints. Uptime alert emails are created only when `PLATFORM_ALERT_EMAILS` is configured for the GitHub environment.
 - Drift visibility: `.github/workflows/platform-digitalocean-drift-digest.yml` runs a read-only advisory digest of DigitalOcean apps, managed databases, registry tags, observability droplets/volumes, uptime checks, and CDN endpoints. The digest uploads `artifacts/release-health/digitalocean-drift-digest.json`, maps known Chase Sets resources to Terraform roots, and flags unknown or cost-impacting resources for operator review. It also warns if retired admin-support component names reappear in one App Platform app. It cannot delete resources.
 - Observability cost posture: `infrastructure/digitalocean/observability` defaults `droplet_backups_enabled=false` because the host is reproducible from Terraform/cloud-init. The attached volume is the durable telemetry surface; staging and production accept no more than 24 hours of telemetry data loss by default and require a manual volume snapshot before destructive maintenance or risky host replacement. The drift digest reports Droplet backup state and observability volume size, warning on unexpected staging spend posture and advising review when production host backups are enabled.
@@ -57,6 +58,16 @@ Rationale: the observability stack is intentionally reproducible and cost-aware.
 Blast radius and recovery: a lost or rebuilt observability host may lose uncommitted live configuration edits. The durable telemetry surface is the attached volume; the accepted telemetry data-loss window is no more than 24 hours by default, with a manual volume snapshot required before destructive maintenance, risky host replacement, or retention changes. Recovery is to re-run Terraform/cloud-init from source, reattach or restore the volume when available, and reapply only source-controlled dashboards and rules. If a live change is needed after recovery, capture it in source before treating it as durable.
 
 Revisit trigger: production incident response depends on a live-only dashboard or alert, audit/compliance needs longer telemetry or dashboard retention, operators repeatedly need host-local changes, or a drift incident shows the source-owned path is too slow.
+
+### Terraform State Snapshot Scope
+
+Decision: Terraform state uses daily same-bucket archive copies instead of native object versioning.
+
+Rationale: DigitalOcean Spaces does not expose S3 object versioning. A scheduled copy to `state-archive/YYYY-MM-DD/` protects against accidental overwrite or corruption of an individual state object without introducing a second storage provider before launch.
+
+Blast radius and recovery: same-bucket archive copies do not protect against bucket deletion, account-wide credential compromise, or a regional Spaces outage. Recovery from object overwrite is supported by copying a dated archive object back to its original key, then running a Terraform plan for the affected root before any apply.
+
+Revisit trigger: compliance or revenue exposure requires bucket-loss recovery, a state incident shows same-bucket archival is insufficient, or restore drills show state recovery cannot meet the accepted recovery target.
 
 ## Preview Hosts
 
@@ -275,6 +286,41 @@ terraform apply
 ```
 
 Then run `terraform init` in `infrastructure/digitalocean/platform` and `infrastructure/digitalocean/observability` using the appropriate backend key. The CI workflows use the same backend settings.
+
+## Terraform State Snapshot Recovery
+
+The `Platform Terraform State Snapshot` workflow copies durable Terraform state objects into `state-archive/YYYY-MM-DD/<original-key>` every day. It snapshots:
+
+- `landing/staging.tfstate`
+- `landing/production.tfstate`
+- `environment-dns/staging.tfstate`
+- `catalog-assets/preview.tfstate`
+- `catalog-assets/staging.tfstate`
+- `catalog-assets/production.tfstate`
+- `observability/staging.tfstate`
+- `observability/production.tfstate`
+
+It intentionally excludes disposable PR preview state under `platform/previews/`. The workflow summary and artifact list object keys, archive keys, byte counts, and pruning results only; they must not include state file contents.
+
+To recover a corrupted or accidentally overwritten durable state object:
+
+1. Pause the affected deploy or bootstrap workflow before the next `terraform apply`.
+2. Identify the affected key and the last known-good archive date from the workflow summary or artifact.
+3. Copy the archived object back to its original key:
+
+```bash
+aws s3api copy-object \
+  --endpoint-url https://nyc3.digitaloceanspaces.com \
+  --bucket chase-sets-terraform-state \
+  --copy-source /chase-sets-terraform-state/state-archive/<yyyy-mm-dd>/<original-key> \
+  --key <original-key> \
+  --metadata-directive COPY
+```
+
+4. Initialize the affected Terraform root with its normal backend settings and run `terraform plan`.
+5. If the plan matches the expected live infrastructure, resume the paused deploy or bootstrap. If it shows unexpected creates or destroys, keep the workflow paused and open an incident issue with the plan summary and the restored archive key.
+
+Same-bucket snapshots protect against object overwrite and state corruption. They do not protect against bucket deletion, regional Spaces outage, or compromised Spaces credentials.
 
 ## One-Time Observability Bootstrap
 

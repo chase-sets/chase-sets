@@ -1,0 +1,107 @@
+name: Platform Terraform State Snapshot
+
+on:
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: platform-terraform-state-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Snapshot Terraform State
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      issues: write
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Snapshot Terraform state
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+
+          node ./scripts/digitalocean-terraform-state-snapshot.mjs snapshot \
+            --out artifacts/release-health/digitalocean-terraform-state-snapshot.json
+
+      - name: Summarize Terraform state snapshot
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/digitalocean-terraform-state-snapshot.json"
+          if [ ! -f "$record" ]; then
+            echo "No Terraform state snapshot record was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const copied = (record.snapshots ?? []).filter((snapshot) => snapshot.status === "copied");
+          const failed = (record.snapshots ?? []).filter((snapshot) => snapshot.status !== "copied");
+          console.log("## Terraform State Snapshot");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Bucket: ${record.bucket}`);
+          console.log(`- Archive date: ${record.archiveDate}`);
+          console.log(`- Archive prefix: ${record.archivePrefix}`);
+          console.log(`- Snapshotted keys: ${copied.length}`);
+          console.log(`- Failed keys: ${failed.length}`);
+          console.log(`- Pruned old archive objects: ${record.prunedArchiveKeys?.length ?? 0}`);
+          console.log("");
+          console.log("### Snapshots");
+          for (const snapshot of record.snapshots ?? []) {
+            const size = snapshot.sizeBytes === null ? "unknown size" : `${snapshot.sizeBytes} bytes`;
+            console.log(`- ${snapshot.status}: ${snapshot.stateKey} -> ${snapshot.archiveKey} (${size})`);
+          }
+          if (record.errors?.length) {
+            console.log("");
+            console.log("### Errors");
+            for (const error of record.errors) {
+              console.log(`- ${error}`);
+            }
+          }
+          NODE
+
+      - name: Upload Terraform state snapshot artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-terraform-state-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-health/digitalocean-terraform-state-snapshot.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Report Terraform state snapshot failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Terraform State Snapshot
+          alert-status: failure
+          alert-summary: Platform Terraform state snapshot failed. See the snapshot summary and uploaded artifact when present.
+
+      - name: Report Terraform state snapshot recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Terraform State Snapshot
+          alert-status: success
+          alert-summary: Platform Terraform state snapshot completed successfully.
