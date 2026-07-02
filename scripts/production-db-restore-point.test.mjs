@@ -26,6 +26,9 @@ describe("production database restore point", () => {
       execFile: async (command, args) => {
         calls.push({ command, args });
         if (args[1] === "fork") {
+          return { stdout: "" };
+        }
+        if (args[1] === "list") {
           return {
             stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
           };
@@ -43,16 +46,11 @@ describe("production database restore point", () => {
     expect(calls).toEqual([
       {
         command: "doctl",
-        args: [
-          "databases",
-          "fork",
-          "cs-prod-rp-aaaaaaaa-12345-2",
-          "--restore-from-cluster-id",
-          "db-prod-1",
-          "--format",
-          "ID,Name,Status,Created",
-          "--no-header",
-        ],
+        args: ["databases", "fork", "cs-prod-rp-aaaaaaaa-12345-2", "--restore-from-cluster-id", "db-prod-1"],
+      },
+      {
+        command: "doctl",
+        args: ["databases", "list", "--format", "ID,Name,Status,Created", "--no-header"],
       },
       {
         command: "doctl",
@@ -132,6 +130,9 @@ describe("production database restore point", () => {
         execFile: async (command, args) => {
           calls.push({ command, args });
           if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
             return {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
             };
@@ -148,16 +149,8 @@ describe("production database restore point", () => {
 
     expect(result.passesRestorePointGate).toBe(false);
     expect(calls.map((call) => call.args)).toEqual([
-      [
-        "databases",
-        "fork",
-        "cs-prod-rp-aaaaaaaa-12345-2",
-        "--restore-from-cluster-id",
-        "db-prod-1",
-        "--format",
-        "ID,Name,Status,Created",
-        "--no-header",
-      ],
+      ["databases", "fork", "cs-prod-rp-aaaaaaaa-12345-2", "--restore-from-cluster-id", "db-prod-1"],
+      ["databases", "list", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-fork-1", "--format", "ID,Name,Status,Created", "--no-header"],
@@ -221,16 +214,7 @@ describe("production database restore point", () => {
 
     expect(result.passesRestorePointGate).toBe(false);
     expect(calls.map((call) => call.args)).toEqual([
-      [
-        "databases",
-        "fork",
-        "cs-prod-rp-c051382b-28617834359-1",
-        "--restore-from-cluster-id",
-        "db-prod-1",
-        "--format",
-        "ID,Name,Status,Created",
-        "--no-header",
-      ],
+      ["databases", "fork", "cs-prod-rp-c051382b-28617834359-1", "--restore-from-cluster-id", "db-prod-1"],
       ["databases", "get", liveForkId, "--format", "ID,Name,Status,Created", "--no-header"],
     ]);
     expect(result.record).toMatchObject({
@@ -275,6 +259,9 @@ describe("production database restore point", () => {
         now: () => 0,
         execFile: async (_command, args) => {
           if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
             return {
               stdout: "db-fork-1\tcs-prod-rp-aaaaaaaa-12345-2\tcreating\t2026-06-28T09:30:01Z\n",
             };

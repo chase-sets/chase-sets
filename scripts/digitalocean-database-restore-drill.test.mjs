@@ -30,15 +30,11 @@ describe("digitalocean database restore drill", () => {
       execFile: async (command, args) => {
         calls.push({ command, args });
         if (args[1] === "fork") {
+          return { stdout: "" };
+        }
+        if (args[1] === "list") {
           return {
-            stdout: JSON.stringify([
-              {
-                id: "db-drill",
-                name: "cs-stg-drill-20260703-987654321-2",
-                status: "online",
-                created_at: "2026-07-03T07:26:05Z",
-              },
-            ]),
+            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
           };
         }
         if (args[1] === "connection") {
@@ -106,17 +102,9 @@ describe("digitalocean database restore drill", () => {
     expect(calls).toEqual([
       {
         command: "doctl",
-        args: [
-          "databases",
-          "fork",
-          "cs-stg-drill-20260703-987654321-2",
-          "--restore-from-cluster-id",
-          "db-staging",
-          "--format",
-          "ID,Name,Status,Created",
-          "--no-header",
-        ],
+        args: ["databases", "fork", "cs-stg-drill-20260703-987654321-2", "--restore-from-cluster-id", "db-staging"],
       },
+      { command: "doctl", args: ["databases", "list", "--format", "ID,Name,Status,Created", "--no-header"] },
       { command: "doctl", args: ["databases", "connection", "db-drill", "--format", "URI", "--no-header"] },
       { command: "doctl", args: ["databases", "delete", "db-drill", "--force"] },
     ]);
@@ -131,7 +119,12 @@ describe("digitalocean database restore drill", () => {
       execFile: async (_command, args) => {
         calls.push(args);
         if (args[1] === "fork") {
-          return { stdout: JSON.stringify({ id: "db-drill", name: "cs-stg-drill-failing", status: "online" }) };
+          return { stdout: "" };
+        }
+        if (args[1] === "list") {
+          return {
+            stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tonline\t2026-07-03T07:26:05Z\n",
+          };
         }
         if (args[1] === "connection") {
           return { stdout: "postgresql://doadmin:super-secret@fork.example.com:25060/defaultdb?sslmode=require\n" };
@@ -174,6 +167,9 @@ describe("digitalocean database restore drill", () => {
         execFile: async (_command, args) => {
           calls.push(args);
           if (args[1] === "fork") {
+            return { stdout: "" };
+          }
+          if (args[1] === "list") {
             return {
               stdout: "db-drill\tcs-stg-drill-20260703-987654321-2\tforking\t2026-07-03T07:23:01Z\n",
             };
@@ -194,16 +190,8 @@ describe("digitalocean database restore drill", () => {
 
     expect(result.passesRestoreDrillGate).toBe(false);
     expect(calls).toEqual([
-      [
-        "databases",
-        "fork",
-        "cs-stg-drill-20260703-987654321-2",
-        "--restore-from-cluster-id",
-        "db-staging",
-        "--format",
-        "ID,Name,Status,Created",
-        "--no-header",
-      ],
+      ["databases", "fork", "cs-stg-drill-20260703-987654321-2", "--restore-from-cluster-id", "db-staging"],
+      ["databases", "list", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
       ["databases", "get", "db-drill", "--format", "ID,Name,Status,Created", "--no-header"],
