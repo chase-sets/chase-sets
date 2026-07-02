@@ -18,6 +18,12 @@ import {
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 
+function normalizePhoneCode(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[\s-]+/g, "");
+}
+
 export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/phone-code/request", async (c) => {
     const body = await c.req.json();
@@ -63,7 +69,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
-    const code = String(body.code ?? "").trim();
+    const code = normalizePhoneCode(body.code);
     if (!phone || !code) {
       return c.json({ error: t("auth.support.apiSupport.phoneCodeRoutes.phone.and.code.are.required") }, 400);
     }

@@ -457,6 +457,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone.code.2")}
               name="code"
+              autoComplete="one-time-code"
               inputMode="numeric"
               required
               value={details.phoneCode}

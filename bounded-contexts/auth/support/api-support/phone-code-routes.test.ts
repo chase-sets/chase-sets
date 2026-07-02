@@ -105,6 +105,32 @@ describe("phone code auth routes", () => {
     });
 
     expect(response.status).toBe(401);
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("+13125550101:123456");
+    expect(services.identity.listActiveMembershipsForUser).not.toHaveBeenCalled();
+  });
+
+  it("normalizes whitespace and dashes before consuming phone codes", async () => {
+    const services = {
+      db: { query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })) },
+      auth: {
+        hashSecret: vi.fn((value: string) => `hashed:${value}`),
+      },
+      identity: {
+        getUserByPhone: vi.fn(async () => null),
+        listActiveMembershipsForUser: vi.fn(async () => []),
+      },
+      notificationOutbox: { enqueueNotification: vi.fn() },
+    };
+    const app = buildApp(services);
+
+    const response = await app.request("/phone-code/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "3125550101", code: "123 456- " }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("+13125550101:123456");
     expect(services.identity.listActiveMembershipsForUser).not.toHaveBeenCalled();
   });
 });
