@@ -360,6 +360,60 @@ export function appPlatformChanges(plan) {
   );
 }
 
+export function terraformPlanSummary(plan, options = {}) {
+  const maxResources = options.maxResources ?? 50;
+  const changes = (plan.resource_changes ?? [])
+    .map((resourceChange) => {
+      const actions = resourceChange.change?.actions ?? [];
+      return {
+        address: resourceChange.address ?? `${resourceChange.type}.${resourceChange.name}`,
+        actions,
+      };
+    })
+    .filter(
+      (change) => change.actions.length > 0 && change.actions.some((action) => !["no-op", "read"].includes(action)),
+    );
+
+  return {
+    add: changes.filter((change) => change.actions.includes("create")).length,
+    change: changes.filter((change) => change.actions.includes("update")).length,
+    destroy: changes.filter((change) => change.actions.includes("delete")).length,
+    resources: changes
+      .sort((left, right) => left.address.localeCompare(right.address))
+      .slice(0, maxResources)
+      .map((change) => ({ ...change, actions: [...change.actions] })),
+    omittedResources: Math.max(0, changes.length - maxResources),
+  };
+}
+
+export function renderTerraformPlanSummaryMarkdown(plan, options = {}) {
+  const title = options.title ?? "Terraform plan";
+  const summary = terraformPlanSummary(plan, { maxResources: options.maxResources });
+  const lines = [
+    `### ${title}`,
+    "",
+    `- Add: ${summary.add}`,
+    `- Change: ${summary.change}`,
+    `- Destroy: ${summary.destroy}`,
+    "",
+  ];
+
+  if (summary.resources.length === 0) {
+    lines.push("No resource changes in this plan.");
+  } else {
+    lines.push("Changed resources:");
+    for (const resource of summary.resources) {
+      lines.push(`- \`${resource.address}\` (${resource.actions.join(", ")})`);
+    }
+    if (summary.omittedResources > 0) {
+      lines.push(`- ... ${summary.omittedResources} additional resource change(s) omitted from the summary.`);
+    }
+  }
+
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
 function knownTerraformId(value) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : "";
 }
@@ -647,6 +701,10 @@ export async function readPostgresClusterIdFromPlan(tfplanPath, options = {}) {
 export async function assertTerraformPlanSafe(tfplanPath, options = {}) {
   const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return assertNoDestructiveChanges(JSON.parse(output), options);
+}
+
+export function readTerraformPlanSummaryMarkdown(tfplanJsonPath, options = {}) {
+  return renderTerraformPlanSummaryMarkdown(JSON.parse(readFileSync(tfplanJsonPath, "utf8")), options);
 }
 
 export async function waitForDeployments(appId, options = {}) {
@@ -945,6 +1003,22 @@ async function main(argv) {
       allowFilePath && existsSync(allowFilePath) ? readDestructiveChangeAllowFile(allowFilePath) : [];
 
     await assertTerraformPlanSafe(tfplanPath, { allowedDestructiveAddresses });
+    return;
+  }
+
+  if (command === "summarize-plan") {
+    const [tfplanJsonPath, ...options] = args;
+    if (!tfplanJsonPath) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs summarize-plan <tfplan-json> [--title=<title>]",
+      );
+    }
+
+    process.stdout.write(
+      readTerraformPlanSummaryMarkdown(tfplanJsonPath, {
+        title: readStringOption(options, "--title") ?? "Terraform plan",
+      }),
+    );
     return;
   }
 

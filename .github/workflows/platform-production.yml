@@ -706,8 +706,22 @@ jobs:
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
+          mkdir -p artifacts/terraform-plans
+          terraform show -no-color tfplan > artifacts/terraform-plans/staging-tfplan.txt
+          terraform show -json tfplan > artifacts/terraform-plans/staging-tfplan.json
+          node ../../../scripts/digitalocean-app-deployment.mjs summarize-plan artifacts/terraform-plans/staging-tfplan.json --title="Staging Terraform plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "plan_written=true" >> "$GITHUB_OUTPUT"
           app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload staging Terraform plan
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-terraform-plan
+          path: infrastructure/digitalocean/platform/artifacts/terraform-plans/staging-tfplan.*
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Wait for previous App Platform deployment
         if: env.SHOULD_DEPLOY != 'false'
@@ -1715,9 +1729,23 @@ jobs:
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
+          mkdir -p artifacts/terraform-plans
+          terraform show -no-color tfplan > artifacts/terraform-plans/production-tfplan.txt
+          terraform show -json tfplan > artifacts/terraform-plans/production-tfplan.json
+          node ../../../scripts/digitalocean-app-deployment.mjs summarize-plan artifacts/terraform-plans/production-tfplan.json --title="Production Terraform plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "plan_written=true" >> "$GITHUB_OUTPUT"
           node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload production Terraform plan
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.plan_written == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-terraform-plan
+          path: infrastructure/digitalocean/platform/artifacts/terraform-plans/production-tfplan.*
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Create production database restore point
         if: env.SHOULD_DEPLOY != 'false'
