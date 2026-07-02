@@ -24,9 +24,24 @@ import {
 } from "@chase-sets/design-system";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import type { InventoryImportBatchJobStatus } from "../api/runtime";
+import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integrations/catalog/queries";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
+import {
+  getOptionLabel,
+  getOrderedDimensions,
+  isDimensionActive,
+  normalizeSelectedOptionssForSchema,
+  recordToSelectionEntries,
+  selectionEntriesToRecord,
+} from "../../inventory-items/integrations/catalog/versioning";
+
+const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+
+type CatalogItemSearchResponse = Readonly<{
+  items?: readonly InventoryCatalogItemSnapshot[];
+}>;
 
 function statusTone(status: string) {
   switch (status) {
@@ -42,6 +57,19 @@ function statusTone(status: string) {
 
 function money(amount: string | null) {
   return amount ? `$${amount}` : t("inventory.features.importBatches.ui.importBatchPage.not.set");
+}
+
+function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
+  return [item.title, item.subtitle].filter(Boolean).join(" - ");
+}
+
+function rowNeedsPickerFix(row: InventoryImportBatchRow, sourceKey: InventoryImportBatch["source_key"]) {
+  return (
+    sourceKey === "native-csv" &&
+    row.status === "rejected" &&
+    row.resolution_status === "unresolved" &&
+    !row.committed_at
+  );
 }
 
 function rowOutcome(row: InventoryImportBatchRow, currentPath?: string | null): ReactNode {
@@ -89,6 +117,206 @@ const importSourceOptions = listInventoryImportSources().map((source) => ({
   label: source.label,
 }));
 
+function ImportRowResolutionForm({
+  row,
+  storageLocations,
+  catalogItemApiBaseUrl,
+}: {
+  row: InventoryImportBatchRow;
+  storageLocations: readonly InventoryStorageLocation[];
+  catalogItemApiBaseUrl: string;
+}) {
+  const [initialSelectedOptions] = useState(() => selectionEntriesToRecord(row.selected_options));
+  const [catalogItemSearch, setCatalogItemSearch] = useState(row.catalog_item_id ?? "");
+  const [catalogSearchResults, setCatalogSearchResults] = useState<readonly InventoryCatalogItemSnapshot[]>([]);
+  const [catalogItemId, setCatalogItemId] = useState(row.catalog_item_id ?? "");
+  const [catalogItem, setCatalogItem] = useState<InventoryCatalogItemSnapshot | null>(null);
+  const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
+  const [catalogLookupPending, setCatalogLookupPending] = useState(false);
+  const [selectedOptionsByDimension, setSelectedOptionsByDimension] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const search = catalogItemSearch.trim();
+    if (search.length < 2) {
+      setCatalogSearchResults([]);
+      setCatalogLookupError(null);
+      setCatalogLookupPending(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setCatalogLookupPending(true);
+    const query = new URLSearchParams({ search, status: "active", limit: "10" });
+
+    void fetch(`${catalogItemApiBaseUrl}?${query.toString()}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string | { message?: string } } | null;
+          const message = typeof body?.error === "string" ? body.error : body?.error?.message;
+          throw new Error(
+            message ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+          );
+        }
+
+        return response.json() as Promise<CatalogItemSearchResponse>;
+      })
+      .then((result) => {
+        const items = result.items ?? [];
+        setCatalogSearchResults(items);
+        setCatalogLookupError(
+          items.length === 0
+            ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.active.catalog.items.matched")
+            : null,
+        );
+
+        if (catalogItemId) {
+          const selectedItem = items.find((item) => item.catalog_item_id === catalogItemId);
+          if (selectedItem) {
+            setCatalogItem(selectedItem);
+            if (catalogItemSearch.trim() === catalogItemId) {
+              setCatalogItemSearch(selectedItem.title);
+              setSelectedOptionsByDimension(
+                selectedItem.product_schema
+                  ? normalizeSelectedOptionssForSchema(selectedItem.product_schema, initialSelectedOptions)
+                  : {},
+              );
+            }
+          }
+        }
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setCatalogSearchResults([]);
+        setCatalogLookupError(
+          error instanceof Error
+            ? error.message
+            : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setCatalogLookupPending(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [catalogItemApiBaseUrl, catalogItemId, catalogItemSearch, initialSelectedOptions]);
+
+  function resetCatalogItemSelection(nextSearch: string) {
+    setCatalogItemSearch(nextSearch);
+    setCatalogItemId("");
+    setCatalogItem(null);
+    setSelectedOptionsByDimension({});
+  }
+
+  function selectCatalogItem(nextCatalogItemId: string) {
+    const item = catalogSearchResults.find((candidate) => candidate.catalog_item_id === nextCatalogItemId);
+    setCatalogItemId(nextCatalogItemId);
+    setCatalogItem(item ?? null);
+    setCatalogLookupError(null);
+    setCatalogItemSearch(item?.title ?? catalogItemSearch);
+    setSelectedOptionsByDimension(
+      item?.product_schema ? normalizeSelectedOptionssForSchema(item.product_schema, initialSelectedOptions) : {},
+    );
+  }
+
+  const selectedOptions = catalogItem?.product_schema
+    ? recordToSelectionEntries(catalogItem.product_schema, selectedOptionsByDimension)
+    : [];
+
+  return (
+    <Form spacing="none" method="post">
+      <Stack gap={2}>
+        <HiddenInput type="hidden" name="intent" value="resolve-row" />
+        <HiddenInput type="hidden" name="batchId" value={row.batch_id} />
+        <HiddenInput type="hidden" name="rowId" value={row.row_id} />
+        <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <TextInput
+          label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.catalog")}
+          placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item")}
+          value={catalogItemSearch}
+          onChange={(event) => resetCatalogItemSelection(event.target.value)}
+        />
+        <NativeSelect
+          label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item")}
+          name="catalogItemId"
+          required
+          value={catalogItemId}
+          onChange={(event) => selectCatalogItem(event.target.value)}
+          disabled={catalogSearchResults.length === 0}
+          placeholder={
+            catalogLookupPending
+              ? t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")
+              : t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.catalog.item")
+          }
+          items={catalogSearchResults.map((item) => ({
+            value: item.catalog_item_id,
+            label: catalogItemOptionLabel(item),
+          }))}
+        />
+        {catalogLookupPending ? (
+          <Text size="sm" tone="secondary">
+            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.searching.catalog.items")}
+          </Text>
+        ) : null}
+        {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
+        {catalogItem?.product_schema && catalogItem.product_schema.dimensions.length > 0 ? (
+          getOrderedDimensions(catalogItem.product_schema).map((dimension) => {
+            const active = isDimensionActive(dimension, selectedOptionsByDimension);
+            if (!active) {
+              return null;
+            }
+
+            return (
+              <NativeSelect
+                key={dimension.dimensionId}
+                label={dimension.dimensionName}
+                value={selectedOptionsByDimension[dimension.dimensionId] ?? ""}
+                onChange={(event) =>
+                  setSelectedOptionsByDimension((current) =>
+                    normalizeSelectedOptionssForSchema(catalogItem.product_schema!, {
+                      ...current,
+                      [dimension.dimensionId]: event.target.value,
+                    }),
+                  )
+                }
+                items={dimension.allowedOptions.map((option) => ({
+                  value: option.optionId,
+                  label: getOptionLabel(option),
+                }))}
+              />
+            );
+          })
+        ) : catalogItem ? (
+          <Text size="sm" tone="secondary">
+            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.this.catalog.item.does.not.require")}
+          </Text>
+        ) : null}
+        <NativeSelect
+          label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
+          name="storageLocationId"
+          required
+          defaultValue={row.storage_location_id ?? ""}
+          placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
+          items={storageLocations.map((location) => ({
+            value: location.storage_location_id,
+            label: location.name,
+          }))}
+        />
+        <Button type="submit" size="sm">
+          {t("inventory.features.importBatches.ui.importBatchPage.apply.row.fix")}
+        </Button>
+      </Stack>
+    </Form>
+  );
+}
+
 export function InventoryImportBatchPage({
   batches,
   storageLocations,
@@ -97,6 +325,7 @@ export function InventoryImportBatchPage({
   currentPath,
   errorMessage,
   detailLoadMessage,
+  catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
@@ -105,6 +334,7 @@ export function InventoryImportBatchPage({
   currentPath?: string | null;
   errorMessage?: string | null;
   detailLoadMessage?: string | null;
+  catalogItemApiBaseUrl?: string;
 }) {
   const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
@@ -395,6 +625,13 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.errors.and.outcomes"),
                   cell: (row) => (
                     <Stack gap={1}>
+                      {rowNeedsPickerFix(row, detail.source_key) ? (
+                        <ImportRowResolutionForm
+                          row={row}
+                          storageLocations={storageLocations}
+                          catalogItemApiBaseUrl={catalogItemApiBaseUrl}
+                        />
+                      ) : null}
                       {row.validation_errors.length > 0
                         ? row.validation_errors.map((message) => (
                             <Text key={message} size="sm">

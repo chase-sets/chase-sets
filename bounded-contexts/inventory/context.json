@@ -301,6 +301,28 @@
       }
     },
     {
+      "id": "inventory.import-row-review-resolution-snapshot",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#3"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-import",
+        "description": "Native import review row fixes synchronously update the Inventory import-batch row and account SKU mapping, return the updated InventoryImportBatchDetail snapshot, then redirect back to the same import batch detail route after the write completes."
+      },
+      "proof": {
+        "authoritativeResponse": "resolveRow validates the selected catalog item/options and storage location, writes the row resolution plus account SKU mapping in Inventory-owned tables, refreshes batch counts, and returns getImportBatch from the same request before the browser route redirects.",
+        "tests": [
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/route.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "inventory.item-create-to-detail-fresh-read",
       "owner": "inventory",
       "risk": "important",

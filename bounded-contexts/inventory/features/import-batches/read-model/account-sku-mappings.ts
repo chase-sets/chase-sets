@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type InventoryImportAccountSkuMapping = Readonly<{
+  mapping_id: string;
   account_id: string;
   seller_sku: string;
   normalized_seller_sku: string;
@@ -40,7 +41,8 @@ export async function resolveInventoryImportAccountSkuMapping(
   }
 
   const result = await db.query<RawInventoryImportAccountSkuMapping>(
-    `SELECT account_id,
+    `SELECT mapping_id,
+            account_id,
             seller_sku,
             normalized_seller_sku,
             catalog_item_id,

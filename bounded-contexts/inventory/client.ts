@@ -128,6 +128,23 @@ export function createInventoryApiClient({
         }),
       );
     },
+    async resolveImportBatchRow(
+      id: string,
+      rowId: string,
+      body: Readonly<{
+        catalogItemId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        storageLocationId: string;
+      }>,
+    ): Promise<InventoryImportBatchDetail> {
+      return parseJsonResponse(
+        await client["import-batches"][":id"].rows[":rowId"].resolve.$post({
+          param: { id, rowId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async listItems(query = ""): Promise<ListResponse<InventoryItemListItem>> {
       return parseJsonResponse(
         await client.items.$get({
