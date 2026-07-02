@@ -6,13 +6,18 @@ import { promisify } from "node:util";
 import pg from "pg";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
-import { createDigitalOceanDatabaseFork } from "./production-db-restore-point.mjs";
+import {
+  createDigitalOceanDatabaseFork,
+  waitForDigitalOceanDatabaseForkAvailability,
+} from "./production-db-restore-point.mjs";
 
 const execFile = promisify(execFileCallback);
 const { Client } = pg;
 
 export const DIGITALOCEAN_DATABASE_RESTORE_DRILL_VERSION = "digitalocean-database-restore-drill/v1";
 export const STAGING_RESTORE_DRILL_PREFIX = "cs-stg-drill-";
+export const DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS = 20 * 60 * 1000;
+export const DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS = 30 * 1000;
 
 export const DEFAULT_STAGING_DATABASE_CHECKS = Object.freeze([
   { contextName: "auth", databaseName: "chase_sets_staging_auth", eventStoreTables: true },
@@ -48,6 +53,18 @@ export function parseDigitalOceanDatabaseRestoreDrillArgs(argv, env = process.en
     workflowRunAttempt: readOption(argv, "--workflow-run-attempt") ?? readEnv("GITHUB_RUN_ATTEMPT", env),
     commitSha: readOption(argv, "--commit-sha") ?? readEnv("GITHUB_SHA", env),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
+    forkTimeoutMs: parsePositiveSecondsAsMs(
+      readOption(argv, "--fork-timeout-seconds") ??
+        readEnv("RESTORE_DRILL_FORK_TIMEOUT_SECONDS", env) ??
+        String(DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS / 1000),
+      "RESTORE_DRILL_FORK_TIMEOUT_SECONDS",
+    ),
+    forkPollIntervalMs: parsePositiveSecondsAsMs(
+      readOption(argv, "--fork-poll-seconds") ??
+        readEnv("RESTORE_DRILL_FORK_POLL_SECONDS", env) ??
+        String(DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS / 1000),
+      "RESTORE_DRILL_FORK_POLL_SECONDS",
+    ),
     databaseChecks: parseDatabaseChecks(
       readOption(argv, "--database-checks") ?? readEnv("RESTORE_DRILL_DATABASE_CHECKS", env),
     ),
@@ -84,19 +101,34 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
         doctlPath: options.doctlPath,
         sourceClusterId: options.sourceClusterId,
         forkName,
+        wait: false,
       },
       exec,
     );
-    const forkFinishedMs = now();
     forkClusterId = fork.clusterId;
+    const availability = fork.clusterId
+      ? await waitForDigitalOceanDatabaseForkAvailability(
+          {
+            doctlPath: options.doctlPath,
+            clusterId: fork.clusterId,
+            forkName,
+            initialFork: fork,
+            timeoutMs: options.forkTimeoutMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS,
+            pollIntervalMs: options.forkPollIntervalMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS,
+          },
+          dependencies,
+        )
+      : { outcome: "missing-cluster-id", fork, elapsedMs: 0 };
+    const latestFork = availability.fork ?? fork;
+    const forkFinishedMs = now();
     record = {
       ...record,
       fork: {
         ...record.fork,
-        clusterId: fork.clusterId,
-        name: fork.name ?? forkName,
-        status: fork.status,
-        createdAt: fork.createdAt,
+        clusterId: latestFork.clusterId,
+        name: latestFork.name ?? forkName,
+        status: latestFork.status,
+        createdAt: latestFork.createdAt,
       },
       timings: {
         forkStartedAt: isoFromMs(forkStartedMs),
@@ -107,6 +139,16 @@ export async function performDigitalOceanDatabaseRestoreDrill(options, dependenc
 
     if (!fork.clusterId) {
       record.errors.push("doctl database fork output did not include a forked cluster id.");
+    } else if (availability.outcome === "timeout") {
+      record.errors.push(`Timed out waiting for staging restore drill fork '${forkName}' to become online.`);
+      record.errors.push(`last observed cluster id: ${latestFork.clusterId ?? "unknown"}`);
+      record.errors.push(`last observed status: ${latestFork.status ?? "unknown"}`);
+    } else if (availability.outcome === "failed") {
+      record.errors.push(
+        `Staging restore drill fork '${forkName}' entered failed status '${latestFork.status ?? "unknown"}'.`,
+      );
+    } else if (availability.outcome !== "available") {
+      record.errors.push(`Staging restore drill fork '${forkName}' did not report an available outcome.`);
     } else {
       const connectionUri = await readConnectionUri(options.doctlPath, fork.clusterId, exec);
       record = {
@@ -350,7 +392,21 @@ function validateOptions(options) {
   if (!Number.isFinite(Date.parse(options.checkedAt))) {
     errors.push("--checked-at must be an ISO-8601 timestamp.");
   }
+  if (!isPositiveNumber(options.forkTimeoutMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_TIMEOUT_MS)) {
+    errors.push("RESTORE_DRILL_FORK_TIMEOUT_SECONDS must be greater than zero.");
+  }
+  if (!isPositiveNumber(options.forkPollIntervalMs ?? DEFAULT_STAGING_RESTORE_DRILL_FORK_POLL_INTERVAL_MS)) {
+    errors.push("RESTORE_DRILL_FORK_POLL_SECONDS must be greater than zero.");
+  }
   return errors;
+}
+
+function parsePositiveSecondsAsMs(value, name) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error(`${name} must be a positive number of seconds.`);
+  }
+  return seconds * 1000;
 }
 
 function parseDatabaseChecks(value) {
@@ -405,6 +461,10 @@ function sanitizeNameToken(value) {
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveNumber(value) {
+  return Number.isFinite(value) && value > 0;
 }
 
 async function main(argv, env = process.env) {
