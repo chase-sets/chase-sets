@@ -5,10 +5,26 @@ on:
     # Weekly, Monday 14:00 UTC (morning US Central).
     - cron: "0 14 * * 1"
   workflow_dispatch:
+    inputs:
+      reporter_dry_run:
+        description: Exercise alert reporting without creating, commenting on, or closing issues.
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      force_reporter_alert:
+        description: Force a reporter alert after the digest builds; use with reporter_dry_run=true for validation.
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
-  issues: read
 
 concurrency:
   group: review-cadence-digest
@@ -19,6 +35,9 @@ jobs:
     name: Review Cadence Digest
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -31,3 +50,30 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node ./scripts/review-cadence-digest.mjs
+
+      - name: Force reporter alert dry-run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_reporter_alert == 'true' }}
+        run: |
+          echo "Forced reporter alert dry-run requested by workflow_dispatch." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Report cadence digest alert
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Review Cadence Digest
+          alert-status: failure
+          alert-summary: Review cadence digest exceeded the anti-ratchet threshold or failed to build.
+          alert-details: See this run's job summary for the flagged review/comment links.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.reporter_dry_run == 'true' && 'true' || 'false' }}
+
+      - name: Report cadence digest recovery
+        if: ${{ success() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Review Cadence Digest
+          alert-status: success
+          alert-summary: Review cadence digest completed without an alert.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.reporter_dry_run == 'true' && 'true' || 'false' }}

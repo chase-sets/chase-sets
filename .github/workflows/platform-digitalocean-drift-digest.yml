@@ -5,8 +5,7 @@ on:
     - cron: "47 10 * * 2"
   workflow_dispatch: {}
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: platform-digitalocean-drift-digest
@@ -18,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    permissions:
+      contents: read
+      issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -81,3 +83,58 @@ jobs:
           path: artifacts/release-health/digitalocean-drift-digest.json
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Classify drift digest alert
+        id: drift-alert
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          record="artifacts/release-health/digitalocean-drift-digest.json"
+          if [ ! -f "$record" ]; then
+            echo "status=none" >> "$GITHUB_OUTPUT"
+            echo "summary=No drift digest artifact was written." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          node - "$record" >> "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const warningFindings = record.summary?.warningFindings ?? 0;
+          const collectionErrors = record.summary?.collectionErrors ?? 0;
+          if (warningFindings > 0 || collectionErrors > 0 || record.result === "warning") {
+            console.log("status=warning");
+          } else {
+            console.log("status=success");
+          }
+          console.log(
+            `summary=Warning findings: ${warningFindings}; collection errors: ${collectionErrors}; result: ${record.result}.`,
+          );
+          NODE
+
+      - name: Report drift digest warning
+        if: ${{ !failure() && steps.drift-alert.outputs.status == 'warning' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform DigitalOcean Drift Digest
+          alert-status: warning
+          alert-summary: ${{ steps.drift-alert.outputs.summary }}
+          alert-details: See the drift digest artifact for support-safe finding details.
+
+      - name: Report drift digest failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform DigitalOcean Drift Digest
+          alert-status: failure
+          alert-summary: Platform DigitalOcean drift digest failed before producing a clean result.
+
+      - name: Report drift digest recovery
+        if: ${{ success() && steps.drift-alert.outputs.status == 'success' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform DigitalOcean Drift Digest
+          alert-status: success
+          alert-summary: Platform DigitalOcean drift digest completed without warning findings.

@@ -8,6 +8,7 @@ const tempDirs = [];
 const checkoutSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const cacheSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const doctlSha = "cccccccccccccccccccccccccccccccccccccccc";
+const githubScriptSha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const unknownSha = "dddddddddddddddddddddddddddddddddddddddd";
 
 function workflowRootWith(content, fileName = "test.yml") {
@@ -68,6 +69,7 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
       - uses: docker://rhysd/actionlint:1.7.12
       - uses: actions/checkout@${checkoutSha} # v6.0.0
+      - uses: actions/github-script@${githubScriptSha} # v8.0.0
       - uses: digitalocean/action-doctl@${doctlSha} # v2.5.2
 `);
 

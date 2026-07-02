@@ -1,0 +1,182 @@
+name: Report scheduled workflow alert
+description: Create, update, or close one issue for a scheduled workflow alert.
+inputs:
+  github-token:
+    description: GitHub token with issues:write.
+    required: true
+  workflow-name:
+    description: Human-readable workflow name.
+    required: true
+  alert-status:
+    description: failure, warning, or success.
+    required: true
+  alert-summary:
+    description: Short support-safe alert summary.
+    required: false
+    default: ""
+  alert-details:
+    description: Optional markdown details for the issue comment.
+    required: false
+    default: ""
+  issue-title:
+    description: Optional issue title override.
+    required: false
+    default: ""
+  labels:
+    description: Comma-separated labels for newly created alert issues.
+    required: false
+    default: "kind:ops,area:ops"
+  dry-run:
+    description: Log the planned issue mutation without writing to GitHub.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+      env:
+        ALERT_WORKFLOW_NAME: ${{ inputs.workflow-name }}
+        ALERT_STATUS: ${{ inputs.alert-status }}
+        ALERT_SUMMARY: ${{ inputs.alert-summary }}
+        ALERT_DETAILS: ${{ inputs.alert-details }}
+        ALERT_ISSUE_TITLE: ${{ inputs.issue-title }}
+        ALERT_LABELS: ${{ inputs.labels }}
+        ALERT_DRY_RUN: ${{ inputs.dry-run }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const workflowName = process.env.ALERT_WORKFLOW_NAME?.trim();
+          const status = process.env.ALERT_STATUS?.trim().toLowerCase();
+          const summary = process.env.ALERT_SUMMARY?.trim();
+          const details = process.env.ALERT_DETAILS?.trim();
+          const title = process.env.ALERT_ISSUE_TITLE?.trim() || `[ops-alert] ${workflowName} failing`;
+          const labels = (process.env.ALERT_LABELS ?? "")
+            .split(",")
+            .map((label) => label.trim())
+            .filter(Boolean);
+          const dryRun = process.env.ALERT_DRY_RUN === "true";
+
+          if (!workflowName) {
+            core.setFailed("workflow-name is required.");
+            return;
+          }
+          if (!["failure", "warning", "success"].includes(status)) {
+            core.setFailed("alert-status must be failure, warning, or success.");
+            return;
+          }
+
+          const { owner, repo } = context.repo;
+          const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+          const marker = `<!-- scheduled-workflow-alert:${workflowName}:${context.runId}:${context.runAttempt}:${status} -->`;
+          const statusLabel = status === "success" ? "recovered" : status;
+          const bodyLines = [
+            marker,
+            `## Scheduled Workflow ${statusLabel}`,
+            "",
+            `- Workflow: ${workflowName}`,
+            `- Status: ${status}`,
+            `- Run: ${runUrl}`,
+            `- Run attempt: ${context.runAttempt}`,
+            `- Event: ${context.eventName}`,
+            `- Ref: ${context.ref}`,
+            `- SHA: ${context.sha}`,
+          ];
+          if (summary) {
+            bodyLines.push(`- Summary: ${summary}`);
+          }
+          if (details) {
+            bodyLines.push("", "### Details", details);
+          }
+          const commentBody = bodyLines.join("\n");
+
+          const query = `repo:${owner}/${repo} is:issue is:open in:title ${JSON.stringify(title)}`;
+          const search = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 10 });
+          const issue = search.data.items.find((item) => !item.pull_request && item.title === title);
+
+          if (dryRun) {
+            core.notice(
+              JSON.stringify(
+                {
+                  dryRun: true,
+                  title,
+                  status,
+                  wouldCreate: status !== "success" && !issue,
+                  wouldComment: status !== "success" || Boolean(issue),
+                  wouldClose: status === "success" && Boolean(issue),
+                  labels,
+                  runUrl,
+                },
+                null,
+                2,
+              ),
+            );
+            return;
+          }
+
+          if (status === "success") {
+            if (!issue) {
+              core.info(`No open scheduled workflow alert issue found for ${workflowName}.`);
+              return;
+            }
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+            if (!comments.some((comment) => comment.body?.includes(marker))) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: commentBody,
+              });
+            }
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issue.number,
+              state: "closed",
+              state_reason: "completed",
+            });
+            core.info(`Closed recovered scheduled workflow alert issue #${issue.number}.`);
+            return;
+          }
+
+          let issueNumber = issue?.number;
+          if (!issueNumber) {
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              labels,
+              body: [
+                `This issue tracks scheduled workflow alerts for **${workflowName}**.`,
+                "",
+                "The reporter keeps one open issue per workflow and appends each failed or warning run here.",
+                "",
+                commentBody,
+              ].join("\n"),
+            });
+            issueNumber = created.data.number;
+            core.info(`Created scheduled workflow alert issue #${issueNumber}.`);
+            return;
+          }
+
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner,
+            repo,
+            issue_number: issueNumber,
+            per_page: 100,
+          });
+          if (comments.some((comment) => comment.body?.includes(marker))) {
+            core.info(`Scheduled workflow alert issue #${issueNumber} already has this run attempt.`);
+            return;
+          }
+          await github.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number: issueNumber,
+            body: commentBody,
+          });
+          core.info(`Updated scheduled workflow alert issue #${issueNumber}.`);
