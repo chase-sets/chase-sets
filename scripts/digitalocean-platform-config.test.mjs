@@ -2114,7 +2114,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformDatabaseRestoreDrillWorkflow).toContain("permissions:\n  contents: read");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("group: platform-database-restore-drill");
     expect(restoreJob).toContain("environment: staging");
-    expect(restoreJob).toContain("timeout-minutes: 60");
+    expect(restoreJob).toContain("timeout-minutes: 90");
     expect(restoreJob).toContain("DEPLOYMENT_ENVIRONMENT: staging");
     expect(platformDatabaseRestoreDrillWorkflow).toContain("actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10");
     expect(platformDatabaseRestoreDrillWorkflow).toContain(

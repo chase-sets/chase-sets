@@ -31,7 +31,7 @@ jobs:
   restore-drill:
     name: Staging Database Restore Drill
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     environment: staging
     needs: refuse-unconfirmed
     if: always() && (github.event_name == 'schedule' || needs.refuse-unconfirmed.result == 'skipped')
@@ -99,6 +99,7 @@ jobs:
           console.log(`- Result: ${record.result}`);
           console.log(`- Fork name: ${record.fork?.name ?? "not-created"}`);
           console.log(`- Fork status: ${record.fork?.status ?? "unknown"}`);
+          console.log(`- Fork wait: ${record.timings?.forkWaitMs ?? "unknown"} ms`);
           console.log(`- Fork-to-available: ${record.timings?.forkToAvailableMs ?? "unknown"} ms`);
           console.log(`- Expected database checks: ${record.validation?.expectedDatabaseCount ?? 0}`);
           console.log(`- Completed database checks: ${record.validation?.checkedDatabaseCount ?? 0}`);
