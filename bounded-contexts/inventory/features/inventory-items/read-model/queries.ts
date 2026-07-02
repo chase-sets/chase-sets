@@ -70,6 +70,14 @@ export type InventoryHoldableItemRow = Readonly<{
   available_quantity: number;
 }>;
 
+export type NativeInventoryExportItemRow = Readonly<{
+  catalog_item_id: string;
+  storage_location_id: string;
+  total_quantity: number;
+  selected_options: readonly InventorySelectedOptionEntry[];
+  acquisition_cost_amount: string | null;
+}>;
+
 type CatalogItemSummaryRow = Readonly<{
   catalog_item_id: string;
   language_code: string;
@@ -202,6 +210,41 @@ export async function listInventoryItems(
     items,
     total: Number(countResult.rows[0]?.count ?? 0),
   };
+}
+
+export async function listNativeInventoryExportItems(
+  db: PgQueryable,
+  params: Readonly<{
+    accountId: string;
+  }>,
+): Promise<NativeInventoryExportItemRow[]> {
+  const result = await db.query<
+    Readonly<{
+      catalog_item_id: string;
+      storage_location_id: string;
+      total_quantity: number;
+      selected_options: unknown;
+      acquisition_cost_amount: string | null;
+    }>
+  >(
+    `SELECT
+       item.catalog_catalog_item_id AS catalog_item_id,
+       item.storage_location_id,
+       item.total_quantity,
+       item.selected_options,
+       item.acquisition_cost_amount::text AS acquisition_cost_amount
+     FROM inventory_items AS item
+     WHERE item.account_id = $1
+     ORDER BY item.updated_at DESC, item.item_id ASC`,
+    [params.accountId],
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    selected_options: Array.isArray(row.selected_options)
+      ? (row.selected_options as InventorySelectedOptionEntry[])
+      : [],
+  }));
 }
 
 export async function getInventoryItem(db: PgQueryable, itemId: string, accountId: string) {

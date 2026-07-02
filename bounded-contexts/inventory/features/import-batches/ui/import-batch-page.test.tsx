@@ -83,6 +83,8 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain("Upload CSV");
     expect(html).toContain("Download native template");
     expect(html).toContain("/api/inventory/import-batches/templates/native-csv");
+    expect(html).toContain("Export current inventory");
+    expect(html).toContain("/api/inventory/import-batches/exports/native-csv");
     expect(html).toContain("No imports yet");
   });
 

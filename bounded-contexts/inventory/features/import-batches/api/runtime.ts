@@ -30,9 +30,10 @@ import {
   type InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
+import { listNativeInventoryExportItems } from "../../inventory-items/read-model/queries";
 import { getStorageLocation, listStorageLocations } from "../../storage-locations/read-model/queries";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
-import { buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
+import { buildNativeInventoryExportCsv, buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
 import {
   getInventoryImportSourceAdapter,
   type InventoryImportExternalReference,
@@ -86,6 +87,7 @@ export type InventoryImportBatchServices = Readonly<{
   getBatch: (batchId: string, accountId: string) => ReturnType<typeof getImportBatch>;
   listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
   getNativeCsvTemplate: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
+  getNativeCsvExport: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -1388,6 +1390,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         accountId: params.accountId,
       });
       return buildNativeInventoryImportCsvTemplate(locations);
+    },
+    getNativeCsvExport: async (params) => {
+      const rows = await listNativeInventoryExportItems(deps.db, {
+        accountId: params.accountId,
+      });
+      return buildNativeInventoryExportCsv(rows);
     },
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {

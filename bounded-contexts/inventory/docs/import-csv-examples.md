@@ -6,12 +6,14 @@ Inventory imports use a review-first batch. Rows are validated before they creat
 
 Use this when the file already contains Chase Sets catalog identifiers and storage location names. Sellers can download a native template from the Inventory import page. The template includes the required native headers and one example row for each active storage location on that account. Archived storage locations are not included.
 
+Sellers can also export current inventory from the Inventory import page. That export uses the same native import headers, includes the account's current `catalogItemId`, `storageLocationId`, selected option columns, `totalQuantity`, and acquisition cost when available, and can be edited and uploaded again without typing Chase Sets internal identifiers.
+
 ```csv
 catalogItemId,storageLocation,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote
 cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,75.00,box-a-001,125.00,1,Base Set restock
 ```
 
-Use `storageLocation` for the visible active storage location name. `storageLocationId` is still accepted when an exported file already contains internal Chase Sets storage identifiers.
+Use `storageLocation` for the visible active storage location name. `storageLocationId` is still accepted and is what the current-inventory export uses so reuploads target the exact same storage location.
 
 Option columns may use Catalog dimension ids or visible dimension labels. Option values may use option ids, codes, or visible labels.
 
@@ -31,5 +33,7 @@ tcg_sku_pikachu_jungle_nm,Pikachu,Jungle,Near Mint,5,8.50,box-a-002
 
 - `add` treats `totalQuantity` as a signed adjustment.
 - `replace` treats `totalQuantity` as the exact stock count to sync to.
+
+Current-inventory exports contain exact stock counts. Use `replace` when reuploading an edited export for repricing or restock sync; use `add` only when the rows are intentional stock adjustments.
 
 Sync adapters should produce the same normalized row shape as CSV adapters and default to `replace`.
