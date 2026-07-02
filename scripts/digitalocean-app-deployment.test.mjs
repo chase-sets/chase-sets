@@ -22,9 +22,11 @@ import {
   planAppChanged,
   postgresClusterIdFromPlan,
   readPostgresClusterIdFromPlan,
+  renderTerraformPlanSummaryMarkdown,
   resetStaleDomainAttachment,
   rollbackAppImage,
   rollbackSpecToImage,
+  terraformPlanSummary,
   waitForDomains,
   waitForDeployments,
 } from "./digitalocean-app-deployment.mjs";
@@ -432,6 +434,52 @@ The resources are retired by a reviewed context merge.
     });
 
     expect(changed).toBe(true);
+  });
+
+  it("summarizes Terraform plan change counts and changed resource addresses", () => {
+    const summary = terraformPlanSummary(
+      planFor([
+        resourceChange("digitalocean_app.platform", ["update"]),
+        resourceChange('digitalocean_database_db.contexts["checkout"]', ["create"]),
+        resourceChange("digitalocean_record.old", ["delete"]),
+        resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
+        resourceChange("terraform_data.noop", ["no-op"]),
+        resourceChange("data.digitalocean_app.platform", ["read"]),
+      ]),
+      { maxResources: 3 },
+    );
+
+    expect(summary).toEqual({
+      add: 2,
+      change: 1,
+      destroy: 2,
+      resources: [
+        { address: "digitalocean_app.platform", actions: ["update"] },
+        { address: "digitalocean_database_cluster.postgres", actions: ["delete", "create"] },
+        { address: 'digitalocean_database_db.contexts["checkout"]', actions: ["create"] },
+      ],
+      omittedResources: 1,
+    });
+  });
+
+  it("renders a compact Terraform plan Markdown summary", () => {
+    expect(
+      renderTerraformPlanSummaryMarkdown(planFor([resourceChange("digitalocean_app.platform", ["update"])]), {
+        title: "Production Terraform plan",
+      }),
+    ).toBe(
+      [
+        "### Production Terraform plan",
+        "",
+        "- Add: 0",
+        "- Change: 1",
+        "- Destroy: 0",
+        "",
+        "Changed resources:",
+        "- `digitalocean_app.platform` (update)",
+        "",
+      ].join("\n") + "\n",
+    );
   });
 
   it("reads the production Postgres cluster id from Terraform JSON plan output", async () => {
