@@ -67,7 +67,6 @@ concurrency:
 jobs:
   easypost-refund-event-replay:
     name: EasyPost Refund Event Replay
-    if: inputs.mode != 'replay' || inputs.confirm == 'replay easypost refund event'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: ${{ inputs.environment_name }}
