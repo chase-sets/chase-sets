@@ -33,8 +33,12 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
 
   const platformContextNames = extractStringList(localsSource, "platform_context_names");
   const directListenerContexts = extractStringList(localsSource, "worker_listener_source_contexts");
+  const apiWaiterContexts = extractStringList(localsSource, "api_waiter_contexts");
   const stagingPoolOverrides = extractNumberMap(localsSource, "staging_context_database_connection_pool_sizes");
   const clusterConnectionLimits = extractNumberMap(localsSource, "cluster_connection_limits");
+  const connectionBudgetUpgradeTriggerPercent = Number(
+    extractNumericLocal(localsSource, "connection_budget_upgrade_trigger_percent"),
+  );
   const registryEntries = parseSourceContextWakeRegistryEntries(registrySource);
 
   return {
@@ -45,6 +49,7 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
     },
     platformContextNames,
     directListenerContexts,
+    apiWaiterContexts,
     activeRelayContexts: registryEntries
       .filter((entry) => entry.relayFanOutEnabled)
       .map((entry) => entry.sourceContextName),
@@ -67,6 +72,7 @@ export function loadPushWakeCapacityInputs(repoRoot = process.cwd()) {
       productionApiInstances: extractTernaryNumbers(localsSource, "api_instances").trueValue,
       stagingDatabaseSize: extractVariableDefault(variablesSource, "staging_database_size"),
       productionDatabaseSize: extractVariableDefault(variablesSource, "database_size"),
+      connectionBudgetUpgradeTriggerPercent,
     },
   };
 }
@@ -91,8 +97,11 @@ export function buildPushWakeCapacityEvidence(input) {
     environment: "staging",
     databaseSize: input.defaults.stagingDatabaseSize,
     clusterConnectionLimits: input.clusterConnectionLimits,
+    upgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
     pgbouncerServerBackendAllocation: stagingPgbouncerAllocation,
     directListenerCount: input.directListenerContexts.length,
+    apiWaiterListenerDemand:
+      input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
     bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
     directAppBackendDemand: 0,
     productionLikeDirectBindings: false,
@@ -108,8 +117,11 @@ export function buildPushWakeCapacityEvidence(input) {
     environment: "production",
     databaseSize: input.defaults.productionDatabaseSize,
     clusterConnectionLimits: input.clusterConnectionLimits,
+    upgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
     pgbouncerServerBackendAllocation: 0,
     directListenerCount: input.directListenerContexts.length,
+    apiWaiterListenerDemand:
+      input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.productionApiInstances,
     bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
     directAppBackendDemand: productionApiPoolDemand + productionWorkerPoolDemand,
     productionLikeDirectBindings: true,
@@ -147,6 +159,7 @@ export function buildPushWakeCapacityEvidence(input) {
     terraformDefaults: {
       platformContextCount: input.platformContextNames.length,
       directListenerContexts: input.directListenerContexts,
+      apiWaiterContexts: input.apiWaiterContexts,
       activeRegistryRelayContexts: input.activeRelayContexts,
       wave2Contexts: input.wave2Contexts,
       apiDatabasePoolMax: input.defaults.apiDatabasePoolMax,
@@ -155,6 +168,7 @@ export function buildPushWakeCapacityEvidence(input) {
       workerComponentCount: input.defaults.workerComponentCount,
       bootstrapDatabasePoolMax: input.defaults.bootstrapDatabasePoolMax,
       clusterConnectionLimits: input.clusterConnectionLimits,
+      connectionBudgetUpgradeTriggerPercent: input.defaults.connectionBudgetUpgradeTriggerPercent,
     },
     environments: {
       staging,
@@ -213,7 +227,9 @@ export function renderPushWakeCapacityMarkdown(evidence) {
     `- Database tier: \`${production.databaseSize}\` (${production.limit} backend budget)`,
     `- Steady state: ${production.steadyState.total}/${production.limit} (headroom ${production.steadyState.headroom})`,
     `- Rolling-deploy overlap: ${production.deployOverlap.total}/${production.limit} (headroom ${production.deployOverlap.headroom})`,
+    `- Tier-upgrade trigger: ${production.upgradeTrigger}/${production.limit} (${production.upgradeTriggerPercent}%)`,
     `- Additional direct listener contexts that fit current tier during overlap: ${production.deployOverlap.additionalDirectListenerContextsAtCurrentTier}`,
+    `- Additional direct listener contexts before upgrade trigger: ${production.deployOverlap.additionalDirectListenerContextsBeforeUpgradeTrigger}`,
     "",
     "## Listener Expansion Decision",
     "",
@@ -232,24 +248,39 @@ export function renderPushWakeCapacityMarkdown(evidence) {
 
 function buildEnvironmentBudget(input) {
   const limit = input.clusterConnectionLimits[input.databaseSize] ?? 0;
+  const upgradeTrigger = Math.floor((limit * input.upgradeTriggerPercent) / 100);
   const steadyTotal = input.productionLikeDirectBindings
     ? input.directAppBackendDemand + input.directListenerCount + input.bootstrapDemand
     : input.pgbouncerServerBackendAllocation + input.directListenerCount + input.bootstrapDemand;
   const deployOverlapTotal = input.productionLikeDirectBindings
-    ? 2 * input.directAppBackendDemand + 2 * input.directListenerCount + input.bootstrapDemand
-    : input.pgbouncerServerBackendAllocation + 2 * input.directListenerCount + input.bootstrapDemand;
+    ? 2 * input.directAppBackendDemand +
+      2 * input.directListenerCount +
+      2 * input.apiWaiterListenerDemand +
+      input.bootstrapDemand
+    : input.pgbouncerServerBackendAllocation +
+      2 * input.directListenerCount +
+      2 * input.apiWaiterListenerDemand +
+      input.bootstrapDemand;
+  const steadyTotalWithWaiters = steadyTotal + input.apiWaiterListenerDemand;
 
   return {
     environment: input.environment,
     databaseSize: input.databaseSize,
     limit,
+    upgradeTriggerPercent: input.upgradeTriggerPercent,
+    upgradeTrigger,
     pgbouncerServerBackendAllocation: input.pgbouncerServerBackendAllocation,
     directListenerCount: input.directListenerCount,
+    apiWaiterListenerDemand: input.apiWaiterListenerDemand,
     bootstrapDemand: input.bootstrapDemand,
-    steadyState: budgetPosture(steadyTotal, limit),
+    steadyState: budgetPosture(steadyTotalWithWaiters, limit),
     deployOverlap: {
       ...budgetPosture(deployOverlapTotal, limit),
       additionalDirectListenerContextsAtCurrentTier: Math.max(0, Math.floor((limit - deployOverlapTotal) / 2)),
+      additionalDirectListenerContextsBeforeUpgradeTrigger: Math.max(
+        0,
+        Math.floor((upgradeTrigger - deployOverlapTotal) / 2),
+      ),
     },
   };
 }

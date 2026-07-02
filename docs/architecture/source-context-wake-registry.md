@@ -30,7 +30,7 @@ The registry is environment-global, so per-environment rollout is enforced by de
 - `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED` — staging `true`, production and previews `false`; forces every registry-derived emission config off so non-staging environments produce no unexplained notifications while their relay is off.
 
 Production enablement flips these switches only after the production proof gates pass (#1243 topology parity, #1244 connection budgets, #1237 SLO/load proof).
-The #1364 tier decision is now explicit: on the current `db-s-2vcpu-4gb` production tier, the rolling-deploy overlap budget still fits after adding Identity as a direct listener by keeping production projection-worker concurrency at one by default. The remaining wave-2 listener expansion needs two more direct contexts (`catalog`, `fulfillment`) and exceeds the current overlap envelope unless another capacity decision lands first. Run `pnpm run ops push-wake:capacity-evidence -- --out artifacts/release-health/push-wake-capacity-evidence.json` for the checked-in no-secret evidence record.
+The tier decision is now explicit: on the current `db-s-2vcpu-4gb` production tier, the rolling-deploy overlap budget is 70/94 and the 80% tier-upgrade trigger is 75. The remaining wave-2 listener expansion needs two more direct contexts (`catalog`, `fulfillment`) and fits at 74/94, below the trigger, but adding a 3rd `platform-api` instance or a 2nd `platform-worker` instance crosses the trigger and requires `db-s-4vcpu-8gb` or production transaction pools first (#3342). Run `pnpm run ops push-wake:capacity-evidence -- --out artifacts/release-health/push-wake-capacity-evidence.json` for the checked-in no-secret evidence record.
 
 ## Registry Fields
 

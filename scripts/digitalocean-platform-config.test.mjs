@@ -629,27 +629,45 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("cluster_connection_limits = {");
     expectTerraformAssignment(platformLocals, '"db-s-1vcpu-1gb"', "19");
     expectTerraformAssignment(platformLocals, '"db-s-2vcpu-4gb"', "94");
+    expectTerraformAssignment(platformLocals, '"db-s-4vcpu-8gb"', "194");
     expectTerraformAssignment(
       platformLocals,
       "cluster_connection_limit",
       "lookup(local.cluster_connection_limits, local.database_size, 0)",
     );
+    expectTerraformAssignment(platformLocals, "connection_budget_upgrade_trigger_percent", "80");
+    expect(platformLocals).toContain("connection_budget_upgrade_trigger = floor(");
     expect(platformLocals).toContain("cluster_backend_demand = local.is_production ? (");
     expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = local.is_production ? (");
     expect(platformLocals).toContain(
       "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.api_waiter_listener_demand + local.bootstrap_demand",
     );
     expect(platformLocals).toContain("active_profile_connection_budget = {");
-    expect(platformLocals).toContain("profile                    = local.runtime_profile_name");
-    expect(platformLocals).toContain("active_context_count       = length(local.active_runtime_context_names)");
-    expect(platformLocals).toContain("provisioned_context_count  = length(local.provisioned_context_names)");
-    expect(platformLocals).toContain("api_waiter_listener_demand = local.api_waiter_listener_demand");
-    expect(platformLocals).toContain(
-      "steady_state_headroom      = local.cluster_connection_limit - local.cluster_backend_demand",
+    expectTerraformAssignment(platformLocals, "profile", "local.runtime_profile_name");
+    expectTerraformAssignment(platformLocals, "active_context_count", "length(local.active_runtime_context_names)");
+    expectTerraformAssignment(platformLocals, "provisioned_context_count", "length(local.provisioned_context_names)");
+    expectTerraformAssignment(platformLocals, "api_waiter_listener_demand", "local.api_waiter_listener_demand");
+    expectTerraformAssignment(
+      platformLocals,
+      "steady_state_headroom",
+      "local.cluster_connection_limit - local.cluster_backend_demand",
     );
-    expect(platformLocals).toContain(
-      "rolling_deploy_headroom    = local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap",
+    expectTerraformAssignment(
+      platformLocals,
+      "rolling_deploy_headroom",
+      "local.cluster_connection_limit - local.cluster_backend_demand_deploy_overlap",
     );
+    expectTerraformAssignment(
+      platformLocals,
+      "rolling_deploy_upgrade_trigger_percent",
+      "local.connection_budget_upgrade_trigger_percent",
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "rolling_deploy_upgrade_trigger",
+      "local.connection_budget_upgrade_trigger",
+    );
+    expect(platformLocals).toContain("rolling_deploy_upgrade_required = (");
     expect(platformLocals).toContain("production_pgbouncer_ready = false");
     expect(platformLocals).toContain("connection_budget_profiles = {");
     expect(platformLocals).toContain("landing = merge(local.active_profile_connection_budget");
@@ -667,6 +685,11 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformMain).toContain(
       'error_message = "Rolling-deploy overlap backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size before adding push-wake load."',
+    );
+    expect(platformMain).toContain('check "wake_connection_budget_tier_upgrade_trigger"');
+    expect(platformMain).toContain("local.connection_budget_upgrade_trigger_percent");
+    expect(platformMain).toContain(
+      'error_message = "Rolling-deploy overlap backend demand exceeds 80% of the selected DigitalOcean database tier. Upgrade database_size to db-s-4vcpu-8gb or land production transaction pools before increasing platform-api/platform-worker scale."',
     );
 
     expect(platformMain).toContain('check "wake_listener_topology_parity"');

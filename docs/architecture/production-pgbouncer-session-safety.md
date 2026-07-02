@@ -1,6 +1,6 @@
 # Production PgBouncer Session-Safety Audit
 
-Issue: #3226
+Issues: #3226, refreshed by #3342
 
 ## Decision
 
@@ -8,7 +8,7 @@ Do not route production `DATABASE_URL_*` runtime traffic through DigitalOcean tr
 
 Normal bounded-context reads and writes are mostly compatible with transaction pooling. DigitalOcean documents transaction pooling as the general-use pooling mode, but session-level behavior such as prepared statements, advisory locks, and listen/notify belongs on session or direct connections. Production runtime URLs must therefore keep direct/session-compatible paths for work-signal and context-owned waiter traffic while ordinary query traffic moves independently.
 
-Production pooling remains a good target after a dedicated rollout adds Terraform-managed production transaction pools for query-safe traffic and proves the modeled direct waiter topology.
+The #3342 refresh keeps direct production App Platform bindings as the correct current-scale posture: production rolling-deploy overlap demand is 70/94 on `db-s-2vcpu-4gb`, below the 80% tier-upgrade trigger, and the first scale trigger is adding a 3rd `platform-api` instance or a 2nd `platform-worker` instance. Production pooling remains a good target after a dedicated rollout adds Terraform-managed production transaction pools for query-safe traffic and proves the modeled direct waiter topology.
 
 ## Source Rules
 
@@ -21,13 +21,13 @@ Production pooling remains a good target after a dedicated rollout adds Terrafor
 
 | Class | Current path | Pooling posture |
 | --- | --- | --- |
-| Bounded-context API and worker query traffic | `DATABASE_URL_<CONTEXT>` and `PLATFORM_CONTROL_DATABASE_URL` | Candidate for transaction pooling through a dedicated rollout. |
+| Bounded-context API and worker query traffic | `DATABASE_URL_<CONTEXT>` and `PLATFORM_CONTROL_DATABASE_URL` | Direct for #3342 current scale; candidate for transaction pooling through a dedicated rollout before scaling past the 80% trigger. |
 | Event-store `pg_notify` emission | Caller transaction queryable | Transaction-pool-safe as an emission hint; durable event rows remain authoritative. |
 | Platform control-plane work-signal store and projection-operation waiters | `PLATFORM_WORK_SIGNAL_DATABASE_URL` | Direct/session-compatible; falls back to `PLATFORM_CONTROL_DATABASE_URL` until a separate URL is configured. |
 | Context-owned durable/realtime waiters | `DATABASE_URL_<CONTEXT>_WAITER` for `catalog`, `discovery`, `inventory`, and `marketplace` | Direct/session-compatible; falls back to the context query pool only when no waiter URL is configured. |
 | Projection wake relay source listeners | `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` | Direct-only and least-privilege; never transaction-pooled. |
 | Bootstrap, migrations, grants, and production maintenance | App Platform bindings or Terraform/admin direct URLs | Direct-only. |
-| Realtime cleanup and retention | Runtime pool with bounded advisory-lock usage | Keep on current direct production posture until the waiter split proves transaction-pool safety. |
+| Realtime cleanup and retention | Runtime pool with bounded advisory-lock usage | Keep on current direct production posture until the production-pool rollout proves transaction-pool safety. |
 
 ## Audit Evidence
 
@@ -49,9 +49,10 @@ Before enabling production transaction pools for runtime query traffic:
 1. Keep platform work-signal waiters on `PLATFORM_WORK_SIGNAL_DATABASE_URL`.
 2. Keep context-owned durable/realtime waiters on `DATABASE_URL_<CONTEXT>_WAITER`.
 3. Keep projection wake relay listeners on `WORKER_LISTENER_DATABASE_URL_<CONTEXT>`.
-4. Add Terraform-managed production transaction pools only for query-safe traffic.
-5. Update the connection-budget model to count production PgBouncer backend allocation separately from direct listener, bootstrap, and maintenance demand.
-6. Prove staging and production plan output before setting any production pooling toggle.
+4. Create a dedicated follow-up issue with staging evidence before implementing production pools.
+5. Add Terraform-managed production transaction pools only for query-safe traffic.
+6. Update the connection-budget model to count production PgBouncer backend allocation separately from direct listener, bootstrap, and maintenance demand.
+7. Prove staging and production plan output before setting any production pooling toggle.
 
 ## Rollback
 
