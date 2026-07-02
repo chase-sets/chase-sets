@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogItemDetailPage } from "./catalog-item-detail-page";
+import { CatalogItemDetailPage, parseSelectedOptionsInput } from "./catalog-item-detail-page";
 import type { CatalogItemDetail, CatalogReferenceRecordRef } from "./contracts";
 
 beforeEach(() => {
@@ -234,6 +234,66 @@ describe("CatalogItemDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Included In/ }));
     expect(screen.getAllByText("Sealed Box")[0]).toBeTruthy();
   });
+
+  it("preserves Product Contents mutation API errors for operators", async () => {
+    const fetch = stubCatalogFetches({
+      contentLines: [
+        {
+          lineId: "pcl_pack",
+          containerCatalogItemId: "cat_1",
+          containerSelectedOptions: null,
+          containerProductId: null,
+          containedCatalogItemId: "cat_pack",
+          containedSelectedOptions: null,
+          containedProductId: null,
+          quantity: 1,
+          contentTypeId: "pct_pack",
+          inclusionPolicyId: "pcp_guaranteed",
+          provenance: { source: "operator" },
+          resolutionStatus: "resolved",
+          targetLifecycleStatus: "active",
+          resolvedFactHash: "hash",
+          resolverVersion: 1,
+          resolvedAt: "2026-07-01T00:00:00.000Z",
+          updatedAt: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+      productContentsSaveError: "Required selected option is missing.",
+    });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Contents/ }).textContent).toContain("1 content lines"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Contents/ }));
+    const contentRow = screen
+      .getAllByText("Booster pack")
+      .map((element) => element.closest("tr"))
+      .find((element): element is HTMLTableRowElement => element !== null);
+    if (!contentRow) {
+      throw new Error("Expected Product Contents row to render.");
+    }
+    fireEvent.click(within(contentRow).getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Required selected option is missing."));
+    expect(
+      fetch.mock.calls.some(([request, init]) => {
+        const url = String(request);
+        return (
+          url.includes("/product-contents/containers/cat_1") &&
+          init?.method === "PUT" &&
+          String(init.body).includes('"lines":[]')
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("omits blank Product Contents selected options", () => {
+    expect(parseSelectedOptionsInput("")).toBeUndefined();
+    expect(parseSelectedOptionsInput("  ,  ")).toBeUndefined();
+    expect(parseSelectedOptionsInput("language:en")).toEqual([{ dimensionId: "language", optionId: "en" }]);
+  });
 });
 
 function expansionReference(): CatalogReferenceRecordRef {
@@ -268,6 +328,7 @@ function stubCatalogFetches(
   input: {
     contentLines?: unknown[];
     containerLines?: unknown[];
+    productContentsSaveError?: string;
   } = {},
 ) {
   const contentLines = input.contentLines ?? [];
@@ -282,7 +343,7 @@ function stubCatalogFetches(
 
   vi.stubGlobal(
     "fetch",
-    vi.fn((request: RequestInfo | URL) => {
+    vi.fn((request: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof request === "object" && request !== null && "url" in request
           ? String((request as { url: unknown }).url)
@@ -320,6 +381,27 @@ function stubCatalogFetches(
           count: 1,
         });
       }
+      if (url.includes("/product-contents/containers/cat_1") && init?.method === "PUT") {
+        if (input.productContentsSaveError) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: { message: input.productContentsSaveError } }), {
+              status: 400,
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        }
+
+        const body = init.body ? (JSON.parse(String(init.body)) as { lines?: unknown[] }) : {};
+        return jsonResponse({
+          containerCatalogItemId: "cat_1",
+          containerSelectedOptions: null,
+          containerProductId: null,
+          lines: body.lines ?? [],
+          resolvedFactHash: "hash",
+          resolverVersion: 1,
+          resolvedAt: "2026-07-01T00:00:00.000Z",
+        });
+      }
       if (url.includes("/product-contents/containers/cat_1")) {
         return jsonResponse({ items: contentLines, total: contentLines.length, count: contentLines.length });
       }
@@ -339,4 +421,6 @@ function stubCatalogFetches(
       return jsonResponse({ items: [], total: 0, count: 0 });
     }),
   );
+
+  return vi.mocked(globalThis.fetch);
 }

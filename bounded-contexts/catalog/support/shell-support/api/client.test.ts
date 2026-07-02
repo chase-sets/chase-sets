@@ -1,7 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCatalogApiClient } from "./client";
+import { ApiError, createCatalogApiClient } from "./client";
 
 describe("catalog API durable job client", () => {
+  it("preserves nested API error messages", () => {
+    const error = new ApiError(400, {
+      error: {
+        code: "invalid_product_contents",
+        message: "Required selected option is missing.",
+      },
+    });
+
+    expect(error.message).toBe("Required selected option is missing.");
+  });
+
+  it("preserves string API error messages", () => {
+    const error = new ApiError(400, { error: "Required selected option is missing." });
+
+    expect(error.message).toBe("Required selected option is missing.");
+  });
+
   it("reconnects job event streams with the last durable event id", async () => {
     const completedResult = {
       requested: 1,

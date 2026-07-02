@@ -203,8 +203,8 @@ function formatSelectedOptions(options: readonly ProductContentSelectedOption[] 
     .join(", ");
 }
 
-function parseSelectedOptionsInput(value: string): ProductContentSelectedOption[] {
-  return value
+export function parseSelectedOptionsInput(value: string): ProductContentSelectedOption[] | undefined {
+  const selectedOptions = value
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean)
@@ -213,6 +213,16 @@ function parseSelectedOptionsInput(value: string): ProductContentSelectedOption[
       return { dimensionId: dimensionId.trim(), optionId: optionId.trim() };
     })
     .filter((entry) => entry.dimensionId.length > 0 && entry.optionId.length > 0);
+
+  return selectedOptions.length > 0 ? selectedOptions : undefined;
+}
+
+function messageFromError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.update.failed");
 }
 
 function productContentLineToInput(line: ProductContentLineDetail): ProductContentLineInput {
@@ -393,6 +403,7 @@ export function CatalogItemDetailPage({
   const [productContentTargetItemId, setProductContentTargetItemId] = useState("");
   const [productContentTargetOptions, setProductContentTargetOptions] = useState("");
   const [productContentQuantity, setProductContentQuantity] = useState("1");
+  const [productContentError, setProductContentError] = useState<string | null>(null);
   const { data: fieldsData } = useFieldList("limit=500&status=active");
   const { data: referenceRecordsData } = useReferenceRecordList("limit=500&status=active");
   const { data: productContentTypesData } = useProductContentTypes();
@@ -660,33 +671,56 @@ export function CatalogItemDetailPage({
       provenance: { source: "operator" },
     };
 
-    await replaceProductContents(id, {
-      lines: [...productContents.map(productContentLineToInput), nextLine],
-    });
-    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
-    setShowAddProductContent(false);
-    setProductContentTypeId("");
-    setProductContentPolicyId("");
-    setProductContentTargetItemId("");
-    setProductContentTargetOptions("");
-    setProductContentQuantity("1");
-    refreshProductContents();
-    refreshProductContainers();
+    setProductContentError(null);
+    try {
+      await replaceProductContents(id, {
+        lines: [...productContents.map(productContentLineToInput), nextLine],
+      });
+      addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
+      setShowAddProductContent(false);
+      setProductContentTypeId("");
+      setProductContentPolicyId("");
+      setProductContentTargetItemId("");
+      setProductContentTargetOptions("");
+      setProductContentQuantity("1");
+      refreshProductContents();
+      refreshProductContainers();
+    } catch (error) {
+      const message = messageFromError(error);
+      setProductContentError(message);
+      addToast(
+        t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.update.failed"),
+        "danger",
+        message,
+      );
+    }
   }
 
   function startAddProductContentLine() {
     setProductContentTypeId((current) => current || productContentTypeOptions[0]?.value || "");
     setProductContentPolicyId((current) => current || productContentPolicyOptions[0]?.value || "");
+    setProductContentError(null);
     setShowAddProductContent(true);
   }
 
   async function handleRemoveProductContentLine(line: ProductContentLineDetail) {
-    await replaceProductContents(id, {
-      lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
-    });
-    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
-    refreshProductContents();
-    refreshProductContainers();
+    setProductContentError(null);
+    try {
+      await replaceProductContents(id, {
+        lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
+      });
+      addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
+      refreshProductContents();
+      refreshProductContainers();
+    } catch (error) {
+      const message = messageFromError(error);
+      setProductContentError(message);
+      addToast(
+        t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.update.failed"),
+        "danger",
+        message,
+      );
+    }
   }
 
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
@@ -953,6 +987,11 @@ export function CatalogItemDetailPage({
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents")}>
               <Stack gap={4}>
+                {productContentError ? (
+                  <Text tone="danger" role="alert">
+                    {productContentError}
+                  </Text>
+                ) : null}
                 <ProgressiveDisclosure
                   title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.contents")}
                   summary={
@@ -1549,6 +1588,11 @@ export function CatalogItemDetailPage({
         }
       >
         <Stack gap={3}>
+          {productContentError ? (
+            <Text tone="danger" role="alert">
+              {productContentError}
+            </Text>
+          ) : null}
           <Combobox
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.content.type")}
             items={productContentTypeOptions}

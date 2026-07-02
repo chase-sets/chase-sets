@@ -180,6 +180,8 @@ export const catalogItemsEnglishTranslations = {
   "catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents": "Product Contents",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.summary": "{count} content lines",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated": "Product Contents updated",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.update.failed":
+    "Product Contents update failed",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.provider": "Provider",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.publish": "Publish",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2": "Publish",
