@@ -1968,6 +1968,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain("backups    = var.droplet_backups_enabled");
     expect(observabilityMain).toContain('check "observability_storage_posture"');
     expect(observabilityMain).toContain('check "observability_retention_posture"');
+    expect(observabilityMain).toContain('check "observability_cloud_init_size"');
+    expect(observabilityMain).toContain("length(local.cloud_init_user_data) < 64000");
     expect(observabilityVariables).toContain('variable "droplet_backups_enabled"');
     expect(observabilityVariables).toContain("default     = false");
     expect(observabilityVariables).toContain('variable "acceptable_telemetry_data_loss_window_hours"');
@@ -1975,6 +1977,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(observabilityMain).toContain('port_range       = "443"');
     expect(observabilityLocals).toContain("../../observability/stack");
     expect(observabilityLocals).toContain("grafana/dashboards/projection-wake-pipeline.json");
+    expect(observabilityLocals).toContain('encoding    = "gz+b64"');
+    expect(observabilityLocals).toContain("content     = base64gzip(content)");
+    expect(observabilityLocals).toContain("cloud_init_user_data = templatefile");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
     expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
     expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");

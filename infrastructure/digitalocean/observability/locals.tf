@@ -56,8 +56,8 @@ locals {
       path        = "/opt/chase-sets-observability/${relative_path}"
       owner       = "root:root"
       permissions = relative_path == ".env" || relative_path == "Caddyfile" ? "0600" : "0644"
-      encoding    = "b64"
-      content     = base64encode(content)
+      encoding    = "gz+b64"
+      content     = base64gzip(content)
     }
   ]
 
@@ -70,4 +70,10 @@ locals {
       "    content: ${write_file.content}",
     ])
   ])
+
+  cloud_init_user_data = templatefile("${path.module}/templates/cloud-init.yml.tftpl", {
+    environment      = var.environment
+    volume_name      = local.volume_name
+    write_files_yaml = local.cloud_init_write_files_yaml
+  })
 }
