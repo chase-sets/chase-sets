@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   buyerVisibleListingPredicateSql,
@@ -8,6 +9,8 @@ import type {
   DiscoveryAccountOfferMatchWithTerms,
   DiscoveryItemDetailSellerOverlay,
   DiscoveryMarketListing,
+  DiscoveryProductContentLine,
+  DiscoveryProductContentItemRef,
   DiscoverySellerInventoryItem,
 } from "../../../support/client-support/contracts";
 
@@ -86,13 +89,41 @@ export type DiscoveryItemDetailRow = Readonly<{
     created_at: string;
     updated_at: string;
   }>[];
+  contents: readonly DiscoveryProductContentLine[];
+  included_in: readonly DiscoveryProductContentLine[];
   updated_at: string;
 }>;
 
 type BaseDiscoveryItemDetailRow = Omit<
   DiscoveryItemDetailRow,
-  "market_summary" | "market_listings" | "offer_demand_matches"
+  "market_summary" | "market_listings" | "offer_demand_matches" | "contents" | "included_in"
 >;
+
+type ProductContentLineDbRow = Readonly<{
+  line_id: string;
+  container_catalog_item_id: string;
+  container_selected_options: unknown;
+  container_product_id: string | null;
+  container_slug: string | null;
+  container_title: string | null;
+  container_subtitle: string | null;
+  container_status: string | null;
+  contained_catalog_item_id: string | null;
+  contained_selected_options: unknown;
+  contained_product_id: string | null;
+  contained_slug: string | null;
+  contained_title: string | null;
+  contained_subtitle: string | null;
+  contained_status: string | null;
+  quantity: number | null;
+  content_type_id: string;
+  content_type_display_name: unknown;
+  inclusion_policy_id: string | null;
+  inclusion_policy_display_name: unknown;
+  resolution_status: "resolved" | "unresolved";
+  target_lifecycle_status: string | null;
+  updated_at: string;
+}>;
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -128,6 +159,109 @@ function normalizeStringArray(value: unknown) {
 
 function normalizeSelectedOptions(value: unknown): readonly { dimensionId: string; optionId: string }[] {
   return Array.isArray(value) ? (value as { dimensionId: string; optionId: string }[]) : [];
+}
+
+function normalizeNullableSelectedOptions(value: unknown): { dimensionId: string; optionId: string }[] | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return normalizeSelectedOptions(value).map((entry) => ({
+    dimensionId: entry.dimensionId,
+    optionId: entry.optionId,
+  }));
+}
+
+function productContentItemRef(
+  row: ProductContentLineDbRow,
+  prefix: "container" | "contained",
+): DiscoveryProductContentItemRef | null {
+  const catalogItemId = prefix === "container" ? row.container_catalog_item_id : row.contained_catalog_item_id;
+  const slug = prefix === "container" ? row.container_slug : row.contained_slug;
+  const title = prefix === "container" ? row.container_title : row.contained_title;
+  const subtitle = prefix === "container" ? row.container_subtitle : row.contained_subtitle;
+  const status = prefix === "container" ? row.container_status : row.contained_status;
+
+  if (!catalogItemId || !slug || !title || !status) {
+    return null;
+  }
+
+  return {
+    catalog_item_id: catalogItemId,
+    slug,
+    title,
+    subtitle,
+    status,
+  };
+}
+
+function productContentLineFromDb(row: ProductContentLineDbRow): DiscoveryProductContentLine {
+  return {
+    line_id: row.line_id,
+    container_catalog_item_id: row.container_catalog_item_id,
+    container_selected_options: normalizeNullableSelectedOptions(row.container_selected_options),
+    container_product_id: row.container_product_id,
+    container_item: productContentItemRef(row, "container"),
+    contained_catalog_item_id: row.contained_catalog_item_id,
+    contained_selected_options: normalizeNullableSelectedOptions(row.contained_selected_options),
+    contained_product_id: row.contained_product_id,
+    contained_item: productContentItemRef(row, "contained"),
+    quantity: row.quantity,
+    content_type_id: row.content_type_id,
+    content_type_label: resolveLocalizedTextMap(coerceLocalizedTextMap(row.content_type_display_name)),
+    inclusion_policy_id: row.inclusion_policy_id,
+    inclusion_policy_label: row.inclusion_policy_display_name
+      ? resolveLocalizedTextMap(coerceLocalizedTextMap(row.inclusion_policy_display_name))
+      : null,
+    resolution_status: row.resolution_status,
+    target_lifecycle_status: row.target_lifecycle_status,
+    updated_at: row.updated_at,
+  };
+}
+
+async function listProductContentsForItem(
+  db: PgQueryable,
+  catalogItemId: string,
+  direction: "contents" | "included_in",
+): Promise<DiscoveryProductContentLine[]> {
+  const predicate =
+    direction === "contents" ? "line.container_catalog_item_id = $1" : "line.contained_catalog_item_id = $1";
+  const result = await db.query<ProductContentLineDbRow>(
+    `SELECT
+       line.line_id,
+       line.container_catalog_item_id,
+       line.container_selected_options,
+       line.container_product_id,
+       container.slug AS container_slug,
+       container.title AS container_title,
+       container.subtitle AS container_subtitle,
+       container.status AS container_status,
+       line.contained_catalog_item_id,
+       line.contained_selected_options,
+       line.contained_product_id,
+       contained.slug AS contained_slug,
+       contained.title AS contained_title,
+       contained.subtitle AS contained_subtitle,
+       contained.status AS contained_status,
+       line.quantity,
+       line.content_type_id,
+       line.content_type_display_name,
+       line.inclusion_policy_id,
+       line.inclusion_policy_display_name,
+       line.resolution_status,
+       line.target_lifecycle_status,
+       line.updated_at::text AS updated_at
+     FROM discovery_item_detail_product_contents AS line
+     LEFT JOIN discovery_item_detail_pages AS container
+       ON container.catalog_item_id = line.container_catalog_item_id
+     LEFT JOIN discovery_item_detail_pages AS contained
+       ON contained.catalog_item_id = line.contained_catalog_item_id
+     WHERE ${predicate}
+     ORDER BY line.content_type_id ASC, line.line_id ASC`,
+    [catalogItemId],
+  );
+
+  return result.rows.map(productContentLineFromDb);
 }
 
 export async function getDiscoveryItemDetail(
@@ -242,6 +376,10 @@ export async function getDiscoveryItemDetail(
           total_visible_quantity: summaryRow.total_visible_quantity,
         }
       : null;
+  const [contents, includedIn] = await Promise.all([
+    listProductContentsForItem(db, item.catalog_item_id, "contents"),
+    listProductContentsForItem(db, item.catalog_item_id, "included_in"),
+  ]);
 
   return {
     ...item,
@@ -264,6 +402,8 @@ export async function getDiscoveryItemDetail(
       ...row,
       selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     })),
+    contents,
+    included_in: includedIn,
   };
 }
 

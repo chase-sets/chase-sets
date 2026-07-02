@@ -106,6 +106,39 @@ ALTER TABLE discovery_item_detail_catalog_dimension_options
 
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_dimension_options_dimension_idx ON discovery_item_detail_catalog_dimension_options (dimension_id);
 
+CREATE TABLE IF NOT EXISTS discovery_item_detail_product_contents (
+  line_id text PRIMARY KEY,
+  container_catalog_item_id text NOT NULL,
+  container_selected_options jsonb NULL,
+  container_product_id text NULL,
+  contained_catalog_item_id text NULL,
+  contained_selected_options jsonb NULL,
+  contained_product_id text NULL,
+  quantity integer NULL,
+  content_type_id text NOT NULL,
+  content_type_display_name jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  inclusion_policy_id text NULL,
+  inclusion_policy_display_name jsonb NULL,
+  provenance jsonb NOT NULL DEFAULT '{}'::jsonb,
+  resolution_status text NOT NULL DEFAULT 'resolved',
+  target_lifecycle_status text NULL,
+  resolved_fact_hash text NOT NULL,
+  resolver_version integer NOT NULL DEFAULT 1,
+  resolved_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE discovery_item_detail_product_contents
+  ADD COLUMN IF NOT EXISTS content_type_display_name jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS inclusion_policy_display_name jsonb NULL;
+
+CREATE INDEX IF NOT EXISTS discovery_item_detail_product_contents_container_idx
+  ON discovery_item_detail_product_contents (container_catalog_item_id, container_product_id, content_type_id);
+
+CREATE INDEX IF NOT EXISTS discovery_item_detail_product_contents_contained_idx
+  ON discovery_item_detail_product_contents (contained_catalog_item_id, contained_product_id, content_type_id)
+  WHERE contained_catalog_item_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   catalog_item_id text PRIMARY KEY,
   slug text NOT NULL DEFAULT '',

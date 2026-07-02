@@ -68,7 +68,7 @@ The fact is derived from accepted Product Contents lines and includes:
 - `container_selected_options`
 - derived `container_product_id` when the selected Options resolve to one Product
 - stable ordered content lines
-- for each line: contained Catalog Item identity when resolved, contained selected Options when applicable, derived contained Product ID when resolvable, quantity, content type, inclusion policy, provenance summary, and resolution status
+- for each line: contained Catalog Item identity when resolved, contained selected Options when applicable, derived contained Product ID when resolvable, quantity, content type id with configured display name, inclusion policy id with configured display name when present, provenance summary, and resolution status
 - a fact hash or version that changes only when the resolved downstream view changes
 
 Discovery consumes this fact for item detail, reverse lookup, and optional search weighting. Discovery must not consume Product Contents command streams, provider evidence, unresolved review state, or Product Content Type internals beyond the published resolved shape.

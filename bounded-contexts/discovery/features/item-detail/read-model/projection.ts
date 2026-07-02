@@ -151,6 +151,39 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   subtitle?: string | null;
 }>;
 
+type ProductContentSelectedOption = Readonly<{
+  dimensionId: string;
+  optionId: string;
+}>;
+
+type ProductContentLineSnapshot = Readonly<{
+  lineId: string;
+  containerCatalogItemId: string;
+  containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
+  containerProductId: string | null;
+  containedCatalogItemId: string | null;
+  containedSelectedOptions: readonly ProductContentSelectedOption[] | null;
+  containedProductId: string | null;
+  quantity: number | null;
+  contentTypeId: string;
+  contentTypeDisplayName?: LocalizedTextMap | null;
+  inclusionPolicyId: string | null;
+  inclusionPolicyDisplayName?: LocalizedTextMap | null;
+  provenance: unknown;
+  resolutionStatus: "resolved" | "unresolved";
+  targetLifecycleStatus: string | null;
+}>;
+
+type ProductContentsResolvedFact = Readonly<{
+  containerCatalogItemId: string;
+  containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
+  containerProductId: string | null;
+  lines: readonly ProductContentLineSnapshot[];
+  resolvedFactHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
 async function upsertItemDetailCatalogBlueprint(
   db: PgQueryable,
   input: Readonly<{ blueprintId: string; name: string; updatedAt: string }>,
@@ -586,6 +619,88 @@ async function applyCatalogItemDisplayIdentity(
   await refreshDiscoveryItemDetailPage(db, input.catalogItemId);
 }
 
+async function replaceResolvedProductContents(
+  db: PgQueryable,
+  fact: ProductContentsResolvedFact,
+  updatedAt: string,
+): Promise<void> {
+  await db.query(
+    `DELETE FROM discovery_item_detail_product_contents
+     WHERE container_catalog_item_id = $1
+       AND (
+         (container_product_id IS NULL AND $2::text IS NULL)
+         OR container_product_id = $2
+       )`,
+    [fact.containerCatalogItemId, fact.containerProductId],
+  );
+
+  for (const line of fact.lines) {
+    await db.query(
+      `INSERT INTO discovery_item_detail_product_contents (
+         line_id,
+         container_catalog_item_id,
+         container_selected_options,
+         container_product_id,
+         contained_catalog_item_id,
+         contained_selected_options,
+         contained_product_id,
+         quantity,
+         content_type_id,
+         content_type_display_name,
+         inclusion_policy_id,
+         inclusion_policy_display_name,
+         provenance,
+         resolution_status,
+         target_lifecycle_status,
+         resolved_fact_hash,
+         resolver_version,
+         resolved_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       ON CONFLICT (line_id) DO UPDATE SET
+         container_catalog_item_id = EXCLUDED.container_catalog_item_id,
+         container_selected_options = EXCLUDED.container_selected_options,
+         container_product_id = EXCLUDED.container_product_id,
+         contained_catalog_item_id = EXCLUDED.contained_catalog_item_id,
+         contained_selected_options = EXCLUDED.contained_selected_options,
+         contained_product_id = EXCLUDED.contained_product_id,
+         quantity = EXCLUDED.quantity,
+         content_type_id = EXCLUDED.content_type_id,
+         content_type_display_name = EXCLUDED.content_type_display_name,
+         inclusion_policy_id = EXCLUDED.inclusion_policy_id,
+         inclusion_policy_display_name = EXCLUDED.inclusion_policy_display_name,
+         provenance = EXCLUDED.provenance,
+         resolution_status = EXCLUDED.resolution_status,
+         target_lifecycle_status = EXCLUDED.target_lifecycle_status,
+         resolved_fact_hash = EXCLUDED.resolved_fact_hash,
+         resolver_version = EXCLUDED.resolver_version,
+         resolved_at = EXCLUDED.resolved_at,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        line.lineId,
+        line.containerCatalogItemId,
+        jsonOrNull(line.containerSelectedOptions),
+        line.containerProductId,
+        line.containedCatalogItemId,
+        jsonOrNull(line.containedSelectedOptions),
+        line.containedProductId,
+        line.quantity,
+        line.contentTypeId,
+        JSON.stringify(line.contentTypeDisplayName ?? localizedTextMap(line.contentTypeId)),
+        line.inclusionPolicyId,
+        line.inclusionPolicyDisplayName ? JSON.stringify(line.inclusionPolicyDisplayName) : null,
+        JSON.stringify(line.provenance ?? {}),
+        line.resolutionStatus,
+        line.targetLifecycleStatus,
+        fact.resolvedFactHash,
+        fact.resolverVersion,
+        fact.resolvedAt,
+        updatedAt,
+      ],
+    );
+  }
+}
+
 export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
@@ -835,6 +950,9 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
+    },
+    "catalog.product-contents.resolved": async (event) => {
+      await replaceResolvedProductContents(db, event.data as ProductContentsResolvedFact, event.timing.recordedAt);
     },
 
     "catalog.blueprint.created": async (event) => {
@@ -1187,6 +1305,10 @@ type LocalizedTextMap = Readonly<{
 
 function localizedTextMap(value: string): LocalizedTextMap {
   return { defaultLocale: "en", values: value ? { en: value } : {} };
+}
+
+function jsonOrNull(value: unknown): string | null {
+  return value === null || value === undefined ? null : JSON.stringify(value);
 }
 
 function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {

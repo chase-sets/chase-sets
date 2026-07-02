@@ -143,6 +143,39 @@ export interface CategoryRef {
   name: string;
 }
 
+export interface DiscoveryProductContentSelectedOption {
+  dimensionId: string;
+  optionId: string;
+}
+
+export interface DiscoveryProductContentItemRef {
+  catalog_item_id: string;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  status: string;
+}
+
+export interface DiscoveryProductContentLine {
+  line_id: string;
+  container_catalog_item_id: string;
+  container_selected_options: DiscoveryProductContentSelectedOption[] | null;
+  container_product_id: string | null;
+  container_item: DiscoveryProductContentItemRef | null;
+  contained_catalog_item_id: string | null;
+  contained_selected_options: DiscoveryProductContentSelectedOption[] | null;
+  contained_product_id: string | null;
+  contained_item: DiscoveryProductContentItemRef | null;
+  quantity: number | null;
+  content_type_id: string;
+  content_type_label: string;
+  inclusion_policy_id: string | null;
+  inclusion_policy_label: string | null;
+  resolution_status: "resolved" | "unresolved";
+  target_lifecycle_status: string | null;
+  updated_at: string;
+}
+
 export interface DiscoveryItemDetail {
   catalog_item_id: string;
   slug: string;
@@ -166,6 +199,8 @@ export interface DiscoveryItemDetail {
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
   offer_demand_matches: DiscoveryOffer[];
+  contents: DiscoveryProductContentLine[];
+  included_in: DiscoveryProductContentLine[];
   updated_at: string;
 }
 

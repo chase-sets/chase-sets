@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS catalog_resolved_product_contents (
   contained_product_id text NULL,
   quantity integer NULL,
   content_type_id text NOT NULL REFERENCES catalog_product_content_types(content_type_id),
+  content_type_display_name jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   inclusion_policy_id text NULL REFERENCES catalog_product_content_inclusion_policies(inclusion_policy_id),
+  inclusion_policy_display_name jsonb NULL,
   provenance jsonb NOT NULL DEFAULT '{}'::jsonb,
   resolution_status text NOT NULL DEFAULT 'resolved',
   target_lifecycle_status text NULL,
@@ -43,6 +45,10 @@ CREATE TABLE IF NOT EXISTS catalog_resolved_product_contents (
   resolved_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE catalog_resolved_product_contents
+  ADD COLUMN IF NOT EXISTS content_type_display_name jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS inclusion_policy_display_name jsonb NULL;
 
 CREATE INDEX IF NOT EXISTS catalog_resolved_product_contents_container_idx
   ON catalog_resolved_product_contents (container_catalog_item_id, container_product_id, content_type_id);

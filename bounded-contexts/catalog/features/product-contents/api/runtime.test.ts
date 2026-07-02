@@ -44,7 +44,9 @@ type ProductContentRow = Readonly<{
   contained_product_id: string | null;
   quantity: number | null;
   content_type_id: string;
+  content_type_display_name: unknown;
   inclusion_policy_id: string | null;
+  inclusion_policy_display_name: unknown;
   provenance: unknown;
   resolution_status: "resolved" | "unresolved";
   target_lifecycle_status: string | null;
@@ -152,13 +154,15 @@ function createContentDb(items: readonly CatalogItemRow[]) {
           contained_product_id: typeof params?.[6] === "string" ? String(params[6]) : null,
           quantity: typeof params?.[7] === "number" ? Number(params[7]) : null,
           content_type_id: String(params?.[8] ?? ""),
-          inclusion_policy_id: typeof params?.[9] === "string" ? String(params[9]) : null,
-          provenance: parseJson(params?.[10]),
-          resolution_status: params?.[11] === "unresolved" ? "unresolved" : "resolved",
-          target_lifecycle_status: typeof params?.[12] === "string" ? String(params[12]) : null,
-          resolved_fact_hash: String(params?.[13] ?? ""),
-          resolver_version: Number(params?.[14] ?? 1),
-          resolved_at: String(params?.[15] ?? ""),
+          content_type_display_name: parseJson(params?.[9]),
+          inclusion_policy_id: typeof params?.[10] === "string" ? String(params[10]) : null,
+          inclusion_policy_display_name: parseJson(params?.[11]),
+          provenance: parseJson(params?.[12]),
+          resolution_status: params?.[13] === "unresolved" ? "unresolved" : "resolved",
+          target_lifecycle_status: typeof params?.[14] === "string" ? String(params[14]) : null,
+          resolved_fact_hash: String(params?.[15] ?? ""),
+          resolver_version: Number(params?.[16] ?? 1),
+          resolved_at: String(params?.[17] ?? ""),
           updated_at: "2026-07-01T00:00:00.000Z",
         };
         resolved.set(row.line_id, row);
@@ -260,7 +264,7 @@ describe("product content runtime", () => {
       sortOrder: 10,
     });
 
-    await services.replaceProductContents(
+    const fact = await services.replaceProductContents(
       {
         containerCatalogItemId: "cat_box" as never,
         containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
@@ -277,6 +281,10 @@ describe("product content runtime", () => {
       },
       context,
     );
+    expect(fact.lines[0]).toMatchObject({
+      contentTypeDisplayName: localizedTextMapFromEnglish("Included item"),
+      inclusionPolicyDisplayName: localizedTextMapFromEnglish("Guaranteed"),
+    });
 
     expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
     expect(appended[0]?.events.map((event) => event.eventType)).toEqual([
@@ -292,7 +300,9 @@ describe("product content runtime", () => {
           containedProductId: "cat_card::finish:foil",
           quantity: 1,
           contentTypeId: "pct_included_item",
+          contentTypeDisplayName: localizedTextMapFromEnglish("Included item"),
           inclusionPolicyId: "pcp_guaranteed",
+          inclusionPolicyDisplayName: localizedTextMapFromEnglish("Guaranteed"),
           resolutionStatus: "resolved",
         },
       ],
@@ -373,7 +383,9 @@ describe("product content runtime", () => {
       contained_product_id: null,
       quantity: 1,
       content_type_id: "pct_included_item",
+      content_type_display_name: localizedTextMapFromEnglish("Included item"),
       inclusion_policy_id: null,
+      inclusion_policy_display_name: null,
       provenance: {},
       resolution_status: "resolved",
       target_lifecycle_status: "active",
