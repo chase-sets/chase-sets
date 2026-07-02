@@ -35,6 +35,7 @@ import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
+import type { ProductContentServices } from "../../product-contents/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRelationship } from "../../reference-data/domain/domain";
 import {
@@ -1184,6 +1185,7 @@ export function createSourceObservationRuntime(
   aliasCandidateSink: SourceObservationAliasCandidateSink = (candidates, observedAt) =>
     upsertSourceObservationAliasCandidates(deps.db, candidates, observedAt),
   aliasPromotion: SourceObservationAliasPromotion | null = null,
+  productContents: ProductContentServices | null = null,
 ): SourceObservationServices {
   const aliasPromotionServices = resolveAliasPromotionServices(deps, aliasPromotion);
   const { commandHandler } = createAggregateCommandHandler({
@@ -1735,6 +1737,7 @@ export function createSourceObservationRuntime(
       ? await refreshCatalogItemFromObservation({
           items,
           referenceData,
+          productContents,
           deps,
           catalogItemId: reusableCatalogItemId,
           normalized,
@@ -1750,6 +1753,7 @@ export function createSourceObservationRuntime(
       : await createCatalogDraftFromObservation({
           items,
           referenceData,
+          productContents,
           deps,
           catalogItemId,
           normalized,
@@ -1994,6 +1998,7 @@ export function createSourceObservationRuntime(
     const { referenceRecordIdsByTypeKey, ...promotionEvidence } = await refreshCatalogItemFromObservation({
       items,
       referenceData,
+      productContents,
       deps,
       catalogItemId,
       normalized,
@@ -6547,6 +6552,7 @@ type ReferenceHierarchySourceObservationNormalized =
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
   referenceData: ReferenceDataServices;
+  productContents: ProductContentServices | null;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
   normalized: CatalogItemPromotableSourceObservationNormalized;
@@ -6605,6 +6611,7 @@ async function createCatalogDraftFromObservation(input: {
 
   await executeCatalogItemPromotionCommandPlan({
     items: input.items,
+    productContents: input.productContents,
     streamId,
     plan,
     context: input.context,
@@ -6616,6 +6623,7 @@ async function createCatalogDraftFromObservation(input: {
 async function refreshCatalogItemFromObservation(input: {
   items: CatalogItemServices;
   referenceData: ReferenceDataServices;
+  productContents: ProductContentServices | null;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
   normalized: CatalogItemPromotableSourceObservationNormalized;
@@ -6674,6 +6682,7 @@ async function refreshCatalogItemFromObservation(input: {
 
   await executeCatalogItemPromotionCommandPlan({
     items: input.items,
+    productContents: input.productContents,
     streamId,
     plan,
     context: input.context,
@@ -6761,6 +6770,7 @@ function referenceDataPromotionPlanFingerprint(input: {
 
 async function executeCatalogItemPromotionCommandPlan(input: {
   items: CatalogItemServices;
+  productContents: ProductContentServices | null;
   streamId: string;
   plan: CatalogProviderPromotionCommandPlanResult;
   context: EventStoreContext;
@@ -6776,6 +6786,13 @@ async function executeCatalogItemPromotionCommandPlan(input: {
       command,
       context: input.context,
     });
+  }
+
+  if (input.plan.plan.productContents) {
+    if (!input.productContents) {
+      throw new Error("Product Contents services are required to promote reviewed Product Contents evidence.");
+    }
+    await input.productContents.replaceProductContents(input.plan.plan.productContents.replacement, input.context);
   }
 }
 

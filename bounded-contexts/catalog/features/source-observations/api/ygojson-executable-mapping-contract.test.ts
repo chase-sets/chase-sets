@@ -27,6 +27,20 @@ describe("YGOJSON executable mapping contracts", () => {
     expect(ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.normalizedObservation.outputKind).toBe(
       "yugioh-sealed-product",
     );
+    expect(
+      ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.normalizedObservation.fields
+        .productContentsEvidence,
+    ).toMatchObject({
+      selector: {
+        kind: "path",
+        path: "sealedProduct.contents",
+        required: false,
+        nullPolicy: "omit",
+      },
+      owner: "catalog-merge-evidence",
+      uses: expect.arrayContaining(["normalized-observation", "hash-material"]),
+      redaction: "none",
+    });
   });
 
   it("keeps provider governance and price/vendor exclusions explicit", () => {

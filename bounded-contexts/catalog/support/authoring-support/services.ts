@@ -92,6 +92,7 @@ export function createCatalogServices(
     undefined,
     catalogAliases.upsertSourceObservationAliasCandidates,
     { catalogAliasCommandHandler: catalogAliases.catalogAliasCommandHandler },
+    productContents,
   );
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 

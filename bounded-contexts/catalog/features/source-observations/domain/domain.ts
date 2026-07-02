@@ -34,6 +34,23 @@ export type SourceObservationSelectedOptionReference = Readonly<{
   optionId: string;
 }>;
 
+export type SourceObservationProductContentsPromotionLine = JsonObject &
+  Readonly<{
+    contentTypeId: string | null;
+    candidateContentTypeIds?: readonly string[];
+    inclusionPolicyId?: string | null;
+    quantity?: number | null;
+    containedCatalogItemId?: string | null;
+    containedSelectedOptions?: readonly SourceObservationSelectedOptionReference[];
+    candidateCatalogItemIds?: readonly string[];
+    provenance?: JsonObject;
+  }>;
+
+export type SourceObservationProductContentsPromotion = JsonObject &
+  Readonly<{
+    lines: readonly SourceObservationProductContentsPromotionLine[];
+  }>;
+
 export type SourceObservationMergeIdentity = Readonly<{
   tcg: string;
   productLineName: string | null;
@@ -73,6 +90,8 @@ export type SourceObservationNormalizedBase = Readonly<{
   mergeIdentity?: SourceObservationMergeIdentity;
   externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
   externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  productContentsEvidence?: JsonObject | null;
+  productContentsPromotion?: SourceObservationProductContentsPromotion | null;
 }>;
 
 export type SourceObservationPokemonCardNormalized = JsonObject &
@@ -178,6 +197,7 @@ export type SourceObservationMagicSealedProductNormalized = JsonObject &
     productLineName: "Magic: The Gathering";
     barcode: string | null;
     imageUrls: readonly string[];
+    productContentsEvidence?: JsonObject | null;
     mergeIdentity?: SourceObservationMergeIdentity;
     externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
     externalProductReferences?: readonly SourceObservationExternalProductReference[];

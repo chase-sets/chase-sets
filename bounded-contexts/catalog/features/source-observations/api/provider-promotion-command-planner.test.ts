@@ -717,6 +717,129 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(changed.plan?.planFingerprint).not.toBe(first.plan?.planFingerprint);
   });
 
+  it("plans Product Contents promotion only after review resolves one contained Catalog Item target", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation({
+        productContentsPromotion: productContentsPromotion({
+          contentTypeId: "pct_reviewed_content",
+          inclusionPolicyId: "pcp_reviewed_policy",
+          candidateCatalogItemIds: ["cat_fury_sliver"],
+          quantity: 15,
+        }),
+      }),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.productContents).toEqual({
+      planKind: "product-contents-promotion",
+      replacement: {
+        containerCatalogItemId: "cat_magic_sealed_001",
+        lines: [
+          {
+            containedCatalogItemId: "cat_fury_sliver",
+            containedSelectedOptions: [],
+            quantity: 15,
+            contentTypeId: "pct_reviewed_content",
+            inclusionPolicyId: "pcp_reviewed_policy",
+            provenance: { sourceObservationEvidence: "reviewed-provider-contents" },
+          },
+        ],
+      },
+      review: { lineCount: 1 },
+    });
+  });
+
+  it("does not write Product Contents for observations with retained evidence but no reviewed contents promotion", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation({
+        productContentsEvidence: { rawProviderContents: [{ name: "Fury Sliver" }] },
+      }),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.productContents).toBeNull();
+  });
+
+  it("blocks Product Contents promotion when reviewed evidence has no resolved contained target", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation({
+        productContentsPromotion: productContentsPromotion({
+          contentTypeId: "pct_reviewed_content",
+          candidateCatalogItemIds: [],
+        }),
+      }),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      diagnostics: [expect.objectContaining({ code: "missing-product-contents-target" })],
+    });
+  });
+
+  it("blocks ambiguous Product Contents targets and ambiguous content types", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation({
+        productContentsPromotion: productContentsPromotion({
+          contentTypeId: null,
+          candidateContentTypeIds: ["pct_reviewed_content", "pct_reviewed_insert"],
+          candidateCatalogItemIds: ["cat_fury_sliver", "cat_fury_sliver_reprint"],
+        }),
+      }),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "ambiguous-product-contents-content-type" }),
+        expect.objectContaining({ code: "ambiguous-product-contents-target" }),
+      ]),
+    });
+  });
+
   it("blocks ambiguous Magic identity preflight before returning executable commands", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: scrydexScryfallCardProviderProfile,
@@ -1062,6 +1185,27 @@ function magicSealedProductObservation(
     externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
     externalProductReferences: [],
     ...overrides,
+  };
+}
+
+function productContentsPromotion(input: {
+  contentTypeId: string | null;
+  candidateContentTypeIds?: readonly string[];
+  inclusionPolicyId?: string | null;
+  candidateCatalogItemIds?: readonly string[];
+  quantity?: number | null;
+}) {
+  return {
+    lines: [
+      {
+        contentTypeId: input.contentTypeId,
+        candidateContentTypeIds: input.candidateContentTypeIds ?? [],
+        inclusionPolicyId: input.inclusionPolicyId ?? null,
+        candidateCatalogItemIds: input.candidateCatalogItemIds ?? [],
+        quantity: input.quantity ?? null,
+        provenance: { sourceObservationEvidence: "reviewed-provider-contents" },
+      },
+    ],
   };
 }
 
