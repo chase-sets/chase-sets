@@ -134,6 +134,13 @@ pnpm run dev:db:refresh # destroy this sandbox Postgres data and bootstrap again
 pnpm run sandbox:clean  # remove this worktree sandbox containers and volumes
 ```
 
+Operator evidence, readiness, smoke, and recovery commands are discoverable from
+one entry point:
+
+```bash
+pnpm run ops help
+```
+
 The sandbox writes generated runtime values to `.env.sandbox.local`. That file
 is ignored and local to the worktree. Platform environment defaults live in:
 

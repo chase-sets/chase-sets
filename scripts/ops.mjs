@@ -162,9 +162,30 @@ export const SUBCOMMANDS = {
   },
 };
 
+export const ROOT_SCRIPT_COMMANDS = {
+  "setup:worktree": "Install workspace dependencies for the current worktree.",
+  "dev:bootstrap": "Prepare the local sandbox databases and runtime state.",
+  dev: "Start the full local sandbox system.",
+  "dev:down": "Stop this worktree's local sandbox.",
+  "dev:db:refresh": "Recreate this worktree's local databases and bootstrap again.",
+  "sandbox:doctor": "Print active sandbox ports, URLs, and health hints.",
+  "sandbox:clean": "Remove this worktree's sandbox containers and volumes.",
+  "test:scripts": "Run repository script/tooling tests.",
+  "test:structure": "Run architecture and structure guardrail tests.",
+  typecheck: "Run no-any plus TypeScript checks.",
+  "verify:static": "Run formatting, static checks, structure checks, and script tests.",
+  "replay:projection": "Inspect or rebuild deployable projection groups.",
+  "smoke:platform": "Run platform smoke checks for deployed hosts.",
+  "wake:drills": "Run staging wake recovery drills.",
+  "wake:mixed-version-drill": "Run staging mixed-version wake drills.",
+  "stripe:money-smoke": "Run Stripe money smoke evidence tooling.",
+};
+
 export function renderHelp() {
   const names = Object.keys(SUBCOMMANDS).sort();
   const width = Math.max(...names.map((name) => name.length));
+  const rootScriptNames = Object.keys(ROOT_SCRIPT_COMMANDS).sort();
+  const rootScriptWidth = Math.max(...rootScriptNames.map((name) => name.length));
   const lines = [
     "Usage: node ./scripts/ops.mjs <subcommand> [args...]",
     "",
@@ -173,6 +194,9 @@ export function renderHelp() {
     "",
     "Subcommands:",
     ...names.map((name) => `  ${name.padEnd(width)}  ${SUBCOMMANDS[name].description}`),
+    "",
+    "Root pnpm scripts:",
+    ...rootScriptNames.map((name) => `  pnpm run ${name.padEnd(rootScriptWidth)}  ${ROOT_SCRIPT_COMMANDS[name]}`),
     "",
     "Run `node ./scripts/ops.mjs help` to show this list.",
   ];
