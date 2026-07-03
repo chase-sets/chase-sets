@@ -124,6 +124,7 @@ describe("platform admin production bootstrap", () => {
       command: {
         type: "ChangeMembershipRole",
         roleKey: "platform-admin",
+        assignmentAuthority: { type: "platform-bootstrap" },
       },
     });
   });

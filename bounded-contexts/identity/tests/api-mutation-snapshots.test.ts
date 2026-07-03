@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
+import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 
 const actor: ResolvedActor = {
@@ -42,7 +43,9 @@ function buildApp(services: IdentityServices, requestActor: ResolvedActor = acto
   return app;
 }
 
-function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys" | "users">> = {}) {
+function createServices(
+  overrides: Partial<Pick<IdentityServices, "apiKeys" | "invitations" | "memberships" | "users">> = {},
+) {
   return {
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
@@ -145,7 +148,15 @@ function createServices(overrides: Partial<Pick<IdentityServices, "apiKeys" | "u
       }),
       getInvitation: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
       getInvitationForRead: vi.fn(async () => ({ invitation_id: "inv_existing", account_id: actor.accountId })),
-      getInvitationState: vi.fn(async () => null),
+      getInvitationState: vi.fn(async (invitationId: string) => ({
+        id: invitationId,
+        accountId: actor.accountId,
+        email: "invitee@example.com",
+        roleKey: "owner",
+        status: "pending",
+        expiresAt: "2026-07-01T00:00:00.000Z",
+        acceptedByUserId: null,
+      })),
       getPendingInvitationByEmail: vi.fn(async () => null),
       listInvitations: vi.fn(async () => ({ items: [], total: 0 })),
       projectors: [],
@@ -555,7 +566,7 @@ describe("Identity API mutation snapshots", () => {
     const expectedError = {
       error: {
         code: "validation_failed",
-        message: expect.stringContaining("platform-admin, owner, manager, fulfillment, viewer"),
+        message: expect.stringContaining("owner, manager, fulfillment, viewer"),
       },
     };
 
@@ -593,14 +604,142 @@ describe("Identity API mutation snapshots", () => {
     expect(guestClaim.response.status).toBe(400);
     expect(guestClaim.body).toMatchObject(expectedError);
 
-    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+    expect(services.memberships.commandHandler).not.toHaveBeenCalled();
+    expect(services.invitations.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects marketplace attempts to assign platform-admin through membership and invitation writes", async () => {
+    const services = createServices();
+    const app = buildApp(services, { ...actor, roleKey: "owner" });
+
+    const membershipGrant = await requestJson(app, "/memberships", {
       method: "POST",
-      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "onwer" }),
+      body: JSON.stringify({
+        membershipId: "mbr_platform",
+        userId: "usr_2",
+        accountId: "acc_1",
+        roleKey: "platform-admin",
+      }),
     });
-    expect(invitationAccept.response.status).toBe(400);
-    expect(invitationAccept.body).toMatchObject(expectedError);
+    expect(membershipGrant.response.status).toBe(400);
+    expect(membershipGrant.body).toMatchObject({ error: { code: "validation_failed" } });
+
+    const membershipRoleChange = await requestJson(app, "/memberships/mbr_existing/role", {
+      method: "PUT",
+      body: JSON.stringify({ roleKey: "platform-admin" }),
+    });
+    expect(membershipRoleChange.response.status).toBe(400);
+    expect(membershipRoleChange.body).toMatchObject({ error: { code: "validation_failed" } });
+
+    const invitationCreate = await requestJson(app, "/invitations", {
+      method: "POST",
+      body: JSON.stringify({
+        invitationId: "inv_platform",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "platform-admin",
+        expiresAt: "2026-07-01T00:00:00.000Z",
+      }),
+    });
+    expect(invitationCreate.response.status).toBe(400);
+    expect(invitationCreate.body).toMatchObject({ error: { code: "validation_failed" } });
 
     expect(services.memberships.commandHandler).not.toHaveBeenCalled();
+    expect(services.invitations.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects attempts to assign roles above the marketplace actor role", async () => {
+    const services = createServices();
+    const app = buildApp(services, { ...actor, roleKey: "manager" });
+
+    const membershipGrant = await requestJson(app, "/memberships", {
+      method: "POST",
+      body: JSON.stringify({ membershipId: "mbr_owner", userId: "usr_2", accountId: "acc_1", roleKey: "owner" }),
+    });
+    expect(membershipGrant.response.status).toBe(403);
+    expect(membershipGrant.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+
+    const membershipRoleChange = await requestJson(app, "/memberships/mbr_existing/role", {
+      method: "PUT",
+      body: JSON.stringify({ roleKey: "owner" }),
+    });
+    expect(membershipRoleChange.response.status).toBe(403);
+    expect(membershipRoleChange.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+
+    const invitationCreate = await requestJson(app, "/invitations", {
+      method: "POST",
+      body: JSON.stringify({
+        invitationId: "inv_owner",
+        accountId: "acc_1",
+        email: "invitee@example.com",
+        roleKey: "owner",
+        expiresAt: "2026-07-01T00:00:00.000Z",
+      }),
+    });
+    expect(invitationCreate.response.status).toBe(403);
+    expect(invitationCreate.body).toMatchObject({ error: { code: "authorization_forbidden" } });
+
+    expect(services.memberships.commandHandler).not.toHaveBeenCalled();
+    expect(services.invitations.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("derives internal invitation accept role from the invitation aggregate", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "platform-admin" }),
+    });
+
+    expect(invitationAccept.response.status).toBe(200);
+    expect(services.memberships.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "GrantMembership",
+          accountId: "acc_1",
+          roleKey: "owner",
+        }),
+      }),
+    );
+  });
+
+  it("rejects internal invitation accept when a stored invitation attempts platform-admin", async () => {
+    const baseServices = createServices();
+    const services = createServices({
+      invitations: {
+        ...baseServices.invitations,
+        getInvitationState: vi.fn(async (invitationId: string) => ({
+          id: invitationId,
+          accountId: actor.accountId,
+          email: "invitee@example.com",
+          roleKey: "platform-admin",
+          status: "pending",
+          expiresAt: "2026-07-01T00:00:00.000Z",
+          acceptedByUserId: null,
+        })) as unknown as IdentityServices["invitations"]["getInvitationState"],
+      },
+      memberships: {
+        ...baseServices.memberships,
+        commandHandler: vi.fn(async () => {
+          throw new IdentityDomainError("Platform-admin can only be assigned by platform bootstrap.");
+        }) as unknown as IdentityServices["memberships"]["commandHandler"],
+      },
+    });
+
+    const app = buildApp(services);
+    const invitationAccept = await requestJson(app, "/internal/auth/invitations/inv_1/accept", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", accountId: "acc_1", roleKey: "platform-admin" }),
+    });
+
+    expect(invitationAccept.response.status).toBe(403);
+    expect(invitationAccept.body).toMatchObject({
+      error: {
+        code: "authorization_forbidden",
+        message: "Platform-admin can only be assigned by platform bootstrap.",
+      },
+    });
     expect(services.invitations.commandHandler).not.toHaveBeenCalled();
   });
 

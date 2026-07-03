@@ -123,6 +123,7 @@ export async function bootstrapPlatformAdminIdentity(
         userId,
         accountId,
         roleKey: PLATFORM_ADMIN_ROLE_KEY,
+        assignmentAuthority: { type: "platform-bootstrap" },
       },
       context,
     });
@@ -133,6 +134,7 @@ export async function bootstrapPlatformAdminIdentity(
       command: {
         type: "ChangeMembershipRole",
         roleKey: PLATFORM_ADMIN_ROLE_KEY,
+        assignmentAuthority: { type: "platform-bootstrap" },
       },
       context,
     });

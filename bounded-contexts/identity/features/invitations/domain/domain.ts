@@ -4,9 +4,11 @@ import {
   EMPTY_EVENT_DATA,
   assert,
   assertNever,
+  assertRoleAssignmentAllowed,
   normalizeEmail,
   type EmptyEventData,
   type InvitationStatus,
+  type RoleAssignmentAuthority,
   type RoleKey,
 } from "../../../support/runtime-support/common";
 
@@ -37,6 +39,7 @@ export type CreateInvitationCommand = Readonly<{
   email: string;
   roleKey: RoleKey;
   expiresAt: string;
+  assignmentAuthority: RoleAssignmentAuthority;
 }>;
 
 export type ResendInvitationCommand = Readonly<{
@@ -92,6 +95,7 @@ export const decideInvitation: AggregateDecider<InvitationState, InvitationComma
   switch (command.type) {
     case "CreateInvitation":
       assert(state.id === null, "Invitation has already been created.");
+      assertRoleAssignmentAllowed(command.roleKey, command.assignmentAuthority);
       return [
         {
           type: "identity.invitation.created",
