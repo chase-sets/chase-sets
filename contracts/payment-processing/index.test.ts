@@ -40,6 +40,7 @@ describe("payment processing contract", () => {
       }),
       retrieveSavedPaymentMethod: async () => null,
       detachSavedPaymentMethod: async () => null,
+      retrievePaymentResult: async () => null,
       createRefund: async () => ({
         processorName: "stripe",
         processorRefundReference: "re_test",

@@ -166,6 +166,8 @@ function createProcessorGateway() {
     })),
     retrieveSavedPaymentMethod: vi.fn(async () => null),
     detachSavedPaymentMethod: vi.fn(async () => null),
+    retrievePaymentResult: vi.fn(async () => null),
+    retrievePaymentResultByPaymentId: vi.fn(async () => null),
     createRefund: vi.fn(async () => {
       throw new Error("Refunds are not part of this test.");
     }),
@@ -284,6 +286,100 @@ function createOrderInputDb(
   };
 }
 
+function createReconciliationDb(options: {
+  paymentsNeedingReconciliation?: () => readonly Record<string, unknown>[];
+  providerOperationsNeedingReconciliation?: () => readonly Record<string, unknown>[];
+  paymentById?: (paymentId: string) => Record<string, unknown> | null;
+}) {
+  const reconciliationSummaries: unknown[] = [];
+  const succeededProviderOperations: readonly unknown[][] = [];
+  const failedProviderOperations: readonly unknown[][] = [];
+  const providerIdempotencyKeys: readonly unknown[][] = [];
+  const webhookEvents: readonly unknown[][] = [];
+  const orderInputDb = createOrderInputDb();
+
+  const db = {
+    query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("FROM payments_saved_checkout_instruments")) {
+        return { rows: [] };
+      }
+
+      if (sql.includes("payments_payment_creation_reservations")) {
+        return orderInputDb.query(sql, params);
+      }
+
+      if (sql.includes("FROM payments_order_inputs")) {
+        return orderInputDb.query(sql, params);
+      }
+
+      if (sql.includes("FROM payments_provider_webhook_events")) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
+        (webhookEvents as unknown[][]).push([...(params ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("payment-provider-operation-reconciliation")) {
+        return { rows: [...(options.providerOperationsNeedingReconciliation?.() ?? [])] };
+      }
+
+      if (sql.includes("FROM payments_provider_operations") && sql.includes("WHERE status = 'pending'")) {
+        return { rows: [...(options.providerOperationsNeedingReconciliation?.() ?? [])] };
+      }
+
+      if (sql.includes("payment-reconciliation")) {
+        return { rows: [...(options.paymentsNeedingReconciliation?.() ?? [])] };
+      }
+
+      if (sql.includes("FROM payments_payment_pages") && sql.includes("status = 'pending-confirmation'")) {
+        return { rows: [...(options.paymentsNeedingReconciliation?.() ?? [])] };
+      }
+
+      if (sql.includes("WHERE payment_id = $1") && params?.[0]) {
+        const payment = options.paymentById?.(String(params[0])) ?? null;
+        return { rows: payment ? [payment] : [] };
+      }
+
+      if (sql.includes("INSERT INTO payments_reconciliation_runs")) {
+        reconciliationSummaries.push(JSON.parse(String(params?.[5] ?? "{}")));
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("UPDATE payments_provider_operations") && sql.includes("status = 'succeeded'")) {
+        (succeededProviderOperations as unknown[][]).push([...(params ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("UPDATE payments_provider_operations") && sql.includes("status = 'failed'")) {
+        (failedProviderOperations as unknown[][]).push([...(params ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("INSERT INTO payments_provider_idempotency_keys")) {
+        (providerIdempotencyKeys as unknown[][]).push([...(params ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("INSERT INTO payments_provider_operations")) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      return { rows: [], rowCount: 0 };
+    }),
+  };
+
+  return {
+    db,
+    reconciliationSummaries,
+    succeededProviderOperations,
+    failedProviderOperations,
+    providerIdempotencyKeys,
+    webhookEvents,
+  };
+}
+
 const context = {
   tenantId: "tnt_identity" as never,
   audit: {
@@ -391,6 +487,8 @@ describe("payment runtime", () => {
       })),
       retrieveSavedPaymentMethod: vi.fn(async () => null),
       detachSavedPaymentMethod: vi.fn(async () => null),
+      retrievePaymentResult: vi.fn(async () => null),
+      retrievePaymentResultByPaymentId: vi.fn(async () => null),
       createRefund: vi.fn(async () => {
         throw new Error("Refunds are not part of this test.");
       }),
@@ -865,5 +963,188 @@ describe("payment runtime", () => {
     expect(JSON.stringify(published?.payload)).not.toContain("provider_customer_reference");
     expect(JSON.stringify(published?.payload)).not.toContain("providerCustomerReference");
     expect(JSON.stringify(published?.payload)).not.toContain("consent");
+  });
+
+  it("repairs a stale pending payment captured by the provider and ignores a late duplicate webhook", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const paymentsById = new Map<string, Record<string, unknown>>();
+    let stalePayments: Record<string, unknown>[] = [];
+    const { db, reconciliationSummaries, webhookEvents } = createReconciliationDb({
+      paymentsNeedingReconciliation: () => stalePayments,
+      paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const payment = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+      },
+      context,
+    );
+    paymentsById.set(payment.payment_id, payment);
+    stalePayments = [payment];
+    processorGateway.retrievePaymentResult.mockResolvedValue({
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      processorStatus: "succeeded",
+      outcome: "captured",
+      occurredAt: "2026-04-29T00:10:00.000Z",
+      internalPaymentId: payment.payment_id,
+    } as never);
+
+    const result = await services.scanPaymentsNeedingReconciliation({ limit: 10 }, context);
+
+    expect(result).toMatchObject({
+      checked: 1,
+      repaired: 1,
+      attention: 0,
+      provider_operations_checked: 0,
+    });
+    expect(reconciliationSummaries.at(-1)).toMatchObject({
+      repaired: 1,
+      attention_items: [],
+    });
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+    ]);
+
+    processorGateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_late_capture",
+      kind: "payment-captured",
+      processorName: "stripe",
+      processorPaymentKind: payment.processor_payment_kind,
+      processorPaymentReference: payment.processor_payment_reference,
+      internalPaymentId: payment.payment_id,
+      processorStatus: "succeeded",
+      failureCode: null,
+      failureMessage: null,
+      occurredAt: "2026-04-29T00:11:00.000Z",
+    } as never);
+
+    await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).resolves.toEqual({
+      received: true,
+      ignored: false,
+    });
+    expect(readAllEvents().map((event) => event.eventType)).toEqual([
+      "payments.payment-created",
+      "payments.payment-captured",
+    ]);
+    expect(webhookEvents).toHaveLength(1);
+  });
+
+  it("marks an orphaned pending provider operation failed when support-safe provider lookup finds nothing", async () => {
+    const processorGateway = createProcessorGateway();
+    const { db, failedProviderOperations } = createReconciliationDb({
+      providerOperationsNeedingReconciliation: () => [
+        {
+          operation_key: "payment:pay_orphan:create",
+          provider_name: "stripe",
+          operation_kind: "payment-session-create",
+          account_id: "acc_buyer",
+          payment_id: "pay_orphan",
+          idempotency_key: "payments:payment:pay_orphan:create",
+          status: "pending",
+          provider_object_reference: null,
+          error_message: null,
+          created_at: "2026-04-29T00:00:00.000Z",
+          updated_at: "2026-04-29T00:00:00.000Z",
+          completed_at: null,
+        },
+      ],
+      paymentById: () => null,
+    });
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    const result = await services.scanPaymentsNeedingReconciliation({ limit: 10 }, context);
+
+    expect(result).toMatchObject({
+      checked: 0,
+      provider_operations_checked: 1,
+      provider_operations_resolved: 1,
+      attention: 0,
+    });
+    expect(failedProviderOperations).toHaveLength(1);
+    expect(failedProviderOperations[0]?.[0]).toBe("payment:pay_orphan:create");
+    expect(String(failedProviderOperations[0]?.[1])).toContain("Provider payment was not found");
+  });
+
+  it("resolves a provider-created orphan operation to operator attention when the local payment aggregate is missing", async () => {
+    const processorGateway = createProcessorGateway();
+    processorGateway.retrievePaymentResultByPaymentId.mockResolvedValue({
+      processorName: "stripe",
+      processorPaymentKind: "checkout-session",
+      processorPaymentReference: "cs_orphan",
+      processorStatus: "paid",
+      outcome: "captured",
+      occurredAt: "2026-04-29T00:10:00.000Z",
+      internalPaymentId: "pay_orphan",
+    } as never);
+    const { db, reconciliationSummaries, succeededProviderOperations, providerIdempotencyKeys } =
+      createReconciliationDb({
+        providerOperationsNeedingReconciliation: () => [
+          {
+            operation_key: "payment:pay_orphan:create",
+            provider_name: "stripe",
+            operation_kind: "payment-session-create",
+            account_id: "acc_buyer",
+            payment_id: "pay_orphan",
+            idempotency_key: "payments:payment:pay_orphan:create",
+            status: "pending",
+            provider_object_reference: null,
+            error_message: null,
+            created_at: "2026-04-29T00:00:00.000Z",
+            updated_at: "2026-04-29T00:00:00.000Z",
+            completed_at: null,
+          },
+        ],
+        paymentById: () => null,
+      });
+    const services = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    const result = await services.scanPaymentsNeedingReconciliation({ limit: 10 }, context);
+
+    expect(result).toMatchObject({
+      checked: 0,
+      provider_operations_checked: 1,
+      provider_operations_resolved: 1,
+      attention: 1,
+    });
+    expect(succeededProviderOperations[0]?.[0]).toBe("payment:pay_orphan:create");
+    expect(succeededProviderOperations[0]?.[1]).toBe("cs_orphan");
+    expect(providerIdempotencyKeys).toHaveLength(1);
+    expect(reconciliationSummaries.at(-1)).toMatchObject({
+      attention_items: [
+        expect.objectContaining({
+          kind: "provider-operation",
+          operation_key: "payment:pay_orphan:create",
+          processor_payment_reference: "cs_orphan",
+        }),
+      ],
+    });
   });
 });

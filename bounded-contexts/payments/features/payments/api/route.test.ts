@@ -256,8 +256,12 @@ function createServices(): PaymentServices {
     listPaymentsNeedingReconciliation: vi.fn(async () => []),
     scanPaymentsNeedingReconciliation: vi.fn(async () => ({
       checked: 0,
+      repaired: 0,
       attention: 0,
       payment_ids: [],
+      provider_operations_checked: 0,
+      provider_operations_resolved: 0,
+      attention_items: [],
     })),
     processWebhook: vi.fn(async () => ({ received: true, ignored: false })),
     publicConfig: {

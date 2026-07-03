@@ -26,6 +26,7 @@ import type {
   AgenticProcessorPaymentInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
+  ProcessorPaymentReconciliationResult,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
@@ -45,6 +46,7 @@ import {
   getSavedCheckoutSetupSessionBySetupReference,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
+  listPaymentProviderOperationsNeedingReconciliation,
   listPaymentsNeedingReconciliation,
   listSavedCheckoutInstruments,
   completeSavedCheckoutSetupSession,
@@ -65,6 +67,7 @@ import {
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentProviderEventRow,
+  type PaymentProviderOperationRow,
   type SavedCheckoutInstrumentRow,
   type ProviderCustomerRow,
   type SavedCheckoutSetupSessionRow,
@@ -120,6 +123,25 @@ type PaymentMethodCategory = MarketplaceCheckoutFeePaymentMethodCategory;
 type SavedCheckoutInstrumentReadiness = "ready" | "setup-required" | "removed";
 type SavedCheckoutConfirmationExperience = "trusted-payment-step" | "off-session-token";
 
+type PaymentReconciliationAttentionItem = Readonly<{
+  kind: "payment" | "provider-operation";
+  payment_id?: string | null;
+  operation_key?: string | null;
+  processor_payment_reference?: string | null;
+  provider_status?: string | null;
+  reason: string;
+}>;
+
+type PaymentReconciliationResult = Readonly<{
+  checked: number;
+  repaired: number;
+  attention: number;
+  payment_ids: readonly string[];
+  provider_operations_checked: number;
+  provider_operations_resolved: number;
+  attention_items: readonly PaymentReconciliationAttentionItem[];
+}>;
+
 type CheckoutAffordanceInstrument = Readonly<{
   instrumentId: string;
   paymentMethodCategory: PaymentMethodCategory;
@@ -132,6 +154,57 @@ type CheckoutAffordanceInstrument = Readonly<{
   createdAt: string;
   updatedAt: string;
 }>;
+
+function paymentCommandFromProviderResult(result: ProcessorPaymentReconciliationResult): PaymentCommand | null {
+  switch (result.outcome) {
+    case "captured":
+      return {
+        type: "RecordPaymentCapture",
+        processorStatus: result.processorStatus,
+        capturedAt: result.occurredAt,
+      };
+    case "failed":
+      return {
+        type: "RecordPaymentFailure",
+        processorStatus: result.processorStatus,
+        failureCode: result.failureCode ?? null,
+        failureMessage: result.failureMessage ?? null,
+        failedAt: result.occurredAt,
+      };
+    case "cancelled":
+      return {
+        type: "CancelPayment",
+        cancelledAt: result.occurredAt,
+      };
+    case "authorized":
+      return {
+        type: "RecordPaymentAuthorization",
+        processorStatus: result.processorStatus,
+        authorizedAt: result.occurredAt,
+      };
+    case "pending":
+    case "unknown":
+      return null;
+    default:
+      assert(false, "Unhandled provider payment reconciliation outcome.");
+  }
+}
+
+function providerResultMismatch(
+  payment: PaymentDetailRow,
+  result: ProcessorPaymentReconciliationResult,
+): string | null {
+  if (result.processorName !== payment.processor_name) {
+    return "Provider returned a different processor name for the payment.";
+  }
+  if (result.processorPaymentReference !== payment.processor_payment_reference) {
+    return "Provider returned a different payment reference for the payment.";
+  }
+  if (result.internalPaymentId && result.internalPaymentId !== payment.payment_id) {
+    return "Provider metadata points at a different Payments payment id.";
+  }
+  return null;
+}
 
 const SAVE_PAYMENT_CONSENT_TEXT =
   "Save this payment method for future Chase Sets checkout and allow Chase Sets to use it for future purchases I approve.";
@@ -611,7 +684,8 @@ export type PaymentServices = Readonly<{
   ) => Promise<PaymentDetailRow[]>;
   scanPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
-  ) => Promise<Readonly<{ checked: number; attention: number; payment_ids: readonly string[] }>>;
+    context?: EventStoreContext,
+  ) => Promise<PaymentReconciliationResult>;
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
@@ -791,6 +865,198 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       ],
       context,
     });
+  }
+
+  async function applyProviderPaymentResult(
+    payment: PaymentDetailRow,
+    result: ProcessorPaymentReconciliationResult,
+    context: EventStoreContext,
+  ): Promise<Readonly<{ repaired: boolean; attention: PaymentReconciliationAttentionItem | null }>> {
+    const mismatch = providerResultMismatch(payment, result);
+    if (mismatch) {
+      return {
+        repaired: false,
+        attention: {
+          kind: "payment",
+          payment_id: payment.payment_id,
+          processor_payment_reference: payment.processor_payment_reference,
+          provider_status: result.processorStatus,
+          reason: mismatch,
+        },
+      };
+    }
+
+    const command = paymentCommandFromProviderResult(result);
+    if (!command) {
+      return {
+        repaired: false,
+        attention:
+          payment.status === "pending-confirmation"
+            ? {
+                kind: "payment",
+                payment_id: payment.payment_id,
+                processor_payment_reference: payment.processor_payment_reference,
+                provider_status: result.processorStatus,
+                reason: "Provider payment is still pending after the reconciliation stale threshold.",
+              }
+            : null,
+      };
+    }
+
+    try {
+      const outcome = await commandHandler({
+        streamId: `payments.payment-${payment.payment_id}`,
+        command,
+        context,
+      });
+      if (result.outcome === "captured" && result.savedPaymentMethod) {
+        const customer =
+          result.savedPaymentMethod.providerCustomerReference ??
+          (
+            await getProviderCustomer(deps.db, {
+              accountId: payment.buyer_account_id,
+              provider: result.savedPaymentMethod.processorName,
+            })
+          )?.provider_customer_reference;
+        if (customer) {
+          await persistProcessorSavedPaymentMethod(deps, {
+            accountId: payment.buyer_account_id as AccountId,
+            providerCustomerReference: customer,
+            savedPaymentMethod: result.savedPaymentMethod,
+            consentId: result.savedPaymentConsentId ?? null,
+            consentText: result.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
+            isDefault: true,
+            auditAction: "payment-reconciliation-saved",
+          });
+        }
+      }
+      return { repaired: outcome.newEvents.length > 0, attention: null };
+    } catch (error) {
+      return {
+        repaired: false,
+        attention: {
+          kind: "payment",
+          payment_id: payment.payment_id,
+          processor_payment_reference: payment.processor_payment_reference,
+          provider_status: result.processorStatus,
+          reason: error instanceof Error ? error.message : "Payment reconciliation command failed.",
+        },
+      };
+    }
+  }
+
+  async function reconcileProviderOperation(
+    operation: PaymentProviderOperationRow,
+    context: EventStoreContext,
+  ): Promise<
+    Readonly<{
+      resolved: boolean;
+      repaired: boolean;
+      attention: PaymentReconciliationAttentionItem | null;
+    }>
+  > {
+    const paymentId = operation.payment_id?.trim();
+    if (!paymentId) {
+      await recordPaymentProviderOperationFailed(deps.db, {
+        operationKey: operation.operation_key,
+        errorMessage: "Provider operation is missing the local payment id needed for support-safe reconciliation.",
+      });
+      return {
+        resolved: true,
+        repaired: false,
+        attention: {
+          kind: "provider-operation",
+          operation_key: operation.operation_key,
+          reason: "Provider operation is missing a local payment id.",
+        },
+      };
+    }
+
+    const payment = await getPaymentById(deps.db, paymentId);
+    if (payment) {
+      if (payment.processor_payment_kind === "balance-credit") {
+        await recordPaymentProviderOperationSucceeded(deps.db, {
+          operationKey: operation.operation_key,
+          providerObjectReference: payment.processor_payment_reference,
+        });
+        return { resolved: true, repaired: false, attention: null };
+      }
+
+      const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+      if (!providerResult) {
+        return {
+          resolved: false,
+          repaired: false,
+          attention: {
+            kind: "provider-operation",
+            payment_id: payment.payment_id,
+            operation_key: operation.operation_key,
+            processor_payment_reference: payment.processor_payment_reference,
+            reason: "Provider payment lookup returned no support-safe result for an existing local payment.",
+          },
+        };
+      }
+
+      await recordPaymentProviderOperationSucceeded(deps.db, {
+        operationKey: operation.operation_key,
+        providerObjectReference: providerResult.processorPaymentReference,
+      });
+      await recordPaymentProviderIdempotencyKey(deps.db, {
+        operationKey: operation.operation_key,
+        providerName: providerResult.processorName,
+        operationKind: operation.operation_kind,
+        accountId: operation.account_id,
+        providerObjectReference: providerResult.processorPaymentReference,
+        idempotencyKey: operation.idempotency_key,
+      });
+      const applied = await applyProviderPaymentResult(payment, providerResult, context);
+      return { resolved: true, repaired: applied.repaired, attention: applied.attention };
+    }
+
+    const providerResult = deps.processorGateway.retrievePaymentResultByPaymentId
+      ? await deps.processorGateway.retrievePaymentResultByPaymentId(paymentId as PaymentId)
+      : null;
+    if (!providerResult) {
+      await recordPaymentProviderOperationFailed(deps.db, {
+        operationKey: operation.operation_key,
+        errorMessage: "Provider payment was not found by support-safe reconciliation lookup.",
+      });
+      return { resolved: true, repaired: false, attention: null };
+    }
+
+    if (providerResult.outcome === "failed" || providerResult.outcome === "cancelled") {
+      await recordPaymentProviderOperationFailed(deps.db, {
+        operationKey: operation.operation_key,
+        errorMessage: `Provider payment was ${providerResult.outcome} before the local payment was recorded.`,
+      });
+      return { resolved: true, repaired: false, attention: null };
+    }
+
+    await recordPaymentProviderOperationSucceeded(deps.db, {
+      operationKey: operation.operation_key,
+      providerObjectReference: providerResult.processorPaymentReference,
+    });
+    await recordPaymentProviderIdempotencyKey(deps.db, {
+      operationKey: operation.operation_key,
+      providerName: providerResult.processorName,
+      operationKind: operation.operation_kind,
+      accountId: operation.account_id,
+      providerObjectReference: providerResult.processorPaymentReference,
+      idempotencyKey: operation.idempotency_key,
+    });
+    return {
+      resolved: true,
+      repaired: false,
+      attention: {
+        kind: "provider-operation",
+        payment_id: paymentId,
+        operation_key: operation.operation_key,
+        processor_payment_reference: providerResult.processorPaymentReference,
+        provider_status: providerResult.processorStatus,
+        reason:
+          "Provider payment exists but the local payment aggregate is missing; manual adoption is required to avoid reconstructing money facts from provider metadata.",
+      },
+    };
   }
 
   return {
@@ -1499,20 +1765,72 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       };
     },
     listPaymentsNeedingReconciliation: (params) => listPaymentsNeedingReconciliation(deps.db, params),
-    async scanPaymentsNeedingReconciliation(params) {
+    async scanPaymentsNeedingReconciliation(params, context) {
       const startedAt = new Date().toISOString();
+      const reconciliationContext =
+        context ??
+        ({
+          tenantId: "tnt_identity" as never,
+          audit: {
+            performedByUserId: "usr_identity_system" as never,
+            forAccountId: "acc_identity_system" as never,
+          },
+        } satisfies EventStoreContext);
       const payments = await listPaymentsNeedingReconciliation(deps.db, params);
+      const providerOperations = await listPaymentProviderOperationsNeedingReconciliation(deps.db, params);
+      const attentionItems: PaymentReconciliationAttentionItem[] = [];
+      let repaired = 0;
+      let providerOperationsResolved = 0;
+
+      for (const payment of payments) {
+        const providerResult = await deps.processorGateway.retrievePaymentResult(payment.processor_payment_reference);
+        if (!providerResult) {
+          attentionItems.push({
+            kind: "payment",
+            payment_id: payment.payment_id,
+            processor_payment_reference: payment.processor_payment_reference,
+            reason: "Provider payment lookup returned no support-safe result.",
+          });
+          continue;
+        }
+
+        const outcome = await applyProviderPaymentResult(payment, providerResult, reconciliationContext);
+        if (outcome.repaired) {
+          repaired += 1;
+        }
+        if (outcome.attention) {
+          attentionItems.push(outcome.attention);
+        }
+      }
+
+      for (const operation of providerOperations) {
+        const outcome = await reconcileProviderOperation(operation, reconciliationContext);
+        if (outcome.resolved) {
+          providerOperationsResolved += 1;
+        }
+        if (outcome.repaired) {
+          repaired += 1;
+        }
+        if (outcome.attention) {
+          attentionItems.push(outcome.attention);
+        }
+      }
+
       const result = {
         checked: payments.length,
-        attention: payments.length,
+        repaired,
+        attention: attentionItems.length,
         payment_ids: payments.map((payment) => payment.payment_id),
+        provider_operations_checked: providerOperations.length,
+        provider_operations_resolved: providerOperationsResolved,
+        attention_items: attentionItems,
       };
       await recordPaymentReconciliationRun(deps.db, {
         reconciliationRunId: createId("rec"),
         kind: "payments",
         checked: result.checked,
         attention: result.attention,
-        status: "completed",
+        status: result.attention > 0 ? "attention-required" : "completed",
         summary: result,
         startedAt,
         completedAt: new Date().toISOString(),

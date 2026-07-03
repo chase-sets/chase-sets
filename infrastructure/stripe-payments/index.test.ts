@@ -90,6 +90,49 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("retrieves payment reconciliation state by local payment metadata", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "pi_orphan",
+                status: "succeeded",
+                metadata: { payment_id: "pay_orphan" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(gateway.retrievePaymentResultByPaymentId?.("pay_orphan" as never)).resolves.toMatchObject({
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_orphan",
+      processorStatus: "succeeded",
+      outcome: "captured",
+      internalPaymentId: "pay_orphan",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("https://stripe.test/v1/payment_intents/search?"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(decodeURIComponent(url)).toContain("metadata['payment_id']:'pay_orphan'");
+
+    vi.unstubAllGlobals();
+  });
+
   it("creates Stripe customers and hosted setup sessions for saved payment methods", async () => {
     const fetchMock = vi
       .fn()
