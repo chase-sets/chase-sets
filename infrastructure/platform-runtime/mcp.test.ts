@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createMcpRoutes, type McpAuditRecord } from "./mcp";
 import { MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
@@ -21,6 +23,38 @@ function createRequest(method: string, params?: unknown) {
     id: "request_1",
     method,
     params,
+  };
+}
+
+function toolSuccessResponse(id: string, structuredContent: unknown) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      structuredContent,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(structuredContent),
+        },
+      ],
+    },
+  };
+}
+
+function toolErrorResponse(id: string, text: string) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text,
+        },
+      ],
+    },
   };
 }
 
@@ -125,6 +159,10 @@ describe("MCP runtime routes", () => {
         expect.objectContaining({
           name: "inventory.list-import-sources",
           inputSchema: expect.objectContaining({ type: "object" }),
+          outputSchema: expect.objectContaining({
+            type: "object",
+            required: ["items", "total"],
+          }),
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["inventory.view"],
@@ -342,12 +380,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: -32029,
-        message: "Too many MCP tool calls are already running for this principal.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Too many MCP tool calls are already running for this principal."),
+    );
     expect(handler).not.toHaveBeenCalled();
     expect(auditRecords).toEqual([
       expect.objectContaining({
@@ -386,15 +421,7 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      result: {
-        content: [
-          {
-            json: { ok: true },
-          },
-        ],
-      },
-    });
+    await expect(response.json()).resolves.toEqual(toolSuccessResponse("request_1", { ok: true }));
     expect(release).toHaveBeenCalledTimes(1);
   });
 
@@ -427,22 +454,13 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      result: {
-        content: [
-          {
-            type: "json",
-            json: {
-              accountId: "account_1",
-              query: "available",
-              items: [],
-            },
-          },
-        ],
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        accountId: "account_1",
+        query: "available",
+        items: [],
+      }),
+    );
     expect(auditRecords).toEqual([
       expect.objectContaining({
         outcome: "allowed",
@@ -452,6 +470,78 @@ describe("MCP runtime routes", () => {
         accountId: "account_1",
       }),
     ]);
+  });
+
+  it("is parseable by the stock MCP SDK client for inventory import source reads", async () => {
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "inventory.list-import-sources": vi.fn(async () => ({
+          items: [
+            {
+              sourceKey: "tcgplayer-csv",
+              label: "TCGplayer CSV",
+              kind: "csv",
+              adapterVersion: 1,
+              displayNameValueKeys: ["title"],
+              values: [{ targetKey: "sellerSku" }],
+              externalReferenceCandidates: [],
+              selectedOptionInference: [],
+            },
+          ],
+          total: 1,
+        })),
+      },
+    });
+    const client = new Client({ name: "chase-sets-mcp-test", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("https://mcp.test/"), {
+      fetch: async (input, init) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        return app.fetch(request);
+      },
+    });
+
+    await client.connect(transport);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "inventory.list-import-sources",
+            outputSchema: expect.objectContaining({ type: "object" }),
+          }),
+        ]),
+      );
+
+      const result = await client.callTool({
+        name: "inventory.list-import-sources",
+        arguments: { accountId: "account_1" },
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual({
+        items: [
+          {
+            sourceKey: "tcgplayer-csv",
+            label: "TCGplayer CSV",
+            kind: "csv",
+            adapterVersion: 1,
+            displayNameValueKeys: ["title"],
+            values: [{ targetKey: "sellerSku" }],
+            externalReferenceCandidates: [],
+            selectedOptionInference: [],
+          },
+        ],
+        total: 1,
+      });
+      expect(result.content).toEqual([
+        {
+          type: "text",
+          text: JSON.stringify(result.structuredContent),
+        },
+      ]);
+    } finally {
+      await client.close();
+    }
   });
 
   it("rejects account-scoped tool calls for another account before reaching handlers", async () => {
@@ -477,14 +567,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32001,
-        message: "MCP tool accountId must match the authenticated actor account.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "MCP tool accountId must match the authenticated actor account."),
+    );
     expect(handler).not.toHaveBeenCalled();
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -521,18 +606,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      result: {
-        content: [
-          {
-            json: {
-              accountId: "account_1",
-              items: [],
-            },
-          },
-        ],
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        accountId: "account_1",
+        items: [],
+      }),
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -559,24 +638,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32602,
-        message: "Invalid MCP tool arguments.",
-        data: {
-          issues: [
-            {
-              path: "accountId",
-              message: "Required field is missing.",
-              expected: "present",
-              actual: "missing",
-            },
-          ],
-        },
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. accountId: Required field is missing. Expected present. Actual missing.",
+      ),
+    );
     expect(handler).not.toHaveBeenCalled();
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -609,24 +676,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32602,
-        message: "Invalid MCP tool arguments.",
-        data: {
-          issues: [
-            {
-              path: "accountId",
-              message: "Expected string.",
-              expected: "string",
-              actual: "number",
-            },
-          ],
-        },
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. accountId: Expected string. Expected string. Actual number.",
+      ),
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -655,24 +710,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32602,
-        message: "Invalid MCP tool arguments.",
-        data: {
-          issues: [
-            {
-              path: "quantityMode",
-              message: "Expected one of: add, replace.",
-              expected: "add | replace",
-              actual: "merge",
-            },
-          ],
-        },
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        "Invalid MCP tool arguments. quantityMode: Expected one of: add, replace. Expected add | replace. Actual merge.",
+      ),
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -707,14 +750,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32001,
-        message: "Missing required permission: payouts.request.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Missing required permission: payouts.request."),
+    );
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: "denied",
@@ -749,14 +787,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32001,
-        message: "Confirmation is required for this MCP tool.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Confirmation is required for this MCP tool."),
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -789,14 +822,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32001,
-        message: "Confirmation text must exactly match 'Request Payout.'.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Confirmation text must exactly match 'Request Payout.'."),
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -828,14 +856,9 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32001,
-        message: "An idempotency key is required for this MCP tool.",
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "An idempotency key is required for this MCP tool."),
+    );
   });
 
   it("replays duplicate idempotent tool calls without invoking the handler again", async () => {
@@ -871,36 +894,58 @@ describe("MCP runtime routes", () => {
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
-    await expect(first.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      result: {
-        content: [
-          {
-            type: "json",
-            json: {
-              payoutId: "payout_1",
-              status: "requested",
-            },
-          },
-        ],
+    await expect(first.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        payoutId: "payout_1",
+        status: "requested",
+      }),
+    );
+    await expect(replay.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        payoutId: "payout_1",
+        status: "requested",
+      }),
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores and replays idempotent handler failures as MCP tool error results", async () => {
+    const handler = vi.fn(async () => {
+      throw new Error("provider timeout");
+    });
+    const app = createActorApp(actor, {
+      toolHandlers: {
+        "settlement.request-payout": handler,
       },
     });
-    await expect(replay.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      result: {
-        content: [
-          {
-            type: "json",
-            json: {
-              payoutId: "payout_1",
-              status: "requested",
-            },
-          },
-        ],
+    const request = createRequest("tools/call", {
+      name: "settlement.request-payout",
+      arguments: {
+        accountId: "account_1",
+        amount: "25.00",
+        reason: "Seller requested payout.",
+        idempotencyKey: "idem_throw",
+        confirmationText: "Request Payout.",
+      },
+      confirmation: {
+        confirmed: true,
+        text: "Request Payout.",
       },
     });
+
+    const first = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    const replay = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    await expect(first.json()).resolves.toEqual(toolErrorResponse("request_1", "provider timeout"));
+    await expect(replay.json()).resolves.toEqual(toolErrorResponse("request_1", "provider timeout"));
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -945,26 +990,15 @@ describe("MCP runtime routes", () => {
     const firstResponse = await Promise.resolve(first);
 
     expect(duplicate.status).toBe(200);
-    await expect(duplicate.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32029,
-        message: "A matching MCP tool call is already in progress. Retry later.",
-      },
-    });
-    await expect(firstResponse.json()).resolves.toMatchObject({
-      result: {
-        content: [
-          {
-            json: {
-              payoutId: "payout_1",
-              status: "requested",
-            },
-          },
-        ],
-      },
-    });
+    await expect(duplicate.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "A matching MCP tool call is already in progress. Retry later."),
+    );
+    await expect(firstResponse.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        payoutId: "payout_1",
+        status: "requested",
+      }),
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -1007,12 +1041,18 @@ describe("MCP runtime routes", () => {
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
-    await expect(first.json()).resolves.toMatchObject({
-      result: { content: [{ json: { payoutId: "payout_1" } }] },
-    });
-    await expect(replay.json()).resolves.toMatchObject({
-      result: { content: [{ json: { payoutId: "payout_1" } }] },
-    });
+    await expect(first.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        payoutId: "payout_1",
+        status: "requested",
+      }),
+    );
+    await expect(replay.json()).resolves.toEqual(
+      toolSuccessResponse("request_1", {
+        payoutId: "payout_1",
+        status: "requested",
+      }),
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -1050,14 +1090,9 @@ describe("MCP runtime routes", () => {
 
     expect(first.status).toBe(200);
     expect(conflict.status).toBe(200);
-    await expect(conflict.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32000,
-        message: "Idempotency key was already used with different MCP tool arguments.",
-      },
-    });
+    await expect(conflict.json()).resolves.toEqual(
+      toolErrorResponse("request_1", "Idempotency key was already used with different MCP tool arguments."),
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -1077,22 +1112,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32004,
-        message: "No runtime handler is registered for MCP tool 'inventory.list-items'.",
-        data: expect.objectContaining({
-          tool: expect.objectContaining({
-            name: "inventory.list-items",
-          }),
-          redactedArguments: {
-            accountId: "account_1",
-          },
-        }),
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        'No runtime handler is registered for MCP tool \'inventory.list-items\'. Redacted arguments: {"accountId":"account_1"}',
+      ),
+    );
   });
 
   it("redacts sensitive write arguments when no handler is registered", async () => {
@@ -1119,26 +1144,12 @@ describe("MCP runtime routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      error: {
-        code: -32004,
-        message: "No runtime handler is registered for MCP tool 'settlement.request-payout'.",
-        data: expect.objectContaining({
-          tool: expect.objectContaining({
-            name: "settlement.request-payout",
-          }),
-          redactedArguments: {
-            accountId: "account_1",
-            amount: "[redacted]",
-            reason: "[redacted]",
-            idempotencyKey: "idem_1",
-            confirmationText: "[redacted]",
-          },
-        }),
-      },
-    });
+    await expect(response.json()).resolves.toEqual(
+      toolErrorResponse(
+        "request_1",
+        'No runtime handler is registered for MCP tool \'settlement.request-payout\'. Redacted arguments: {"accountId":"account_1","amount":"[redacted]","reason":"[redacted]","idempotencyKey":"idem_1","confirmationText":"[redacted]"}',
+      ),
+    );
   });
 
   it("rejects account-scoped resource reads for another account before reaching handlers", async () => {
