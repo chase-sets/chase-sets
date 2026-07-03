@@ -82,6 +82,13 @@ const defaultCriticalReadConsistencyRouteTuning = [
     pollIntervalMs: 50,
     exactDependencyMode: "enabled",
   },
+  {
+    mountPath: "/api/public-presence/admin",
+    routePath: "/waitlist",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
 ] as const;
 
 const envNames = [

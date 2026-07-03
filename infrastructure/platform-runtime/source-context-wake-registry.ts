@@ -536,7 +536,7 @@ export const sourceContextWakeRegistry = [
       "public-presence:public-presence-waitlist-projection",
       "public-presence:public-presence-waitlist-transactional-email-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: ["public-presence.waitlist-signup-to-admin-review"],
   }),
   registryEntry({
     sourceContextName: "settlement",

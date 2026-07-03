@@ -67,7 +67,46 @@
     {
       "mountPath": "/api/public-presence/admin",
       "kind": "additional",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/waitlist",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "public_presence_waitlist_signups"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "public-presence.waitlist-signup-to-admin-review",
+      "owner": "public-presence",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
+      "source": {
+        "routeId": "home",
+        "actions": ["Join the waitlist", "Platform production smoke waitlist probe"],
+        "command": "RecordWaitlistSignup",
+        "files": ["scripts/platform-smoke.mjs"]
+      },
+      "destination": {
+        "routeId": "waitlist",
+        "apiContextName": "public-presence",
+        "apiRoutePath": "/waitlist",
+        "readModelTables": ["public_presence_waitlist_signups"],
+        "transientRecovery": {
+          "kinds": "pending-projection",
+          "behavior": "Admin waitlist reads that carry a Public Presence waitlist signup receipt wait on the waitlist projection before returning the operator review list; callers retry on bounded projection catch-up."
+        }
+      }
     }
   ],
   "mutationConsistencyInventory": [

@@ -579,6 +579,32 @@ describe("critical exact read-after-write waits", () => {
     ]);
   });
 
+  it("pins Public Presence waitlist review freshness to the waitlist projection dependency", () => {
+    expectCriticalRouteTuning("/api/public-presence/admin", "/waitlist");
+
+    const waitlistReviewLiveRoutes = findLiveFreshnessRoutes("public-presence", "/waitlist");
+    expect(waitlistReviewLiveRoutes).toEqual([
+      {
+        mountPath: "/api/public-presence/admin",
+        route: {
+          routePath: "/waitlist",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "public_presence_waitlist_signups" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = waitlistReviewLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("public-presence", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "public-presence", projectionName: "public-presence-waitlist-projection" },
+    ]);
+  });
+
   it("blocks stale non-cart platform API command-to-GET reads before the handler runs", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const settlementProjectionLag = async () => ({

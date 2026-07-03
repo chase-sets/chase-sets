@@ -14,6 +14,7 @@ import {
   isNativeMcpPermissionBoundaryResult,
   summarizeNativeMcpImportSourceKeys,
 } from "./platform-smoke-native-mcp.mjs";
+import { createReadAfterWriteReceiptFromCommitReceipt } from "./platform-smoke-freshness.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -560,7 +561,7 @@ async function main() {
     await expectRedirect("legacy staging redirect", `${redirectUrl}/`, new URL(landingUrl).host);
   }
 
-  let waitlistCommitReceipt = null;
+  let waitlistReadAfterWriteReceipt = null;
   if (writeWaitlist) {
     const smokePagePath = createSmokePagePath();
 
@@ -584,9 +585,13 @@ async function main() {
         },
       }),
     });
-    waitlistCommitReceipt = waitlistSignupResponse.headers.get(commitReceiptHeader);
+    const waitlistCommitReceipt = waitlistSignupResponse.headers.get(commitReceiptHeader);
     if (!waitlistCommitReceipt) {
       throw new Error(`waitlist signup did not return ${commitReceiptHeader}.`);
+    }
+    waitlistReadAfterWriteReceipt = createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt);
+    if (!waitlistReadAfterWriteReceipt) {
+      throw new Error(`waitlist signup returned malformed ${commitReceiptHeader}.`);
     }
   }
 
@@ -623,9 +628,9 @@ async function main() {
             {
               headers: {
                 Authorization: `Bearer ${authBody.sessionToken}`,
-                ...(waitlistCommitReceipt
+                ...(waitlistReadAfterWriteReceipt
                   ? {
-                      [readAfterWriteHeader]: waitlistCommitReceipt,
+                      [readAfterWriteHeader]: waitlistReadAfterWriteReceipt,
                       [readTargetContextHeader]: "public-presence",
                     }
                   : {}),

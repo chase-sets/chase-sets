@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolveSyntheticWaitlistEmail } from "./platform-smoke-email.mjs";
+import { createReadAfterWriteReceiptFromCommitReceipt, decodeCommitReceipt } from "./platform-smoke-freshness.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 
 const platformSmokeSource = readFileSync(new URL("./platform-smoke.mjs", import.meta.url), "utf8");
@@ -121,9 +122,40 @@ describe("platform smoke URL resolution", () => {
 });
 
 describe("platform smoke waitlist freshness", () => {
-  it("forwards the waitlist write receipt to the admin projection read", () => {
+  it("converts the waitlist commit receipt into a read-after-write receipt", () => {
+    const commitReceipt = encodeURIComponent(
+      JSON.stringify([
+        {
+          sourceContextName: "public-presence",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_waitlist"],
+        },
+      ]),
+    );
+
+    expect(decodeCommitReceipt(commitReceipt)).toEqual([
+      {
+        sourceContextName: "public-presence",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_waitlist"],
+      },
+    ]);
+    expect(JSON.parse(decodeURIComponent(createReadAfterWriteReceiptFromCommitReceipt(commitReceipt, 1234)))).toEqual({
+      observedAtMs: 1234,
+      sources: [
+        {
+          sourceContextName: "public-presence",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_waitlist"],
+        },
+      ],
+    });
+  });
+
+  it("forwards the converted waitlist write receipt to the admin projection read", () => {
     expect(platformSmokeSource).toContain("waitlistSignupResponse.headers.get(commitReceiptHeader)");
-    expect(platformSmokeSource).toContain("[readAfterWriteHeader]: waitlistCommitReceipt");
+    expect(platformSmokeSource).toContain("createReadAfterWriteReceiptFromCommitReceipt(waitlistCommitReceipt)");
+    expect(platformSmokeSource).toContain("[readAfterWriteHeader]: waitlistReadAfterWriteReceipt");
     expect(platformSmokeSource).toContain('[readTargetContextHeader]: "public-presence"');
   });
 });
