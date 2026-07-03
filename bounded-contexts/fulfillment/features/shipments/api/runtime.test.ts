@@ -12,6 +12,7 @@ import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase
 import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
 import { createFulfillmentShipmentRuntime } from "./runtime";
 
 function createInMemoryEventStore() {
@@ -151,6 +152,216 @@ const letterShippingPlan: PackagePlan = {
     },
   ],
 };
+
+const purchasedSandboxLabel = {
+  providerName: "sandbox-usps",
+  providerMode: "test" as const,
+  providerShipmentId: "sandbox_shipment_1",
+  providerLabelId: "sandbox_label_1",
+  providerRateId: "sandbox_rate_1",
+  carrierName: "USPS",
+  serviceLevel: "USPS_GROUND_ADVANTAGE",
+  labelReference: "sandbox_label_1",
+  labelDocumentUrl: "https://sandbox.test/label.pdf",
+  trackingIdentifier: "940000000000000000",
+  postageAmountCents: 499,
+  postageCurrency: "USD",
+  purchasedAt: "2026-04-02T00:10:00.000Z",
+};
+
+async function seedPackedShipmentAggregate(
+  services: ReturnType<typeof createFulfillmentShipmentRuntime>,
+  context: Parameters<ReturnType<typeof createFulfillmentShipmentRuntime>["commandHandler"]>[0]["context"],
+  shipmentId = "shp_1",
+) {
+  await services.commandHandler({
+    streamId: `fulfillment.shipment-${shipmentId}`,
+    command: {
+      type: "CreateShipment",
+      shipmentId: shipmentId as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      shippingDestinationSnapshot,
+      shippingOriginSnapshot,
+      shippingPlanSnapshot: parcelShippingPlan,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    },
+    context,
+  });
+  await services.commandHandler({
+    streamId: `fulfillment.shipment-${shipmentId}`,
+    command: {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    },
+    context,
+  });
+  await services.commandHandler({
+    streamId: `fulfillment.shipment-${shipmentId}`,
+    command: {
+      type: "ConfirmShipmentPackingLine",
+      lineId: "spl_1" as never,
+      confirmedAt: "2026-04-02T00:04:00.000Z",
+    },
+    context,
+  });
+  await services.commandHandler({
+    streamId: `fulfillment.shipment-${shipmentId}`,
+    command: {
+      type: "PrepareShipmentPackage",
+      packageCount: 1,
+      preparedAt: "2026-04-02T00:05:00.000Z",
+    },
+    context,
+  });
+}
+
+function createPackedShipmentRow(overrides: Record<string, unknown> = {}) {
+  return {
+    shipment_id: "shp_1",
+    order_id: "ord_1",
+    buyer_account_id: "acc_buyer",
+    buyer_display_name: "Buyer",
+    seller_account_id: "acc_seller",
+    seller_display_name: "Seller",
+    shipping_option: "standard",
+    shipping_destination_snapshot: shippingDestinationSnapshot,
+    shipping_origin_snapshot: shippingOriginSnapshot,
+    shipping_plan_snapshot: parcelShippingPlan,
+    shipping_method: null,
+    carrier_name: null,
+    label_reference: null,
+    label_document_url: null,
+    tracking_identifier: null,
+    postage_provider_name: null,
+    postage_provider_mode: null,
+    postage_provider_shipment_id: null,
+    postage_provider_label_id: null,
+    postage_rate_id: null,
+    postage_service_level: null,
+    postage_amount_cents: null,
+    postage_currency: null,
+    label_status: "not-purchased",
+    label_error_code: null,
+    label_error_message: null,
+    label_refund_status: null,
+    label_refund_reference: null,
+    status: "awaiting-label",
+    package_status: "packed",
+    package_count: 1,
+    current_exception_type: null,
+    current_exception_notes: null,
+    created_at: "2026-04-02T00:00:00.000Z",
+    updated_at: "2026-04-02T00:05:00.000Z",
+    packing_started_at: "2026-04-02T00:03:00.000Z",
+    package_prepared_at: "2026-04-02T00:05:00.000Z",
+    label_attached_at: null,
+    label_voided_at: null,
+    cancelled_at: null,
+    dispatched_at: null,
+    delivered_at: null,
+    returned_at: null,
+    exception_raised_at: null,
+    line_count: 1,
+    total_quantity: 1,
+    ...overrides,
+  };
+}
+
+function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
+  let operation: Record<string, unknown> | null = null;
+  const db = {
+    query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("WITH reserved_operation")) {
+        if (!operation || operation.status === "failed") {
+          operation = {
+            operation_key: params?.[0],
+            operation_kind: params?.[1],
+            shipment_id: params?.[2],
+            provider_name: params?.[3],
+            provider_mode: params?.[4],
+            idempotency_key: params?.[5],
+            request_json: JSON.parse(String(params?.[6] ?? "{}")),
+            status: "pending",
+            provider_shipment_id: null,
+            provider_label_id: null,
+            tracking_identifier: null,
+            error_message: null,
+            created_at: params?.[7],
+            updated_at: params?.[7],
+            completed_at: null,
+          };
+          return { rows: [{ ...operation, operation_reserved: true }] };
+        }
+        return { rows: [{ ...operation, operation_reserved: false }] };
+      }
+
+      if (sql.includes("SET status = 'provider-succeeded'")) {
+        operation = {
+          ...operation,
+          status: "provider-succeeded",
+          provider_shipment_id: params?.[1],
+          provider_label_id: params?.[2],
+          tracking_identifier: params?.[3],
+          updated_at: params?.[4],
+        };
+        return { rows: [] };
+      }
+
+      if (sql.includes("SET status = 'succeeded'")) {
+        operation = {
+          ...operation,
+          status: "succeeded",
+          provider_shipment_id: params?.[1],
+          provider_label_id: params?.[2],
+          tracking_identifier: params?.[3],
+          completed_at: params?.[4],
+          updated_at: params?.[4],
+        };
+        return { rows: [] };
+      }
+
+      if (sql.includes("SET status = 'failed'")) {
+        operation = {
+          ...operation,
+          status: "failed",
+          error_message: params?.[1],
+          completed_at: params?.[2],
+          updated_at: params?.[2],
+        };
+        return { rows: [] };
+      }
+
+      if (sql.includes("ORDER BY updated_at ASC, operation_key ASC")) {
+        return operation && ["pending", "provider-succeeded"].includes(String(operation.status))
+          ? { rows: [operation] }
+          : { rows: [] };
+      }
+
+      if (sql.includes("FROM fulfillment_shipment_pages AS page")) {
+        return { rows: [shipmentRow] };
+      }
+
+      return { rows: [] };
+    }),
+    readOperation: () => operation,
+  };
+  return db;
+}
 
 describe("fulfillment shipment runtime", () => {
   it("creates a shipment from a ready local order source", async () => {
@@ -399,6 +610,201 @@ describe("fulfillment shipment runtime", () => {
     });
   });
 
+  it("keeps concurrent USPS label purchases single-flight for one shipment intent", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    let releaseProvider!: () => void;
+    let providerStarted!: () => void;
+    const providerStartedSignal = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const providerReleaseSignal = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => {
+        providerStarted();
+        await providerReleaseSignal;
+        return purchasedSandboxLabel;
+      }),
+      recoverPurchasedUspsLabel: vi.fn(),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+
+    const firstPurchase = services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+      },
+      context,
+    );
+    await providerStartedSignal;
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Postage label purchase is already in progress");
+
+    releaseProvider();
+    await firstPurchase;
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+      }),
+    );
+  });
+
+  it("reconciles provider-success/local-append failure and replays seller retries without buying again", async () => {
+    const store = createInMemoryEventStore();
+    let failNextAttachAppend = true;
+    const eventStore: EventStore = {
+      ...store.eventStore,
+      appendToStream: async (input) => {
+        if (
+          failNextAttachAppend &&
+          input.events.some((event) => event.eventType === "fulfillment.shipment.label-attached")
+        ) {
+          failNextAttachAppend = false;
+          throw new Error("simulated append failure");
+        }
+        return store.eventStore.appendToStream(input);
+      },
+    };
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => purchasedSandboxLabel),
+      recoverPurchasedUspsLabel: vi.fn(async () => purchasedSandboxLabel),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+        },
+        context,
+      ),
+    ).rejects.toThrow("simulated append failure");
+    expect(db.readOperation()).toMatchObject({
+      status: "provider-succeeded",
+      provider_label_id: "sandbox_label_1",
+      tracking_identifier: "940000000000000000",
+    });
+
+    await expect(
+      services.reconcileStalePostageLabelPurchases({
+        staleBefore: "2026-04-02T00:20:00.000Z",
+      }),
+    ).resolves.toMatchObject({ checked: 1, attached: 1, failed: 0 });
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+      },
+      context,
+    );
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(postageLabelProvider.recoverPurchasedUspsLabel).toHaveBeenCalledTimes(1);
+    expect(
+      store.readAllEvents().filter((event) => event.eventType === "fulfillment.shipment.label-attached"),
+    ).toHaveLength(1);
+  });
+
+  it("marks stale pending label purchases failed when EasyPost has no purchased shipment to recover", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => {
+        throw new Error("provider buy should not run during stale reconciliation");
+      }),
+      recoverPurchasedUspsLabel: vi.fn(async () => null),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    await seedPackedShipmentAggregate(services, {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    });
+    await recordFulfillmentPostageLabelOperationPending(db as never, {
+      operationKey: "shipment:shp_1:purchase-usps-label:initial",
+      operationKind: "purchase-usps-label",
+      shipmentId: "shp_1",
+      providerName: "sandbox-usps",
+      providerMode: "test",
+      idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+      request: {},
+      createdAt: "2026-04-02T00:00:00.000Z",
+    });
+
+    await expect(
+      services.reconcileStalePostageLabelPurchases({
+        staleBefore: "2026-04-02T00:20:00.000Z",
+      }),
+    ).resolves.toMatchObject({ checked: 1, attached: 0, failed: 1 });
+
+    expect(db.readOperation()).toMatchObject({
+      status: "failed",
+      error_message: "No purchased provider label was found for the stale postage label purchase operation.",
+    });
+    expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
+  });
+
   it("rejects parcel-required shipments when a label override attempts Letter Mail", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
@@ -516,12 +922,8 @@ describe("fulfillment shipment runtime", () => {
       ),
     ).rejects.toThrow("Parcel postage is required by the committed postage policy snapshot for this shipment.");
     expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
-    expect(db.query).toHaveBeenCalledWith(
+    expect(db.query).not.toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
-      expect.anything(),
-    );
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE fulfillment_postage_label_operations"),
       expect.anything(),
     );
     const failedEvent = readAllEvents().find(
@@ -530,6 +932,71 @@ describe("fulfillment shipment runtime", () => {
     expect(failedEvent?.payload).toMatchObject({
       errorCode: "postage_policy_validation_failed",
       errorMessage: "Parcel postage is required by the committed postage policy snapshot for this shipment.",
+    });
+  });
+
+  it("keeps ambiguous provider purchase failures pending so retries cannot buy another label", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => {
+        throw new Error("network lost after provider request");
+      }),
+      recoverPurchasedUspsLabel: vi.fn(async () => null),
+      voidLabel: vi.fn(),
+    };
+    const db = createPostageOperationDb();
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+        },
+        context,
+      ),
+    ).rejects.toThrow("network lost after provider request");
+    expect(db.readOperation()).toMatchObject({
+      status: "pending",
+      operation_key: "shipment:shp_1:purchase-usps-label:initial",
+    });
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Postage label purchase is already in progress");
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    await expect(
+      services.reconcileStalePostageLabelPurchases({
+        staleBefore: "2026-04-02T00:20:00.000Z",
+      }),
+    ).resolves.toMatchObject({ checked: 1, failed: 1 });
+    expect(db.readOperation()).toMatchObject({
+      status: "failed",
+      error_message: "No purchased provider label was found for the stale postage label purchase operation.",
     });
   });
 

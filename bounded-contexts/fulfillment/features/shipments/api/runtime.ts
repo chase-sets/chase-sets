@@ -16,6 +16,7 @@ import {
   type PostageProviderWebhookEvent,
   type PostageProviderWebhookGateway,
   type PostageProviderWebhookInput,
+  type PurchasedPostageLabel,
 } from "@chase-sets/postage-labels";
 import {
   addressSnapshotsEqual,
@@ -35,12 +36,17 @@ import {
 import {
   getBuyerShipment,
   getSellerShipment,
+  getShipmentForPostageRecovery,
+  listStaleFulfillmentPostageLabelOperations,
   listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
   recordFulfillmentPostageLabelOperationFailed,
   recordFulfillmentPostageLabelOperationPending,
+  recordFulfillmentPostageLabelOperationProviderSucceeded,
   recordFulfillmentPostageLabelOperationSucceeded,
+  type FulfillmentPostageLabelOperationRecord,
+  type FulfillmentShipmentDetailRow,
 } from "../read-model/queries";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
 import {
@@ -102,6 +108,17 @@ type ReadyOrderSnapshot = Readonly<{
   lines: readonly ReadyOrderLineSnapshot[];
 }>;
 
+type AttachShipmentLabelCommand = Extract<FulfillmentShipmentCommand, { type: "AttachShipmentLabel" }>;
+type ShipmentLabelAddressOverrideAudit = NonNullable<AttachShipmentLabelCommand["addressOverrideAudit"]>;
+
+const FULFILLMENT_SYSTEM_CONTEXT: EventStoreContext = {
+  tenantId: "tnt_fulfillment" as never,
+  audit: {
+    performedByUserId: "usr_fulfillment_system" as never,
+    forAccountId: "acc_fulfillment_system" as never,
+  },
+};
+
 export type FulfillmentShipmentServices = Readonly<{
   commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>;
   packShipment: (
@@ -151,6 +168,10 @@ export type FulfillmentShipmentServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number; trackingIdentifier: string }>;
+  reconcileStalePostageLabelPurchases: (
+    params?: Readonly<{ staleBefore?: string; staleAfterMs?: number; limit?: number }>,
+    context?: EventStoreContext,
+  ) => Promise<{ checked: number; attached: number; voided: number; failed: number }>;
   voidLabel: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
     context: EventStoreContext,
@@ -641,7 +662,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<FulfillmentShipmentEvent>(),
     initialState: () => initialFulfillmentShipmentState,
@@ -655,6 +676,121 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       throw new FulfillmentDomainError("Shipment not found.");
     }
     return shipment;
+  }
+
+  function buildPurchaseUspsLabelOperationKey(shipment: FulfillmentShipmentDetailRow) {
+    const attemptScope = shipment.label_voided_at ? `after-void:${shipment.label_voided_at}` : "initial";
+    return `shipment:${shipment.shipment_id}:purchase-usps-label:${attemptScope}`;
+  }
+
+  async function getShipmentVersion(shipmentId: string) {
+    const loaded = await repository.load(`fulfillment.shipment-${shipmentId}`);
+    return loaded.version;
+  }
+
+  function operationHasProviderLabel(operation: FulfillmentPostageLabelOperationRecord) {
+    return Boolean(operation.provider_shipment_id && operation.provider_label_id && operation.tracking_identifier);
+  }
+
+  async function recoverPurchasedLabelForOperation(operation: FulfillmentPostageLabelOperationRecord) {
+    if (!postageLabelProvider.recoverPurchasedUspsLabel) {
+      return null;
+    }
+    const recovered = await postageLabelProvider.recoverPurchasedUspsLabel({
+      idempotencyKey: operation.idempotency_key,
+    });
+    if (!recovered) {
+      return null;
+    }
+    await recordFulfillmentPostageLabelOperationProviderSucceeded(deps.db, {
+      operationKey: operation.operation_key,
+      providerShipmentId: recovered.providerShipmentId,
+      providerLabelId: recovered.providerLabelId,
+      trackingIdentifier: recovered.trackingIdentifier,
+      updatedAt: recovered.purchasedAt,
+    });
+    return recovered;
+  }
+
+  async function recordOrphanedProviderLabelVoided(
+    operation: FulfillmentPostageLabelOperationRecord,
+    label: PurchasedPostageLabel,
+  ) {
+    await postageLabelProvider.voidLabel({
+      providerShipmentId: label.providerShipmentId,
+      providerLabelId: label.providerLabelId,
+      trackingIdentifier: label.trackingIdentifier,
+    });
+    await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+      operationKey: operation.operation_key,
+      errorMessage: "Recovered provider label was voided because the shipment already has a different label.",
+    });
+  }
+
+  async function attachPurchasedLabelForOperation(
+    operation: FulfillmentPostageLabelOperationRecord,
+    label: PurchasedPostageLabel,
+    addressOverrideAudit: ShipmentLabelAddressOverrideAudit | null,
+    context: EventStoreContext,
+  ) {
+    const loaded = await repository.load(`fulfillment.shipment-${operation.shipment_id}`);
+    if (
+      loaded.state.postageProviderLabelId === label.providerLabelId ||
+      loaded.state.trackingIdentifier === label.trackingIdentifier
+    ) {
+      await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+        operationKey: operation.operation_key,
+        providerShipmentId: label.providerShipmentId,
+        providerLabelId: label.providerLabelId,
+        trackingIdentifier: label.trackingIdentifier,
+        completedAt: label.purchasedAt,
+      });
+      return {
+        shipmentId: operation.shipment_id,
+        version: loaded.version,
+        trackingIdentifier: label.trackingIdentifier,
+      };
+    }
+
+    if (loaded.state.status !== "awaiting-label") {
+      throw new FulfillmentDomainError("Shipment is no longer awaiting a label.");
+    }
+
+    const result = await commandHandler({
+      streamId: `fulfillment.shipment-${operation.shipment_id}`,
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: label.carrierName,
+        labelReference: label.labelReference,
+        labelDocumentUrl: label.labelDocumentUrl,
+        trackingIdentifier: label.trackingIdentifier,
+        postageProviderName: label.providerName,
+        postageProviderMode: label.providerMode,
+        postageProviderShipmentId: label.providerShipmentId,
+        postageProviderLabelId: label.providerLabelId,
+        postageRateId: label.providerRateId,
+        postageServiceLevel: label.serviceLevel,
+        postageAmountCents: label.postageAmountCents,
+        postageCurrency: label.postageCurrency,
+        addressOverrideAudit,
+        attachedAt: label.purchasedAt,
+      },
+      context,
+    });
+    await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+      operationKey: operation.operation_key,
+      providerShipmentId: label.providerShipmentId,
+      providerLabelId: label.providerLabelId,
+      trackingIdentifier: label.trackingIdentifier,
+      completedAt: label.purchasedAt,
+    });
+
+    return {
+      shipmentId: operation.shipment_id,
+      version: result.version,
+      trackingIdentifier: label.trackingIdentifier,
+    };
   }
 
   return {
@@ -901,8 +1037,25 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
       const deliveryConfirmation = postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
       const labelSize = postageLabelSizeFromPackage(labelPackage);
-      const operationKey = `shipment:${params.shipmentId}:purchase-usps-label:${purchasedAt}`;
-      await recordFulfillmentPostageLabelOperationPending(deps.db, {
+      try {
+        assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
+      } catch (error) {
+        await commandHandler({
+          streamId: `fulfillment.shipment-${params.shipmentId}`,
+          command: {
+            type: "RecordShipmentLabelPurchaseFailed",
+            postageProviderName: postageLabelProvider.providerName,
+            postageProviderMode: postageLabelProvider.providerMode,
+            errorCode: postageLabelFailureErrorCode(error),
+            errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
+            failedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
+      }
+      const operationKey = buildPurchaseUspsLabelOperationKey(shipment);
+      const operation = await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "purchase-usps-label",
         shipmentId: params.shipmentId,
@@ -929,12 +1082,39 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         createdAt: purchasedAt,
       });
 
+      if (!operation.operation_reserved) {
+        if (operation.status === "succeeded") {
+          if (!operation.tracking_identifier) {
+            throw new FulfillmentDomainError("Postage label purchase already completed without tracking metadata.");
+          }
+          return {
+            shipmentId: params.shipmentId,
+            version: await getShipmentVersion(params.shipmentId),
+            trackingIdentifier: operation.tracking_identifier,
+          };
+        }
+
+        if (operation.status === "provider-succeeded" || operationHasProviderLabel(operation)) {
+          const recoveredLabel = await recoverPurchasedLabelForOperation(operation);
+          if (!recoveredLabel) {
+            throw new FulfillmentDomainError(
+              "Postage label purchase is pending provider reconciliation; retry after recovery completes.",
+            );
+          }
+          return attachPurchasedLabelForOperation(operation, recoveredLabel, addressOverrideAudit, context);
+        }
+
+        throw new FulfillmentDomainError(
+          "Postage label purchase is already in progress; retry after recovery completes.",
+        );
+      }
+
       let purchasedLabel;
       try {
-        assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
         purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
+          idempotencyKey: operationKey,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
           labelSize,
@@ -943,10 +1123,6 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           package: labelPackage,
         });
       } catch (error) {
-        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
-          operationKey,
-          errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
-        });
         await commandHandler({
           streamId: `fulfillment.shipment-${params.shipmentId}`,
           command: {
@@ -961,42 +1137,77 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         });
         throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
       }
-
-      const result = await commandHandler({
-        streamId: `fulfillment.shipment-${params.shipmentId}`,
-        command: {
-          type: "AttachShipmentLabel",
-          shippingMethod: "standard",
-          carrierName: purchasedLabel.carrierName,
-          labelReference: purchasedLabel.labelReference,
-          labelDocumentUrl: purchasedLabel.labelDocumentUrl,
-          trackingIdentifier: purchasedLabel.trackingIdentifier,
-          postageProviderName: purchasedLabel.providerName,
-          postageProviderMode: purchasedLabel.providerMode,
-          postageProviderShipmentId: purchasedLabel.providerShipmentId,
-          postageProviderLabelId: purchasedLabel.providerLabelId,
-          postageRateId: purchasedLabel.providerRateId,
-          postageServiceLevel: purchasedLabel.serviceLevel,
-          postageAmountCents: purchasedLabel.postageAmountCents,
-          postageCurrency: purchasedLabel.postageCurrency,
-          addressOverrideAudit,
-          attachedAt: purchasedLabel.purchasedAt,
-        },
-        context,
-      });
-      await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+      await recordFulfillmentPostageLabelOperationProviderSucceeded(deps.db, {
         operationKey,
         providerShipmentId: purchasedLabel.providerShipmentId,
         providerLabelId: purchasedLabel.providerLabelId,
         trackingIdentifier: purchasedLabel.trackingIdentifier,
-        completedAt: purchasedLabel.purchasedAt,
+        updatedAt: purchasedLabel.purchasedAt,
       });
 
-      return {
-        shipmentId: params.shipmentId,
-        version: result.version,
-        trackingIdentifier: purchasedLabel.trackingIdentifier,
+      return attachPurchasedLabelForOperation(operation, purchasedLabel, addressOverrideAudit, context);
+    },
+    reconcileStalePostageLabelPurchases: async (params = {}, context = FULFILLMENT_SYSTEM_CONTEXT) => {
+      const staleBefore =
+        params.staleBefore ?? new Date(Date.now() - Math.max(1, params.staleAfterMs ?? 5 * 60 * 1000)).toISOString();
+      const operations = await listStaleFulfillmentPostageLabelOperations(deps.db, {
+        staleBefore,
+        limit: params.limit,
+      });
+      const result = {
+        checked: operations.length,
+        attached: 0,
+        voided: 0,
+        failed: 0,
       };
+
+      for (const operation of operations) {
+        const shipment = await getShipmentForPostageRecovery(deps.db, operation.shipment_id);
+        if (!shipment) {
+          await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+            operationKey: operation.operation_key,
+            errorMessage: "Shipment no longer exists for stale postage label purchase operation.",
+          });
+          result.failed += 1;
+          continue;
+        }
+
+        const recoveredLabel = await recoverPurchasedLabelForOperation(operation);
+        if (!recoveredLabel) {
+          await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+            operationKey: operation.operation_key,
+            errorMessage: "No purchased provider label was found for the stale postage label purchase operation.",
+          });
+          result.failed += 1;
+          continue;
+        }
+
+        if (
+          shipment.postage_provider_label_id === recoveredLabel.providerLabelId ||
+          shipment.tracking_identifier === recoveredLabel.trackingIdentifier
+        ) {
+          await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+            operationKey: operation.operation_key,
+            providerShipmentId: recoveredLabel.providerShipmentId,
+            providerLabelId: recoveredLabel.providerLabelId,
+            trackingIdentifier: recoveredLabel.trackingIdentifier,
+            completedAt: recoveredLabel.purchasedAt,
+          });
+          result.attached += 1;
+          continue;
+        }
+
+        if (shipment.status === "awaiting-label" && shipment.package_status === "packed") {
+          await attachPurchasedLabelForOperation(operation, recoveredLabel, null, context);
+          result.attached += 1;
+          continue;
+        }
+
+        await recordOrphanedProviderLabelVoided(operation, recoveredLabel);
+        result.voided += 1;
+      }
+
+      return result;
     },
     voidLabel: async (params, context) => {
       const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);

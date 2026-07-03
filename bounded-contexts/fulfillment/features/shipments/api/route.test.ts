@@ -60,6 +60,7 @@ function createServices(): FulfillmentShipmentServices {
       version: 3,
       trackingIdentifier: "940000000000000000",
     })),
+    reconcileStalePostageLabelPurchases: vi.fn(async () => ({ checked: 0, attached: 0, voided: 0, failed: 0 })),
     voidLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     dispatchShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     deliverShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),

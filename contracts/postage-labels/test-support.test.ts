@@ -8,6 +8,7 @@ describe("sandbox postage label adapter", () => {
     const label = await provider.purchaseUspsLabel({
       shipmentId: "shp_test_123",
       orderId: "ord_1",
+      idempotencyKey: "shipment:shp_test_123:purchase-usps-label:initial",
       serviceLevel: "USPS_GROUND_ADVANTAGE",
       sender: {
         name: "Seller",

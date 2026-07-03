@@ -57,6 +57,29 @@ export type FulfillmentPostageLabelOperationDiagnosticRow = Readonly<{
   completed_at: string | null;
 }>;
 
+export type FulfillmentPostageLabelOperationRecord = Readonly<{
+  operation_key: string;
+  operation_kind: "purchase-usps-label" | "void-label";
+  shipment_id: string;
+  provider_name: string;
+  provider_mode: string;
+  idempotency_key: string;
+  request_json: unknown;
+  status: "pending" | "provider-succeeded" | "succeeded" | "failed";
+  provider_shipment_id: string | null;
+  provider_label_id: string | null;
+  tracking_identifier: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}>;
+
+export type FulfillmentPostageLabelOperationReservation = FulfillmentPostageLabelOperationRecord &
+  Readonly<{
+    operation_reserved: boolean;
+  }>;
+
 export type FulfillmentPostageProviderEventDiagnosticRow = Readonly<{
   provider_event_id: string;
   provider_name: string;
@@ -141,27 +164,75 @@ export async function recordFulfillmentPostageLabelOperationPending(
     request?: unknown;
     createdAt?: string;
   }>,
-) {
+): Promise<FulfillmentPostageLabelOperationReservation> {
   const timestamp = operation.createdAt ?? new Date().toISOString();
-  await db.query(
-    `INSERT INTO fulfillment_postage_label_operations (
-       operation_key,
-       operation_kind,
-       shipment_id,
-       provider_name,
-       provider_mode,
-       idempotency_key,
-       request_json,
-       status,
-       created_at,
-       updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
-     ON CONFLICT (operation_key) DO UPDATE
-     SET provider_name = EXCLUDED.provider_name,
-         provider_mode = EXCLUDED.provider_mode,
-         idempotency_key = EXCLUDED.idempotency_key,
-         request_json = EXCLUDED.request_json,
-         updated_at = EXCLUDED.updated_at`,
+  const result = await db.query<FulfillmentPostageLabelOperationReservation>(
+    `WITH reserved_operation AS (
+       INSERT INTO fulfillment_postage_label_operations (
+         operation_key,
+         operation_kind,
+         shipment_id,
+         provider_name,
+         provider_mode,
+         idempotency_key,
+         request_json,
+         status,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
+       ON CONFLICT (operation_key) DO UPDATE
+       SET provider_name = EXCLUDED.provider_name,
+           provider_mode = EXCLUDED.provider_mode,
+           idempotency_key = EXCLUDED.idempotency_key,
+           request_json = EXCLUDED.request_json,
+           status = 'pending',
+           provider_shipment_id = NULL,
+           provider_label_id = NULL,
+           tracking_identifier = NULL,
+           error_message = NULL,
+           completed_at = NULL,
+           updated_at = EXCLUDED.updated_at
+       WHERE fulfillment_postage_label_operations.status = 'failed'
+       RETURNING
+         operation_key,
+         operation_kind,
+         shipment_id,
+         provider_name,
+         provider_mode,
+         idempotency_key,
+         request_json,
+         status,
+         provider_shipment_id,
+         provider_label_id,
+         tracking_identifier,
+         error_message,
+         created_at,
+         updated_at,
+         completed_at,
+         TRUE AS operation_reserved
+     )
+     SELECT * FROM reserved_operation
+     UNION ALL
+     SELECT
+       existing.operation_key,
+       existing.operation_kind,
+       existing.shipment_id,
+       existing.provider_name,
+       existing.provider_mode,
+       existing.idempotency_key,
+       existing.request_json,
+       existing.status,
+       existing.provider_shipment_id,
+       existing.provider_label_id,
+       existing.tracking_identifier,
+       existing.error_message,
+       existing.created_at,
+       existing.updated_at,
+       existing.completed_at,
+       FALSE AS operation_reserved
+     FROM fulfillment_postage_label_operations AS existing
+     WHERE existing.operation_key = $1
+       AND NOT EXISTS (SELECT 1 FROM reserved_operation)`,
     [
       operation.operationKey,
       operation.operationKind,
@@ -170,6 +241,59 @@ export async function recordFulfillmentPostageLabelOperationPending(
       operation.providerMode,
       operation.idempotencyKey,
       JSON.stringify(operation.request ?? {}),
+      timestamp,
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      operation_key: operation.operationKey,
+      operation_kind: operation.operationKind,
+      shipment_id: operation.shipmentId,
+      provider_name: operation.providerName,
+      provider_mode: operation.providerMode,
+      idempotency_key: operation.idempotencyKey,
+      request_json: operation.request ?? {},
+      status: "pending",
+      provider_shipment_id: null,
+      provider_label_id: null,
+      tracking_identifier: null,
+      error_message: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+      completed_at: null,
+      operation_reserved: true,
+    };
+  }
+  return row;
+}
+
+export async function recordFulfillmentPostageLabelOperationProviderSucceeded(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    providerShipmentId?: string | null;
+    providerLabelId?: string | null;
+    trackingIdentifier?: string | null;
+    updatedAt?: string;
+  }>,
+) {
+  const timestamp = operation.updatedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE fulfillment_postage_label_operations
+     SET status = 'provider-succeeded',
+         provider_shipment_id = $2,
+         provider_label_id = $3,
+         tracking_identifier = $4,
+         error_message = NULL,
+         updated_at = $5
+     WHERE operation_key = $1
+       AND status IN ('pending', 'provider-succeeded', 'failed')`,
+    [
+      operation.operationKey,
+      operation.providerShipmentId ?? null,
+      operation.providerLabelId ?? null,
+      operation.trackingIdentifier ?? null,
       timestamp,
     ],
   );
@@ -195,7 +319,8 @@ export async function recordFulfillmentPostageLabelOperationSucceeded(
          error_message = NULL,
          completed_at = $5,
          updated_at = $5
-     WHERE operation_key = $1`,
+     WHERE operation_key = $1
+       AND status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')`,
     [
       operation.operationKey,
       operation.providerShipmentId ?? null,
@@ -222,9 +347,42 @@ export async function recordFulfillmentPostageLabelOperationFailed(
          completed_at = $3,
          updated_at = $3
      WHERE operation_key = $1
-       AND status = 'pending'`,
+       AND status IN ('pending', 'provider-succeeded')`,
     [operation.operationKey, operation.errorMessage, timestamp],
   );
+}
+
+export async function listStaleFulfillmentPostageLabelOperations(
+  db: PgQueryable,
+  params: Readonly<{ staleBefore: string; limit?: number }>,
+): Promise<FulfillmentPostageLabelOperationRecord[]> {
+  const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
+  const result = await db.query<FulfillmentPostageLabelOperationRecord>(
+    `SELECT
+       operation_key,
+       operation_kind,
+       shipment_id,
+       provider_name,
+       provider_mode,
+       idempotency_key,
+       request_json,
+       status,
+       provider_shipment_id,
+       provider_label_id,
+       tracking_identifier,
+       error_message,
+       created_at,
+       updated_at,
+       completed_at
+     FROM fulfillment_postage_label_operations
+     WHERE operation_kind = 'purchase-usps-label'
+       AND status IN ('pending', 'provider-succeeded')
+       AND updated_at <= $1
+     ORDER BY updated_at ASC, operation_key ASC
+     LIMIT $2`,
+    [params.staleBefore, limit],
+  );
+  return result.rows;
 }
 
 type BaseShipmentPageRow = FulfillmentShipmentListRow;
@@ -486,6 +644,28 @@ export async function listSellerShipments(
   return {
     items: itemsResult.rows,
     total: Number(countResult.rows[0]?.count ?? 0),
+  };
+}
+
+export async function getShipmentForPostageRecovery(
+  db: PgQueryable,
+  shipmentId: string,
+): Promise<FulfillmentShipmentDetailRow | null> {
+  const result = await db.query<BaseShipmentPageRow>(
+    `${baseShipmentSelect}
+     WHERE page.shipment_id = $1`,
+    [shipmentId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const detailCollections = await loadShipmentDetailCollections(db, shipmentId);
+
+  return {
+    ...row,
+    ...detailCollections,
   };
 }
 

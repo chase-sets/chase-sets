@@ -1125,6 +1125,16 @@ function createScheduledJobRunners(
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
+  const fulfillment = services.fulfillment as
+    | {
+        shipments?: {
+          reconcileStalePostageLabelPurchases?: (params?: {
+            staleAfterMs?: number;
+            limit?: number;
+          }) => Promise<{ checked: number; attached: number; voided: number; failed: number }>;
+        };
+      }
+    | undefined;
   const discovery = services.discovery as
     | {
         googleShoppingSync?: {
@@ -1214,6 +1224,27 @@ function createScheduledJobRunners(
           return typeof result === "object" && result && "checked" in result
             ? Number((result as { checked: unknown }).checked)
             : 0;
+        },
+      ),
+    );
+  }
+
+  if (fulfillment?.shipments?.reconcileStalePostageLabelPurchases) {
+    runners.push(
+      createScheduledJobRunner(
+        "fulfillment.postage-label-purchase-reconciliation",
+        5 * 60 * 1000,
+        controlPlane,
+        async () => {
+          const result = await fulfillment.shipments!.reconcileStalePostageLabelPurchases!({
+            staleAfterMs: 5 * 60 * 1000,
+            limit: 100,
+          });
+          logger.info("Fulfillment postage label purchase reconciliation completed.", {
+            type: "fulfillment.postage-label-purchase-reconciliation",
+            result,
+          });
+          return result.checked;
         },
       ),
     );
