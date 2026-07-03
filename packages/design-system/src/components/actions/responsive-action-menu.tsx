@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { BottomSheet, Menu, type MenuGroup, type MenuItem } from "../feedback";
 import { Icon } from "../../icons";
 import { useMediaQuery } from "../../hooks";
+import { minWidthQuery } from "../../theme/tokens";
 import { cx } from "../../utils/cx";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 
@@ -91,7 +92,7 @@ export function ResponsiveActionMenu({
   mobileSheetThreshold = 4,
 }: ResponsiveActionMenuProps) {
   const [open, setOpen] = useState(false);
-  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const isDesktop = useMediaQuery(minWidthQuery("md"));
   const allItems = flattenItems(items, groups);
   const useMobileSheet = !isDesktop && allItems.length > mobileSheetThreshold;
 

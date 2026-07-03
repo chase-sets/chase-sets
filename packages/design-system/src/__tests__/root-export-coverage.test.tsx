@@ -22,6 +22,7 @@ import {
   packingSlipPrintStyles,
   useMediaQuery,
 } from "../index";
+import { minWidthQuery } from "../theme/tokens";
 
 function MediaQueryHarness({ query, defaultValue = false }: { query: string; defaultValue?: boolean }) {
   const matches = useMediaQuery(query, defaultValue);
@@ -37,7 +38,7 @@ function installMatchMedia(matches: boolean) {
     get matches() {
       return currentMatches;
     },
-    media: "(min-width: 768px)",
+    media: minWidthQuery("md"),
     onchange: null,
     addEventListener: vi.fn((eventName: string, listener: (event: MediaQueryListEvent) => void) => {
       if (eventName === "change") {
@@ -322,7 +323,7 @@ describe("root export coverage smoke tests", () => {
     const matchMedia = installMatchMedia(false);
 
     try {
-      render(<MediaQueryHarness query="(min-width: 768px)" />);
+      render(<MediaQueryHarness query={minWidthQuery("md")} />);
 
       expect(await screen.findByText("does not match")).toBeTruthy();
 

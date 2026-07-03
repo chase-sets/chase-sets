@@ -69,6 +69,7 @@ import {
   formatMarketplaceNumber,
   chaseTheme,
 } from "../index";
+import { minWidthQuery } from "../theme/tokens";
 
 describe("design system marketplace patterns", () => {
   it("does not expose deprecated design-system aliases", () => {
@@ -368,7 +369,7 @@ describe("design system marketplace patterns", () => {
         configurable: true,
         writable: true,
         value: vi.fn((query: string) => ({
-          matches: query === "(min-width: 768px)" ? isDesktop : false,
+          matches: query === minWidthQuery("md") ? isDesktop : false,
           media: query,
           onchange: null,
           addEventListener: vi.fn(),

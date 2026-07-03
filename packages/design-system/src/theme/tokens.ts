@@ -356,13 +356,17 @@ export const chaseTheme: ThemeTokens = {
   },
   breakpoints: {
     base: "0px",
-    sm: "480px",
+    sm: "640px",
     md: "768px",
     lg: "1024px",
     xl: "1280px",
     "2xl": "1536px",
   },
 };
+
+export function minWidthQuery(breakpoint: BreakpointKey): string {
+  return `(min-width: ${chaseTheme.breakpoints[breakpoint]})`;
+}
 
 export const chaseDarkTheme: ThemeTokens = chaseTheme;
 

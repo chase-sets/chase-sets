@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 import type { IconName } from "../../icons";
 import { useMediaQuery } from "../../hooks";
 import { ThemePreferenceControl } from "../../theme/theme-toggle";
-import type { ColorMode } from "../../theme/tokens";
+import { minWidthQuery, type ColorMode } from "../../theme/tokens";
 import { useControllableOpen } from "../feedback/shared";
 import { AccountMenuDesktopSurface, AccountMenuMobileSurface } from "./account-menu-surfaces";
 
@@ -69,7 +69,7 @@ export function AccountMenu({
   const titleId = useId();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
-  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const isDesktop = useMediaQuery(minWidthQuery("md"));
   const useMobileSheet = !isDesktop && items.length > mobileSheetThreshold;
   const preferencesContent = isAccountMenuPreferences(preferences) ? (
     <ThemePreferenceControl
