@@ -123,6 +123,51 @@ type MarketplaceListingPageRow = Readonly<{
   updated_at: string;
 }>;
 
+// Public product listing pages intentionally default to 50 rows to keep hot-path reads bounded.
+export const MARKETPLACE_ITEM_LISTINGS_DEFAULT_PAGE_SIZE = 50;
+const MARKETPLACE_ITEM_LISTINGS_MAX_PAGE_SIZE = 100;
+
+const activeSupplyHoldQuantityJoinSql = `
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(supply_hold.quantity), 0)::integer AS held_quantity
+      FROM marketplace_supply_holds AS supply_hold
+      WHERE supply_hold.item_id = item.item_id
+        AND supply_hold.status = 'active'
+    ) AS active_holds ON TRUE`;
+
+const listingPageColumnSelectSql = `
+       listing.listing_id,
+       listing.account_id,
+       listing.inventory_item_id,
+       listing.catalog_catalog_item_id,
+       listing.product_id,
+       listing.item_language_code,
+       listing.item_title,
+       listing.item_subtitle,
+       listing.selected_options,
+       listing.product_summary,
+       listing.product_measure_snapshot,
+       listing.graded_card,
+       listing.storage_location_name,
+       listing.ship_from_code,
+       listing.ship_from_address,
+       listing.price_amount,
+       listing.marketplace_sales_fee_unit_amount,
+       listing.seller_net_unit_amount,
+       listing.shipping_allowance_percentage_bps,
+       listing.terms_schedule_id,
+       listing.terms_agreement_id,
+       listing.terms_resolved_at,
+       listing.fee_quote_fingerprint,
+       listing.quantity_cap,
+       listing.max_units_per_order,
+       listing.max_units_per_day,
+       listing.max_units_per_customer_account,
+       listing.listing_photos,
+       listing.status,
+       listing.created_at,
+       listing.updated_at`;
+
 function normalizeBadgeArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
@@ -265,13 +310,7 @@ export async function getInventoryItemSupply(
        ON location.storage_location_id = item.storage_location_id
      LEFT JOIN marketplace_catalog_items AS catalog_item
        ON catalog_item.catalog_item_id = item.catalog_catalog_item_id
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
-       FROM marketplace_supply_holds
-       WHERE status = 'active'
-       GROUP BY item_id
-     ) AS active_holds
-       ON active_holds.item_id = item.item_id
+     ${activeSupplyHoldQuantityJoinSql}
      WHERE item.item_id = $1
        ${accountCondition}`,
     values,
@@ -383,13 +422,7 @@ export async function listSellerInventoryItemSupply(
       ON location.storage_location_id = item.storage_location_id
     LEFT JOIN marketplace_catalog_items AS catalog_item
       ON catalog_item.catalog_item_id = item.catalog_catalog_item_id
-    LEFT JOIN (
-      SELECT item_id, SUM(quantity)::integer AS held_quantity
-      FROM marketplace_supply_holds
-      WHERE status = 'active'
-      GROUP BY item_id
-    ) AS active_holds
-      ON active_holds.item_id = item.item_id
+    ${activeSupplyHoldQuantityJoinSql}
     WHERE item.account_id = $1
       ${catalogCondition}
       AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`;
@@ -398,13 +431,7 @@ export async function listSellerInventoryItemSupply(
     db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM marketplace_supply_items AS item
-       LEFT JOIN (
-         SELECT item_id, SUM(quantity)::integer AS held_quantity
-         FROM marketplace_supply_holds
-         WHERE status = 'active'
-         GROUP BY item_id
-       ) AS active_holds
-         ON active_holds.item_id = item.item_id
+       ${activeSupplyHoldQuantityJoinSql}
        WHERE item.account_id = $1
          ${catalogCondition}
          AND item.total_quantity - COALESCE(active_holds.held_quantity, 0) > 0`,
@@ -701,13 +728,7 @@ export async function getMarketSummaryForItem(
      FROM marketplace_listing_pages AS listing
      INNER JOIN marketplace_supply_items AS item
        ON item.item_id = listing.inventory_item_id
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
-       FROM marketplace_supply_holds
-       WHERE status = 'active'
-       GROUP BY item_id
-     ) AS active_holds
-       ON active_holds.item_id = item.item_id
+     ${activeSupplyHoldQuantityJoinSql}
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
@@ -723,7 +744,16 @@ export async function getMarketSummaryForItem(
   };
 }
 
-export async function listItemListings(db: PgQueryable, productId: string): Promise<MarketplaceItemListingRow[]> {
+export async function listItemListings(
+  db: PgQueryable,
+  productId: string,
+  params: Readonly<{ limit?: number; offset?: number }> = {},
+): Promise<MarketplaceItemListingRow[]> {
+  const limit = Math.max(
+    1,
+    Math.min(params.limit ?? MARKETPLACE_ITEM_LISTINGS_DEFAULT_PAGE_SIZE, MARKETPLACE_ITEM_LISTINGS_MAX_PAGE_SIZE),
+  );
+  const offset = Math.max(0, params.offset ?? 0);
   const result = await db.query<
     MarketplaceListingPageRow & {
       seller_display_name: string | null;
@@ -731,7 +761,7 @@ export async function listItemListings(db: PgQueryable, productId: string): Prom
     }
   >(
     `SELECT
-       listing.*,
+${listingPageColumnSelectSql},
        account.display_name AS seller_display_name,
        LEAST(
          listing.quantity_cap,
@@ -740,13 +770,7 @@ export async function listItemListings(db: PgQueryable, productId: string): Prom
      FROM marketplace_listing_pages AS listing
      INNER JOIN marketplace_supply_items AS item
        ON item.item_id = listing.inventory_item_id
-     LEFT JOIN (
-       SELECT item_id, SUM(quantity)::integer AS held_quantity
-       FROM marketplace_supply_holds
-       WHERE status = 'active'
-       GROUP BY item_id
-     ) AS active_holds
-       ON active_holds.item_id = item.item_id
+     ${activeSupplyHoldQuantityJoinSql}
      LEFT JOIN marketplace_account_pages AS account
        ON account.account_id = listing.account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
@@ -758,8 +782,9 @@ export async function listItemListings(db: PgQueryable, productId: string): Prom
          listing.quantity_cap,
          GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
        ) > 0
-     ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-    [productId],
+     ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC
+     LIMIT $2 OFFSET $3`,
+    [productId, limit, offset],
   );
 
   return result.rows.map((row) => ({
