@@ -1741,6 +1741,7 @@ jobs:
           PRODUCTION_DB_RESTORE_POINT_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
           PRODUCTION_DB_RESTORE_POINT_SKIP: ${{ needs.resolve-release.outputs.production_restore_point_required == 'true' && 'false' || 'true' }}
           PRODUCTION_DB_RESTORE_POINT_SKIP_REASON: ${{ needs.resolve-release.outputs.production_recovery_mode == 'pitr' && needs.resolve-release.outputs.production_recovery_reason || '' }}
+          PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
         run: |
           set -euo pipefail
           source_cluster_id="$(terraform output -raw postgres_cluster_id 2>/dev/null || true)"
@@ -2417,6 +2418,7 @@ jobs:
           PRODUCTION_RESTORE_POINT_STATUS: ${{ steps.production_restore_point.outputs.restore_point_status || '' }}
           PRODUCTION_RESTORE_POINT_CREATED_AT: ${{ steps.production_restore_point.outputs.restore_point_created_at || '' }}
           PRODUCTION_RESTORE_POINT_BYPASSED: ${{ steps.production_restore_point.outputs.restore_point_bypassed || 'false' }}
+          PRODUCTION_RESTORE_POINT_REMEDIATION: ${{ steps.production_restore_point.outputs.restore_point_remediation || '' }}
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary
@@ -2497,8 +2499,9 @@ jobs:
 
           Next steps:
           1. Inspect the failed job logs and uploaded release-health artifacts.
-          2. Link the fix-forward PR, rollback-readiness evidence, or emergency release reference here.
-          3. Close this issue only after the replacement deploy or accepted no-op signal is documented.
+          2. If the failure is at Create production database restore point or mentions DigitalOcean database quota/limit errors, run the Platform Production Restore Point Cleanup workflow or \`node ./scripts/production-db-restore-point-cleanup.mjs --out artifacts/release-health/production-db-restore-point-cleanup.json\` first; apply cleanup only after reviewing candidates and preserving the default 24-hour guard unless an operator explicitly approves a lower age.
+          3. Link the fix-forward PR, rollback-readiness evidence, cleanup artifact, or emergency release reference here.
+          4. Close this issue only after the replacement deploy or accepted no-op signal is documented.
           EOF
           )"
 

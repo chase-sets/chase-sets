@@ -127,6 +127,10 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
         readEnv("PRODUCTION_RESTORE_POINT_BYPASSED", env) ??
         "false",
     ),
+    productionRestorePointRemediation:
+      readOption(argv, "--production-restore-point-remediation") ??
+      readEnv("PRODUCTION_RESTORE_POINT_REMEDIATION", env) ??
+      null,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -269,6 +273,7 @@ export function buildReleaseHealthRecord(input) {
         status: emptyToNull(input.productionRestorePointStatus),
         createdAt: emptyToNull(input.productionRestorePointCreatedAt),
         bypassed: Boolean(input.productionRestorePointBypassed),
+        remediation: emptyToNull(input.productionRestorePointRemediation),
       },
     },
   };
