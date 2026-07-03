@@ -138,7 +138,8 @@ export function TableHeadCell({
   children,
   ...rest
 }: TableHeadCellProps) {
-  const resolvedDensity = density ?? useDensity();
+  const themeDensity = useDensity();
+  const resolvedDensity = density ?? themeDensity;
   return (
     <th
       {...rest}
@@ -164,7 +165,8 @@ export interface TableCellProps extends Omit<TdHTMLAttributes<HTMLTableCellEleme
 }
 
 export function TableCell({ align = "left", control = false, density, children, ...rest }: TableCellProps) {
-  const resolvedDensity = density ?? useDensity();
+  const themeDensity = useDensity();
+  const resolvedDensity = density ?? themeDensity;
   return (
     <td
       {...rest}

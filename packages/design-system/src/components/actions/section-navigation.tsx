@@ -47,7 +47,7 @@ const stateClasses: Record<SectionNavigationItemState, string> = {
   pending: "border-info-soft bg-info-soft text-info",
   warning: "border-warning-soft bg-warning-soft text-warning",
   blocked: "border-danger-soft bg-danger-soft text-danger",
-  disabled: "border-border bg-surface-subtle text-tertiary",
+  disabled: "border-border bg-surface-2 text-tertiary",
 };
 
 const dotClasses: Record<SectionNavigationItemState, string> = {
@@ -120,7 +120,7 @@ function renderDesktopItem(item: SectionNavigationItem, activeKey: string, onSel
     "focus-ring flex min-h-11 w-full items-center gap-2 rounded-tokenMd border px-3 py-2 text-left transition-colors",
     active
       ? "border-accent-soft bg-accent-soft text-foreground shadow-tokenSm"
-      : "border-transparent text-secondary hover:border-border hover:bg-surface-subtle hover:text-foreground",
+      : "border-transparent text-secondary hover:border-border hover:bg-surface-2 hover:text-foreground",
     disabled && "cursor-not-allowed opacity-60 hover:border-transparent hover:bg-transparent hover:text-secondary",
   );
   const handleClick = (event: MouseEvent<HTMLElement>) => {

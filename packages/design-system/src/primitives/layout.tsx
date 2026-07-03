@@ -123,9 +123,18 @@ export const sidebarWidthClasses = {
 
 export type SidebarWidth = keyof typeof sidebarWidthClasses;
 
-export function Container({ children, width = "full", paddingX = 4, ...rest }: ContainerProps) {
+export function Container({
+  children,
+  width = "full",
+  padding,
+  paddingX = 4,
+  paddingY,
+  gap,
+  textAlign,
+  ...rest
+}: ContainerProps) {
   return (
-    <div {...rest} className={cx("w-full", resolveSystemProps({ paddingX }))}>
+    <div {...rest} className={cx("w-full", resolveSystemProps({ padding, paddingX, paddingY, gap, textAlign }))}>
       <div className={cx("mx-auto w-full", layoutWidthClasses[width])}>{children}</div>
     </div>
   );

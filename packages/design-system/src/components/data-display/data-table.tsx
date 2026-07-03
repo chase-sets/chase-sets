@@ -58,7 +58,8 @@ export function DataTable<T>({
   density: densityProp,
   ...rest
 }: DataTableProps<T>) {
-  const density = densityProp ?? useDensity();
+  const themeDensity = useDensity();
+  const density = densityProp ?? themeDensity;
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
   const allIds = useMemo(
