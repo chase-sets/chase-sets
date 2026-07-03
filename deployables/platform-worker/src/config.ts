@@ -340,7 +340,7 @@ export function loadConfig(): PlatformWorkerConfig {
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
     projectionWakeScheduler: {
-      enabled: runtimeProfile !== "landing" && getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
+      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
       maxConcurrentRunners: getPositiveNumberEnv("WORKER_WAKE_MAX_CONCURRENT_RUNNERS", 2),
       pollIntervalMs: getPositiveNumberEnv("WORKER_WAKE_POLL_INTERVAL_MS", 1_000),
       // Lane runner counts accept zero so an operator can kill one priority
@@ -357,7 +357,7 @@ export function loadConfig(): PlatformWorkerConfig {
       cleanupIntervalMs: getPositiveNumberEnv("WORK_SIGNAL_CLEANUP_INTERVAL_MS", 60_000),
     },
     projectionWakeRelay: {
-      enabled: runtimeProfile !== "landing" && getBooleanEnv("WORKER_PROJECTION_WAKE_RELAY_ENABLED", true),
+      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_RELAY_ENABLED", true),
       listenerDatabaseUrls: Object.fromEntries(
         workerContexts.flatMap((contextName) => {
           const listenerDatabaseUrl = getOptionalEnv(getContextListenerDatabaseEnvName(contextName));
