@@ -84,13 +84,18 @@ vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
 }));
 
-vi.mock("@chase-sets/payments/server", () => ({
-  createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
-  normalizeRequestedBalanceCreditAmount: (value: unknown) => {
-    const text = String(value ?? "").trim();
-    return text ? text : null;
-  },
-}));
+vi.mock("@chase-sets/payments/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
+
+  return {
+    ...actual,
+    createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+    normalizeRequestedBalanceCreditAmount: (value: unknown) => {
+      const text = String(value ?? "").trim();
+      return text ? text : null;
+    },
+  };
+});
 
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,

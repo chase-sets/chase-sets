@@ -12,7 +12,6 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
-  addMoney,
   compareMoney,
   normalizeCurrencyCode,
   normalizeMoneyAmount,
@@ -75,6 +74,15 @@ import {
   type PaymentState,
   type SellerPayoutComponent,
 } from "../domain/domain";
+import {
+  marketplaceCheckoutFeePaymentMethodCategories,
+  marketplaceCheckoutFeePolicy,
+  normalizeMarketplaceCheckoutFeePaymentMethodCategory,
+  quoteMarketplaceCheckoutFee,
+  type MarketplaceCheckoutFeePaymentMethodCategory,
+  type MarketplaceCheckoutFeePolicy,
+  type MarketplaceCheckoutFeeQuote,
+} from "./marketplace-checkout-fee-policy";
 
 type PaymentRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -104,7 +112,7 @@ type CheckoutStatusResult = Readonly<{
   }>[];
 }>;
 
-type PaymentMethodCategory = "card" | "bank-account" | "platform-credit";
+type PaymentMethodCategory = MarketplaceCheckoutFeePaymentMethodCategory;
 type SavedCheckoutInstrumentReadiness = "ready" | "setup-required" | "removed";
 type SavedCheckoutConfirmationExperience = "trusted-payment-step" | "off-session-token";
 
@@ -123,42 +131,6 @@ type CheckoutAffordanceInstrument = Readonly<{
 
 const SAVE_PAYMENT_CONSENT_TEXT =
   "Save this payment method for future Chase Sets checkout and allow Chase Sets to use it for future purchases I approve.";
-
-type MarketplaceCheckoutFeeQuote = Readonly<{
-  payment_method_category: PaymentMethodCategory;
-  external_basis_amount: string;
-  marketplace_checkout_fee_amount: string;
-  marketplace_checkout_fee_reduction_amount: string;
-  total_amount: string;
-  processor_amount: string;
-  policy_version: string;
-  quote_fingerprint: string;
-  quoted_at: string;
-}>;
-
-type MarketplaceCheckoutFeePolicy = Readonly<{
-  policy_version: string;
-  effective_at: string;
-  enabled_jurisdictions: readonly string[];
-  base: Readonly<{
-    percentage_bps: number;
-    fixed_amount: string;
-  }>;
-  method_adjustments: readonly Readonly<{
-    payment_method_category: PaymentMethodCategory;
-    percentage_bps_delta: number;
-    fixed_amount_delta: string;
-    resulting_percentage_bps: number;
-    resulting_fixed_amount: string;
-  }>[];
-  unsupported_methods_default: "no-positive-fee";
-  quote_audit: Readonly<{
-    confirmation_required: true;
-    stale_response_code: 409;
-    stale_response_error: "fee_quote_stale";
-    snapshot_fields: readonly string[];
-  }>;
-}>;
 
 function checkoutRecoveryReference(
   params: Readonly<{
@@ -292,79 +264,6 @@ function buildMarketplaceRiskMetadata(
   };
 }
 
-function normalizePaymentMethodCategory(value: string | null | undefined): PaymentMethodCategory {
-  switch ((value ?? "card").trim()) {
-    case "bank-account":
-    case "bank_account":
-    case "bank":
-      return "bank-account";
-    case "platform-credit":
-    case "platform_credit":
-    case "credit":
-      return "platform-credit";
-    default:
-      return "card";
-  }
-}
-
-function ceilMoneyAmount(value: number) {
-  if (value <= 0) {
-    return "0.00";
-  }
-  return (Math.ceil((value + Number.EPSILON) * 100) / 100).toFixed(2);
-}
-
-function quoteMarketplaceCheckoutFee(
-  params: Readonly<{
-    orderAmount: string;
-    externalBasisAmount: string;
-    balanceCreditAmount: string;
-    paymentMethodCategory: PaymentMethodCategory;
-    quotedAt?: string;
-  }>,
-): MarketplaceCheckoutFeeQuote {
-  const policyVersion = "marketplace-checkout-fee-v1";
-  const externalBasis = Number.parseFloat(
-    normalizeMoneyAmount(params.externalBasisAmount, {
-      fieldName: "External payment amount",
-      allowZero: true,
-    }),
-  );
-  const method = externalBasis === 0 ? "platform-credit" : params.paymentMethodCategory;
-  const rateBps = method === "platform-credit" ? 0 : method === "bank-account" ? 50 : 290;
-  const fixedAmount = method === "card" ? 0.3 : 0;
-  const rate = rateBps / 10_000;
-  const feeAmount =
-    rate > 0 || fixedAmount > 0 ? ceilMoneyAmount((externalBasis * rate + fixedAmount) / (1 - rate)) : "0.00";
-  const cardFeeAmount = externalBasis > 0 ? ceilMoneyAmount((externalBasis * 0.029 + 0.3) / (1 - 0.029)) : "0.00";
-  const reductionAmount = ceilMoneyAmount(Number.parseFloat(cardFeeAmount) - Number.parseFloat(feeAmount));
-  const totalAmount = addMoney(params.orderAmount, feeAmount);
-  const processorAmount = addMoney(params.externalBasisAmount, feeAmount);
-  const quotedAt = params.quotedAt ?? new Date().toISOString();
-  const quoteFingerprint = [
-    policyVersion,
-    method,
-    params.orderAmount,
-    params.balanceCreditAmount,
-    params.externalBasisAmount,
-    feeAmount,
-    totalAmount,
-    processorAmount,
-  ].join("|");
-
-  return {
-    payment_method_category: method,
-    external_basis_amount: Number.parseFloat(params.externalBasisAmount).toFixed(2),
-    marketplace_checkout_fee_amount: feeAmount,
-    marketplace_checkout_fee_reduction_amount: reductionAmount,
-    total_amount: totalAmount,
-    processor_amount: processorAmount,
-    policy_version: policyVersion,
-    quote_fingerprint: quoteFingerprint,
-    quoted_at: quotedAt,
-  };
-}
-
 async function buildCheckoutStatusFromAmount(
   deps: Pick<PaymentRuntimeDeps, "balanceCreditResolver">,
   params: Readonly<{
@@ -408,8 +307,8 @@ async function buildCheckoutStatusFromAmount(
       allowZero: true,
     },
   );
-  const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
-  const paymentMethodQuotes = (["card", "bank-account", "platform-credit"] as const).map((method) =>
+  const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
+  const paymentMethodQuotes = marketplaceCheckoutFeePaymentMethodCategories.map((method) =>
     quoteMarketplaceCheckoutFee({
       orderAmount: amount,
       externalBasisAmount: externalAmount,
@@ -836,50 +735,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       });
     },
     async getMarketplaceCheckoutFeePolicy() {
-      return {
-        policy_version: "marketplace-checkout-fee-v1",
-        effective_at: "2026-05-03T00:00:00.000Z",
-        enabled_jurisdictions: ["US"],
-        base: {
-          percentage_bps: 290,
-          fixed_amount: "0.30",
-        },
-        method_adjustments: [
-          {
-            payment_method_category: "card",
-            percentage_bps_delta: 0,
-            fixed_amount_delta: "0.00",
-            resulting_percentage_bps: 290,
-            resulting_fixed_amount: "0.30",
-          },
-          {
-            payment_method_category: "bank-account",
-            percentage_bps_delta: -240,
-            fixed_amount_delta: "-0.30",
-            resulting_percentage_bps: 50,
-            resulting_fixed_amount: "0.00",
-          },
-          {
-            payment_method_category: "platform-credit",
-            percentage_bps_delta: -290,
-            fixed_amount_delta: "-0.30",
-            resulting_percentage_bps: 0,
-            resulting_fixed_amount: "0.00",
-          },
-        ],
-        unsupported_methods_default: "no-positive-fee",
-        quote_audit: {
-          confirmation_required: true,
-          stale_response_code: 409,
-          stale_response_error: "fee_quote_stale",
-          snapshot_fields: [
-            "marketplace_checkout_fee_amount",
-            "marketplace_checkout_fee_policy_version",
-            "marketplace_checkout_fee_quote_fingerprint",
-            "payment_method_category",
-          ],
-        },
-      };
+      return marketplaceCheckoutFeePolicy();
     },
     listSavedCheckoutInstruments: (accountId) => listSavedCheckoutInstruments(deps.db, accountId),
     ensureProviderCustomer: (params) => ensureProviderCustomer(deps, params),
@@ -1077,7 +933,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       if (compareMoney(balanceCreditAmount, amount) > 0) {
         throw new PaymentsDomainError("Balance credit cannot exceed the payment amount.");
       }
-      const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
+      const paymentMethodCategory = normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory);
       if (paymentMethodCategory === "platform-credit" && compareMoney(externalBasisAmount, "0.00") > 0) {
         throw new PaymentsDomainError(
           "Platform credit must cover the order balance before it can be used as the payment method.",
@@ -1333,7 +1189,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           orderIds,
           currencyCode,
           requestedBalanceCreditAmount,
-          paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
+          paymentMethodCategory: normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory),
           agenticPayment: params.agenticPayment ?? null,
           sourceContext: "checkout-recovery",
           sourceReferenceId: checkoutRecoveryReference({
@@ -1341,7 +1197,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             orderIds,
             currencyCode,
             requestedBalanceCreditAmount,
-            paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
+            paymentMethodCategory: normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory),
           }),
         },
         context,
@@ -1367,7 +1223,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         orderIds,
         currencyCode,
         requestedBalanceCreditAmount,
-        paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
+        paymentMethodCategory: normalizeMarketplaceCheckoutFeePaymentMethodCategory(params.paymentMethodCategory),
       });
       const existing = await getPaymentBySource(deps.db, "checkout-recovery", recoveryReferenceId, accountId);
 
