@@ -8,6 +8,13 @@ import { normalizePath, normalizeRelative, repoRoot } from "./lib/repo.mjs";
 const indexRelativePaths = ["README.md", "docs/README.md"];
 const docsRootRelativePath = "docs";
 const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
+const pushWakeGlossaryTerms = [
+  "Wake Intent",
+  "Projection Wake Relay",
+  "Projection Interest Index",
+  "Source-Context Wake Registry",
+  "Platform Work-Signal Composite",
+];
 
 async function walkMarkdownFiles(rootDir) {
   const results = [];
@@ -97,13 +104,73 @@ export async function checkDocsIndex(options = {}) {
 
   const orphanDocs = [...allDocs].filter((docPath) => docPath !== "docs/README.md" && !reachable.has(docPath));
 
-  return { orphanDocs };
+  const proseAccuracyIssues = checkProseAccuracy(rootDir);
+
+  return { orphanDocs, proseAccuracyIssues };
+}
+
+function readOptional(rootDir, relativePath) {
+  const filePath = path.join(rootDir, relativePath);
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  return readFileSync(filePath, "utf8");
+}
+
+function checkProseAccuracy(rootDir) {
+  const issues = [];
+  const glossary = readOptional(rootDir, "docs/GLOSSARY.md");
+  const environmentDomainNames = readOptional(rootDir, "docs/architecture/environment-domain-names.md");
+  const digitalOceanRunbook = readOptional(rootDir, "docs/runbooks/digitalocean-platform-deployment.md");
+
+  if (glossary) {
+    for (const term of pushWakeGlossaryTerms) {
+      if (!glossary.includes(`| ${term} |`)) {
+        issues.push(`docs/GLOSSARY.md is missing push-wake glossary term: ${term}`);
+      }
+    }
+  }
+
+  if (environmentDomainNames) {
+    for (const incidentMarker of ["May 17, 2026", "May 26, 2026", "DomainZoneInvalid", "DomainCNAMEMismatch"]) {
+      if (environmentDomainNames.includes(incidentMarker)) {
+        issues.push(
+          `docs/architecture/environment-domain-names.md still contains DNS incident marker: ${incidentMarker}`,
+        );
+      }
+    }
+
+    if (!environmentDomainNames.includes("Pre-launch conditional: production proof mode")) {
+      issues.push(
+        "docs/architecture/environment-domain-names.md must mark production proof routing as pre-launch conditional",
+      );
+    }
+  }
+
+  if (digitalOceanRunbook) {
+    for (const runbookMarker of ["### Staging DNS Operations", "May 17, 2026", "May 26, 2026"]) {
+      if (!digitalOceanRunbook.includes(runbookMarker)) {
+        issues.push(
+          `docs/runbooks/digitalocean-platform-deployment.md is missing DNS operations marker: ${runbookMarker}`,
+        );
+      }
+    }
+  }
+
+  return issues;
 }
 
 async function main() {
-  const { orphanDocs } = await checkDocsIndex();
+  const { orphanDocs, proseAccuracyIssues } = await checkDocsIndex();
   if (orphanDocs.length > 0) {
     throw new Error(`docs index is missing ${orphanDocs.length} Markdown file(s):\n${orphanDocs.join("\n")}`);
+  }
+
+  if (proseAccuracyIssues.length > 0) {
+    throw new Error(
+      `docs prose accuracy guard found ${proseAccuracyIssues.length} issue(s):\n${proseAccuracyIssues.join("\n")}`,
+    );
   }
 
   console.log("Docs index covers all docs Markdown files.");

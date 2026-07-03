@@ -15,7 +15,7 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 
 Dash-based non-production names such as `landing-staging.chasesets.com`, `marketplace-staging.chasesets.com`, and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration.
 
-Before public launch, production proof mode may attach `marketplace.chasesets.com` while `chasesets.com` still serves the landing site. In that posture, `marketplace.chasesets.com` is an operator proof host gated by marketplace sign-in and the configured proof access permission; it is not public marketplace promotion. Public launch changes the `chasesets.com` routing posture only after launch evidence gates pass.
+Pre-launch conditional: production proof mode may attach `marketplace.chasesets.com` while `chasesets.com` still serves the landing site. In that posture, `marketplace.chasesets.com` is an operator proof host gated by marketplace sign-in and the configured proof access permission; it is not public marketplace promotion. Public launch changes the `chasesets.com` routing posture only after launch evidence gates pass.
 
 ## Environment Boundaries
 
@@ -56,7 +56,7 @@ The Gmail-compatible environment-root record shape is:
 - Child zone nested App Platform hosts: platform Terraform-managed CNAME records for `www`, `marketplace`, and `admin`, because those host records depend on the app's generated ingress hostname.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
-On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership. Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.
+Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`. DNS incident history and DigitalOcean recovery steps live in the [DigitalOcean Platform Deployment runbook](../runbooks/digitalocean-platform-deployment.md#staging-dns-operations).
 
 Staging application hosts are:
 

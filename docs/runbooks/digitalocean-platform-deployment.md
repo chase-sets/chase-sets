@@ -128,6 +128,20 @@ When Google Workspace mail is enabled for an environment root, configure that ro
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
+### Staging DNS Operations
+
+Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`; a root-domain attachment that stays in `CONFIGURING` blocks smoke checks because App Platform routing and certificate validation are not healthy.
+
+Incident history: on May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership.
+
+When staging DNS regresses, verify this shape before rerunning deployment:
+
+- Parent `chasesets.com` zone delegates `NS staging` to DigitalOcean nameservers.
+- Child `staging.chasesets.com` zone owns apex A/AAAA routing records through App Platform primary-domain management.
+- Child apex owns Google Workspace MX/TXT records; no CNAME exists at the environment root or as `CNAME staging` in the parent zone.
+- Nested App Platform hosts (`www`, `marketplace`, and `admin`) are CNAMEs in the child zone because they target the app's generated ingress hostname.
+- The platform deployment reset step may reset only the stale `staging.chasesets.com` App Platform domain attachment when DigitalOcean reports the earlier `DomainZoneInvalid` or `DomainCNAMEMismatch` states.
+
 ## Required GitHub Environment Secrets
 
 Configure these in `preview`, `staging`, and `production` GitHub Environments:

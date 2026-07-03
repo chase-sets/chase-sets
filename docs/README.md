@@ -21,7 +21,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 ### Product and language
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
-- [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
+- [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language, account-role naming rules, and cross-cutting architecture vocabulary.
 
 ### Bounded contexts and structure
 
@@ -123,7 +123,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
-- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
+- [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform, DNS operations, and production deployment workflow.
 - [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [Admin Workflows Staging QA](./runbooks/admin-workflows-staging-qa.md): support-safe admin actor matrix, evidence rules, and representative state checks for deployed staging QA.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
