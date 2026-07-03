@@ -9,6 +9,7 @@ It owns:
 - DNS records for `grafana`, `otel`, and `prometheus` in the environment zone.
 - A firewall that exposes only HTTP/HTTPS by default and SSH only when `ssh_source_addresses` is set.
 - A cloud-init bootstrap that installs Docker, writes the checked-in stack config from `infrastructure/observability/stack` as compressed `write_files`, and runs it behind Caddy.
+- A public, non-secret first-boot diagnostic at `/__chase-sets/observability/boot-status` on each observability hostname. It reports Docker Compose service state, Grafana health, and a redacted Grafana log tail so a Caddy 502 can be investigated without SSH or console credentials.
 
 Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`.
 
