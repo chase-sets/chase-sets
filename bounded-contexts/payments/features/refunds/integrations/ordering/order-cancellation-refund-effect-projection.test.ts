@@ -35,6 +35,57 @@ const paymentRow = {
   cancelled_at: null,
 };
 
+function cancellationEvent(data: Readonly<{ orderId: string; reason?: string }> = { orderId: "ord_1" }) {
+  return {
+    tenantId: "tnt_test",
+    streamId: `ordering.order-${data.orderId}`,
+    streamVersion: 4,
+    eventId: "evt_1",
+    globalPosition: "1",
+    type: "ordering.order.cancelled",
+    data: {
+      orderId: data.orderId,
+      cancelledAt: "2026-04-02T00:02:00.000Z",
+      reason: data.reason ?? "buyer-cancelled",
+    },
+    timing: {
+      occurredAt: "2026-04-02T00:02:00.000Z",
+      recordedAt: "2026-04-02T00:02:00.000Z",
+    },
+    audit: {
+      performedByUserId: "usr_buyer",
+      forAccountId: "acc_buyer",
+    },
+    trace: null,
+  } as never;
+}
+
+function paymentCapturedEvent() {
+  return {
+    tenantId: "tnt_test",
+    streamId: "payments.payment-pay_1",
+    streamVersion: 2,
+    eventId: "evt_capture",
+    globalPosition: "2",
+    type: "payments.payment-captured",
+    data: {
+      paymentId: "pay_1",
+      orderIds: ["ord_1", "ord_2"],
+      marketplaceCheckoutFeeAmount: "0.99",
+      capturedAt: "2026-04-02T00:03:00.000Z",
+    },
+    timing: {
+      occurredAt: "2026-04-02T00:03:00.000Z",
+      recordedAt: "2026-04-02T00:03:00.000Z",
+    },
+    audit: {
+      performedByUserId: "usr_system",
+      forAccountId: "acc_buyer",
+    },
+    trace: null,
+  } as never;
+}
+
 describe("payments order cancellation refund effect projection", () => {
   it("refunds the cancelled order total plus allocated checkout fee once", async () => {
     const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
@@ -43,11 +94,11 @@ describe("payments order cancellation refund effect projection", () => {
         if (sql.includes("FROM payments_payment_pages")) {
           return { rows: [paymentRow] };
         }
-        if (sql.includes("ROUND(total_amount * 100)")) {
+        if (sql.includes("WHERE order_id = ANY($1)")) {
           return {
             rows: [
-              { order_id: "ord_1", total_cents: "1000" },
-              { order_id: "ord_2", total_cents: "2000" },
+              { order_id: "ord_1", total_amount: "10.00", status: "cancelled" },
+              { order_id: "ord_2", total_amount: "20.00", status: "pending-payment" },
             ],
           };
         }
@@ -62,27 +113,7 @@ describe("payments order cancellation refund effect projection", () => {
     };
     const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
 
-    await handlers["ordering.order.cancelled"]?.({
-      tenantId: "tnt_test",
-      streamId: "ordering.order-ord_1",
-      streamVersion: 4,
-      eventId: "evt_1",
-      globalPosition: "1",
-      type: "ordering.order.cancelled",
-      data: {
-        orderId: "ord_1",
-        cancelledAt: "2026-04-02T00:02:00.000Z",
-      },
-      timing: {
-        occurredAt: "2026-04-02T00:02:00.000Z",
-        recordedAt: "2026-04-02T00:02:00.000Z",
-      },
-      audit: {
-        performedByUserId: "usr_buyer",
-        forAccountId: "acc_buyer",
-      },
-      trace: null,
-    } as never);
+    await handlers["ordering.order.cancelled"]?.(cancellationEvent());
 
     expect(issueRefund).toHaveBeenCalledWith(
       {
@@ -94,6 +125,131 @@ describe("payments order cancellation refund effect projection", () => {
       expect.objectContaining({
         tenantId: "tnt_test",
       }),
+    );
+  });
+
+  it("keeps pre-payment cancellation as a skipped no-refund claim", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [] };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["ordering.order.cancelled"]?.(cancellationEvent());
+
+    expect(issueRefund).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO payments_order_cancellation_refund_effects"),
+      expect.arrayContaining(["ord_1", null, null, "skipped"]),
+    );
+  });
+
+  it("upgrades a skipped cancellation claim when capture later arrives", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return {
+            rows: [
+              { order_id: "ord_1", total_amount: "10.00", status: "cancelled" },
+              { order_id: "ord_2", total_amount: "20.00", status: "pending-payment" },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["payments.payment-captured"]?.(paymentCapturedEvent());
+
+    expect(issueRefund).toHaveBeenCalledTimes(1);
+    expect(issueRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentId: "pay_1",
+        orderIds: ["ord_1"],
+        amount: "10.33",
+      }),
+      expect.objectContaining({ tenantId: "tnt_test" }),
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("payments_order_cancellation_refund_effects.status = 'skipped'"),
+      expect.arrayContaining(["ord_1", "pay_1", "10.33", "processing"]),
+    );
+  });
+
+  it("does not double-refund duplicate capture events after the claim is no longer skipped", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return {
+            rows: [{ order_id: "ord_1", total_amount: "10.00", status: "cancelled" }],
+          };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          return { rowCount: 0, rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["payments.payment-captured"]?.(paymentCapturedEvent());
+
+    expect(issueRefund).not.toHaveBeenCalled();
+  });
+
+  it("uses the same capture-later refund path for seller-cancelled orders", async () => {
+    const issueRefund = vi.fn(async () => ({ refundId: "rfd_1", version: 2 }));
+    let insertCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_payment_pages")) {
+          return { rows: [] };
+        }
+        if (sql.includes("WHERE order_id = ANY($1)")) {
+          return {
+            rows: [
+              { order_id: "ord_1", total_amount: "10.00", status: "cancelled" },
+              { order_id: "ord_2", total_amount: "20.00", status: "pending-payment" },
+            ],
+          };
+        }
+        if (sql.includes("FROM payments_order_inputs")) {
+          return { rows: [{ order_id: "ord_1", total_amount: "10.00" }] };
+        }
+        if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+          insertCalls += 1;
+          return { rowCount: 1, rows: [{ order_id: "ord_1" }] };
+        }
+        return { rows: [] };
+      }),
+    };
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["ordering.order.cancelled"]?.(cancellationEvent({ orderId: "ord_1", reason: "seller-cancelled" }));
+    await handlers["payments.payment-captured"]?.(paymentCapturedEvent());
+
+    expect(issueRefund).toHaveBeenCalledTimes(1);
+    expect(insertCalls).toBe(2);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO payments_order_cancellation_refund_effects"),
+      expect.arrayContaining(["ord_1", null, null, "skipped"]),
     );
   });
 });

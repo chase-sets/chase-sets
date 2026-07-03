@@ -22,11 +22,15 @@ function createDeferred<T = void>() {
 function createServices(
   commandHandler: OrderingServices["orders"]["commandHandler"],
   queryCalls: QueryCall[] = [],
+  orderRows: readonly Readonly<{ order_id: string; status: string }>[] = [],
 ): OrderingServices {
   return {
     db: {
       query: async (text: string, values?: readonly unknown[]) => {
         queryCalls.push({ text, values });
+        if (text.includes("FROM ordering_order_pages")) {
+          return { rows: [...orderRows], rowCount: orderRows.length };
+        }
         return { rows: [], rowCount: 1 };
       },
     },
@@ -139,9 +143,33 @@ describe("ordering payment-capture subscription", () => {
     releaseFirstDispatch.resolve();
     await handling;
 
-    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls).toHaveLength(2);
     expect(queryCalls[0]?.text).toContain("to_jsonb($3::text[])");
     expect(queryCalls[0]?.values?.[2]).toEqual(["ord_1", "ord_2"]);
+    expect(queryCalls[1]?.text).toContain("FROM ordering_order_pages");
+    expect(queryCalls[1]?.values?.[0]).toEqual(["ord_1", "ord_2"]);
+  });
+
+  it("does not mark already-cancelled captured orders ready for fulfillment", async () => {
+    const startedStreams: string[] = [];
+    const commandHandler: OrderingServices["orders"]["commandHandler"] = async (input) => {
+      startedStreams.push(input.streamId);
+      return undefined as never;
+    };
+    const handler = getPaymentCapturedHandler(
+      createServices(
+        commandHandler,
+        [],
+        [
+          { order_id: "ord_cancelled", status: "cancelled" },
+          { order_id: "ord_ready", status: "pending-payment" },
+        ],
+      ),
+    );
+
+    await handler(createPaymentCapturedEvent(["ord_cancelled", "ord_ready"]));
+
+    expect(startedStreams).toEqual(["ordering.order-ord_ready"]);
   });
 
   it("waits for all order dispatches before rejecting partial payment-capture failures", async () => {
