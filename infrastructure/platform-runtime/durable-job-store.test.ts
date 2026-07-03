@@ -13,6 +13,7 @@ import {
   parseWorkSignalEnvelope,
   serializeWorkSignalEnvelope,
 } from "./work-signal-composite";
+import { attachRuntimeLifecycleRegistry, createRuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 describe("durable job store", () => {
   afterEach(() => {
@@ -28,6 +29,9 @@ describe("durable job store", () => {
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_jobs");
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS inventory_import_batch_job_events");
     expect(sql).toContain("ON inventory_import_batch_jobs USING GIN (event_context)");
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0");
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL");
+    expect(sql).toContain("inventory_import_batch_jobs_claim_eligibility_idx");
     expect(sql).toContain("(event_context->>'tenantId')");
     expect(sql).toContain("PRIMARY KEY (job_id, sequence)");
   });
@@ -98,6 +102,8 @@ describe("durable job store", () => {
     expect(calls[0].sql).toContain("INSERT INTO inventory_import_batch_jobs");
     expect(calls[1].sql).toContain("INSERT INTO inventory_import_batch_job_events");
     expect(calls.some((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("attempt_count = job.attempt_count + 1"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("next_eligible_at"))).toBe(true);
     expect(calls.some((call) => call.sql.includes("coalesce(max(sequence), 0) + 1"))).toBe(true);
     expect(String(calls[1].values[1])).not.toContain("batchId");
     expect(String(calls[1].values[1])).toContain("queued");
@@ -490,6 +496,7 @@ describe("durable job store", () => {
 
     await expect(wait).resolves.toBeUndefined();
     expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(expect.any(Error));
 
     const secondWait = store.waitForEvents({ jobId: "job_1", timeoutMs: 100 });
     await vi.advanceTimersByTimeAsync(100);
@@ -581,6 +588,39 @@ describe("durable job store", () => {
     await expect(otherJobWait).resolves.toBeUndefined();
   });
 
+  it("stops active notification waiters through the runtime lifecycle registry", async () => {
+    const lifecycle = createRuntimeLifecycleRegistry();
+    const client = createJobNotificationClient();
+    const pool = attachRuntimeLifecycleRegistry(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        connect: async () => client,
+      },
+      lifecycle,
+    );
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      pool as never,
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    const wait = store.waitForEvents({ jobId: "job_1", timeoutMs: 30_000 });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN durable_job_events");
+    });
+    expect(lifecycle.size()).toBe(1);
+
+    await lifecycle.stopAll();
+    await expect(wait).resolves.toBeUndefined();
+
+    expect(client.queries).toContain("UNLISTEN durable_job_events");
+    expect(client.isReleased()).toBe(true);
+    expect(client.releaseErrors()).toEqual([true]);
+  });
+
   it("throttles public checkpoints and skipped renew writes separately", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-29T00:00:00.000Z"));
@@ -666,16 +706,19 @@ describe("durable job store", () => {
 function createJobNotificationClient() {
   const emitter = new EventEmitter();
   const queries: string[] = [];
+  const releaseErrors: unknown[] = [];
   let released = false;
 
   return Object.assign(emitter, {
     queries,
     isReleased: () => released,
+    releaseErrors: () => releaseErrors,
     query: async (sql: string) => {
       queries.push(sql);
       return { rows: [], rowCount: 0 };
     },
-    release: () => {
+    release: (error?: unknown) => {
+      releaseErrors.push(error);
       released = true;
     },
   });

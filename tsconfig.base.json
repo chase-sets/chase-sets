@@ -628,6 +628,9 @@
       "@chase-sets/platform-runtime/realtime-web": [
         "./infrastructure/platform-runtime/realtime-web.ts"
       ],
+      "@chase-sets/platform-runtime/runtime-lifecycle": [
+        "./infrastructure/platform-runtime/runtime-lifecycle.ts"
+      ],
       "@chase-sets/platform-runtime/runtime-profiles": [
         "./infrastructure/platform-runtime/runtime-profiles.ts"
       ],

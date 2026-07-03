@@ -167,6 +167,8 @@ type JobRow = Readonly<{
   event_context: unknown;
   claim_owner_id: string | null;
   claimed_until: Date | string | null;
+  attempt_count?: number | string;
+  next_eligible_at?: Date | string | null;
   created_at: Date | string;
   started_at: Date | string | null;
   completed_at: Date | string | null;
@@ -737,6 +739,10 @@ function mapPrefixedJobRow<TPayload, TProgress, TResult>(
     eventContext: row.job_event_context == null ? null : readJson<EventStoreContext>(row.job_event_context),
     claimOwnerId: row.job_claim_owner_id == null ? null : String(row.job_claim_owner_id),
     claimedUntil: formatNullableTimestamp(row.job_claimed_until as Date | string | null),
+    attemptCount: Number(row.job_attempt_count ?? 0),
+    nextEligibleAt:
+      formatNullableTimestamp((row.job_next_eligible_at ?? row.job_created_at) as Date | string | null) ??
+      formatTimestamp(row.job_created_at as Date | string),
     createdAt: formatTimestamp(row.job_created_at as Date | string),
     startedAt: formatNullableTimestamp(row.job_started_at as Date | string | null),
     completedAt: formatNullableTimestamp(row.job_completed_at as Date | string | null),
@@ -782,6 +788,8 @@ const JOB_COLUMNS = [
   "event_context",
   "claim_owner_id",
   "claimed_until",
+  "attempt_count",
+  "next_eligible_at",
   "created_at",
   "started_at",
   "completed_at",

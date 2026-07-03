@@ -5,8 +5,14 @@ import {
   emitPostgresWorkSignalNotification,
   type PostgresWorkSignalNotification,
 } from "./work-signal-composite";
+import { getRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 export type DurableJobStatus = "queued" | "running" | "completed" | "failed";
+
+const DEFAULT_DURABLE_JOB_MAX_ATTEMPTS = 10;
+const DEFAULT_DURABLE_JOB_RETRY_BACKOFF_BASE_MS = 1_000;
+const DEFAULT_DURABLE_JOB_RETRY_BACKOFF_MAX_MS = 60_000;
+const MAX_POSTGRES_INTEGER = 2_147_483_647;
 
 export type DurableJobRecord<TPayload, TProgress, TResult> = Readonly<{
   jobId: string;
@@ -19,6 +25,8 @@ export type DurableJobRecord<TPayload, TProgress, TResult> = Readonly<{
   eventContext: EventStoreContext | null;
   claimOwnerId: string | null;
   claimedUntil: string | null;
+  attemptCount: number;
+  nextEligibleAt: string;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -68,6 +76,9 @@ export type DurableJobStore<
     claimOwnerId: string;
     claimTtlMs: number;
     jobKinds?: readonly string[];
+    maxAttempts?: number;
+    retryBackoffBaseMs?: number;
+    retryBackoffMaxMs?: number;
   }) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
   updateProgress: (input: {
     jobId: string;
@@ -113,6 +124,7 @@ export type DurableJobStore<
     afterSequence?: number,
   ) => Promise<readonly DurableJobEvent<TPayload, TProgress, TResult, TSnapshot>[]>;
   waitForEvents: (input: { jobId: string; signal?: AbortSignal; timeoutMs?: number }) => Promise<void>;
+  stop?: () => Promise<void>;
   pruneTerminalJobs: (input: { completedBefore: string | Date; limit?: number }) => Promise<number>;
 }>;
 
@@ -133,6 +145,8 @@ type DurableJobRow = Readonly<{
   event_context: unknown;
   claim_owner_id: string | null;
   claimed_until: Date | string | null;
+  attempt_count?: number | string;
+  next_eligible_at?: Date | string | null;
   created_at: Date | string;
   started_at: Date | string | null;
   completed_at: Date | string | null;
@@ -162,14 +176,41 @@ CREATE TABLE IF NOT EXISTS ${jobsTable} (
   event_context jsonb NULL,
   claim_owner_id text NULL,
   claimed_until timestamptz NULL,
+  attempt_count integer NOT NULL DEFAULT 0,
+  next_eligible_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL,
   started_at timestamptz NULL,
   completed_at timestamptz NULL,
   updated_at timestamptz NOT NULL
 );
 
+ALTER TABLE ${jobsTable}
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE ${jobsTable}
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL;
+
+UPDATE ${jobsTable}
+SET next_eligible_at = COALESCE(next_eligible_at, created_at, updated_at, now())
+WHERE next_eligible_at IS NULL;
+
+ALTER TABLE ${jobsTable}
+  ALTER COLUMN next_eligible_at SET DEFAULT now(),
+  ALTER COLUMN next_eligible_at SET NOT NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE ${jobsTable}
+    ADD CONSTRAINT ${jobsTable}_attempt_count_nonnegative CHECK (attempt_count >= 0);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS ${jobsTable}_status_created_idx
   ON ${jobsTable} (status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS ${jobsTable}_claim_eligibility_idx
+  ON ${jobsTable} (status, next_eligible_at ASC, created_at ASC);
 
 CREATE INDEX IF NOT EXISTS ${jobsTable}_kind_status_idx
   ON ${jobsTable} (job_kind, status, updated_at DESC);
@@ -211,17 +252,38 @@ export function createPostgresDurableJobStore<
     eventSnapshot?: (job: DurableJobRecord<TPayload, TProgress, TResult>) => TSnapshot;
     notificationWaiterPool?: PgTransactionalPool;
     notificationRetryCooldownMs?: number;
+    lifecycle?: RuntimeLifecycleRegistry;
+    maxAttempts?: number;
+    retryBackoffBaseMs?: number;
+    retryBackoffMaxMs?: number;
   } = {},
 ): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
   const notificationPool = options.notificationWaiterPool ?? db;
+  const lifecycle =
+    options.lifecycle ?? getRuntimeLifecycleRegistry(notificationPool) ?? getRuntimeLifecycleRegistry(db);
   const notificationWaiter = isTransactionalPool(notificationPool)
     ? createDurableJobNotificationWaiter(notificationPool, notifyChannel, {
         retryCooldownMs: options.notificationRetryCooldownMs,
       })
     : null;
+  const unregisterNotificationWaiter = notificationWaiter
+    ? lifecycle?.register({
+        name: `durable-job-store.${jobsTable}.notification-waiter`,
+        stop: () => notificationWaiter.stop(),
+      })
+    : undefined;
+  const defaultMaxAttempts = normalizeDurableJobMaxAttempts(options.maxAttempts);
+  const defaultRetryBackoffBaseMs = normalizeDurableJobBackoffMs(
+    options.retryBackoffBaseMs,
+    DEFAULT_DURABLE_JOB_RETRY_BACKOFF_BASE_MS,
+  );
+  const defaultRetryBackoffMaxMs = Math.max(
+    defaultRetryBackoffBaseMs,
+    normalizeDurableJobBackoffMs(options.retryBackoffMaxMs, DEFAULT_DURABLE_JOB_RETRY_BACKOFF_MAX_MS),
+  );
   const eventSnapshot =
     options.eventSnapshot ??
     ((job: DurableJobRecord<TPayload, TProgress, TResult>) =>
@@ -301,33 +363,94 @@ export function createPostgresDurableJobStore<
     },
     claimNext: async (input) => {
       const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;
-      return updateAndAppend(
-        `WITH claimable AS (
-           SELECT job_id
-           FROM ${jobsTable}
-           WHERE (
-               status = 'queued'
-               OR (
-                 status = 'running'
-                 AND claimed_until <= now()
-               )
-             )
-             AND ($3::text[] IS NULL OR job_kind = ANY($3::text[]))
-           ORDER BY created_at ASC
-           LIMIT 1
-           FOR UPDATE SKIP LOCKED
-         )
-         UPDATE ${jobsTable} AS job
-         SET status = 'running',
-             claim_owner_id = $1,
-             claimed_until = now() + ($2::text || ' milliseconds')::interval,
-             started_at = COALESCE(job.started_at, now()),
-             updated_at = now()
-         FROM claimable
-         WHERE job.job_id = claimable.job_id
-         RETURNING ${DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS}`,
-        [input.claimOwnerId, input.claimTtlMs, jobKinds],
+      const maxAttempts = normalizeDurableJobMaxAttempts(input.maxAttempts ?? defaultMaxAttempts);
+      const retryBackoffBaseMs = normalizeDurableJobBackoffMs(input.retryBackoffBaseMs, defaultRetryBackoffBaseMs);
+      const retryBackoffMaxMs = Math.max(
+        retryBackoffBaseMs,
+        normalizeDurableJobBackoffMs(input.retryBackoffMaxMs, defaultRetryBackoffMaxMs),
       );
+      return runDurableJobWrite(db, async (queryable) => {
+        const exhausted = await queryable.query<DurableJobRow>(
+          `WITH exhausted AS (
+             SELECT job_id
+             FROM ${jobsTable}
+             WHERE (
+                 status = 'queued'
+                 OR (
+                   status = 'running'
+                   AND claimed_until <= now()
+                 )
+               )
+               AND attempt_count >= $2::integer
+               AND next_eligible_at <= now()
+               AND ($1::text[] IS NULL OR job_kind = ANY($1::text[]))
+             ORDER BY created_at ASC
+             LIMIT 25
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE ${jobsTable} AS job
+           SET status = 'failed',
+               error_message = COALESCE(error_message, 'Durable job retry attempts exhausted.'),
+               claim_owner_id = NULL,
+               claimed_until = NULL,
+               completed_at = COALESCE(completed_at, now()),
+               updated_at = now()
+           FROM exhausted
+           WHERE job.job_id = exhausted.job_id
+           RETURNING ${DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS}`,
+          [jobKinds, maxAttempts],
+        );
+        for (const row of exhausted.rows) {
+          await appendEvent(queryable, mapJobRow<TPayload, TProgress, TResult>(row));
+        }
+
+        const claimed = await queryable.query<DurableJobRow>(
+          `WITH claimable AS (
+             SELECT job_id
+             FROM ${jobsTable}
+             WHERE (
+                 status = 'queued'
+                 OR (
+                   status = 'running'
+                   AND claimed_until <= now()
+                 )
+               )
+               AND attempt_count < $4::integer
+               AND next_eligible_at <= now()
+               AND ($3::text[] IS NULL OR job_kind = ANY($3::text[]))
+             ORDER BY created_at ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE ${jobsTable} AS job
+           SET status = 'running',
+               claim_owner_id = $1,
+               claimed_until = now() + ($2::text || ' milliseconds')::interval,
+               attempt_count = job.attempt_count + 1,
+               next_eligible_at =
+                 now()
+                 + ($2::text || ' milliseconds')::interval
+                 + (
+                   LEAST(
+                     $6::numeric,
+                     $5::numeric * power(2::numeric, LEAST(GREATEST(job.attempt_count, 0), 10))
+                   )::integer::text || ' milliseconds'
+                 )::interval,
+               started_at = COALESCE(job.started_at, now()),
+               updated_at = now()
+           FROM claimable
+           WHERE job.job_id = claimable.job_id
+           RETURNING ${DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS}`,
+          [input.claimOwnerId, input.claimTtlMs, jobKinds, maxAttempts, retryBackoffBaseMs, retryBackoffMaxMs],
+        );
+        if (!claimed.rows[0]) {
+          return null;
+        }
+
+        const job = mapJobRow<TPayload, TProgress, TResult>(claimed.rows[0]);
+        await appendEvent(queryable, job);
+        return job;
+      });
     },
     updateProgress: async (input) => {
       const job = await updateAndAppend(
@@ -366,23 +489,33 @@ export function createPostgresDurableJobStore<
     },
     releaseClaim: async (input) => {
       const job = await updateAndAppend(
-        `UPDATE ${jobsTable}
+        `UPDATE ${jobsTable} AS job
          SET status = 'queued',
              progress = $3::jsonb,
              result = COALESCE($4::jsonb, result),
              claim_owner_id = NULL,
              claimed_until = NULL,
+             next_eligible_at =
+               now()
+               + (
+                 LEAST(
+                   $6::numeric,
+                   $5::numeric * power(2::numeric, LEAST(GREATEST(job.attempt_count - 1, 0), 10))
+                 )::integer::text || ' milliseconds'
+               )::interval,
              updated_at = now()
-         WHERE job_id = $1
-           AND claim_owner_id = $2
-           AND status = 'running'
-           AND claimed_until > now()
-         RETURNING ${DURABLE_JOB_COLUMNS}`,
+          WHERE job_id = $1
+            AND claim_owner_id = $2
+            AND status = 'running'
+            AND claimed_until > now()
+          RETURNING ${DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS}`,
         [
           input.jobId,
           input.claimOwnerId,
           JSON.stringify(input.progress),
           input.result === undefined ? null : JSON.stringify(input.result),
+          defaultRetryBackoffBaseMs,
+          defaultRetryBackoffMaxMs,
         ],
       );
       return Boolean(job);
@@ -399,6 +532,8 @@ export function createPostgresDurableJobStore<
              error_message = $4,
              claim_owner_id = NULL,
              claimed_until = NULL,
+             attempt_count = 0,
+             next_eligible_at = now(),
              completed_at = NULL,
              updated_at = now()
          WHERE job_id = $1
@@ -445,6 +580,10 @@ export function createPostgresDurableJobStore<
       } catch {
         await waitForDurableJobTimeout(timeoutMs, input.signal);
       }
+    },
+    stop: async () => {
+      unregisterNotificationWaiter?.();
+      await notificationWaiter?.stop();
     },
     pruneTerminalJobs: async (input) => {
       const result = await db.query<{ job_id: string }>(
@@ -806,6 +945,8 @@ const DURABLE_JOB_COLUMNS = `
   event_context,
   claim_owner_id,
   claimed_until,
+  attempt_count,
+  next_eligible_at,
   created_at,
   started_at,
   completed_at,
@@ -823,6 +964,8 @@ const DURABLE_JOB_COLUMNS_FOR_JOB_ALIAS = `
   job.event_context,
   job.claim_owner_id,
   job.claimed_until,
+  job.attempt_count,
+  job.next_eligible_at,
   job.created_at,
   job.started_at,
   job.completed_at,
@@ -841,6 +984,8 @@ function mapJobRow<TPayload, TProgress, TResult>(row: DurableJobRow): DurableJob
     eventContext: row.event_context == null ? null : readJson<EventStoreContext>(row.event_context),
     claimOwnerId: row.claim_owner_id,
     claimedUntil: formatNullableTimestamp(row.claimed_until),
+    attemptCount: Number(row.attempt_count ?? 0),
+    nextEligibleAt: formatNullableTimestamp(row.next_eligible_at ?? row.created_at) ?? formatTimestamp(row.created_at),
     createdAt: formatTimestamp(row.created_at),
     startedAt: formatNullableTimestamp(row.started_at),
     completedAt: formatNullableTimestamp(row.completed_at),
@@ -968,6 +1113,7 @@ function createDurableJobNotificationWaiter(
         matches: (notification) => durableJobNotificationMatchesJob(notification, input.jobId),
       });
     },
+    stop: () => waiter.stop(),
   };
 }
 
@@ -1010,4 +1156,17 @@ function waitForDurableJobTimeout(ms: number, signal?: AbortSignal): Promise<voi
       { once: true },
     );
   });
+}
+
+function normalizeDurableJobMaxAttempts(value: number | undefined): number {
+  if (value === undefined) {
+    return DEFAULT_DURABLE_JOB_MAX_ATTEMPTS;
+  }
+
+  return Math.max(1, Math.min(MAX_POSTGRES_INTEGER, Math.floor(value)));
+}
+
+function normalizeDurableJobBackoffMs(value: number | undefined, fallback: number): number {
+  const raw = value ?? fallback;
+  return Number.isFinite(raw) ? Math.max(0, Math.min(MAX_POSTGRES_INTEGER, Math.floor(raw))) : fallback;
 }

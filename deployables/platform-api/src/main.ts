@@ -49,6 +49,10 @@ import {
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
+  createRuntimeLifecycleRegistry,
+  runWithRuntimeLifecycleTimeout,
+} from "@chase-sets/platform-runtime/runtime-lifecycle";
+import {
   getObservabilityRuntime,
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
@@ -94,7 +98,8 @@ const logger = observability.logger;
 const config = loadConfig();
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
-const controlPlane = createPostgresPlatformControlPlane(pools.control);
+const runtimeLifecycle = createRuntimeLifecycleRegistry();
+const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -248,6 +253,7 @@ logger.info("Stripe go-live checks resolved.", {
 const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
+  runtimeLifecycle,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
     moneyMovementGateway,
@@ -394,6 +400,12 @@ const realtimeWakeSignal = config.realtime.wakeSignalEnabled
       realtimeObserver,
     )
   : undefined;
+if (realtimeWakeSignal?.stop) {
+  runtimeLifecycle.register({
+    name: "platform-api.realtime-wake-signal",
+    stop: () => realtimeWakeSignal.stop?.() ?? Promise.resolve(),
+  });
+}
 const ucpObserver = {
   signedWriteRejected: (event) => {
     recordUcpSignedWriteRejected(event);
@@ -703,9 +715,13 @@ startGracefulHttpServer({
     },
   ],
   onShutdown: [
-    async () => realtimeWakeSignal?.stop?.(),
+    async () => {
+      await runtimeLifecycle.stopAll({ logger });
+    },
     async () => realtimeStreamLimiter.stop?.(),
-    async () => closePlatformApiPools(pools),
+    async () => {
+      await runWithRuntimeLifecycleTimeout("platform-api.close-pools", () => closePlatformApiPools(pools), { logger });
+    },
     async () => observability.shutdown(),
   ],
 });

@@ -65,6 +65,10 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
+  createRuntimeLifecycleRegistry,
+  runWithRuntimeLifecycleTimeout,
+} from "@chase-sets/platform-runtime/runtime-lifecycle";
+import {
   getObservabilityRuntime,
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
@@ -103,7 +107,8 @@ const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
   bootstrapPlatformControlPlane(pools.control),
 );
-const controlPlane = createPostgresPlatformControlPlane(pools.control);
+const runtimeLifecycle = createRuntimeLifecycleRegistry();
+const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
     projectionWakeIntentEnqueued: (event) =>
@@ -199,6 +204,7 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
   runtimeProfile: config.runtimeProfile,
+  runtimeLifecycle,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
     moneyMovementGateway,
@@ -654,8 +660,21 @@ startGracefulHttpServer({
     },
   ],
   onShutdown: [
-    async () => closeProjectionWakeRelayListenerPools(projectionWakeRelayListenerPools),
-    async () => closePlatformWorkerPools(pools),
+    async () => {
+      await runtimeLifecycle.stopAll({ logger });
+    },
+    async () => {
+      await runWithRuntimeLifecycleTimeout(
+        "platform-worker.close-projection-wake-relay-listener-pools",
+        () => closeProjectionWakeRelayListenerPools(projectionWakeRelayListenerPools),
+        { logger },
+      );
+    },
+    async () => {
+      await runWithRuntimeLifecycleTimeout("platform-worker.close-pools", () => closePlatformWorkerPools(pools), {
+        logger,
+      });
+    },
     async () => observability.shutdown(),
   ],
 });
@@ -731,7 +750,11 @@ function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnTy
 }
 
 async function stopRunnerLoops(loops: readonly WorkerRunnerLoop[]) {
-  await Promise.allSettled(loops.map((loop) => loop.stop()));
+  await runWithRuntimeLifecycleTimeout(
+    "platform-worker.runner-loop-stop",
+    () => Promise.allSettled(loops.map((loop) => loop.stop())).then(() => undefined),
+    { logger },
+  );
 }
 
 async function collectDurableWorkflowStatuses(services: Readonly<Record<string, unknown>>) {
