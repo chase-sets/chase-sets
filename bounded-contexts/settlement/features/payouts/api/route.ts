@@ -53,6 +53,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payouts.api.route.request.failed");
 }
 
+function isProviderWebhookVerificationError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("signature") || message.includes("webhook secret");
+}
+
 function sellerPayoutSnapshot(payout: PayoutCommandSnapshot): PayoutCommandSnapshot {
   return {
     ...payout,
@@ -379,7 +384,16 @@ export function createMoneyMovementWebhookRoutes(services: PayoutServices) {
 
       return c.json(result, 200);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      const verificationError = isProviderWebhookVerificationError(error);
+      return c.json(
+        {
+          error: {
+            code: verificationError ? "validation_failed" : "provider_webhook_processing_failed",
+            message: errorMessage(error),
+          },
+        },
+        verificationError ? 400 : 500,
+      );
     }
   });
 

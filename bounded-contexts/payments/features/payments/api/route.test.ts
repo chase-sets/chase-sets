@@ -794,6 +794,32 @@ describe("payments routes", () => {
     expect(services.processWebhook).toHaveBeenCalled();
   });
 
+  it("returns a retryable error when provider webhook processing fails after verification", async () => {
+    const services = {
+      ...createServices(),
+      processWebhook: vi.fn(async () => {
+        throw new Error("simulated payment webhook commit conflict");
+      }),
+    };
+    const app = new Hono().route("/provider", createPaymentProcessorWebhookRoutes(services));
+
+    const response = await app.fetch(
+      new Request("http://payments.test/provider/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "evt_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "provider_webhook_processing_failed",
+        message: "simulated payment webhook commit conflict",
+      },
+    });
+  });
+
   it("returns checkout recovery options for the current account", async () => {
     const services = createServices();
     const app = buildAccountApp({

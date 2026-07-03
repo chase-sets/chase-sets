@@ -60,6 +60,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("fulfillment.features.shipments.api.route.request.failed");
 }
 
+function isPostageWebhookVerificationError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("signature") || message.includes("webhook secret") || message.includes("header");
+}
+
 function readAddress(body: Record<string, unknown>, prefix: string) {
   return {
     name: String(body[`${prefix}Name`] ?? ""),
@@ -641,7 +646,16 @@ export function createPostageProviderWebhookRoutes(services: FulfillmentShipment
 
       return c.json(result);
     } catch (error) {
-      return c.json({ error: { code: "postage_webhook_rejected", message: errorMessage(error) } }, 400);
+      const verificationError = isPostageWebhookVerificationError(error);
+      return c.json(
+        {
+          error: {
+            code: verificationError ? "postage_webhook_rejected" : "postage_webhook_processing_failed",
+            message: errorMessage(error),
+          },
+        },
+        verificationError ? 400 : 500,
+      );
     }
   });
 

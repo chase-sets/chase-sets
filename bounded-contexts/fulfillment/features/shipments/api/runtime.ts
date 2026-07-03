@@ -345,12 +345,26 @@ async function findShipmentForPostageProviderEvent(
   return result.rows[0] ?? null;
 }
 
-async function reservePostageProviderEvent(
+async function hasProcessedPostageProviderEvent(db: PgQueryable, providerEventId: string) {
+  const result = await db.query<{ provider_event_id: string }>(
+    `SELECT provider_event_id
+     FROM fulfillment_postage_provider_events
+     WHERE provider_event_id = $1
+       AND processing_result <> 'received'
+     LIMIT 1`,
+    [providerEventId],
+  );
+
+  return result.rows.length > 0;
+}
+
+async function recordProcessedPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
   shipment: ShipmentForPostageProviderEvent | null,
+  processingResult: string,
 ) {
-  const result = await db.query<{ provider_event_id: string }>(
+  await db.query(
     `INSERT INTO fulfillment_postage_provider_events (
        provider_event_id,
        provider_name,
@@ -366,9 +380,14 @@ async function reservePostageProviderEvent(
        processing_result,
        payload_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, 'received', $12::jsonb)
-     ON CONFLICT (provider_event_id) DO NOTHING
-     RETURNING provider_event_id`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12, $13::jsonb)
+     ON CONFLICT (provider_event_id) DO UPDATE
+     SET shipment_id = EXCLUDED.shipment_id,
+         tracking_identifier = EXCLUDED.tracking_identifier,
+         status = EXCLUDED.status,
+         status_detail = EXCLUDED.status_detail,
+         processing_result = EXCLUDED.processing_result,
+         payload_json = EXCLUDED.payload_json`,
     [
       event.providerEventId,
       event.providerName,
@@ -381,19 +400,9 @@ async function reservePostageProviderEvent(
       event.statusDetail ?? null,
       event.occurredAt,
       event.receivedAt ?? new Date().toISOString(),
+      processingResult,
       JSON.stringify(event.payload ?? {}),
     ],
-  );
-
-  return result.rows.length > 0 || (result.rowCount ?? 0) > 0;
-}
-
-async function markPostageProviderEventProcessed(db: PgQueryable, providerEventId: string, processingResult: string) {
-  await db.query(
-    `UPDATE fulfillment_postage_provider_events
-     SET processing_result = $2
-     WHERE provider_event_id = $1`,
-    [providerEventId, processingResult],
   );
 }
 
@@ -802,8 +811,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       }
 
       const shipment = await findShipmentForPostageProviderEvent(deps.db, event);
-      const reserved = await reservePostageProviderEvent(deps.db, event, shipment);
-      if (!reserved) {
+      const alreadyProcessed = await hasProcessedPostageProviderEvent(deps.db, event.providerEventId);
+      if (alreadyProcessed) {
         return {
           status: "duplicate",
           providerEventId: event.providerEventId,
@@ -820,7 +829,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, context);
       }
 
-      await markPostageProviderEventProcessed(deps.db, event.providerEventId, processingResult);
+      await recordProcessedPostageProviderEvent(deps.db, event, shipment, processingResult);
 
       return {
         status: "recorded",

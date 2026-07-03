@@ -60,6 +60,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("payments.features.payments.api.route.request.failed");
 }
 
+function isProviderWebhookVerificationError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("signature") || message.includes("webhook secret");
+}
+
 function errorCode(error: unknown) {
   return error instanceof Error && "code" in error && typeof error.code === "string" && error.code.trim()
     ? error.code
@@ -674,7 +679,16 @@ export function createPaymentProcessorWebhookRoutes(services: PaymentServices) {
 
       return c.json(result, 200);
     } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      const verificationError = isProviderWebhookVerificationError(error);
+      return c.json(
+        {
+          error: {
+            code: verificationError ? "validation_failed" : "provider_webhook_processing_failed",
+            message: errorMessage(error),
+          },
+        },
+        verificationError ? 400 : 500,
+      );
     }
   });
 

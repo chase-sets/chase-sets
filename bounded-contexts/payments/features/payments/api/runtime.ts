@@ -7,7 +7,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
+import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -1523,7 +1523,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       if (!webhookEvent) {
         return { received: true, ignored: true };
       }
-      const isNewProviderEvent = await recordProviderWebhookEvent(deps.db, {
+      const inboxEntry = {
         tableName: "payments_provider_webhook_events",
         providerEventId: webhookEvent.eventId,
         providerName: webhookEvent.processorName,
@@ -1532,16 +1532,21 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           webhookEvent.internalPaymentId ??
           webhookEvent.providerObjectReference ??
           webhookEvent.processorPaymentReference,
-      });
-      if (!isNewProviderEvent) {
+      };
+      const alreadyProcessed = await hasProcessedProviderWebhookEvent(deps.db, inboxEntry);
+      if (alreadyProcessed) {
         return { received: true, ignored: true };
       }
+      const recordProcessed = () => recordProviderWebhookEvent(deps.db, inboxEntry);
 
       if (webhookEvent.kind === "saved-payment-setup-succeeded") {
         const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
         const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
         if (!setupSession) {
-          return { received: true, ignored: true };
+          throw new PaymentsDomainError(
+            "Payment webhook setup session was not found.",
+            "payment_webhook_target_not_ready",
+          );
         }
         await completeSavedCheckoutSetupSession(deps.db, {
           processorSetupReference: setupReference,
@@ -1559,16 +1564,25 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             auditAction: "setup-webhook-saved",
           });
         }
+        await recordProcessed();
         return { received: true, ignored: false };
       }
 
       if (webhookEvent.kind === "saved-payment-setup-failed") {
         const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
+        const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
+        if (!setupSession) {
+          throw new PaymentsDomainError(
+            "Payment webhook setup session was not found.",
+            "payment_webhook_target_not_ready",
+          );
+        }
         await completeSavedCheckoutSetupSession(deps.db, {
           processorSetupReference: setupReference,
           processorStatus: webhookEvent.processorStatus,
           completedAt: webhookEvent.occurredAt,
         });
+        await recordProcessed();
         return { received: true, ignored: false };
       }
 
@@ -1592,6 +1606,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             performedByAccountId: instrument.account_id,
             createdAt: webhookEvent.occurredAt,
           });
+          await recordProcessed();
         }
         return { received: true, ignored: !instrument };
       }
@@ -1605,7 +1620,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           );
 
       if (!payment) {
-        return { received: true, ignored: true };
+        throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
       }
 
       const streamId = `payments.payment-${payment.payment_id}`;
@@ -1711,6 +1726,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           assert(false, "Unhandled payment webhook kind.");
       }
 
+      await recordProcessed();
       return { received: true, ignored: false };
     },
     publicConfig,

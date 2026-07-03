@@ -15,6 +15,22 @@ function assertSafeTableName(tableName: string) {
   }
 }
 
+export async function hasProcessedProviderWebhookEvent(
+  db: PgQueryable,
+  entry: Pick<ProviderWebhookInboxEntry, "tableName" | "providerEventId">,
+) {
+  assertSafeTableName(entry.tableName);
+  const result = await db.query<{ provider_event_id: string }>(
+    `SELECT provider_event_id
+     FROM ${entry.tableName}
+     WHERE provider_event_id = $1
+     LIMIT 1`,
+    [entry.providerEventId],
+  );
+
+  return result.rows.length > 0;
+}
+
 export async function recordProviderWebhookEvent(db: PgQueryable, entry: ProviderWebhookInboxEntry) {
   assertSafeTableName(entry.tableName);
   const result = await db.query<{ provider_event_id: string }>(

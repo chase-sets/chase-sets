@@ -1706,6 +1706,10 @@ describe("fulfillment shipment runtime", () => {
             ],
           };
         }
+        if (sql.includes("FROM fulfillment_postage_provider_events")) {
+          expect(sql).toContain("processing_result <> 'received'");
+          return { rows: [], rowCount: 0 };
+        }
         if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
           return { rows: [{ provider_event_id: "evt_tracker_1" }], rowCount: 1 };
         }
@@ -1820,12 +1824,8 @@ describe("fulfillment shipment runtime", () => {
     );
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
-      expect.arrayContaining(["evt_tracker_1", "easypost", "production", "tracking-status"]),
+      expect.arrayContaining(["evt_tracker_1", "easypost", "production", "tracking-status", "delivered"]),
     );
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE fulfillment_postage_provider_events"), [
-      "evt_tracker_1",
-      "delivered",
-    ]);
   });
 
   it("records EasyPost refund webhooks against the matched shipment without changing shipment state", async () => {
@@ -1859,6 +1859,10 @@ describe("fulfillment shipment runtime", () => {
               },
             ],
           };
+        }
+        if (sql.includes("FROM fulfillment_postage_provider_events")) {
+          expect(sql).toContain("processing_result <> 'received'");
+          return { rows: [], rowCount: 0 };
         }
         if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
           return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
@@ -1910,11 +1914,8 @@ describe("fulfillment shipment runtime", () => {
         "shp_1",
         "940000000000000000",
         "refunded",
+        "recorded",
       ]),
     );
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE fulfillment_postage_provider_events"), [
-      "evt_refund_1",
-      "recorded",
-    ]);
   });
 });
