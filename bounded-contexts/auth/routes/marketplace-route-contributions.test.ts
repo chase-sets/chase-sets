@@ -40,4 +40,17 @@ describe("Auth marketplace route contributions", () => {
       ]),
     );
   });
+
+  it("declares the Auth-owned magic-link landing route", () => {
+    expect(marketplaceRoutes()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          routeId: "sign-in-magic",
+          routePath: "sign-in/magic",
+          fileExport: "./routes/marketplace/sign-in-magic",
+          sourceContext: "auth",
+        }),
+      ]),
+    );
+  });
 });

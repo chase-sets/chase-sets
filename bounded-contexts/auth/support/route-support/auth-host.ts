@@ -256,6 +256,10 @@ function waitForRetry(delayMs: number) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function magicLinkLandingPath(signInPath: string) {
+  return `${signInPath.replace(/\/+$/, "")}/magic`;
+}
+
 async function retryTransientPasswordSignIn<T>(operation: () => Promise<T>) {
   for (let attempt = 0; attempt <= TRANSIENT_PASSWORD_SIGN_IN_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -468,6 +472,8 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
           if (intent === "magic-link-request") {
             const result = await api.requestMagicLink<MagicLinkRequestResult>({
               email: formData.get("email"),
+              landingPath: magicLinkLandingPath(options.signInPath),
+              returnTo: getSafeReturnTo(request, options.defaultSuccessPath),
             });
 
             return {

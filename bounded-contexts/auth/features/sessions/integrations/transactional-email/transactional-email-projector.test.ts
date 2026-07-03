@@ -7,7 +7,7 @@ describe("auth transactional email projector", () => {
       enqueueNotification: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
     };
     const deliveryTokens = {
-      getMagicLinkDeliveryToken: vi.fn(async () => "https://chasesets.com/magic"),
+      getMagicLinkDeliveryToken: vi.fn(async () => "magic_token"),
       clearMagicLinkDeliveryToken: vi.fn(async () => undefined),
     };
 
@@ -25,13 +25,16 @@ describe("auth transactional email projector", () => {
         userId: null,
         email: "buyer@example.com",
         expiresAt: "2026-04-02T00:10:00.000Z",
+        origin: "https://marketplace.chasesets.com",
+        landingPath: "/sign-in/magic",
+        returnTo: "/account/listings",
       },
     } as never);
 
     expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
     expect(deliveryTokens.clearMagicLinkDeliveryToken).toHaveBeenCalledWith("cmd_1");
     expect(outbox.enqueueNotification.mock.calls[0]?.[0].message.templateData).toEqual({
-      magicLink: "https://chasesets.com/magic",
+      magicLink: "https://marketplace.chasesets.com/sign-in/magic?token=magic_token&returnTo=%2Faccount%2Flistings",
     });
   });
 });

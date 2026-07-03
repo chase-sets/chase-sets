@@ -126,6 +126,13 @@ export const authEnglishTranslations = {
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
   "auth.support.routeSupport.authHost.sign.in.temporarily.unavailable":
     "Sign-in is temporarily unavailable. Try again in a few seconds.",
+  "auth.support.routeSupport.magicLinkLanding.magic.link.could.not.be.completed": "Magic link could not be completed",
+  "auth.support.routeSupport.magicLinkLanding.magic.link.is.missing":
+    "This sign-in link is missing its token. Request a new link to continue.",
+  "auth.support.routeSupport.magicLinkLanding.magic.link.expired.or.used": "Magic link expired or was already used",
+  "auth.support.routeSupport.magicLinkLanding.request.a.new.sign.in.link": "Request a new sign-in link to continue.",
+  "auth.support.routeSupport.magicLinkLanding.request.new.link": "Request New Link",
+  "auth.support.routeSupport.magicLinkLanding.sign.in.temporarily.unavailable": "Sign-in is temporarily unavailable",
   "auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired":
     "Passkey challenge is invalid or expired.",
   "auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired.2":

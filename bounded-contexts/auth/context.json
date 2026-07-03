@@ -193,6 +193,15 @@
           "section": "access"
         },
         {
+          "routeId": "sign-in-magic",
+          "routePath": "sign-in/magic",
+          "fileExport": "./routes/access-admin/sign-in-magic",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "placement": "root",
+          "section": "access"
+        },
+        {
           "routeId": "catalog-sign-in",
           "routePath": "sign-in",
           "fileExport": "./routes/catalog-admin/sign-in",
@@ -249,6 +258,13 @@
           "routeId": "sign-in",
           "routePath": "sign-in",
           "fileExport": "./routes/marketplace/sign-in",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "sign-in-magic",
+          "routePath": "sign-in/magic",
+          "fileExport": "./routes/marketplace/sign-in-magic",
           "routeType": "route",
           "sourceContext": "auth"
         },

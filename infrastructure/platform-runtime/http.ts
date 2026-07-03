@@ -385,9 +385,14 @@ export function createForwardedAuthHeaders(
   options: Readonly<{ readTargetContextName?: string; nowMs?: number; maxAgeMs?: number }> = {},
 ): Headers {
   const headers = new Headers(initHeaders);
+  const url = new URL(request.url);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");
   const freshWrite = readFreshWriteToken(request, options.nowMs, options.maxAgeMs);
+  const forwardedProto =
+    firstForwardedValue(request.headers.get("x-forwarded-proto")) ?? url.protocol.replace(/:$/, "");
+  const forwardedHost =
+    firstForwardedValue(request.headers.get("x-forwarded-host")) ?? request.headers.get("host") ?? url.host;
 
   if (cookie && !headers.has("cookie")) {
     headers.set("cookie", cookie);
@@ -403,6 +408,14 @@ export function createForwardedAuthHeaders(
 
   if (options.readTargetContextName && !headers.has(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)) {
     headers.set(CHASE_SETS_READ_TARGET_CONTEXT_HEADER, options.readTargetContextName);
+  }
+
+  if (forwardedProto && !headers.has("x-forwarded-proto")) {
+    headers.set("x-forwarded-proto", forwardedProto);
+  }
+
+  if (forwardedHost && !headers.has("x-forwarded-host")) {
+    headers.set("x-forwarded-host", forwardedHost);
   }
 
   return headers;

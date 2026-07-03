@@ -58,6 +58,25 @@ describe("platform email template renderer", () => {
     expect(rendered.textBody).toContain("https://chasesets.com/checkout/payments/pay_1?claimContinuation=cont_1");
     expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
   });
+
+  it("renders auth magic links as absolute sign-in URLs", () => {
+    const rendered = platformEmailTemplateRenderer.render(
+      message({
+        subject: "Your Chase Sets sign-in link",
+        templateId: "auth_magic_link",
+        templateData: {
+          magicLink: "https://marketplace.chasesets.com/sign-in/magic?token=magic_token&returnTo=%2Faccount",
+        },
+      }),
+    );
+
+    expect(rendered.subject).toBe("Your Chase Sets sign-in link");
+    expect(rendered.textBody).toContain("Use this secure link to sign in to Chase Sets:");
+    expect(rendered.textBody).toContain(
+      "https://marketplace.chasesets.com/sign-in/magic?token=magic_token&returnTo=%2Faccount",
+    );
+    expect(rendered.textBody).not.toContain("A Chase Sets account update is available.");
+  });
 });
 
 function message(
