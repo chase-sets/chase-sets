@@ -1,5 +1,9 @@
 apiVersion: 1
 
+deleteRules:
+  - orgId: 1
+    uid: checkout-operator-alert-events
+
 groups:
   - orgId: 1
     name: platform-api-starter-alerts
@@ -134,8 +138,8 @@ groups:
         for: 2m
         labels:
           severity: warning
-      - uid: checkout-operator-alert-events
-        title: Checkout launch observability alert events
+      - uid: checkout-observability-alert-events
+        title: Checkout observability alert events
         condition: C
         data:
           - refId: A

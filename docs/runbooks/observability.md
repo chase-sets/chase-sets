@@ -54,6 +54,7 @@ Do not log request bodies, cookies, authorization headers, provider secrets, ema
 ## Dashboards And Alerts
 
 Grafana provisions the `Platform API Overview`, `Projection Freshness`, and context-specific dashboards from `infrastructure/observability/stack/grafana`.
+When replacing a file-provisioned Grafana alert rule UID, keep a matching `deleteRules` entry for the retired UID so Droplet rebuilds that reuse the persistent Grafana volume do not fail startup on an import conflict.
 
 Starter alerts intentionally stay low-noise:
 
