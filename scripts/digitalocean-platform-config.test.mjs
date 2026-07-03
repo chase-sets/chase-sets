@@ -473,7 +473,8 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
     expect(catalogAssetsMain).toContain('resource "digitalocean_spaces_bucket" "catalog_assets"');
-    expect(catalogAssetsMain).toContain('acl           = "public-read"');
+    expect(catalogAssetsMain).toContain('acl           = "private"');
+    expect(catalogAssetsMain).toContain("prevent_destroy = true");
     expect(catalogAssetsMain).toContain('resource "digitalocean_cdn" "catalog_assets"');
     expect(catalogAssetsMain).toContain('resource "digitalocean_certificate" "catalog_assets_cdn"');
     expect(catalogAssetsMain).not.toContain("digitalocean_record");
@@ -481,6 +482,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(catalogAssetsLocals).toContain('staging    = "assets.staging.${var.root_domain}"');
     expect(catalogAssetsLocals).toContain('production = "assets.${var.root_domain}"');
     expect(platformStagingResetWorkflow).toContain("Verify staging catalog asset CDN");
+    expect(platformStagingResetWorkflow).toContain("disable-terraform-prevent-destroy.mjs main.tf");
     expect(platformStagingResetWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
     expect(platformStagingResetWorkflow).toContain("doctl compute cdn list --output json");
     expect(platformStagingResetWorkflow).toContain("doctl compute domain records list chasesets.com --output json");

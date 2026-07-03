@@ -32,7 +32,7 @@ Display variant object keys include both the source hash and the display-normali
 
 ## Retention And Removal
 
-Production and staging Product Asset Sets are retained while referenced by a Source Observation, Catalog Item, or downstream projection. Preview assets expire after 90 days through the preview bucket lifecycle rule. Staging and production do not expire automatically because product imagery is catalog truth once promoted.
+Production and staging Product Asset Sets are retained while referenced by a Source Observation, Catalog Item, or downstream projection. Preview assets expire after 90 days through the preview bucket lifecycle rule. Staging and production do not expire automatically because product imagery is catalog truth once promoted. DigitalOcean Spaces buckets are private at the bucket ACL level; Catalog writes each public object with object-level `public-read`, and public delivery goes through the environment CDN custom domain.
 
 Takedown, source revocation, or policy/legal removal requests use the Catalog asset takedown path:
 
@@ -83,6 +83,8 @@ CATALOG_ASSET_S3_SECRET_ACCESS_KEY=...
 Production rejects filesystem-backed Catalog asset storage. The `infrastructure/digitalocean/catalog-assets` Terraform root owns bucket permissions, CDN policy, managed certificates, and CDN custom domains. The staging CDN DNS record is also declared in `infrastructure/digitalocean/environment-dns` because `assets.staging.chasesets.com` lives inside the delegated `staging.chasesets.com` child zone. Catalog owns only the provider import decision and the public URL it stores.
 
 The CDN custom domain is required, not cosmetic. If an asset URL works through the direct Spaces origin but fails through `assets.<environment>.chasesets.com`, verify that `doctl compute cdn list` contains the environment custom domain and that DigitalOcean DNS has a CNAME from that custom domain to the CDN endpoint. Staging reset verifies both after recreating catalog assets, and platform staging/production smoke checks verify the configured `CATALOG_ASSET_PUBLIC_BASE_URL` over HTTPS.
+
+Bucket-root listing must stay private. An anonymous request to the bucket root, for example `https://chase-sets-staging-catalog-assets.nyc3.digitaloceanspaces.com/`, should return AccessDenied while a known object URL under `https://assets.staging.chasesets.com/` still renders. The staging reset workflow deliberately disables the Terraform `prevent_destroy` guard in its ephemeral checkout before recreating staging catalog assets; do not copy that bypass into ordinary plans or production changes.
 
 ## Object Keys
 

@@ -107,6 +107,9 @@ jobs:
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
 
+      - name: Disable stateful destroy guard for approved preview cleanup
+        run: node scripts/disable-terraform-prevent-destroy.mjs infrastructure/digitalocean/platform/main.tf
+
       - name: Terraform destroy
         working-directory: infrastructure/digitalocean/platform
         run: terraform destroy -auto-approve

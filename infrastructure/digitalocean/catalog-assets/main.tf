@@ -1,8 +1,12 @@
 resource "digitalocean_spaces_bucket" "catalog_assets" {
   name          = local.bucket_name
   region        = var.region
-  acl           = "public-read"
+  acl           = "private"
   force_destroy = var.environment != "production"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   dynamic "lifecycle_rule" {
     for_each = local.preview_expiration
