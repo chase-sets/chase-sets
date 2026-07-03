@@ -127,6 +127,45 @@ describe("settlement wallet routes", () => {
     const firstEntry = postEntry.mock.calls[0]?.[0] as { ledgerEntryId: string } | undefined;
     const secondEntry = postEntry.mock.calls[1]?.[0] as { ledgerEntryId: string } | undefined;
     expect(firstEntry?.ledgerEntryId).toBe(secondEntry?.ledgerEntryId);
+    expect(firstEntry?.ledgerEntryId).toMatch(/^led_[a-f0-9]{26}$/);
+  });
+
+  it("derives unique ledger entry ids across distinct operator idempotency keys", async () => {
+    const ledgerEntryIds = new Set<string>();
+    const postEntry = vi.fn(async (params: { ledgerEntryId: string }) => {
+      ledgerEntryIds.add(params.ledgerEntryId);
+      return {
+        accountId: "acc_seller" as never,
+        version: ledgerEntryIds.size + 1,
+        entry: {
+          ledger_entry_id: params.ledgerEntryId,
+        },
+      };
+    });
+    const app = createApp({ postEntry }, ["payouts.manage"]);
+    const idempotencyKeys = Array.from(
+      { length: 2048 },
+      (_, index) => `operator-wallet-command:${index.toString(36).padStart(6, "0")}:refund:${index % 17}`,
+    );
+
+    for (const idempotencyKey of idempotencyKeys) {
+      const response = await app.request("/wallet/refund-debits", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_seller",
+          amount: "1.00",
+          paymentId: "pay_1",
+          idempotencyKey,
+          auditReason: "Uniqueness regression",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(201);
+    }
+
+    expect(postEntry).toHaveBeenCalledTimes(idempotencyKeys.length);
+    expect(ledgerEntryIds.size).toBe(idempotencyKeys.length);
   });
 
   it("treats duplicate dispute holds as idempotent retries", async () => {
