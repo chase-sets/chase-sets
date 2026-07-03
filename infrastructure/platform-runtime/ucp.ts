@@ -9,6 +9,11 @@ import {
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createMemoryPlatformIdempotencyStore,
+  type PlatformIdempotencyRecord,
+  type PlatformIdempotencyStore,
+} from "./idempotency";
 import { negotiateMcpProtocolVersion } from "./mcp-protocol";
 import {
   buildUcpBusinessProfile,
@@ -54,6 +59,7 @@ export {
   type UcpServiceDeclaration,
   type UcpTransport,
 } from "./ucp-contracts";
+export type { PlatformIdempotencyRecord, PlatformIdempotencyStore } from "./idempotency";
 
 type UcpRuntimeEnv = {
   Variables: {
@@ -68,6 +74,8 @@ type JsonRpcRequest = Readonly<{
   method?: string;
   params?: unknown;
 }>;
+
+const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
 
 type UcpToolCallParams = Readonly<{
   name?: unknown;
@@ -87,22 +95,6 @@ export type UcpOperationHandlerInput = Readonly<{
 }>;
 
 export type UcpOperationHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope> | UcpEnvelope;
-
-export type PlatformIdempotencyRecord<TResponse = unknown> = Readonly<{
-  key: string;
-  requestHash: string;
-  response: TResponse;
-  createdAt: string;
-  expiresAt?: string | null;
-}>;
-
-export type PlatformIdempotencyStore<TResponse = unknown> = Readonly<{
-  get: (
-    key: string,
-  ) => Promise<PlatformIdempotencyRecord<TResponse> | null> | PlatformIdempotencyRecord<TResponse> | null;
-  put: (record: PlatformIdempotencyRecord<TResponse>) => Promise<void> | void;
-  pruneExpired?: (now?: Date) => Promise<number> | number;
-}>;
 
 export type UcpIdempotencyRecord = PlatformIdempotencyRecord<UcpEnvelope>;
 
@@ -303,14 +295,30 @@ export const platformUcpRuntimeSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
   key text PRIMARY KEY,
   request_hash text NOT NULL,
-  response jsonb NOT NULL,
+  response jsonb NULL,
+  status text NOT NULL DEFAULT 'completed',
   created_at timestamptz NOT NULL,
   expires_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE platform_ucp_idempotency_records
+  ALTER COLUMN response DROP NOT NULL,
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'completed',
   ADD COLUMN IF NOT EXISTS expires_at timestamptz NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'platform_ucp_idempotency_records_status_check'
+  ) THEN
+    ALTER TABLE platform_ucp_idempotency_records
+      ADD CONSTRAINT platform_ucp_idempotency_records_status_check
+      CHECK (status IN ('pending', 'completed'));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS platform_ucp_idempotency_records_created_at_idx
   ON platform_ucp_idempotency_records (created_at);
@@ -927,34 +935,22 @@ function idempotencyConflictEnvelope() {
   ]);
 }
 
+function idempotencyInProgressEnvelope() {
+  return createUcpEnvelope("error", {}, [
+    {
+      severity: "warning",
+      code: "idempotency_key_in_progress",
+      message: "A matching request is already in progress. Retry later.",
+    },
+  ]);
+}
+
+function shouldStoreIdempotencyResponse(response: UcpEnvelope): boolean {
+  return response.ucp.status === "ok" || response.ucp.status === "requires_action";
+}
+
 function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
-  const records = new Map<string, UcpIdempotencyRecord>();
-  return {
-    get: (key) => {
-      const record = records.get(key);
-      if (!record) {
-        return null;
-      }
-      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
-        records.delete(key);
-        return null;
-      }
-      return record;
-    },
-    put: (record) => {
-      records.set(record.key, record);
-    },
-    pruneExpired: (now = new Date()) => {
-      let deletedCount = 0;
-      for (const [key, record] of records) {
-        if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) {
-          records.delete(key);
-          deletedCount += 1;
-        }
-      }
-      return deletedCount;
-    },
-  };
+  return createMemoryPlatformIdempotencyStore<UcpEnvelope>();
 }
 
 function isUcpTestRuntime() {
@@ -982,19 +978,22 @@ export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
   db: PgQueryable,
   options: Readonly<{
     retentionMs?: number;
+    pendingTtlMs?: number;
     now?: () => Date;
   }> = {},
 ): PlatformIdempotencyStore<TResponse> {
+  const pendingTtlMs = options.pendingTtlMs ?? 2 * 60 * 1000;
   return {
     get: async (key) => {
       const result = await db.query<{
         key: string;
         request_hash: string;
-        response: UcpEnvelope;
+        response: TResponse | null;
+        status: string;
         created_at: Date | string;
         expires_at: Date | string | null;
       }>(
-        `SELECT key, request_hash, response, created_at, expires_at
+        `SELECT key, request_hash, response, status, created_at, expires_at
          FROM platform_ucp_idempotency_records
          WHERE key = $1
            AND (expires_at IS NULL OR expires_at > now())`,
@@ -1005,7 +1004,8 @@ export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
         ? {
             key: row.key,
             requestHash: row.request_hash,
-            response: row.response as TResponse,
+            response: row.response as TResponse | null,
+            status: row.status === "pending" ? "pending" : "completed",
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
             expiresAt:
               row.expires_at instanceof Date
@@ -1015,6 +1015,109 @@ export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
                   : null,
           }
         : null;
+    },
+    reserve: async (input) => {
+      const pendingExpiresAt =
+        input.expiresAt ?? new Date(new Date(input.createdAt).getTime() + pendingTtlMs).toISOString();
+      const reserved = await db.query<{
+        key: string;
+        request_hash: string;
+        response: TResponse | null;
+        status: string;
+        created_at: Date | string;
+        expires_at: Date | string | null;
+      }>(
+        `INSERT INTO platform_ucp_idempotency_records (
+           key,
+           request_hash,
+           response,
+           status,
+           created_at,
+           expires_at,
+           updated_at
+         ) VALUES ($1, $2, NULL, 'pending', $3::timestamptz, $4::timestamptz, now())
+         ON CONFLICT (key) DO UPDATE
+         SET request_hash = EXCLUDED.request_hash,
+             response = NULL,
+             status = 'pending',
+             created_at = EXCLUDED.created_at,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = now()
+         WHERE platform_ucp_idempotency_records.status = 'pending'
+           AND platform_ucp_idempotency_records.expires_at IS NOT NULL
+           AND platform_ucp_idempotency_records.expires_at <= now()
+         RETURNING key, request_hash, response, status, created_at, expires_at`,
+        [input.key, input.requestHash, input.createdAt, pendingExpiresAt],
+      );
+      const reservedRow = reserved.rows[0];
+      if (reservedRow) {
+        return {
+          outcome: "reserved" as const,
+          record: toIdempotencyRecord<TResponse>(reservedRow),
+        };
+      }
+
+      const existing = await db.query<{
+        key: string;
+        request_hash: string;
+        response: TResponse | null;
+        status: string;
+        created_at: Date | string;
+        expires_at: Date | string | null;
+      }>(
+        `SELECT key, request_hash, response, status, created_at, expires_at
+         FROM platform_ucp_idempotency_records
+         WHERE key = $1
+           AND (expires_at IS NULL OR expires_at > now())`,
+        [input.key],
+      );
+      const record = existing.rows[0] ? toIdempotencyRecord<TResponse>(existing.rows[0]) : null;
+      if (!record) {
+        return {
+          outcome: "pending" as const,
+          record: {
+            key: input.key,
+            requestHash: input.requestHash,
+            response: null,
+            status: "pending" as const,
+            createdAt: input.createdAt,
+            expiresAt: pendingExpiresAt,
+          },
+        };
+      }
+      if (record.requestHash !== input.requestHash) {
+        return { outcome: "conflict" as const, record };
+      }
+      return { outcome: record.status === "completed" ? "completed" : "pending", record } as const;
+    },
+    complete: async (record) => {
+      const createdAt = new Date(record.createdAt);
+      const expiresAt =
+        record.expiresAt ??
+        (options.retentionMs ? new Date(createdAt.getTime() + options.retentionMs).toISOString() : null);
+      const result = await db.query(
+        `UPDATE platform_ucp_idempotency_records
+         SET response = $3::jsonb,
+             status = 'completed',
+             expires_at = $4::timestamptz,
+             updated_at = now()
+         WHERE key = $1
+           AND request_hash = $2
+           AND status = 'pending'`,
+        [record.key, record.requestHash, JSON.stringify(record.response), expiresAt],
+      );
+      if ((result.rowCount ?? 0) === 0) {
+        throw new Error("Idempotency reservation was not pending when completion was recorded.");
+      }
+    },
+    abandon: async (input) => {
+      await db.query(
+        `DELETE FROM platform_ucp_idempotency_records
+         WHERE key = $1
+           AND request_hash = $2
+           AND status = 'pending'`,
+        [input.key, input.requestHash],
+      );
     },
     put: async (record) => {
       const createdAt = new Date(record.createdAt);
@@ -1026,10 +1129,11 @@ export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
            key,
            request_hash,
            response,
+           status,
            created_at,
            expires_at,
            updated_at
-         ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, now())
+         ) VALUES ($1, $2, $3::jsonb, 'completed', $4::timestamptz, $5::timestamptz, now())
          ON CONFLICT (key) DO NOTHING`,
         [record.key, record.requestHash, JSON.stringify(record.response), record.createdAt, expiresAt],
       );
@@ -1043,6 +1147,25 @@ export function createPostgresUcpIdempotencyStore<TResponse = UcpEnvelope>(
       );
       return result.rowCount ?? 0;
     },
+  };
+}
+
+function toIdempotencyRecord<TResponse>(row: {
+  key: string;
+  request_hash: string;
+  response: TResponse | null;
+  status: string;
+  created_at: Date | string;
+  expires_at: Date | string | null;
+}): PlatformIdempotencyRecord<TResponse> {
+  return {
+    key: row.key,
+    requestHash: row.request_hash,
+    response: row.response,
+    status: row.status === "pending" ? "pending" : "completed",
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    expiresAt:
+      row.expires_at instanceof Date ? row.expires_at.toISOString() : row.expires_at ? String(row.expires_at) : null,
   };
 }
 
@@ -1184,17 +1307,28 @@ async function invokeRestWrite(
   const input = handlerInput(c, params);
   const key = idempotencyScope(operation, c.req.raw, input.actor);
   const requestHash = await requestBodyHash(c.req.raw);
-  const existing = await idempotencyStore.get(key);
-  if (existing) {
-    if (existing.requestHash === requestHash) {
+  const createdAt = new Date();
+  const reservation = await idempotencyStore.reserve({
+    key,
+    requestHash,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + IDEMPOTENCY_PENDING_TTL_MS).toISOString(),
+  });
+  if (reservation.outcome === "completed") {
+    if (reservation.record.response) {
       emitObserver(options.observer?.idempotencyReplayed, {
         transport: "rest",
         operation,
         key,
         agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
       });
-      return c.json(existing.response);
+      return c.json(reservation.record.response);
     }
+  }
+  if (reservation.outcome === "pending") {
+    return c.json(idempotencyInProgressEnvelope(), 409);
+  }
+  if (reservation.outcome === "conflict") {
     emitObserver(options.observer?.idempotencyConflict, {
       transport: "rest",
       operation,
@@ -1203,14 +1337,23 @@ async function invokeRestWrite(
     });
     return c.json(idempotencyConflictEnvelope(), 409);
   }
+  const reservedRecord = reservation.record;
 
-  const response = await invokeRestHandler(options.restHandlers, operation, input);
-  await idempotencyStore.put({
-    key,
-    requestHash,
-    response,
-    createdAt: new Date().toISOString(),
-  });
+  let response: UcpEnvelope;
+  try {
+    response = await invokeRestHandler(options.restHandlers, operation, input);
+    if (shouldStoreIdempotencyResponse(response)) {
+      await idempotencyStore.complete({
+        ...reservedRecord,
+        response,
+      });
+    } else {
+      await idempotencyStore.abandon({ key, requestHash });
+    }
+  } catch (error) {
+    await idempotencyStore.abandon({ key, requestHash });
+    throw error;
+  }
   emitObserver(options.observer?.operationCompleted, {
     transport: "rest",
     operation,
@@ -1237,17 +1380,28 @@ async function invokeMcpTool(
   };
   const key = idempotencyScope(toolName, c.req.raw, input.actor);
   const requestHash = mcpToolRequestHash(toolName, args);
-  const existing = await idempotencyStore.get(key);
-  if (existing) {
-    if (existing.requestHash === requestHash) {
+  const createdAt = new Date();
+  const reservation = await idempotencyStore.reserve({
+    key,
+    requestHash,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + IDEMPOTENCY_PENDING_TTL_MS).toISOString(),
+  });
+  if (reservation.outcome === "completed") {
+    if (reservation.record.response) {
       emitObserver(options.observer?.idempotencyReplayed, {
         transport: "mcp",
         operation: toolName,
         key,
         agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
       });
-      return existing.response;
+      return reservation.record.response;
     }
+  }
+  if (reservation.outcome === "pending") {
+    return idempotencyInProgressEnvelope();
+  }
+  if (reservation.outcome === "conflict") {
     emitObserver(options.observer?.idempotencyConflict, {
       transport: "mcp",
       operation: toolName,
@@ -1256,20 +1410,24 @@ async function invokeMcpTool(
     });
     return idempotencyConflictEnvelope();
   }
+  const reservedRecord = reservation.record;
 
   const limit = await acquireUcpMcpToolCallLease(c, options, tool);
   if (!limit.allowed) {
+    await idempotencyStore.abandon({ key, requestHash });
     return ucpMcpToolLimitEnvelope(limit.reason);
   }
 
   try {
     const response = await (options.mcpToolHandlers?.[toolName]?.(input) ?? unsupported(toolName));
-    await idempotencyStore.put({
-      key,
-      requestHash,
-      response,
-      createdAt: new Date().toISOString(),
-    });
+    if (shouldStoreIdempotencyResponse(response)) {
+      await idempotencyStore.complete({
+        ...reservedRecord,
+        response,
+      });
+    } else {
+      await idempotencyStore.abandon({ key, requestHash });
+    }
     emitObserver(options.observer?.operationCompleted, {
       transport: "mcp",
       operation: toolName,
@@ -1277,6 +1435,9 @@ async function invokeMcpTool(
       agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
     });
     return response;
+  } catch (error) {
+    await idempotencyStore.abandon({ key, requestHash });
+    throw error;
   } finally {
     await Promise.resolve(limit.lease?.release()).catch(() => undefined);
   }
@@ -1508,6 +1669,12 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         return c.json(
           jsonRpcError(request.id, -32000, "Idempotency-Key was already used with different request parameters."),
         );
+      }
+      if (
+        tool.idempotencyKeyRequired &&
+        result.messages?.some((message) => message.code === "idempotency_key_in_progress")
+      ) {
+        return c.json(jsonRpcError(request.id, -32029, "A matching request is already in progress. Retry later."));
       }
 
       return c.json(jsonRpcResult(request.id, toolResult(tool, result)));
