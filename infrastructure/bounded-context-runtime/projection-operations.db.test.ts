@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { defineBoundedContextModule, type BcApiModule } from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
+  createPostgresEventStore,
+  type PgPoolClient,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import {
   bootstrapContextDatabase,
   rebuildAllContextProjectionGroups,
@@ -201,6 +206,61 @@ describeDb("projection operations Postgres integration", () => {
     ]);
   });
 
+  it("does not checkpoint past an in-flight lower global position", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const runner = runtime.subscriptionRunners[0];
+    const context = createProjectionRunContext();
+    const lowPositionClient = await beginUncommittedSourceAppendWithGlobalLock(pools.source);
+    let lowPositionClientReleased = false;
+
+    const appendHighPosition = sourceEventStore.appendToStream({
+      streamId: "source.item-high",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-high" },
+        },
+      ],
+    });
+
+    try {
+      await expect(hasSettledWithin(appendHighPosition, 50)).resolves.toBe(false);
+      await expect(runner.runOnce(context)).resolves.toMatchObject({
+        processed: 0,
+        lastGlobalPosition: "0",
+        state: "caught-up",
+      });
+      await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+      await expect(readProjectedItems()).resolves.toEqual([]);
+
+      await lowPositionClient.query("COMMIT");
+      lowPositionClient.release();
+      lowPositionClientReleased = true;
+      await appendHighPosition;
+
+      await expect(runner.runOnce(context)).resolves.toMatchObject({
+        processed: 2,
+        lastGlobalPosition: "2",
+      });
+      await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("2");
+      await expect(readProjectedItems()).resolves.toEqual([
+        { item_id: "item-high", seen_count: 1 },
+        { item_id: "item-low", seen_count: 1 },
+      ]);
+    } finally {
+      if (!lowPositionClientReleased) {
+        await lowPositionClient.query("ROLLBACK").catch(() => undefined);
+        lowPositionClient.release();
+      }
+    }
+  });
+
   it("applies statementTimeoutMs inside the active transaction", async () => {
     await expect(
       withProjectionTransaction(
@@ -221,7 +281,88 @@ describeDb("projection operations Postgres integration", () => {
     );
     return result.rows;
   }
+
+  async function loadSubscriptionCheckpoint(checkpointKey: string): Promise<string | null> {
+    const result = await pools.target.query<{ last_global_position: string | number | bigint }>(
+      `SELECT last_global_position
+       FROM event_subscription_checkpoints
+       WHERE checkpoint_key = $1`,
+      [checkpointKey],
+    );
+
+    return result.rows[0] ? String(result.rows[0].last_global_position) : null;
+  }
 });
+
+async function beginUncommittedSourceAppendWithGlobalLock(pool: PgTransactionalPool): Promise<PgPoolClient> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY]);
+    await client.query(
+      `INSERT INTO event_store_streams (stream_id, current_version, updated_at)
+       VALUES ('source.item-low', 0, $1::timestamptz)`,
+      ["2026-06-28T12:00:00.000Z"],
+    );
+    await client.query(
+      `INSERT INTO event_store_events (
+         event_id,
+         stream_id,
+         stream_version,
+         tenant_id,
+         stream_context_name,
+         stream_category,
+         event_type,
+         payload,
+         metadata,
+         occurred_at,
+         recorded_at,
+         performed_by_user_id,
+         for_account_id
+       ) VALUES (
+         'evt_source_low',
+         'source.item-low',
+         1,
+         'tenant_test',
+         'source',
+         'source.item',
+         'source.item-recorded',
+         '{"itemId":"item-low"}'::jsonb,
+         '{}'::jsonb,
+         $1::timestamptz,
+         $1::timestamptz,
+         'user_test',
+         'account_test'
+       )`,
+      ["2026-06-28T12:00:00.000Z"],
+    );
+    await client.query(
+      `UPDATE event_store_streams
+       SET current_version = 1, updated_at = $2::timestamptz
+       WHERE stream_id = $1`,
+      ["source.item-low", "2026-06-28T12:00:00.000Z"],
+    );
+
+    return client;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    client.release(error);
+    throw error;
+  }
+}
+
+async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
 
 function createProjectionRunContext(overrides: Partial<ProjectionRunContext> = {}): ProjectionRunContext {
   return {

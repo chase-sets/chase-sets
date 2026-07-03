@@ -39,7 +39,7 @@ Workers run projection consumers separately from bulk jobs, dispatchers, and sch
 
 `WORKER_MAX_CONCURRENT_RUNNERS` remains the fallback for compatibility.
 
-Projection subscriptions push event-type and stream-prefix filters into Postgres reads. This keeps each consumer independent while avoiding full source-log scans for every projection. When a filtered subscription has no matching tail left, it advances its checkpoint to the captured source head so irrelevant source events do not create permanent lag.
+Projection subscriptions push event-type and stream-prefix filters into Postgres reads. This keeps each consumer independent while avoiding full source-log scans for every projection. When a filtered subscription has no matching tail left, it advances its checkpoint to the captured source head so irrelevant source events do not create permanent lag. That fast-forward relies on the Postgres event store's global append advisory transaction lock: append transactions acquire the store-wide lock before inserting rows, hold it through commit, and therefore make `global_position` assignment order match commit order. The captured source head is a gap-free committed horizon for normal event-store writes; removing that append fence would make `MAX(global_position)` unsafe because a lower uncommitted position could still appear later.
 
 The Postgres event store keeps composite indexes for common projection scans: event type plus global position, tenant plus event type plus global position, and stream-prefix lookup plus global position. Query plans should be checked with production-like data before introducing new broad stream-prefix subscriptions. The partitioning and retention policy keeps that same cursor contract: `event_store_events` should partition by global-position ranges rather than `recorded_at` time ranges once the migration ledger from #2843 exists. See [Postgres Event Store Partitioning And Retention](./postgres-event-store-partitioning-retention.md).
 
@@ -87,6 +87,8 @@ The token payload is intentionally limited to commit receipt metadata: observati
 ## Idempotency
 
 The runtime records projection application rows keyed by `(projection_key, event_id)`. A replay skips handlers already marked `applied`, which protects projection handlers when a worker restarts after handler success but before checkpoint persistence.
+
+This ledger protects already-delivered events; it cannot recover an event that a checkpoint skipped before delivery. Gap-safe global ordering is therefore an event-store contract, not a projection-handler convention. DB coverage holds a lower uncommitted global position while a later append attempts to commit, and asserts that neither `readAll` nor subscription checkpoint fast-forward can advance past that in-flight position.
 
 Subscription handlers receive a transaction-scoped `db` handle in their handler context. New and migrated handlers should write read-model side effects through that handle so handler changes and the application ledger commit atomically. Existing one-argument handlers still run, but they are only conventionally idempotent until migrated to the transaction-aware path.
 
