@@ -5,7 +5,7 @@ export function createSandboxPostageLabelProvider(): PostageLabelProvider {
     providerName: "sandbox-usps",
     providerMode: "test",
     async purchaseUspsLabel(request) {
-      const suffix = request.shipmentId.replace(/[^a-zA-Z0-9]/g, "").slice(-10) || "TEST";
+      const suffix = request.idempotencyKey.replace(/[^a-zA-Z0-9]/g, "").slice(-10) || "TEST";
       return {
         providerName: "sandbox-usps",
         providerMode: "test",

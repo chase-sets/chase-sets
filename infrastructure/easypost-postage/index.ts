@@ -111,6 +111,7 @@ type EasyPostRate = Readonly<{
 type EasyPostShipment = Readonly<{
   id: string;
   mode: PostageProviderMode;
+  reference?: string | null;
   rates?: readonly EasyPostRate[];
   selected_rate?: EasyPostRate | null;
   postage_label?: Readonly<{
@@ -142,6 +143,45 @@ type EasyPostWebhookEvent = Readonly<{
     updated_at?: unknown;
   }>;
 }>;
+
+function mapPurchasedShipment(
+  shipment: EasyPostShipment,
+  fallbackRate: EasyPostRate | null,
+  providerMode: PostageProviderMode,
+) {
+  const label = shipment.postage_label;
+  const labelDocumentUrl = label?.label_pdf_url ?? label?.label_url;
+  if (!labelDocumentUrl) {
+    throw providerCapabilityError(
+      "label-document",
+      "EasyPost did not return a label PDF for this shipment.",
+      providerMode,
+    );
+  }
+  if (!shipment.tracking_code) {
+    throw providerCapabilityError(
+      "tracking",
+      "EasyPost did not return a tracking number for this shipment.",
+      providerMode,
+    );
+  }
+
+  return {
+    providerName: "easypost",
+    providerMode: shipment.mode ?? providerMode,
+    providerShipmentId: shipment.id,
+    providerLabelId: label?.id ?? shipment.id,
+    providerRateId: shipment.selected_rate?.id ?? fallbackRate?.id ?? null,
+    carrierName: shipment.selected_rate?.carrier ?? fallbackRate?.carrier ?? "USPS",
+    serviceLevel: shipment.selected_rate?.service ?? fallbackRate?.service ?? "USPS",
+    labelReference: label?.id ?? shipment.id,
+    labelDocumentUrl,
+    trackingIdentifier: shipment.tracking_code,
+    postageAmountCents: moneyToCents(shipment.selected_rate?.rate ?? fallbackRate?.rate),
+    postageCurrency: shipment.selected_rate?.currency ?? fallbackRate?.currency ?? "USD",
+    purchasedAt: new Date().toISOString(),
+  };
+}
 
 export function createEasyPostPostageLabelProvider(
   options: Readonly<{
@@ -176,7 +216,7 @@ export function createEasyPostPostageLabelProvider(
         method: "POST",
         body: JSON.stringify({
           shipment: {
-            reference: request.shipmentId,
+            reference: request.idempotencyKey,
             to_address: normalizeAddress(request.recipient),
             from_address: normalizeAddress(request.sender),
             parcel: normalizePackage(request.package),
@@ -206,38 +246,25 @@ export function createEasyPostPostageLabelProvider(
         method: "POST",
         body: JSON.stringify({ rate: { id: selectedRate.id } }),
       });
-      const label = purchased.postage_label;
-      const labelDocumentUrl = label?.label_pdf_url ?? label?.label_url;
-      if (!labelDocumentUrl) {
-        throw providerCapabilityError(
-          "label-document",
-          "EasyPost did not return a label PDF for this shipment.",
-          providerMode,
-        );
-      }
-      if (!purchased.tracking_code) {
-        throw providerCapabilityError(
-          "tracking",
-          "EasyPost did not return a tracking number for this shipment.",
-          providerMode,
-        );
-      }
 
-      return {
-        providerName: "easypost",
-        providerMode: purchased.mode ?? providerMode,
-        providerShipmentId: purchased.id,
-        providerLabelId: label?.id ?? purchased.id,
-        providerRateId: purchased.selected_rate?.id ?? selectedRate.id,
-        carrierName: "USPS",
-        serviceLevel: purchased.selected_rate?.service ?? selectedRate.service,
-        labelReference: label?.id ?? purchased.id,
-        labelDocumentUrl,
-        trackingIdentifier: purchased.tracking_code,
-        postageAmountCents: moneyToCents(purchased.selected_rate?.rate ?? selectedRate.rate),
-        postageCurrency: purchased.selected_rate?.currency ?? selectedRate.currency ?? "USD",
-        purchasedAt: new Date().toISOString(),
-      };
+      return mapPurchasedShipment(purchased, selectedRate, providerMode);
+    },
+    async recoverPurchasedUspsLabel(request) {
+      const response = await fetchImpl(`${apiBaseUrl}/shipments/${encodeURIComponent(request.idempotencyKey)}`, {
+        method: "GET",
+        headers: {
+          Authorization: authorization,
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.status === 404) {
+        return null;
+      }
+      const shipment = await parseEasyPostResponse<EasyPostShipment>(response, providerMode);
+      if (!shipment.postage_label || !shipment.tracking_code) {
+        return null;
+      }
+      return mapPurchasedShipment(shipment, shipment.selected_rate ?? null, providerMode);
     },
     async voidLabel(request) {
       const refunded = await easyPostRequest<EasyPostShipment>(`/shipments/${request.providerShipmentId}/refund`, {

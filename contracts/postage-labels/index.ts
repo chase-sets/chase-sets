@@ -61,12 +61,17 @@ export type PostagePackage = Readonly<{
 export type PurchaseUspsLabelRequest = Readonly<{
   shipmentId: string;
   orderId: string;
+  idempotencyKey: string;
   serviceLevel: string;
   deliveryConfirmation?: "signature" | null;
   labelSize?: "4x6" | "6x4" | "7x3" | null;
   sender: PostageAddress;
   recipient: PostageAddress;
   package: PostagePackage;
+}>;
+
+export type RecoverPurchasedPostageLabelRequest = Readonly<{
+  idempotencyKey: string;
 }>;
 
 export type PurchasedPostageLabel = Readonly<{
@@ -132,6 +137,7 @@ export interface PostageLabelProvider {
   readonly providerName: string;
   readonly providerMode: PostageProviderMode;
   purchaseUspsLabel(request: PurchaseUspsLabelRequest): Promise<PurchasedPostageLabel>;
+  recoverPurchasedUspsLabel?(request: RecoverPurchasedPostageLabelRequest): Promise<PurchasedPostageLabel | null>;
   voidLabel(
     request: Readonly<{
       providerShipmentId: string;

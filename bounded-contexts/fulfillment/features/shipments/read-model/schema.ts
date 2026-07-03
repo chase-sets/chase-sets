@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
   provider_mode text NOT NULL,
   idempotency_key text NOT NULL,
   request_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
+  status text NOT NULL CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')),
   provider_shipment_id text NULL,
   provider_label_id text NULL,
   tracking_identifier text NULL,
@@ -141,6 +141,42 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
 
 CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
   ON fulfillment_postage_label_operations (status, updated_at);
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_status_check
+  CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_status_check;
+
+WITH duplicate_active_operations AS (
+  SELECT
+    operation_key,
+    ROW_NUMBER() OVER (
+      PARTITION BY shipment_id, operation_kind
+      ORDER BY updated_at ASC, operation_key ASC
+    ) AS duplicate_rank
+  FROM fulfillment_postage_label_operations
+  WHERE status IN ('pending', 'provider-succeeded')
+)
+UPDATE fulfillment_postage_label_operations AS operation
+SET status = 'failed',
+    error_message = COALESCE(
+      operation.error_message,
+      'Superseded duplicate active postage operation during idempotency fence migration.'
+    ),
+    completed_at = COALESCE(operation.completed_at, now()),
+    updated_at = now()
+FROM duplicate_active_operations AS duplicate
+WHERE operation.operation_key = duplicate.operation_key
+  AND duplicate.duplicate_rank > 1;
+
+CREATE UNIQUE INDEX IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
+  ON fulfillment_postage_label_operations (shipment_id, operation_kind)
+  WHERE status IN ('pending', 'provider-succeeded');
 
 CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   provider_event_id text PRIMARY KEY,

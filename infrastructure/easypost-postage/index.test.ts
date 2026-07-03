@@ -10,6 +10,7 @@ import {
 const sampleRequest = {
   shipmentId: "shp_1",
   orderId: "ord_1",
+  idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
   serviceLevel: "USPS_GROUND_ADVANTAGE",
   sender: {
     name: "Seller",
@@ -41,6 +42,7 @@ describe("EasyPost postage adapter", () => {
       const url = String(input);
       if (url.endsWith("/shipments")) {
         const body = JSON.parse(String(init?.body));
+        expect(body.shipment.reference).toBe("shipment:shp_1:purchase-usps-label:initial");
         expect(body.shipment.parcel).toMatchObject({
           length: 7,
           width: 5,
@@ -200,6 +202,48 @@ describe("EasyPost postage adapter", () => {
       refundReference: "shp_provider_1",
       refundStatus: "submitted",
     });
+  });
+
+  it("recovers an already-purchased shipment by the operation reference", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "https://api.easypost.com/v2/shipments/shipment%3Ashp_1%3Apurchase-usps-label%3Ainitial",
+      );
+      expect(init?.method).toBe("GET");
+
+      return Response.json({
+        id: "shp_provider_1",
+        mode: "test",
+        reference: "shipment:shp_1:purchase-usps-label:initial",
+        selected_rate: {
+          id: "rate_1",
+          carrier: "USPS",
+          service: "USPS_GROUND_ADVANTAGE",
+          rate: "4.99",
+          currency: "USD",
+        },
+        postage_label: {
+          id: "pl_1",
+          label_pdf_url: "https://labels.easypost.test/pl_1.pdf",
+        },
+        tracking_code: "940000000000000000",
+      });
+    });
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    const label = await provider.recoverPurchasedUspsLabel?.({
+      idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
+    });
+
+    expect(label).toMatchObject({
+      providerShipmentId: "shp_provider_1",
+      providerLabelId: "pl_1",
+      trackingIdentifier: "940000000000000000",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces EasyPost error messages from failed provider calls", async () => {
