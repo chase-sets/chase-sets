@@ -44,7 +44,7 @@ export function createOrderingServices(
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
-    db,
+    db: pool,
     shippingQuotePolicy: options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     postagePolicyResolver: postagePolicies.getActivePolicy,
     taxQuoteResolver: options.taxQuoteResolver,

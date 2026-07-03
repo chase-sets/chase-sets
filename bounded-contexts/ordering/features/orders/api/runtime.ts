@@ -5,7 +5,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
@@ -119,7 +119,7 @@ const zeroTaxQuoteResolver: TaxQuoteResolver = {
 type OrderRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
-  db: PgQueryable;
+  db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;

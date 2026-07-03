@@ -608,6 +608,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       '@chase-sets/catalog-seed':
         specifier: workspace:*
         version: link:../../contracts/catalog-seed

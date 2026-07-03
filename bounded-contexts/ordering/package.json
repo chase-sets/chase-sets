@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/orders/api/purchase-limits.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
@@ -18,6 +22,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/checkout-order-source": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
