@@ -1,6 +1,6 @@
 # Admin Shell Smoke Matrix
 
-_Status: living admin-shell smoke gate — `scripts/admin-shell-smoke-matrix.mjs` feeds `pnpm run platform:smoke`, and `scripts/admin-shell-smoke-matrix.test.mjs` keeps this matrix in sync with the script. The Milestone #13 framing below records its origin; the gate itself is current._
+_Status: living admin-shell smoke gate — `scripts/admin-shell-smoke-matrix.mjs` feeds `pnpm run smoke:platform`, and `scripts/admin-shell-smoke-matrix.test.mjs` keeps this matrix in sync with the script. The Milestone #13 framing below records its origin; the gate itself is current._
 
 Milestone #13 closes only when admin shell parity and admin API topology evidence are both recorded. This matrix joins #1023 deployed/browser smoke with #1025 source-aware API topology inventory so release evidence cannot drift from static guardrails.
 

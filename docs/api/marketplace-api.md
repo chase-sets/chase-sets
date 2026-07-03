@@ -4,7 +4,7 @@ The headless marketplace API is the REST surface used by `marketplace-web` and e
 
 Every account can participate on both sides of the marketplace. API names should use account language for identity, setup, inventory, listings, wallet, and settings; buyer/seller language is reserved for transaction roles and role-specific projections such as purchases, sales, buyer-paid refunds, seller net, and account-confirmed sales fee snapshots. Selling enablement such as terms acceptance, payout readiness, tax setup, or provider onboarding is an account capability, not a separate seller account identity.
 
-The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
+The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). This OpenAPI document is hand-authored and must be updated with every route-contract change. Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
 
 ## Authentication
 

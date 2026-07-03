@@ -108,7 +108,7 @@ The automation app's TypeScript response types describe the app workflow, not a
 complete Catalog DTO contract. Catalog keeps sanitized representative fixtures
 and field-ownership decisions in:
 
-- `bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-fixtures.ts`
+- `bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-fixtures.test-data.ts`
 - `bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-contract.ts`
 
 Those fixtures cover product lines, catalog set names, product search, and

@@ -82,7 +82,7 @@ Milestone #10 requires:
 | Auth and identity | Guardrail inventory for auth/identity files | Auth and identity forms use `Form`/`RouterForm` | `bounded-contexts/auth/features/sign-in/ui/sign-in-page.test.tsx`, `test:form-migration-smoke` |
 | Checkout, discovery, marketplace, payments | Guardrail inventory for commerce/payment files | Checkout, cart, listing, offer, discovery, and payment forms use shared pattern | `bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx`, `test:form-migration-smoke` |
 | Fulfillment, inventory, ordering, operations | Guardrail inventory for operational files | Fulfillment, inventory, ordering, and platform operations forms use shared pattern | `check:no-legacy-forms`, `verify:static` |
-| Public presence, settlement, pricing, commercial terms, reputation, experience | Guardrail inventory for public/admin/business surfaces | Public conversion, settlement, pricing, commercial terms, reputation, and experience forms use shared pattern | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx`, `bounded-contexts/experience/features/platform-feedback/ui/admin-pages.test.tsx`, `test:form-migration-smoke` |
+| Public presence, settlement, pricing, commercial terms, reputation, platform operations | Guardrail inventory for public/admin/business surfaces | Public conversion, settlement, pricing, commercial terms, reputation, and platform operations forms use shared pattern | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx`, `bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.test.tsx`, `test:form-migration-smoke` |
 
 ### Form Acceptance Matrix
 
@@ -148,7 +148,7 @@ The guardrail detects:
 Latest local evidence collected on this branch:
 
 ```text
-pnpm --filter @chase-sets/design-system run test -- src/__tests__/form-system.test.tsx src/__tests__/design-system.test.tsx
+pnpm --filter @chase-sets/design-system run test -- src/__tests__/form-system.test.tsx src/__tests__/design-system-components.test.tsx src/__tests__/design-system-marketplace.test.tsx src/__tests__/design-system-panels-navigation.test.tsx
 pnpm --filter @chase-sets/design-system run typecheck
 pnpm run check:no-legacy-forms
 pnpm run check:no-any
