@@ -13,6 +13,7 @@ import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
+import { catalogScopeRegistrySchemaSql } from "../../features/scope-registry/read-model/schema";
 import {
   catalogSourceObservationSchemaMigrations,
   catalogSourceObservationSchemaSql,
@@ -27,6 +28,7 @@ export const catalogAuthoringSchemaSql = [
   catalogBlueprintSchemaSql,
   catalogCategorySchemaSql,
   catalogReferenceDataSchemaSql,
+  catalogScopeRegistrySchemaSql,
   catalogCatalogItemSchemaSql,
   catalogProductContentsSchemaSql,
   catalogProductMeasureSchemaSql,

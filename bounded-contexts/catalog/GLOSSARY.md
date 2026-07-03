@@ -16,6 +16,10 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Category`
 - `Source Observation`
 - `Catalog Sync Scope`
+- `Catalog Scope Record`
+- `Provider Scope Mapping`
+- `Scope Coverage`
+- `Scope Sync`
 - `Provider Participation Preview`
 - `Product Asset Set`
 - `Reference Type`
@@ -61,6 +65,10 @@ The current implementation also uses four supporting authoring concepts:
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
 - `Catalog Sync Scope` — a provider-neutral Catalog sync intent, such as Pokemon TCG / English / Expansion, resolved before provider pulls create Source Observations
+- `Catalog Scope Record` — a canonical Catalog-owned sync identity row derived from a Reference Record for a product line, series, Pokemon Expansion, or set-style product-domain scope
+- `Provider Scope Mapping` — a reviewed mapping from provider vocabulary, such as a product-line/category id, set id, or set name, to one Catalog Scope Record
+- `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
+- `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
@@ -89,6 +97,14 @@ Use a `Reference Record` when a field value needs its own durable identity, attr
 Reference Record relationships may form a hierarchy. For example, an Expansion can point to a Series, the Series can point to a TCG/Product Line, and the TCG/Product Line can point to a Manufacturer. Catalog Items should select the most specific applicable Reference Record and inherit broader reusable facts through that hierarchy.
 
 Reference Records enrich Catalog Item information. They do not create Product variation and do not affect Product identity unless a Blueprint separately models variation through Dimensions and Options.
+
+## Scope Registry Model
+
+A `Catalog Scope Record` is the canonical sync-facing projection of a Reference Record. Product-line, Series, Expansion, and Set Reference Records can become scope records for `pokemon`, `magic`, `yugioh`, `one-piece`, and `lorcana`. Pokemon uses `expansion` for leaf scope records; Magic, Yu-Gi-Oh!, One Piece, and Lorcana use `set`.
+
+Expansion and set scope records carry canonical `release-date`, `official-set-code`, and `language-editions` attributes. Provider ids, provider category ids, provider set names, and provider-local aliases are not the Scope Record identity. They belong to Provider Scope Mapping.
+
+`Scope Coverage` and `Scope Sync` are follow-on read/workflow concepts. They must consume Catalog Scope Records and reviewed Provider Scope Mappings instead of rebuilding scope identity from provider hints.
 
 ## Alias Model
 
@@ -130,6 +146,8 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Category` organizes Catalog Items without changing Product identity.
 - A `Source Observation` may be promoted into a Catalog Item after review.
 - A `Catalog Sync Scope` may plan one or more provider-unit Source Observation pulls.
+- A `Catalog Scope Record` belongs to one product domain and points at one Reference Record.
+- A `Provider Scope Mapping` points provider vocabulary at one Catalog Scope Record.
 - A `Provider Participation Preview` belongs to one Catalog Sync Scope and resolves selected providers into child `SourceObservationIntegrationJobScope` values.
 - A `Product Asset Set` belongs to the Source Observation or Catalog Item it describes.
 - An `Asset Variant` belongs to exactly one Product Asset Set.
@@ -156,6 +174,7 @@ Use these identifiers in APIs and schemas:
 - `option_id`
 - `reference_type_id`
 - `reference_record_id`
+- `scope_record_id`
 
 Notes:
 
@@ -195,6 +214,7 @@ Preferred field names:
 - `product_summary`
 - `reference_type_id`
 - `reference_record_id`
+- `scope_record_id`
 - `display_template_id`
 - `display_identity_hash`
 - `provider_key`
@@ -263,6 +283,7 @@ Catalog defines:
 - external catalog item references that map provider product identifiers to Catalog Item truth
 - the review and promotion policy for provider Source Observations
 - semantic Catalog Sync Scopes and provider participation previews before Source Observation provider jobs run
+- Catalog Scope Records that canonicalize sync identity before provider-specific mappings are applied
 - the normalized product imagery contract published as Product Asset Sets
 - reusable Product Measure Profiles and Resolved Product Measures
 - Product Contents and the resolved product-to-product containment fact

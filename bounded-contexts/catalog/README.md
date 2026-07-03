@@ -26,6 +26,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 Catalog-owned provider scope planning is documented in [Catalog Sync Scope Planning](./docs/catalog-sync-scope-planning.md).
+Canonical scope records are documented in [Catalog Scope Registry](./docs/scope-registry.md).
 Scope-first merge-candidate handoff guidance is documented in [Catalog Scope Sync And Merge Candidate Handoff](./docs/catalog-scope-sync-merge-candidate-handoff.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
@@ -43,6 +44,7 @@ Product-to-product containment is documented in [Product Contents Contract](./do
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
 - Catalog Sync Scopes and provider participation previews that decide which provider units may pull Source Observations
+- Catalog Scope Records that make product-line, series, expansion, and set sync identity canonical before provider mappings are applied
 - External Catalog Item References that map third-party product identifiers to Catalog Item truth
 - External Product References that map third-party SKU identifiers to Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
@@ -146,6 +148,12 @@ Owns provider-neutral sync intent before Source Observation provider jobs run.
 - Resolves each eligible provider unit into a child `SourceObservationIntegrationJobScope`
 - Keeps split, update, and delete decisions in Catalog review; `delete` means candidate rejection or ignore, not canonical Catalog Item/Product removal
 - Providers never write canonical Catalog Item or Product truth directly
+
+### Catalog Scope Record
+
+Owns one canonical sync identity record derived from a Catalog Reference Record, such as a product line, series, Pokemon Expansion, or set-style scope for Magic, Yu-Gi-Oh!, One Piece, and Lorcana.
+
+Catalog Scope Records are provider-independent. They carry product domain, scope kind, Reference Record id/key, lifecycle status, hierarchy links, release date, official set code, and language editions before any Provider Scope Mapping chooses provider ids or names for sync execution.
 
 ### External Catalog Item Reference
 
