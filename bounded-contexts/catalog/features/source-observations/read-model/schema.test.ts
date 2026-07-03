@@ -41,6 +41,12 @@ describe("catalogSourceObservationSchemaSql", () => {
       "CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx",
     );
     expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_source_observations_observed_at_idx",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ON catalog_source_observations (observed_at DESC, observation_id ASC)",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
       "REFERENCES catalog_merge_candidates (candidate_id)\n    ON DELETE CASCADE",
     );
     expect(catalogSourceObservationSchemaSql).not.toContain("REFERENCES catalog_source_observations");
@@ -80,6 +86,12 @@ describe("catalogSourceObservationSchemaSql", () => {
       "ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL",
     );
     expect(catalogSourceObservationSchemaSql).toContain("ALTER COLUMN source_mapping_fingerprint DROP DEFAULT");
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS catalog_merge_candidates_updated_idx",
+    );
+    expect(catalogSourceObservationSchemaSql).toContain(
+      "ON catalog_merge_candidates (updated_at DESC, candidate_id ASC)",
+    );
   });
 
   it("evolves provider option query cache profile columns before lookup indexing", () => {

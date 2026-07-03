@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  listSourceObservations,
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
@@ -51,7 +52,31 @@ describe("source observation read-model queries", () => {
       "en",
       "base1",
       ["observed", "changed"],
-      "%charizard%",
+      "charizard",
+    ]);
+  });
+
+  it("lists source observations with indexed search, explicit columns, and clamped pagination parameters", async () => {
+    const db = queryableSequence([[{ count: "1" }], [{ observation_id: "obs_1" }]]);
+
+    const result = await listSourceObservations(db, {
+      search: "Charizard",
+      status: "changed",
+      limit: 9e15,
+      offset: -10,
+    });
+
+    expect(result).toEqual({ items: [{ observation_id: "obs_1" }], total: 1 });
+    const listSql = String(vi.mocked(db.query).mock.calls[1]?.[0]);
+    expect(listSql).toContain("to_tsvector('simple'");
+    expect(listSql).toContain("@@ plainto_tsquery('simple'");
+    expect(listSql).not.toContain("SELECT *");
+    expect(listSql).not.toContain("source_payload");
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LIMIT $3 OFFSET $4"), [
+      "changed",
+      "Charizard",
+      500,
+      0,
     ]);
   });
 
@@ -87,10 +112,17 @@ describe("source observation read-model queries", () => {
       expect.stringContaining("FROM catalog_merge_candidates c WHERE c.status = $1 AND c.sync_run_ids_json ? $2"),
       ["has-conflicts", "job_sync_1", "%charizard%"],
     );
-    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LEFT JOIN"), [
+    const listSql = String(vi.mocked(db.query).mock.calls[1]?.[0]);
+    expect(listSql).toContain("LEFT JOIN LATERAL");
+    expect(listSql).toContain("WHERE candidate_id = c.candidate_id");
+    expect(listSql).not.toContain("GROUP BY candidate_id");
+    expect(listSql).not.toContain("SELECT c.*");
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining("LEFT JOIN LATERAL"), [
       "has-conflicts",
       "job_sync_1",
       "%charizard%",
+      10,
+      0,
     ]);
   });
 
@@ -321,7 +353,7 @@ describe("source observation read-model queries", () => {
       "en",
       "base1",
       ["promoted"],
-      "%abra%",
+      "abra",
     ]);
   });
 

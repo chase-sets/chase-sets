@@ -1,6 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import {
-  buildFilteredQuery,
+  buildPaginationClause,
   executeListQuery,
   type ListParams,
   type ListResult,
@@ -145,6 +145,29 @@ export type SourceObservationLifecycleImpactSummary = Readonly<{
   sampleObservationIds: readonly string[];
 }>;
 
+const sourceObservationListColumns = `observation_id,
+       sync_run_id,
+       provider_key,
+       external_key,
+       source_url,
+       language_code,
+       source_record_hash,
+       source_updated_at::text AS source_updated_at,
+       observed_at::text AS observed_at,
+       source_profile_key,
+       source_profile_version,
+       source_mapping_fingerprint,
+       normalized,
+       status,
+       status_reason,
+       promoted_catalog_item_id,
+       promoted_reference_record_id,
+       promoted_at::text AS promoted_at,
+       promotion_profile_key,
+       promotion_profile_version,
+       promotion_plan_fingerprint,
+       updated_at::text AS updated_at`;
+
 export type SourceObservationIntegrationScopeRow = Readonly<{
   provider_key: string;
   language_code: string;
@@ -168,30 +191,20 @@ export async function listSourceObservations(
   db: PgQueryable,
   params: ListParams & SourceObservationFilterScope = {},
 ): Promise<ListResult<SourceObservationListRow>> {
-  const filter = buildSourceObservationFilter(params, { includeListFilters: false });
-  const query = buildFilteredQuery(
-    "catalog_source_observations",
-    params,
-    [
-      "external_key",
-      "source_url",
-      "(normalized->>'setId')",
-      "(normalized->>'name')",
-      "(normalized->>'cardNumber')",
-      "coalesce(normalized->>'expansionName', normalized->>'setName')",
-    ],
-    "observed_at DESC",
-    filter.conditions,
-    filter.values,
-  );
+  const filter = buildSourceObservationFilter(params, { includeListFilters: true });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const pagination = buildPaginationClause(params, filter.values.length + 1);
+  const countSql = `SELECT COUNT(*) as count FROM catalog_source_observations ${where}`;
+  const listSql = `SELECT ${sourceObservationListColumns}
+                   FROM catalog_source_observations
+                   ${where}
+                   ORDER BY observed_at DESC, observation_id ASC
+                   ${pagination.sql}`;
 
-  return executeListQuery<SourceObservationListRow>(
-    db,
-    query.countSql,
-    query.listSql,
-    query.countValues,
-    query.listValues,
-  );
+  return executeListQuery<SourceObservationListRow>(db, countSql, listSql, filter.values, [
+    ...filter.values,
+    ...pagination.values,
+  ]);
 }
 
 export async function listCatalogMergeCandidates(
@@ -213,16 +226,31 @@ export async function listCatalogMergeCandidates(
     conditions.push(scopeCondition);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
+  const pagination = buildPaginationClause(params, values.length + 1);
   const countSql = `SELECT COUNT(*) as count FROM catalog_merge_candidates c ${where}`;
-  const listSql = `SELECT c.*,
+  const listSql = `SELECT c.candidate_id,
+                          c.identity_fingerprint,
+                          c.sync_run_ids_json,
+                          c.status,
+                          c.status_reason,
+                          c.identity_json,
+                          c.matched_catalog_item_id,
+                          c.matched_product_ids_json,
+                          c.proposed_catalog_item_facts_json,
+                          c.proposed_external_catalog_item_references_json,
+                          c.proposed_external_product_references_json,
+                          c.conflicts_json,
+                          c.warnings_json,
+                          c.field_provenance_json,
+                          c.promotion_intent,
+                          c.created_at::text AS created_at,
+                          c.updated_at::text AS updated_at,
+                          c.stale_at::text AS stale_at,
                           COALESCE(m.observation_count, 0)::integer AS observation_count,
                           COALESCE(m.membership_json, '[]'::jsonb) AS membership_json
                    FROM catalog_merge_candidates c
-                   LEFT JOIN (
-                     SELECT candidate_id,
-                            COUNT(*)::integer AS observation_count,
+                   LEFT JOIN LATERAL (
+                     SELECT COUNT(*)::integer AS observation_count,
                             jsonb_agg(
                               jsonb_build_object(
                                 'observationId', observation_id,
@@ -239,13 +267,16 @@ export async function listCatalogMergeCandidates(
                               ORDER BY observation_id ASC
                             ) AS membership_json
                      FROM catalog_merge_candidate_observations
-                     GROUP BY candidate_id
-                   ) m ON m.candidate_id = c.candidate_id
+                     WHERE candidate_id = c.candidate_id
+                   ) m ON true
                    ${where}
                    ORDER BY c.updated_at DESC, c.candidate_id ASC
-                   LIMIT ${limit} OFFSET ${offset}`;
+                   ${pagination.sql}`;
 
-  return executeListQuery<CatalogMergeCandidateListRow>(db, countSql, listSql, values);
+  return executeListQuery<CatalogMergeCandidateListRow>(db, countSql, listSql, values, [
+    ...values,
+    ...pagination.values,
+  ]);
 }
 
 export async function listSourceObservationsForCandidateMatching(
@@ -258,7 +289,7 @@ export async function listSourceObservationsForCandidateMatching(
   });
   const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<SourceObservationListRow>(
-    `SELECT *
+    `SELECT ${sourceObservationListColumns}
      FROM catalog_source_observations
      ${where}
      ORDER BY observed_at DESC, observation_id ASC`,
@@ -884,10 +915,10 @@ function buildSourceObservationFilter(
   }
 
   if (options.includeListFilters && scope.search) {
-    values.push(`%${scope.search}%`);
+    values.push(scope.search);
     const param = `$${values.length}`;
     conditions.push(
-      `(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'providerProductId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`,
+      `to_tsvector('simple', coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'expansionName', normalized->>'setName', '') || ' ' || external_key) @@ plainto_tsquery('simple', ${param})`,
     );
   }
 

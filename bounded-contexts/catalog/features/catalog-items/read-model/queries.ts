@@ -1,4 +1,9 @@
-import type { ListParams, ListResult, PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  buildPaginationClause,
+  type ListParams,
+  type ListResult,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type CatalogItemListRow = Readonly<{
@@ -84,8 +89,7 @@ export async function listCatalogItems(
   params: CatalogItemListParams = {},
 ): Promise<ListResult<CatalogItemListRow>> {
   const { where, values } = buildCatalogItemConditions(params);
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
+  const pagination = buildPaginationClause(params, values.length + 1);
 
   const countResult = await db.query<{ count: string }>(
     `SELECT COUNT(*) AS count
@@ -108,8 +112,8 @@ export async function listCatalogItems(
      ) AS source_refs ON true
      ${where}
      ORDER BY item.title ASC
-     LIMIT ${limit} OFFSET ${offset}`,
-    values,
+     ${pagination.sql}`,
+    [...values, ...pagination.values],
   );
 
   return {

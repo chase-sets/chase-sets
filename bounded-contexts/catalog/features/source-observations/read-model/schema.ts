@@ -53,6 +53,8 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_status_idx
 CREATE INDEX IF NOT EXISTS catalog_source_observations_sync_run_idx
   ON catalog_source_observations (sync_run_id, observed_at DESC)
   WHERE sync_run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS catalog_source_observations_observed_at_idx
+  ON catalog_source_observations (observed_at DESC, observation_id ASC);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_source_profile_idx
   ON catalog_source_observations (provider_key, source_profile_version);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_promotion_profile_idx
@@ -181,6 +183,8 @@ ALTER TABLE catalog_merge_candidate_observations
 
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_status_idx
   ON catalog_merge_candidates (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS catalog_merge_candidates_updated_idx
+  ON catalog_merge_candidates (updated_at DESC, candidate_id ASC);
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_identity_fingerprint_idx
   ON catalog_merge_candidates (identity_fingerprint);
 CREATE INDEX IF NOT EXISTS catalog_merge_candidates_sync_run_ids_idx

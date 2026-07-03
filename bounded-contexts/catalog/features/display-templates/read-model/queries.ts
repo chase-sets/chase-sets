@@ -1,4 +1,9 @@
-import type { ListParams, ListResult, PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  buildPaginationClause,
+  type ListParams,
+  type ListResult,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 
 export type DisplayTemplateListParams = ListParams & {
   targetKind?: string;
@@ -27,8 +32,7 @@ export async function listDisplayTemplates(
   params: DisplayTemplateListParams = {},
 ): Promise<ListResult<DisplayTemplateRow>> {
   const { where, values } = displayTemplateConditions(params);
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
+  const pagination = buildPaginationClause(params, values.length + 1);
 
   const countResult = await db.query<{ count: string }>(
     `SELECT COUNT(*) AS count FROM catalog_display_templates ${where}`,
@@ -39,8 +43,8 @@ export async function listDisplayTemplates(
      FROM catalog_display_templates
      ${where}
      ORDER BY target_kind ASC, priority DESC, name ASC
-     LIMIT ${limit} OFFSET ${offset}`,
-    values,
+     ${pagination.sql}`,
+    [...values, ...pagination.values],
   );
 
   return {
