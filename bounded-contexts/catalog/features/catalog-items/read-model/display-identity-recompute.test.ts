@@ -10,8 +10,9 @@ describe("display identity recomputation work", () => {
     const published = commandHandler();
     const afterPersist = vi.fn(async () => undefined);
     const persistedWrites: unknown[][] = [];
+    const publicationMarks: unknown[][] = [];
     const statusUpdates: string[] = [];
-    const db = recomputeDb({ existingHash: "old-hash", persistedWrites, statusUpdates });
+    const db = recomputeDb({ existingHash: "old-hash", persistedWrites, publicationMarks, statusUpdates });
 
     const result = await processCatalogItemDisplayIdentityRecomputeBatch(db, published, { actor: "test" } as never, {
       limit: 10,
@@ -27,6 +28,7 @@ describe("display identity recomputation work", () => {
       failed: 0,
     });
     expect(persistedWrites).toHaveLength(1);
+    expect(publicationMarks).toEqual([["cat_1", "en", persistedWrites[0]?.[7], expect.any(String)]]);
     expect(statusUpdates).toEqual(["running", "completed"]);
     expect(published).toHaveBeenCalledTimes(1);
     expect(afterPersist).toHaveBeenCalledWith("cat_1");
@@ -52,12 +54,36 @@ describe("display identity recomputation work", () => {
     const hash = firstDb.persistedWrites[0]?.[7] as string;
 
     const published = commandHandler();
-    const db = recomputeDb({ existingHash: hash });
+    const db = recomputeDb({ existingHash: hash, lastPublishedHash: hash });
 
     const result = await processCatalogItemDisplayIdentityRecomputeBatch(db, published, {} as never);
 
     expect(result).toMatchObject({ selected: 1, processed: 1, changed: 0, unchanged: 1, failed: 0 });
     expect(published).not.toHaveBeenCalled();
+  });
+
+  it("publishes when admin projection already persisted the resolved hash before publication", async () => {
+    const firstDb = recomputeDb({ existingHash: null });
+    await processCatalogItemDisplayIdentityRecomputeBatch(firstDb, commandHandler(), {} as never);
+    const hash = firstDb.persistedWrites[0]?.[7] as string;
+
+    const published = commandHandler();
+    const publicationMarks: unknown[][] = [];
+    const db = recomputeDb({ existingHash: hash, lastPublishedHash: null, publicationMarks });
+
+    const result = await processCatalogItemDisplayIdentityRecomputeBatch(db, published, {} as never);
+
+    expect(result).toMatchObject({ selected: 1, processed: 1, changed: 1, unchanged: 0, failed: 0 });
+    expect(published).toHaveBeenCalledTimes(1);
+    expect(published).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "RecordCatalogItemDisplayIdentity",
+          displayIdentityHash: hash,
+        }),
+      }),
+    );
+    expect(publicationMarks).toEqual([["cat_1", "en", hash, expect.any(String)]]);
   });
 
   it("summarizes recomputation health for operators", async () => {
@@ -123,10 +149,13 @@ function commandHandler() {
 
 function recomputeDb(options: {
   existingHash?: string | null;
+  lastPublishedHash?: string | null;
   persistedWrites?: unknown[][];
+  publicationMarks?: unknown[][];
   statusUpdates?: string[];
 }) {
   const persistedWrites = options.persistedWrites ?? [];
+  const publicationMarks = options.publicationMarks ?? [];
   const statusUpdates = options.statusUpdates ?? [];
 
   return {
@@ -172,11 +201,25 @@ function recomputeDb(options: {
       }
 
       if (sql.includes("FROM catalog_item_display_identities")) {
-        return options.existingHash ? { rows: [{ display_identity_hash: options.existingHash }] as T[] } : { rows: [] };
+        return options.existingHash
+          ? {
+              rows: [
+                {
+                  display_identity_hash: options.existingHash,
+                  last_published_display_identity_hash: options.lastPublishedHash ?? null,
+                },
+              ] as T[],
+            }
+          : { rows: [] };
       }
 
       if (sql.includes("INSERT INTO catalog_item_display_identities")) {
         persistedWrites.push([...(params ?? [])]);
+        return { rows: [] };
+      }
+
+      if (sql.includes("last_published_display_identity_hash")) {
+        publicationMarks.push([...(params ?? [])]);
         return { rows: [] };
       }
 

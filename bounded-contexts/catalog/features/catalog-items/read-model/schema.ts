@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS catalog_item_display_identities (
   display_identity_hash text NOT NULL,
   resolver_version integer NOT NULL,
   resolved_at timestamptz NOT NULL,
+  last_published_display_identity_hash text NULL,
+  last_published_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (catalog_item_id, language_code)
 );
@@ -142,6 +144,8 @@ ALTER TABLE catalog_item_display_identities
   ADD COLUMN IF NOT EXISTS display_template_target_id text NULL,
   ADD COLUMN IF NOT EXISTS resolver_version integer NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS resolved_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS last_published_display_identity_hash text NULL,
+  ADD COLUMN IF NOT EXISTS last_published_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
 ALTER TABLE catalog_item_display_identity_recompute_work
