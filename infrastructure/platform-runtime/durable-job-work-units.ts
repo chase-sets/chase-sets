@@ -88,6 +88,12 @@ type DurableJobWorkUnitStoreOptions<TJobPayload, TJobProgress, TJobResult, TSnap
   eventSnapshot?: (job: DurableJobRecord<TJobPayload, TJobProgress, TJobResult>) => TSnapshot;
 }>;
 
+export type DurableJobWorkUnitTerminalOutcome = "recorded" | "unit-claim-missing" | "parent-already-terminal";
+
+export function isDurableJobWorkUnitTerminalAccepted(outcome: boolean | DurableJobWorkUnitTerminalOutcome): boolean {
+  return outcome === true || outcome === "recorded" || outcome === "parent-already-terminal";
+}
+
 export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult> = Readonly<{
   enqueue: (input: {
     jobId: string;
@@ -132,7 +138,7 @@ export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnit
         completeJob?: boolean;
       }>
     >;
-  }) => Promise<boolean>;
+  }) => Promise<DurableJobWorkUnitTerminalOutcome>;
   reconcileTerminalParent: (input: {
     jobId: string;
     parentProgress: TJobProgress;
@@ -474,7 +480,7 @@ export function createPostgresDurableJobWorkUnitStore<
       return Number(result.rowCount ?? 0) > 0;
     },
     recordTerminal: async (input) => {
-      const parent = await runDurableWorkUnitWrite(db, async (queryable) => {
+      return runDurableWorkUnitWrite(db, async (queryable) => {
         const terminalResult = await queryable.query<Readonly<{ job_id: string }>>(
           `WITH terminal_unit AS (
              UPDATE ${workUnitsTable}
@@ -507,7 +513,7 @@ export function createPostgresDurableJobWorkUnitStore<
           ],
         );
         if (!terminalResult.rows[0]) {
-          return null;
+          return "unit-claim-missing";
         }
 
         await queryable.query(`SELECT job_id FROM ${jobsTable} WHERE job_id = $1 FOR UPDATE`, [input.jobId]);
@@ -522,6 +528,7 @@ export function createPostgresDurableJobWorkUnitStore<
                completed_at = CASE WHEN $4::boolean THEN now() ELSE completed_at END,
                updated_at = now()
            WHERE job.job_id = $1
+             AND job.status IN ('queued', 'running')
            RETURNING ${prefixedJobColumns("job")}`,
           [
             input.jobId,
@@ -532,14 +539,13 @@ export function createPostgresDurableJobWorkUnitStore<
         );
         const row = result.rows[0];
         if (!row) {
-          return null;
+          return "parent-already-terminal";
         }
 
         const job = mapPrefixedJobRow<TJobPayload, TJobProgress, TJobResult>(row);
         await appendEvent(queryable, job);
-        return job;
+        return "recorded";
       });
-      return Boolean(parent);
     },
     reconcileTerminalParent: async (input) => {
       const parent = await runDurableWorkUnitWrite(db, async (queryable) => {

@@ -19,7 +19,9 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  isDurableJobWorkUnitTerminalAccepted,
   type DurableJobWorkUnitClaim,
+  type DurableJobWorkUnitTerminalOutcome,
   type DurableJobWorkUnitStore,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
@@ -8011,8 +8013,11 @@ function toSourceObservationJobEvent<TJob>(
   };
 }
 
-async function requireSourceObservationJobClaim(succeeded: Promise<boolean> | boolean) {
-  if (!(await succeeded)) {
+async function requireSourceObservationJobClaim(
+  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
+) {
+  const outcome = await succeeded;
+  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
     throw new Error("Source Observation job claim was lost before the status update completed.");
   }
 }

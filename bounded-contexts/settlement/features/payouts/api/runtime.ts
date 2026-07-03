@@ -20,8 +20,10 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
+  isDurableJobWorkUnitTerminalAccepted,
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
+  type DurableJobWorkUnitTerminalOutcome,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
@@ -2026,8 +2028,11 @@ function compactPayoutReconciliationJobResult(
   };
 }
 
-async function requirePayoutReconciliationJobClaim(succeeded: Promise<boolean> | boolean) {
-  if (!(await succeeded)) {
+async function requirePayoutReconciliationJobClaim(
+  succeeded: Promise<boolean | DurableJobWorkUnitTerminalOutcome> | boolean | DurableJobWorkUnitTerminalOutcome,
+) {
+  const outcome = await succeeded;
+  if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
     throw new SettlementDomainError("Payout reconciliation job claim was lost before the status update completed.");
   }
 }
